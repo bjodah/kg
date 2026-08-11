@@ -20,25 +20,41 @@
 
 /* ------------------------------- the store ---------------------------- */
 
-/* Drop whole lines from the front until the store fits `max_bytes`.  A
+/* Drop whole lines from the front once the store is past `max_bytes`.  A
  * store holding one line longer than the whole cap is emptied rather than
  * cut mid-line: the alternative is a first line that starts in the middle
- * of a word, which reads as corruption rather than as eviction. */
+ * of a word, which reads as corruption rather than as eviction.
+ *
+ * Eviction goes to a quarter below the cap rather than to the cap itself,
+ * and that slack is the whole point: every trim costs the mirror a rewrite
+ * of the entire store (a buffer can be appended to and cleared, not
+ * shortened from the front), so evicting exactly one line per line pushed
+ * makes a chatty server quadratic -- 200 KiB of it measured at 4.1 s, half
+ * of that spent here.  Trimming a quarter at a time makes the rewrite
+ * amortized: one per 16 KiB of new text at the shipped cap, whatever the
+ * lines are worth. */
 static bool store_trim(struct lsp_log_store *s, size_t max_bytes)
 {
+	size_t target = max_bytes - max_bytes / 4;
 	const char *nl;
 	size_t drop;
 
 	if (s->len <= max_bytes) {
 		return false;
 	}
-	while (s->len > max_bytes) {
+	while (s->len > target) {
 		nl = memchr(s->data, '\n', s->len);
 		if (!nl) {
 			s->len = 0;
 			break;
 		}
 		drop = (size_t)(nl - s->data) + 1;
+		if (drop == s->len && s->len <= max_bytes) {
+			/* One line left and it fits the cap: the slack is a
+			 * target, never a reason to throw away a line the
+			 * cap would have kept. */
+			break;
+		}
 		memmove(s->data, s->data + drop, s->len - drop);
 		s->len -= drop;
 	}

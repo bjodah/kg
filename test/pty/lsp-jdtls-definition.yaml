@@ -1,0 +1,139 @@
+name: lsp-jdtls-definition
+# M-. against the real Eclipse JDT Language Server, not the fake server: no
+# `env:` here, so kg spawns the `jdtls` on PATH exactly as a user would get
+# it from utils/install-jdtls.sh, and `requires_tool: jdtls` makes a box
+# without one SKIP with a printed reason (`--require-tools` turns that into
+# an upfront FAIL).
+#
+# The fixture is what makes the workspace root real rather than incidental:
+# `workspace_files:` plants a pom.xml beside the file under test, which is
+# the marker lsp_workspace_root() looks for and the file jdt.ls's own Maven
+# importer looks for, so both ends agree on the directory.  The pom points
+# <sourceDirectory> at the project root because the file under test lives
+# beside the pom rather than in the src/main/java layout Maven assumes.
+#
+# `config_files:` plants a Maven settings.xml that says <offline>true</offline>
+# under the case's HOME.  Without it jdt.ls's importer resolves
+# maven-compiler-plugin from Maven Central on every run -- the case HOME is
+# a fresh temporary directory, so the local repository is always cold -- and
+# a test that needs the network is a test that fails when the network does.
+# Measured on this box: 4.9 s to the answer with the download, 2.8 s
+# without, and the answer is the same either way because the definition
+# being asked about is in the file itself.
+#
+# ONE M-. is enough, unlike lsp-rust-analyzer-definition.yaml.  jdt.ls does
+# not answer a question it cannot answer yet: it holds the request until the
+# project is imported and then replies once, so the first and only
+# `textDocument/definition` returns the real Location.  Measured by hand
+# against the same fixture, driving the protocol exactly as kg does
+# (initialize with kg's capabilities, MethodNotFound to every server
+# request): initialize replied at 1.5 s and the Location arrived at 2.8 s,
+# cold, with a fresh workspace data directory.  jdt.ls asked kg for nothing
+# in the process -- no client/registerCapability, no workspace/configuration
+# -- because kg advertises neither dynamic registration nor configuration,
+# so the MethodNotFound kg would send never comes up.
+#
+# The wait is 32 repaints at 0.3 s, ~9.6 s.  Measured from inside this very
+# case by bisecting the number of C-l: 6 repaints (1.8 s) fails and 8
+# (2.4 s) passes, so the jump lands ~2.4 s after M-. on this box, cold.
+# Four times that is the size shipped, because a CI box running five
+# sanitizer lanes and starting a JVM is not this box, and the failure mode
+# of being too quick is a case that flakes rather than one that fails.  C-l
+# is the key because it repaints without moving point, so it costs a
+# key_delay and changes nothing whether the answer has arrived yet or not.
+#
+# Point is walked to the reference rather than searched to it: four Down and
+# eight C-f put it on the "l" of the indented `localTarget(1);`, and an
+# identifier's first byte is a position jdt.ls resolves without argument.
+requires_feature: lsp
+requires_tool: jdtls
+backend: pexpect
+key_delay: 0.3
+filename: Fixture.java
+config_files:
+  .m2/settings.xml: |
+    <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0">
+      <offline>true</offline>
+    </settings>
+workspace_files:
+  pom.xml: |
+    <project xmlns="http://maven.apache.org/POM/4.0.0">
+      <modelVersion>4.0.0</modelVersion>
+      <groupId>fixture</groupId>
+      <artifactId>fixture</artifactId>
+      <version>0.1.0</version>
+      <build>
+        <sourceDirectory>${project.basedir}</sourceDirectory>
+      </build>
+    </project>
+initial: |
+  class Fixture {
+      static int localTarget(int v) { return v + 2; }
+
+      static void useIt() {
+          localTarget(1);
+      }
+
+      public static void main(String[] args) {
+          useIt();
+      }
+  }
+keys:
+  - "Down"
+  - "Down"
+  - "Down"
+  - "Down"
+  - "C-f"
+  - "C-f"
+  - "C-f"
+  - "C-f"
+  - "C-f"
+  - "C-f"
+  - "C-f"
+  - "C-f"
+  - "M-."
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "X"
+expected_saved: |
+  class Fixture {
+      static int XlocalTarget(int v) { return v + 2; }
+
+      static void useIt() {
+          localTarget(1);
+      }
+
+      public static void main(String[] args) {
+          useIt();
+      }
+  }

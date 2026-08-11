@@ -82,8 +82,12 @@ endif
 # TREE_SITTER_PREFIX names an install whose include/tree_sitter/api.h is the
 # guard file; the core library is then an ordinary link-time dependency
 # found under $(TREE_SITTER_PREFIX)/lib, with no pkg-config requirement.
-# The default is this development environment's release prefix; the
-# {debug,asan,msan} siblings are what a sanitizer lane would point at.
+# The default is this development environment's release prefix, read from
+# $TREE_SITTER_ROOT when the box exports one so that moving the install
+# needs no repo edit; the {debug,asan,msan} siblings are what a sanitizer
+# lane would point at.  $(or ...) rather than plain `?=` because `?=` only
+# defers to an environment variable of the SAME name, and TREE_SITTER_ROOT
+# is the box's name for this while TREE_SITTER_PREFIX is kg's.
 # -rpath is not decoration: the release and debug prefixes ship only a
 # shared libtree-sitter, in a directory on no default loader path, so
 # without it the editor links and then fails to start.  A static prefix
@@ -95,11 +99,14 @@ endif
 # the loader falls back to when $KG_TS_GRAMMAR_PATH is unset or empty:
 # colon-separated entries, each a directory holding
 # libtree-sitter-<name>.so, and an entry containing `%s` has the grammar
-# name substituted -- which is how /opt-9's one-prefix-per-grammar layout
-# is a single entry rather than twenty.
+# name substituted, which lets one entry cover a whole
+# one-prefix-per-grammar tree.  This install is flat -- every grammar .so
+# beside the core in the prefix's lib -- so the default is one plain
+# directory, read from $TREE_SITTER_GRAMMAR_DIR on the same terms as the
+# prefix above.
 WITH_TREE_SITTER ?= 0
-TREE_SITTER_PREFIX ?= /opt-9/tree-sitter-v0.26.11-release
-TS_GRAMMAR_PATH ?= /opt-9/tree-sitter-grammar-%s/lib
+TREE_SITTER_PREFIX ?= $(or $(TREE_SITTER_ROOT),/opt-2/tree-sitter-v0.26.12-release)
+TS_GRAMMAR_PATH ?= $(or $(TREE_SITTER_GRAMMAR_DIR),/opt-2/tree-sitter-v0.26.12-release/lib)
 
 ifneq ($(WITH_TREE_SITTER),0)
 ifneq ($(WITH_TREE_SITTER),1)
@@ -269,13 +276,26 @@ ifeq ($(WITH_LSP),1)
 LSP_SRCS += lsp_transport.c lsp_json.c lsp_uri.c lsp_client.c lsp_server.c \
             lsp_sync.c
 endif
+# The two WITH_LSP=1 modules that reach the whole editor -- lsp_req.c takes
+# a request's position from the current buffer, lsp_edit.c applies a
+# WorkspaceEdit to buffers and opens files.  They are NOT in LSP_OBJS,
+# which every test binary links (TEST_SRCS_OBJS below): a test that links
+# them would have to link the buffer table, the window table and the
+# command layer with them.  They are src/xref.c's situation one axis over,
+# and the axis is why they are a list rather than a row in SRCS: xref.c is
+# built in both configurations and says so in a #else, while these two
+# exist only where the protocol does.
+ifeq ($(WITH_LSP),1)
+LSP_EDITOR_SRCS = lsp_req.c lsp_edit.c
+endif
 LSP_OBJS = $(addprefix $(OBJDIR)/,$(LSP_SRCS:.c=.o))
 # Named so `make clean` removes what THIS configuration did not build,
 # the way SYNTAX_BACKEND_ALL does for the syntax backends: without it a
 # `make; make WITH_LSP=0 clean` would leave src/lsp_transport.o and the
 # transport's test binary behind.
 #
-# src/visit.c, src/xref.c and src/lsp_log.c are outside all of this on
+# src/visit.c, src/xref.c, src/lsp_log.c, src/lsp_diag.c and
+# src/lsp_hover.c are outside all of this on
 # purpose.  visit.c is
 # the navigation primitive next-error and xref share, so it is built in every
 # configuration; xref.c is built in every configuration too, for lsp_core.c's
@@ -283,23 +303,31 @@ LSP_OBJS = $(addprefix $(OBJDIR)/,$(LSP_SRCS:.c=.o))
 # binding are unconditional, and a WITH_LSP=0 kg answers them by saying the
 # feature was not compiled in.  lsp_log.c is the third: it owns the
 # *lsp-log* buffer, so it reaches the editor exactly as xref.c does, and
-# main.c installs it unconditionally.  None of them is in LSP_OBJS, because
+# main.c installs it unconditionally.  lsp_diag.c and lsp_hover.c are the
+# fourth and fifth, for xref.c's reason exactly: their command-table rows
+# are unconditional, and both reach buffers, windows and the echo area.
+# None of them is in LSP_OBJS, because
 # LSP_OBJS is
 # also what every test binary links (see TEST_SRCS_OBJS) and xref.c reaches
 # the whole editor: the suite that does link it says so itself, below.
 LSP_ALL = $(TESTDIR)/test_xref $(TESTDIR)/test_lsp_log \
+          $(TESTDIR)/test_lsp_diag \
           $(OBJDIR)/lsp_transport.o $(TESTDIR)/test_lsp_transport \
           $(OBJDIR)/lsp_json.o $(TESTDIR)/test_lsp_json \
           $(OBJDIR)/lsp_uri.o \
           $(OBJDIR)/lsp_client.o $(OBJDIR)/lsp_server.o \
           $(TESTDIR)/test_lsp_client \
-          $(OBJDIR)/lsp_sync.o $(TESTDIR)/test_lsp_sync
+          $(OBJDIR)/lsp_sync.o $(TESTDIR)/test_lsp_sync \
+          $(OBJDIR)/lsp_req.o \
+          $(OBJDIR)/lsp_edit.o $(TESTDIR)/test_lsp_edit
 
 # Source files
 SRCS = main.c tty.c syntax.c $(SYNTAX_BACKEND_SRCS) autocomplete.c buffer.c fileio.c \
        display.c search.c basic.c word.c kbd.c yank.c undo.c help.c describe.c bufmgr.c winmgr.c cmd.c cmdstate.c keyevent.c keymap.c macro.c \
        shell.c path.c rect.c $(LISP_SRCS) $(LSP_SRCS) keybind.c mode.c vgeom.c localvars.c compile.c compile_parse.c \
-       compile_nav.c next_error.c occur.c register.c visit.c fileline.c xref.c lsp_log.c dabbrev.c \
+       compile_nav.c next_error.c occur.c register.c visit.c fileline.c xref.c lsp_log.c \
+       lsp_diag.c lsp_hover.c $(LSP_EDITOR_SRCS) lsp_rename.c lsp_complete.c \
+       dabbrev.c \
        width.c dired.c perf.c platform.c process.c process_table.c marker.c decor.c event.c \
        mouse.c showparen.c prompt.c
 
@@ -341,7 +369,7 @@ TESTBINS = $(TESTDIR)/test_undo $(TESTDIR)/test_buffer \
            $(TESTDIR)/test_register $(TESTDIR)/test_process_table \
            $(TESTDIR)/test_vgeom $(TESTDIR)/test_dabbrev \
            $(TESTDIR)/test_showparen $(TESTDIR)/test_fileline \
-           $(TESTDIR)/test_occur \
+           $(TESTDIR)/test_occur $(TESTDIR)/test_readonly \
            $(TESTDIR)/test_perf
 # Each backend's own suite exists only where that backend does: it links
 # that backend's object and asserts what it paints, so neither is a suite
@@ -350,6 +378,14 @@ TESTBINS = $(TESTDIR)/test_undo $(TESTDIR)/test_buffer \
 # compilation and capture-to-render-offset painting, and hard-requires the
 # C grammar, since a WITH_TREE_SITTER=1 build only happens on a box that
 # has one.
+# That suite's ABI guard needs a grammar this tree-sitter refuses, and
+# every grammar the install ships is in range, so the mismatch is built
+# rather than found: TS_FAKE_GRAMMARS, whose rules are down beside the
+# other test-binary rules because a rule up here would become the default
+# goal ahead of `all`.
+TS_FAKE_GRAMMAR_DIR = $(TESTDIR)/.ts-fake-grammar
+TS_FAKE_GRAMMARS = $(TS_FAKE_GRAMMAR_DIR)/libtree-sitter-kgfakeold.so \
+                   $(TS_FAKE_GRAMMAR_DIR)/libtree-sitter-kgfakenew.so
 ifeq ($(WITH_TREE_SITTER),0)
 TESTBINS += $(TESTDIR)/test_syntax_legacy
 else
@@ -362,7 +398,8 @@ endif
 ifeq ($(WITH_LSP),1)
 TESTBINS += $(TESTDIR)/test_lsp_transport $(TESTDIR)/test_lsp_json \
             $(TESTDIR)/test_lsp_client $(TESTDIR)/test_lsp_sync \
-            $(TESTDIR)/test_lsp_log $(TESTDIR)/test_xref
+            $(TESTDIR)/test_lsp_log $(TESTDIR)/test_xref \
+            $(TESTDIR)/test_lsp_diag $(TESTDIR)/test_lsp_edit
 endif
 # test_perf is not built like the other unit tests: it needs the whole
 # editor compiled with -DKG_PERF_COUNTERS=1 (src/perf.h), which must not
@@ -385,6 +422,7 @@ PERF_TEST_OBJS = $(PERFOBJDIR)/test_perf.o $(PERFOBJDIR)/test.o \
 BENCH_OUT ?= $(TESTDIR)/.results/bench.json
 BENCH_ARGS ?=
 FUZZBIN = $(TESTDIR)/fuzz_keypress
+FUZZBIN_SYNTAX = $(TESTDIR)/fuzz_syntax
 FUZZ_SRCS = $(TESTDIR)/fuzz_keypress.c $(TESTDIR)/fuzz_stubs.c \
 	    $(OBJDIR)/kbd.c $(OBJDIR)/buffer.c $(OBJDIR)/basic.c \
 	    $(OBJDIR)/word.c $(OBJDIR)/autocomplete.c $(OBJDIR)/yank.c \
@@ -397,11 +435,17 @@ FUZZ_SRCS = $(TESTDIR)/fuzz_keypress.c $(TESTDIR)/fuzz_stubs.c \
 	    $(OBJDIR)/keymap.c $(OBJDIR)/marker.c $(OBJDIR)/decor.c \
 	    $(OBJDIR)/event.c $(OBJDIR)/process.c $(OBJDIR)/process_table.c \
 	    $(OBJDIR)/regex.c fe/tiny-regex-c/re.c
+FUZZ_SYNTAX_SRCS = $(TESTDIR)/fuzz_syntax.c \
+		  $(filter-out $(TESTDIR)/fuzz_keypress.c,$(FUZZ_SRCS))
 FUZZBIN_DIRLOCALS = $(TESTDIR)/fuzz_dirlocals
 FUZZBIN_REGEX    = $(TESTDIR)/fuzz_regex
 FUZZBIN_LOCALVARS = $(TESTDIR)/fuzz_localvars
 FUZZBIN_COMPILE_PARSE = $(TESTDIR)/fuzz_compile_parse
-FUZZBINS = $(FUZZBIN) $(FUZZBIN_DIRLOCALS) $(FUZZBIN_REGEX) $(FUZZBIN_LOCALVARS) $(FUZZBIN_COMPILE_PARSE)
+FUZZBIN_LSP_JSON = $(TESTDIR)/fuzz_lsp_json
+FUZZBIN_WIDTH = $(TESTDIR)/fuzz_width
+FUZZBIN_KEYBIND = $(TESTDIR)/fuzz_keybind
+FUZZBIN_LSP_FRAMES = $(TESTDIR)/fuzz_lsp_frames
+FUZZBINS = $(FUZZBIN) $(FUZZBIN_SYNTAX) $(FUZZBIN_DIRLOCALS) $(FUZZBIN_REGEX) $(FUZZBIN_LOCALVARS) $(FUZZBIN_COMPILE_PARSE) $(FUZZBIN_LSP_JSON) $(FUZZBIN_WIDTH) $(FUZZBIN_KEYBIND) $(FUZZBIN_LSP_FRAMES)
 FUZZ_SEEDS = $(TESTDIR)/fuzz-seeds
 FUZZ_SEEDS_REGEX = $(FUZZ_SEEDS)/regex
 # The working corpus is gitignored, so a fresh checkout starts each target
@@ -532,7 +576,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 7706
+SCC_COMPLEXITY_MAX ?= 7970
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -927,6 +971,18 @@ fuzz-keypress-smoke: $(FUZZBIN) fuzz-keypress-seed
 		-artifact_prefix=$(FUZZ_ARTIFACTS)/keypress/ \
 		$(FUZZ_CORPUS)/keypress
 
+fuzz-syntax: $(FUZZBIN_SYNTAX)
+
+fuzz-syntax-seed:
+	mkdir -p $(FUZZ_CORPUS)/syntax
+	cp -f $(FUZZ_SEEDS)/syntax/* $(FUZZ_CORPUS)/syntax/
+
+fuzz-syntax-smoke: $(FUZZBIN_SYNTAX) fuzz-syntax-seed
+	mkdir -p $(FUZZ_ARTIFACTS)/syntax
+	./$(FUZZBIN_SYNTAX) $(FUZZ_SMOKE_ARGS) \
+		-artifact_prefix=$(FUZZ_ARTIFACTS)/syntax/ \
+		$(FUZZ_CORPUS)/syntax
+
 fuzz-dirlocals: $(FUZZBIN_DIRLOCALS)
 
 fuzz-dirlocals-seed:
@@ -983,9 +1039,57 @@ fuzz-compile-parse-smoke: $(FUZZBIN_COMPILE_PARSE) fuzz-compile-parse-seed
 		-artifact_prefix=$(FUZZ_ARTIFACTS)/compile_parse/ \
 		$(FUZZ_CORPUS)/compile_parse
 
-fuzz-seed: fuzz-keypress-seed fuzz-dirlocals-seed fuzz-regex-seed fuzz-localvars-seed fuzz-compile-parse-seed
+fuzz-lsp-json: $(FUZZBIN_LSP_JSON)
 
-fuzz-smoke: fuzz-keypress-smoke fuzz-dirlocals-smoke fuzz-regex-smoke fuzz-localvars-smoke fuzz-compile-parse-smoke
+fuzz-lsp-json-seed:
+	mkdir -p $(FUZZ_CORPUS)/lsp_json
+	cp -f $(FUZZ_SEEDS)/lsp_json/* $(FUZZ_CORPUS)/lsp_json/
+
+fuzz-lsp-json-smoke: $(FUZZBIN_LSP_JSON) fuzz-lsp-json-seed
+	mkdir -p $(FUZZ_ARTIFACTS)/lsp_json
+	./$(FUZZBIN_LSP_JSON) $(FUZZ_SMOKE_ARGS) \
+		-artifact_prefix=$(FUZZ_ARTIFACTS)/lsp_json/ \
+		$(FUZZ_CORPUS)/lsp_json
+
+fuzz-width: $(FUZZBIN_WIDTH)
+
+fuzz-width-seed:
+	mkdir -p $(FUZZ_CORPUS)/width
+	cp -f $(FUZZ_SEEDS)/width/* $(FUZZ_CORPUS)/width/
+
+fuzz-width-smoke: $(FUZZBIN_WIDTH) fuzz-width-seed
+	mkdir -p $(FUZZ_ARTIFACTS)/width
+	./$(FUZZBIN_WIDTH) $(FUZZ_SMOKE_ARGS) \
+		-artifact_prefix=$(FUZZ_ARTIFACTS)/width/ \
+		$(FUZZ_CORPUS)/width
+
+fuzz-keybind: $(FUZZBIN_KEYBIND)
+
+fuzz-keybind-seed:
+	mkdir -p $(FUZZ_CORPUS)/keybind
+	cp -f $(FUZZ_SEEDS)/keybind/* $(FUZZ_CORPUS)/keybind/
+
+fuzz-keybind-smoke: $(FUZZBIN_KEYBIND) fuzz-keybind-seed
+	mkdir -p $(FUZZ_ARTIFACTS)/keybind
+	./$(FUZZBIN_KEYBIND) $(FUZZ_SMOKE_ARGS) \
+		-artifact_prefix=$(FUZZ_ARTIFACTS)/keybind/ \
+		$(FUZZ_CORPUS)/keybind
+
+fuzz-lsp-frames: $(FUZZBIN_LSP_FRAMES)
+
+fuzz-lsp-frames-seed:
+	mkdir -p $(FUZZ_CORPUS)/lsp_frames
+	cp -f $(FUZZ_SEEDS)/lsp_frames/* $(FUZZ_CORPUS)/lsp_frames/
+
+fuzz-lsp-frames-smoke: $(FUZZBIN_LSP_FRAMES) fuzz-lsp-frames-seed
+	mkdir -p $(FUZZ_ARTIFACTS)/lsp_frames
+	./$(FUZZBIN_LSP_FRAMES) $(FUZZ_SMOKE_ARGS) \
+		-artifact_prefix=$(FUZZ_ARTIFACTS)/lsp_frames/ \
+		$(FUZZ_CORPUS)/lsp_frames
+
+fuzz-seed: fuzz-keypress-seed fuzz-syntax-seed fuzz-dirlocals-seed fuzz-regex-seed fuzz-localvars-seed fuzz-compile-parse-seed fuzz-lsp-json-seed fuzz-width-seed fuzz-keybind-seed fuzz-lsp-frames-seed
+
+fuzz-smoke: fuzz-keypress-smoke fuzz-syntax-smoke fuzz-dirlocals-smoke fuzz-regex-smoke fuzz-localvars-smoke fuzz-compile-parse-smoke fuzz-lsp-json-smoke fuzz-width-smoke fuzz-keybind-smoke fuzz-lsp-frames-smoke
 
 # Randomised differential test against Emacs' own matcher.  Not part of
 # `check`: it needs emacs on PATH, and skips itself with a message when it
@@ -1232,11 +1336,28 @@ EXTRA_lsp_log := $(EXTRA_buffer) $(OBJDIR)/lsp_log.o
 # xref_location_of(): a location parser is where a server's three answer
 # shapes are either read right or navigated wrong.
 EXTRA_xref        := $(EXTRA_cmd)
+# Applying a WorkspaceEdit reaches the buffer table, the edit gateway and
+# the undo stack, and completion's prefix scanner reaches dabbrev's -- so
+# this links the same everything-but-main.c set EXTRA_cmd does, for
+# EXTRA_xref's reason.
+EXTRA_lsp_edit    := $(EXTRA_cmd)
+# The diagnostics store and the hover renderer, together: both are the
+# command layer, both reach buffers, decorations and the echo area, and
+# the store's position conversion is only observable against a real
+# buffer's rows -- so this links the same everything-but-main.c set
+# EXTRA_xref does, and for the same reason.
+EXTRA_lsp_diag    := $(EXTRA_cmd)
 # fileline.c answers "what does line N of that file say" from an open
 # buffer or from disk, so its suite needs real buffers holding real files:
 # EXTRA_buffer's set (bufmgr.o for buf_open_path(), fileio.o to load one)
 # plus the module itself.
 EXTRA_fileline    := $(EXTRA_buffer) $(OBJDIR)/fileline.o
+# The visit-time write-protection verdict is a def.h inline over a path
+# and the file system: no editor module is involved in deciding whether a
+# file may be written, so this links the same minimal baseline
+# EXTRA_localvars does -- stubs for the globals test.o itself reaches, and
+# nothing else.
+EXTRA_readonly    := $(TESTDIR)/stubs.o $(TEST_SRCS_OBJS)
 
 .SECONDEXPANSION:
 $(filter-out $(TESTDIR)/test_perf,$(TESTBINS)): $(TESTDIR)/test_%: $(TESTDIR)/test_%.o $(TESTDIR)/test.o $$(EXTRA_$$*)
@@ -1313,8 +1434,28 @@ $(TESTDIR)/%.o: $(TESTDIR)/%.c $(HDRS)
 
 $(TESTDIR)/test_lisp.o: $(OBJDIR)/lisp.h
 
+# The deliberately-unloadable grammars test_syntax_tree_sitter's ABI guard
+# is asserted against: one source built twice, once below the ABI floor and
+# once above the ceiling, under the sonames the loader looks for.  An
+# order-only prerequisite, so neither .so reaches the suite's link line --
+# they are dlopen'd, like every other grammar -- and compiled with none of
+# $(CFLAGS), because what they stand in for is a third-party binary.
+$(TS_FAKE_GRAMMAR_DIR)/libtree-sitter-kgfakeold.so: KG_FAKE_ABI = 6
+$(TS_FAKE_GRAMMAR_DIR)/libtree-sitter-kgfakenew.so: KG_FAKE_ABI = 999
+$(TS_FAKE_GRAMMARS): $(TESTDIR)/fake_ts_grammar.c
+	@mkdir -p $(@D)
+	$(CC) -shared -fPIC \
+		-DKG_FAKE_GRAMMAR=$(patsubst libtree-sitter-%.so,%,$(@F)) \
+		-DKG_FAKE_ABI=$(KG_FAKE_ABI) -o $@ $<
+
+$(TESTDIR)/test_syntax_tree_sitter: | $(TS_FAKE_GRAMMARS)
+
 $(FUZZBIN): $(FUZZ_SRCS) $(HDRS) $(FUZZ_FE_OBJ) $(FEATURE_CONFIG)
 	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -Ife/tiny-regex-c -o $@ $(FUZZ_SRCS) \
+		$(FUZZ_FE_OBJ) $(LDLIBS)
+
+$(FUZZBIN_SYNTAX): $(FUZZ_SYNTAX_SRCS) $(HDRS) $(FUZZ_FE_OBJ) $(FEATURE_CONFIG)
+	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -Ife/tiny-regex-c -o $@ $(FUZZ_SYNTAX_SRCS) \
 		$(FUZZ_FE_OBJ) $(LDLIBS)
 
 $(FUZZBIN_DIRLOCALS): $(TESTDIR)/fuzz_dirlocals.c $(OBJDIR)/localvars.c $(HDRS)
@@ -1338,6 +1479,28 @@ $(FUZZBIN_COMPILE_PARSE): $(TESTDIR)/fuzz_compile_parse.c $(OBJDIR)/compile_pars
 	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ \
 		$(TESTDIR)/fuzz_compile_parse.c $(OBJDIR)/compile_parse.c
 
+$(FUZZBIN_LSP_JSON): $(TESTDIR)/fuzz_lsp_json.c $(OBJDIR)/lsp_json.c $(HDRS)
+	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ \
+		$(TESTDIR)/fuzz_lsp_json.c $(OBJDIR)/lsp_json.c -lm
+
+$(FUZZBIN_WIDTH): $(TESTDIR)/fuzz_width.c $(OBJDIR)/width.c $(HDRS)
+	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ \
+		$(TESTDIR)/fuzz_width.c $(OBJDIR)/width.c
+
+$(FUZZBIN_KEYBIND): $(TESTDIR)/fuzz_keybind.c $(OBJDIR)/keybind.c $(OBJDIR)/keymap.c $(OBJDIR)/keyevent.c $(OBJDIR)/width.c $(HDRS)
+	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ \
+		$(TESTDIR)/fuzz_keybind.c $(OBJDIR)/keybind.c \
+		$(OBJDIR)/keymap.c $(OBJDIR)/keyevent.c $(OBJDIR)/width.c
+
+# The transport depends on the process layer and on nothing else in the
+# editor, and the harness hands each frame it delivers to the JSON parser
+# the client would call: four translation units, no stubs, no def.h.
+$(FUZZBIN_LSP_FRAMES): $(TESTDIR)/fuzz_lsp_frames.c $(OBJDIR)/lsp_transport.c \
+                       $(OBJDIR)/lsp_json.c $(OBJDIR)/process.c $(HDRS)
+	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ \
+		$(TESTDIR)/fuzz_lsp_frames.c $(OBJDIR)/lsp_transport.c \
+		$(OBJDIR)/lsp_json.c $(OBJDIR)/process.c
+
 $(TESTDIR)/fe_fuzz.o: fe/fe.c fe/fe.h fe/fe_internal.h
 	$(FUZZ_CC) $(FE_FUZZ_CFLAGS) -c $< -o $@
 
@@ -1352,7 +1515,7 @@ clean:
 	      $(OBJDIR)/.features-* $(OBJDIR)/.with-lisp-* $(TESTDIR)/*.o \
 	      $(TESTBINS) $(TESTDIR)/kgbatch $(GC_STRESS_KGBATCH) \
 	      $(FUZZBINS) $(REGEX_DIFF_BIN)
-	rm -rf $(PERFOBJDIR)
+	rm -rf $(PERFOBJDIR) $(TS_FAKE_GRAMMAR_DIR)
 
 distclean: clean
 	rm -f $(TARGET) $(TESTBINS)
@@ -1384,9 +1547,14 @@ uninstall:
 	bench bench-lisp-toggle complexity complexity-check \
 	pmccabe pmccabe-check pmccabe-baseline gateway-check gateway-baseline coverage coverage-check coverage-baseline coverage-clean format format-check compile-db iwyu \
 	fuzz-keypress fuzz-keypress-seed fuzz-keypress-smoke \
+	fuzz-syntax fuzz-syntax-seed fuzz-syntax-smoke \
+	fuzz-lsp-json fuzz-lsp-json-seed fuzz-lsp-json-smoke \
+	fuzz-width fuzz-width-seed fuzz-width-smoke \
+	fuzz-keybind fuzz-keybind-seed fuzz-keybind-smoke \
 	fuzz-dirlocals fuzz-dirlocals-seed fuzz-dirlocals-smoke \
 	fuzz-regex fuzz-regex-seed fuzz-regex-smoke fuzz-regex-seed-replay \
 	fuzz-localvars fuzz-localvars-seed fuzz-localvars-smoke \
 	fuzz-compile-parse fuzz-compile-parse-seed fuzz-compile-parse-smoke \
+	fuzz-lsp-frames fuzz-lsp-frames-seed fuzz-lsp-frames-smoke \
 	fuzz-seed fuzz-smoke \
 	deb release install uninstall

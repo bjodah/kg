@@ -1,0 +1,119 @@
+name: lsp-gopls-definition
+# M-. against the real gopls, not the fake server: no `env:` here, so kg
+# spawns the `gopls` on PATH exactly as a user would get it, and
+# `requires_tool: gopls` makes a box without one SKIP with a printed reason
+# (`--require-tools` turns that into an upfront FAIL).
+#
+# The fixture is what makes the workspace root real: `workspace_files:`
+# plants a go.mod beside the file under test, which is the marker
+# lsp_workspace_root() looks for, so gopls is started in the case's own
+# temporary directory and the module it loads there is the one holding the
+# file kg asks about.  A .go file under no module at all is what gopls calls
+# "standalone", and it answers far less about one.
+#
+# The jump asserted here is within main.go, because the assertion is the
+# saved file and kg saves the buffer it is in.
+#
+# Point is walked to the reference rather than searched to it: seven Down
+# and eight C-f put it on the "l" of the indented `localTarget(1)` -- the
+# eight are the leading TAB, "return" and the space after it -- and an
+# identifier's first byte is a position gopls resolves without argument.
+#
+# There are TWO M-. for the reason lsp-rust-analyzer-definition.yaml
+# explains at length: servers start lazily, so the first M-. is what spawns
+# gopls, and a Go module has to be loaded before any position in it resolves
+# -- the first request is answered from whatever the server knows so far.
+# The idle repaints between them are that load, and the ones after the
+# second M-. are the wait for the answer; C-l repaints without moving point,
+# so each costs a key_delay and changes nothing whichever way the race went.
+requires_feature: lsp
+requires_tool: gopls
+backend: pexpect
+key_delay: 0.3
+filename: main.go
+workspace_files:
+  go.mod: |
+    module example.com/fixture
+
+    go 1.22
+initial: |
+  package main
+
+  import "fmt"
+
+  func localTarget(v int) int { return v + 2 }
+
+  func useIt() int {
+  	return localTarget(1)
+  }
+
+  func main() {
+  	fmt.Println(useIt())
+  }
+keys:
+  - "Down"
+  - "Down"
+  - "Down"
+  - "Down"
+  - "Down"
+  - "Down"
+  - "Down"
+  - "C-f"
+  - "C-f"
+  - "C-f"
+  - "C-f"
+  - "C-f"
+  - "C-f"
+  - "C-f"
+  - "C-f"
+  - "M-."
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "M-."
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "X"
+expected_saved: |
+  package main
+
+  import "fmt"
+
+  func XlocalTarget(v int) int { return v + 2 }
+
+  func useIt() int {
+  	return localTarget(1)
+  }
+
+  func main() {
+  	fmt.Println(useIt())
+  }

@@ -31,3 +31,7 @@ fuzz_dirlocals
 fuzz_localvars
 fuzz_regex
 fuzz_compile_parse
+fuzz_width
+fuzz_syntax
+fuzz_lsp_json
+fuzz_keybind

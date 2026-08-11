@@ -1727,9 +1727,12 @@ enum minibuf_result editor_read_line_path(
 	}
 }
 
-/* Parse and apply dir-locals, modeline, and footer local settings for the
- * current buffer.  Nonfatal on parse errors.  Preserves readonly_override
- * and (when compile_command_user_override is set) compile_command. */
+/* Derive from the file, and only from the file, what the buffer's
+ * read-only state should be: this runs on every visit and every revert,
+ * so it is where a write-protected file gets its verdict and where a
+ * local variable gets to say otherwise.  Parse errors are nonfatal.
+ * Preserves readonly_override -- the user's C-x C-q outranks both -- and
+ * (when compile_command_user_override is set) compile_command. */
 static void buf_apply_local_settings(void)
 {
 	struct local_settings dir, modeline, footer, merged;
@@ -1741,6 +1744,12 @@ static void buf_apply_local_settings(void)
 	if (!buf_visits_file(bcur())) {
 		return;
 	}
+
+	/* Before the local variables, because that is the order Emacs takes:
+	 * after-find-file sets buffer-read-only from the file's writability
+	 * and then normal-mode runs the local variables over it, so a file
+	 * that asks for `buffer-read-only: nil' gets what it asks for. */
+	bcur()->readonly_local = path_write_protected(bcur()->filename);
 
 	local_settings_init(&dir);
 	local_settings_init(&modeline);
@@ -2219,9 +2228,12 @@ static void buf_open_path_new(int slot, const char *path, int readonly)
 	}
 	buf_visit_file(path, readonly);
 	buf_count++;
+	/* The buffer's own verdict, not the caller's request: C-x C-r asked
+	 * for read-only, but so does a write-protected file, and the user
+	 * who is about to be refused an edit deserves to have been told. */
 	editor_set_status_message("%s%s",
 	    bcur()->filename ? bcur()->filename : "[new]",
-	    readonly ? " [read-only]" : "");
+	    bcur()->readonly ? " [read-only]" : "");
 }
 
 /* Open `path` in a new buffer, or switch to the buffer already visiting

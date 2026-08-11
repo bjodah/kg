@@ -1,0 +1,31 @@
+# A buffer visiting a file the user may not write comes up read-only, the
+# way Emacs' after-find-file makes it: the refusal happens at the first
+# keystroke, not at the save that would have failed hours later.
+#
+# The fixture is mode 0444, and the test deliberately does not depend on
+# who runs it.  access(W_OK) says yes to a 0444 file for root, so a check
+# that asked only access() would pass under `make check` on a developer
+# box and mean nothing in a container that runs as uid 0.  kg asks the
+# mode bits too -- Emacs' "when a file is marked read-only, make the
+# buffer read-only even if root is looking at it" -- so this case has the
+# same verdict for both.
+#
+# The keys are ordinary self-inserting text plus a delete, none of which
+# reach the buffer: the saved file is the initial one, byte for byte.
+name: write-protected-file-visits-read-only
+filename: protected.txt
+backend: pexpect
+key_delay: 0.08
+file_mode: "0444"
+initial: |
+  first line
+  second line
+keys:
+  - "X"
+  - "Y"
+  - "C-d"
+  - "C-e"
+  - "RET"
+expected_saved: |
+  first line
+  second line

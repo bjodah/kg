@@ -4,11 +4,15 @@ name: lsp-references-none
 # `textDocument/references` with an empty array: the echo area says "No
 # references found" and no *xref* buffer is opened.
 #
-# The assertion is that the X lands at point, where it was before M-? --
-# nothing was selected, nothing was visited, and the read-only listing that
-# would have swallowed the keystroke is not there.
+# The assertion is in two halves.  The X lands at point, where it was
+# before M-? -- nothing was selected, nothing was visited, and the
+# read-only listing that would have swallowed the keystroke is not there.
+# And the echo area says "No references found", which is what makes this a
+# tmux case: point staying put is equally true of a kg that never managed
+# to ask anything, and this case used to pass against /bin/false on
+# exactly that account.
 requires_feature: lsp
-backend: pexpect
+backend: tmux
 key_delay: 0.35
 env:
   KG_LSP_SERVER_C: "python3 {REPO}/test/fake_lsp_server.py --mode protocol"
@@ -22,8 +26,15 @@ keys:
   - "C-l"
   - "C-l"
   - "C-l"
+trailer_keys:
   - "X"
+  - "C-x"
+  - "C-s"
+  - "C-x"
+  - "C-c"
 expected_saved: |
   Xint target(void) { return 1; }
   int other(void) { return 2; }
   int use(void) { return target(); }
+expected_screen_contains:
+  - "No references found"

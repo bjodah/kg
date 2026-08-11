@@ -1,16 +1,22 @@
 name: lsp-definition-none
 # The other half of M-.: a server that looked and found nothing answers JSON
 # null, and point must not move.  A jump to "wherever null decodes to" is
-# the failure this exists to catch, and it is invisible on screen -- the
-# echo area would say something either way -- so the assertion is again the
-# saved file: the X is typed where M-. left point, and it is still at the
-# very start of the buffer.
+# the failure this exists to catch, and the saved file is where it would
+# show: the X is typed where M-. left point, and it is still at the very
+# start of the buffer.
+#
+# The saved file cannot be the whole assertion, though, and this case used
+# to think it could.  Point not moving is also what happens when there is
+# no server at all -- it passed against /bin/false -- so the echo area is
+# asserted too, which is why this is a tmux case: "No definition found" is
+# a server that looked, and it is a different sentence from every way of
+# failing to ask.
 #
 # Same shape as lsp-definition-basic otherwise: the fake server in place of
-# clangd, and two C-l to leave the asynchronous answer time to arrive
-# without moving point while it does.
+# clangd, and C-l to leave the asynchronous answer time to arrive without
+# moving point while it does.
 requires_feature: lsp
-backend: pexpect
+backend: tmux
 key_delay: 0.35
 env:
   KG_LSP_SERVER_C: "python3 {REPO}/test/fake_lsp_server.py --mode protocol --definition-none"
@@ -23,8 +29,16 @@ keys:
   - "M-."
   - "C-l"
   - "C-l"
+  - "C-l"
+trailer_keys:
   - "X"
+  - "C-x"
+  - "C-s"
+  - "C-x"
+  - "C-c"
 expected_saved: |
   Xint target(void) { return 1; }
   int other(void) { return 2; }
   int use(void) { return target(); }
+expected_screen_contains:
+  - "No definition found"

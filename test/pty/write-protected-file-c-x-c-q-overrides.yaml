@@ -1,0 +1,30 @@
+# The verdict is a default, not a lock: `C-x C-q` on a buffer visiting a
+# write-protected file makes it writable and the edits then land, exactly
+# as in Emacs, where read-only-mode outranks whatever after-find-file
+# decided.  Whether the eventual save succeeds is the save path's own
+# honest error and not this decision's business.
+#
+# `trailer_keys: []` because the save is the one thing this case must not
+# do: root may write a 0444 file and an ordinary user may not, so a case
+# that saved would assert a different file depending on who ran it.  The
+# edit is asserted where it actually is -- on the screen, in the buffer --
+# and the untouched file on disk is the other half of the same statement.
+name: write-protected-file-c-x-c-q-overrides
+filename: protected-toggle.txt
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.1
+file_mode: "0444"
+trailer_keys: []
+initial: |
+  alpha
+keys:
+  - "C-x"
+  - "C-q"
+  - "Z"
+expected_saved: |
+  alpha
+expected_screen_contains:
+  - "Zalpha"
+expected_screen_not_contains:
+  - "Buffer is read-only"

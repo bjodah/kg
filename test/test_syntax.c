@@ -283,6 +283,27 @@ static void test_editor_set_syntax_persistence(void)
 	teardown();
 }
 
+/* ".go" is the whole of Go mode's file-name rule: a go.mod is the module's
+ * manifest, and is a workspace marker (src/lsp_server.c) rather than Go
+ * source.  The selection matters beyond colours -- the mode is what picks
+ * the language server. */
+static void test_go_selection_go_extension(void)
+{
+	setup(NULL);
+	editor_select_syntax_highlight(bcur(), "main.go");
+	CHECK(bcur()->syntax == syntax_find_by_name("Go"));
+	CHECK(bcur()->syntax && bcur()->syntax->id == KG_MODE_GO);
+	teardown();
+}
+
+static void test_go_selection_go_mod_unchanged(void)
+{
+	setup(NULL);
+	editor_select_syntax_highlight(bcur(), "go.mod");
+	CHECK(bcur()->syntax == NULL);
+	teardown();
+}
+
 static void test_yaml_selection_yaml_extension(void)
 {
 	setup(NULL);
@@ -466,10 +487,10 @@ static void test_syntax_state_release_and_adopt_are_null_safe(void)
  *
  * C# is the mode changed TO because it is one no backend builds state for
  * in either configuration: the legacy scanners keep none for anything, and
- * no tree-sitter grammar is registered for it -- /opt-9 has none, and
+ * no tree-sitter grammar is registered for it -- the install has none, and
  * Refinement decision 4 leaves such modes as plain text.  (This used to be
- * Shell, until the plan's batch 2 turned Shell into a mode that is
- * grammarless only because the installed tree-sitter-bash is too old.)  A
+ * Shell, until the plan's batch 2 left Shell grammarless; a Shell row would
+ * move it again, which C# will not.)  A
  * mode a backend CAN parse acquires state at the same point, which is that
  * backend's own assertion -- test_syntax_tree_sitter.c's
  * test_mode_change_acquires_and_releases_state(). */
@@ -505,6 +526,8 @@ int main(void)
 	RUN(test_yaml_selection_yaml_extension);
 	RUN(test_yaml_selection_yml_extension);
 	RUN(test_yaml_selection_unrelated_extension_unchanged);
+	RUN(test_go_selection_go_extension);
+	RUN(test_go_selection_go_mod_unchanged);
 	RUN(test_mode_ids_are_unique_and_resolve);
 	RUN(test_mode_lookup_agrees_with_name_lookup);
 	RUN(test_git_mode_predicates_follow_mode_id);

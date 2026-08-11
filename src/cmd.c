@@ -19,6 +19,10 @@
 #include "kbd.h"
 #include "keyevent.h"
 #include "lisp.h"
+#include "lsp_complete.h"
+#include "lsp_diag.h"
+#include "lsp_hover.h"
+#include "lsp_rename.h"
 #include "marker.h"
 #include "mouse.h"
 #include "next_error.h"
@@ -106,6 +110,12 @@ static void cmd_xref_find_references(int fd)
 }
 static void cmd_xref_goto_xref(int fd) { editor_xref_goto_xref(fd); }
 static void cmd_xref_go_back(int fd) { editor_xref_go_back(fd); }
+
+/* The other two language-server commands.  Both exist in a WITH_LSP=0
+ * build and say the feature was not compiled in, exactly as the xref
+ * four do. */
+static void cmd_lsp_rename(int fd) { editor_lsp_rename(fd); }
+static void cmd_completion_at_point(int fd) { editor_completion_at_point(fd); }
 static void cmd_previous_error(int fd) { editor_previous_error(fd); }
 
 /* M-x occur, and the three keys its listing binds. */
@@ -116,6 +126,17 @@ static void cmd_occur_goto_occurrence(int fd)
 }
 static void cmd_occur_next(int fd) { editor_occur_next(fd); }
 static void cmd_occur_prev(int fd) { editor_occur_prev(fd); }
+
+/* M-x lsp-diagnostics and the RET its listing binds, and M-x lsp-hover.
+ * Unconditional rows, for the xref commands' reason: a WITH_LSP=0 kg
+ * answers them with why there is no answer rather than with "Unknown
+ * command". */
+static void cmd_lsp_diagnostics(int fd) { editor_lsp_diagnostics(fd); }
+static void cmd_lsp_diagnostics_goto(int fd)
+{
+	editor_lsp_diagnostics_goto(fd);
+}
+static void cmd_lsp_hover(int fd) { editor_lsp_hover(fd); }
 
 /* Save point in, and go back to, a register (C-x r SPC / C-x r j). */
 static void cmd_point_to_register(int fd) { editor_point_to_register(fd); }
@@ -1548,6 +1569,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Comment or uncomment the line or region" },
 	{ "compile", editor_compile, READS_TERM | LISP_OK,
 	    "Run a compile command and collect its output" },
+	{ "completion-at-point", cmd_completion_at_point, EDITS | LISP_OK,
+	    "Complete the symbol before point from the server" },
 	{ "copy-to-register", cmd_copy_to_register, READS_TERM,
 	    "Copy the region into a register named by a key" },
 	{ "dabbrev-expand", cmd_dabbrev_expand, EDITS | LISP_OK,
@@ -1701,6 +1724,14 @@ static const struct named_cmd cmdtable[] = {
 	{ "lisp-interaction-mode", cmd_lisp_interaction_mode, LISP_OK,
 	    "Use Lisp Interaction mode in this buffer" },
 	{ "list-buffers", cmd_list_buffers, LISP_OK, "Show the buffer list" },
+	{ "lsp-diagnostics", cmd_lsp_diagnostics, LISP_OK,
+	    "List what the language servers reported" },
+	{ "lsp-diagnostics-goto", cmd_lsp_diagnostics_goto, LISP_OK,
+	    "Go to the diagnostic this *Diagnostics* line names" },
+	{ "lsp-hover", cmd_lsp_hover, LISP_OK,
+	    "Ask the language server about the symbol at point" },
+	{ "lsp-rename", cmd_lsp_rename, EDITS | READS_TERM | LISP_OK,
+	    "Rename the symbol at point across the workspace" },
 	{ "mark-paragraph", cmd_mark_paragraph, LISP_OK,
 	    "Put the region around this paragraph" },
 	{ "mark-word", cmd_mark_word, LISP_OK,

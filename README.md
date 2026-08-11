@@ -213,13 +213,17 @@ standard VT100 escape sequences.
   at point is defined and goes there, asynchronously; `M-?`
   (`xref-find-references`) asks where it is used and lists the answer in a
   read-only `*xref*` buffer (`RET` visits, `n`/`p` move, `q` closes), and
-  `M-,` (`xref-go-back`) returns to where the newest jump started — see
+  `M-,` (`xref-go-back`) returns to where the newest jump started; `M-TAB`
+  (`completion-at-point`) completes the symbol before point and `M-x
+  lsp-rename` renames it across the workspace — see
   [LSP](#lsp-optional-on-by-default) below
 - File-local and directory-local variables (limited, non-evaluating
   `-*- ... -*-` modeline, `Local Variables:` footer, and a safe
   `.dir-locals.el` subset) for `compile-command` and `buffer-read-only`
 - `read-only-mode` (`C-x C-q`) with buffer-local state and an `RO`
-  mode-line indicator
+  mode-line indicator; a buffer visiting a file you cannot write comes up
+  read-only by itself, as in Emacs, so the refusal arrives at the first
+  keystroke rather than at the save
 - No dependencies (not even curses)
 - Uses standard VT100 escape sequences
 - Tab stops every 8 columns, like Emacs' default `tab-width`
@@ -380,7 +384,7 @@ line. The same goes for a grammar whose ABI this `libtree-sitter` cannot read.
 
 Highlighted today: **C**, **Python**, **YAML**, **Markdown**,
 **JavaScript**, **React/JSX**, **TypeScript**, **TSX**, **Java**, **Rust**,
-**HTML**, **Emacs Lisp** and **Makefile** — comments, strings, numbers,
+**Go**, **HTML**, **Emacs Lisp** and **Makefile** — comments, strings, numbers,
 keywords and types, from small kg-owned queries compiled into the binary,
 one per language. Every other mode is plain text under
 `WITH_TREE_SITTER=1`: a mode with no grammar is not an error, it simply has
@@ -404,8 +408,9 @@ the default, and the configuration with colours for every other language.
 
 ## LSP (optional, on by default)
 
-kg can ask a Language Server Protocol server where a symbol is defined and
-where it is used. Unlike tree-sitter, this needs nothing at build time —
+kg can ask a Language Server Protocol server where a symbol is defined,
+where it is used and what it is, and it listens to what a server says
+about a file without being asked. Unlike tree-sitter, this needs nothing at build time —
 servers are found at run time — so `WITH_LSP=1` is the default and `make
 WITH_LSP=0` builds the editor without it. `kg -V` says which one a binary
 is:
@@ -414,13 +419,15 @@ is:
 ./src/kg -V          # kg 1.1.0 +lisp -tree-sitter +lsp
 ```
 
-Three commands use it: **`M-.`** (`xref-find-definitions`), which goes to
+Four keys use it: **`M-.`** (`xref-find-definitions`), which goes to
 the definition of the symbol at point, **`M-?`** (`xref-find-references`),
-which lists every use of it, and **`M-,`** (`xref-go-back`), which returns
-to where the newest of those jumps started. Everything else the protocol
-offers —
-diagnostics, completion, hover, rename — is deliberately out of scope until
-this foundation has proven itself.
+which lists every use of it, **`M-,`** (`xref-go-back`), which returns
+to where the newest of those jumps started, and **`M-TAB`**
+(`completion-at-point`), which completes the symbol before point. Three
+more commands have no key and are typed at `M-x`: **`lsp-diagnostics`**,
+which lists what the servers have reported, **`lsp-hover`**, which asks
+what the symbol at point is, and **`lsp-rename`**, which renames it
+everywhere.
 
 `M-?` always lists, even for one result, in a read-only `*xref*` buffer: a
 header counting the results, then one `path:line:column: preview` line
@@ -435,15 +442,86 @@ The listing is bounded at 200 results and says how many more there were.
 `M-.` uses the same buffer when a server offers more than one definition,
 and still jumps straight to a single one.
 
+**`M-x lsp-rename`** renames the symbol at point everywhere the server
+says it appears. It prompts for the new name — the prompt spells the old
+one, and an empty answer means it, which is `eglot-rename`'s default
+without a minibuffer default — and applies the `WorkspaceEdit` that comes
+back, in either of the two shapes a server may send it in (`changes` or
+`documentChanges`). Every occurrence in one buffer is applied as a single
+replacement of the span they lie in, so the whole rename is **one undo
+record**: one `C-_` takes all of it back. A file no buffer visits is
+opened, edited and left modified and unsaved — Emacs' behaviour, and what
+lets you read the change before writing it — and the buffer you ran the
+command in is the one selected again afterwards. The report is `Renamed N
+occurrences in M files`.
+
+A rename is **all or nothing across every file it names**. The whole
+answer is resolved and checked first — every file opens, every buffer is
+writable, every range is inside the file it names, no two edits overlap —
+and only then is anything written; a single failure refuses the rename
+entirely, names the file and the reason, and leaves every buffer as it
+was, including any it opened only to look at. A rename that renamed most
+of the uses of a symbol is worse than one that renamed none and said so.
+
+The same applies to an answer that is no longer about your buffer. kg
+sends a document to the server only when a command needs it, so between
+the question and the answer the text can move; if it has — one character
+typed while the server was thinking is enough — the rename is refused with
+`<file> changed while the server was answering`. A server that sends
+versioned `documentChanges` is answered the same way when its version is
+not the one kg last sent, which is the check `eglot` makes.
+
+Two other things a rename deliberately does not do. It does not perform
+the create/rename/delete-file operations a server may attach to its
+answer: they are counted and the report says how many were skipped and of
+what kind. And it applies nothing at all when part of the answer cannot be
+read — an edit naming something other than a local file, or more of them
+than kg stores.
+
+**`M-TAB`** (`completion-at-point`) completes the symbol before point.
+It is spelled `M-TAB` because that is what a terminal sends: `C-M-i` and
+`M-TAB` are the same two bytes (`ESC`, `TAB`) there, as they are in
+Emacs. What is being completed is the range the server itself named when
+it sent one, and otherwise the word before point — the same word `M-/`
+expands. Candidates are filtered against what has been typed (a server
+may return its whole set) and ordered by `sortText`, then, exactly as in
+Emacs: one candidate is inserted; several sharing more than has been
+typed insert what they share and say `Complete, but not unique`; several
+with nothing left in common are listed in a read-only `*Completions*`
+buffer beside the source, with point left where it was. An empty answer
+says `No completions`. Each insertion is one edit, so `C-_` takes a
+completion back in one step. A completion whose buffer changed while the
+server was answering — you kept typing, as one does — is refused rather
+than inserted against text that is no longer there.
+
+The `*Completions*` listing is passive, which is a divergence worth
+knowing: unlike Emacs' it binds no keys, and it is neither taken down nor
+refreshed as you keep typing. It is an ordinary read-only buffer — `C-x
+0` closes its window, and the next completion rebuilds it in place.
+
 Servers are **started lazily**, and never by opening a file: the first
 `M-.` or `M-?` in a C buffer is what spawns `clangd`, and every buffer under the same
-workspace root then shares it. Two modes have a built-in server, `clangd`
-for C and `ty server` for Python; any other mode says it has no server
-rather than starting one. The workspace root is the nearest ancestor
-holding that language's build-system marker (`.clangd`,
-`compile_commands.json`, `compile_flags.txt`, `build/compile_commands.json`;
-`ty.toml`, or a `pyproject.toml` mentioning `[tool.ty`), then the nearest
-ancestor holding `.git`, and failing that the file's own directory.
+workspace root then shares it. Five modes have a built-in server — `clangd`
+for C, `ty server` for Python, `gopls` for Go, `rust-analyzer` for Rust and
+`jdtls` for Java;
+any other mode says it has no server rather than starting one. The
+workspace root is the nearest ancestor holding that language's build-system
+marker (`.clangd`, `compile_commands.json`, `compile_flags.txt`,
+`build/compile_commands.json`; `ty.toml`, or a `pyproject.toml` mentioning
+`[tool.ty`; `go.mod` or `go.work`; `Cargo.toml`; `pom.xml`, `build.gradle`,
+`build.gradle.kts`, `settings.gradle` or `settings.gradle.kts`), then the
+nearest ancestor holding `.git`, and failing that the file's own directory.
+
+The nearest marker wins, which for Go and Rust is the answer their own
+tooling gives: a file inside a Go module roots on that module even when a
+`go.work` sits above it, because the go command finds the workspace above
+the module by itself; a file in a Cargo workspace member roots on the
+member, because `cargo metadata` resolves the workspace above it. Java's
+markers are the ones jdt.ls itself imports a project from, and there the
+rule is a compromise in one place: a Gradle subproject's `build.gradle` is
+nearer than the `settings.gradle` at the top of the build, so kg starts a
+server per subproject and a definition in a sibling subproject is not in
+that server's model.
 
 Both commands send the question and return. The editor stays responsive
 while the server thinks, and the answer arrives later; the echo area
@@ -490,7 +568,50 @@ reason a server died. The buffer is created on the first line and never
 selects itself: `C-x b *lsp-log*` is how you read it, on the day something
 hangs. It keeps the last 64 KiB, dropping whole lines from the top.
 
-`KG_LSP_SERVER_C` and `KG_LSP_SERVER_PYTHON` replace the built-in command
+**Diagnostics** are the one part of the protocol kg never asks for: a
+server publishes them whenever it has an opinion about a document it has
+been told about, and `M-x lsp-diagnostics` lists what has arrived. A
+publish replaces everything that server had said about that file rather
+than adding to it — the protocol's own rule — and one carrying a version
+older than the last one seen for that file is dropped whole, since it
+describes text the server has since been sent a newer copy of.
+
+The listing is a read-only `*Diagnostics*` buffer, shown in another window
+and not selected, with one row per diagnostic as
+`file:line:column: severity: message`, ordered by file and then by
+position. `RET` visits the one on the current line, `n` and `p` move, `q`
+closes, and showing the listing takes the `M-g M-n` / `M-g M-p` keys, so
+next-error walks the diagnostics until another command produces results.
+The command sends the current buffer to its server first — which is not
+what Emacs' flymake does, and is what makes diagnostics reachable at all
+here: kg opens a document lazily, so a session in which no LSP command had
+been run would have nothing to list forever. The first
+`M-x lsp-diagnostics` in a buffer therefore starts the server and asks,
+and the answer arrives afterwards like every other one.
+
+Every diagnostic is also marked in any buffer visiting its file, over the
+range the server named, repainted on every publish and taken back when a
+publish empties. Severity picks the mark's priority, so an error covers a
+warning where the two overlap — but not its colour: the renderer's colour
+channel is one foreground number and the warning face is already the red an
+error wants. The severity is spelled out in the listing, which is where it
+is legible.
+
+**`M-x lsp-hover`** asks the server what the symbol at point is. There is
+no key binding: kg has no eldoc, so nothing asks by itself, and Emacs has
+no binding either. The answer is read in all three shapes the protocol has
+had (a MarkupContent object, a bare string, a MarkedString or an array of
+them) and rendered to plain text — Markdown is neutralised rather than
+displayed, so fences, backticks, heading markers and horizontal rules go
+and the words are what is left. The first line goes to the echo area; an
+answer with more lines in it also goes whole to `*lsp-hover*`, which the
+message names and `C-x b` reaches, and which never selects itself. Emacs'
+eglot shows the same first line and offers the rest through `M-x
+eldoc-doc-buffer` on demand; kg writes the rest unconditionally and shows
+it never.
+
+`KG_LSP_SERVER_C`, `KG_LSP_SERVER_PYTHON`, `KG_LSP_SERVER_GO`,
+`KG_LSP_SERVER_RUST` and `KG_LSP_SERVER_JAVA` replace the built-in command
 line for that mode. The value is run through `/bin/sh -c`, exactly as `M-x
 compile`'s command is, so a wrapper, a path with spaces or extra arguments
 all work — and it is how kg's own tests point the client at a fake server:
@@ -499,6 +620,93 @@ all work — and it is how kg's own tests point the client at a fake server:
 KG_LSP_SERVER_C='clangd --header-insertion=never' kg foo.c
 KG_LSP_TIMEOUT_MS=5000 kg foo.c      # give up on a request after 5 s
 ```
+
+One value means more than a command line. A `KG_LSP_SERVER_*` beginning
+with the token `listen-hash:` and then a space runs the *rest* of the value
+as the command, and speaks to it over a TCP socket instead of over its
+standard input and output:
+
+```bash
+KG_LSP_SERVER_JAVA='listen-hash: nbcode --start-java-language-server=listen-hash:0' kg X.java
+```
+
+That is Oracle's nbcode, the NetBeans Java server, which does not speak LSP
+on stdio at all: started that way it listens on a port, prints
+`Java Language Server listening at port N with hash H` on its standard
+output, and expects the client to connect to `127.0.0.1:N` and write the
+hash before the first LSP byte. kg reads its stdout for that line, connects
+without ever blocking the editor, sends the hash, and the frames go over the
+socket both ways; everything else the server prints there, announce line
+included, becomes `*lsp-log*` lines beside its standard error. Nothing
+built in selects that wire — `jdtls` is still the Java default — so it
+arrives with the command line that asks for it or not at all.
+
+### Java setup
+
+Java's server is the Eclipse JDT Language Server, and kg spawns it as the
+bare name `jdtls`. It ships as a tarball rather than a package, so
+`utils/install-jdtls.sh` is here to do the tedious part:
+
+```bash
+utils/install-jdtls.sh                        # newest milestone -> ~/.local
+utils/install-jdtls.sh --prefix /opt/jdtls    # somewhere else
+utils/install-jdtls.sh --from-source ~/src/eclipse.jdt.ls   # build a checkout
+```
+
+It needs Java 21 or newer (jdt.ls refuses to start below that) and
+`python3`, whose only job is to run jdt.ls's own launcher script. The
+server lands in `<prefix>/share/jdtls` and a `<prefix>/bin/jdtls` wrapper
+beside it; re-running replaces the tree only once the new one is unpacked,
+and the script says so and stops if `<prefix>/bin` is not on your `PATH`.
+`--dry-run` prints what it would fetch and where it would put it. What it
+does not do is edit your shell profile, or promise that jdt.ls will import
+your project — that is jdt.ls's business, and it reports what it made of
+the tree in its own log.
+
+jdt.ls is a JVM, so the first `M-.` in a Java buffer is slower than the
+first one in a C buffer: roughly two to three seconds on a warm box before
+the answer arrives, and longer the first time a Maven or Gradle project is
+imported. Nothing blocks while it thinks.
+
+### Java with nbcode instead
+
+Oracle's nbcode is the other real Java server: the NetBeans-based one
+behind the Java extension for VS Code (`oracle/javavscode`). Unlike every
+other server kg speaks to, it does not use stdio. Started with
+`--start-java-language-server=listen-hash:0` it prints a port and a hash on
+its stdout and then waits to be *connected to*, and the client has to open
+a TCP socket to that port and write the hash before the first LSP byte.
+The `listen-hash:` token in front of a `KG_LSP_SERVER_<MODE>` command line
+is what asks kg for that wire; everything after it is the command, run
+through `/bin/sh -c` as usual:
+
+```bash
+utils/install-nbcode.sh    # runtime -> ~/.local/share, wrapper -> ~/.local/bin
+export KG_LSP_SERVER_JAVA="listen-hash: nbcode --start-java-language-server=listen-hash:0"
+```
+
+`install-nbcode.sh` takes the same options as the jdtls one — `--prefix`,
+`--version`, `--from-source`, `--dry-run` — and by default gets nbcode the
+cheap way, because the published extension is a zip with a complete
+NetBeans runtime inside it: it downloads that from open-vsx.org (~150 MB)
+and unpacks `extension/nbcode` into `<prefix>/share/nbcode`.
+`--from-source` builds a javavscode checkout with Ant instead, which wants
+that checkout's `netbeans` submodule fetched and `ant apply-patches`
+already run, and takes tens of minutes. Java 17 or newer either way.
+
+The `<prefix>/bin/nbcode` wrapper exists to give each run a userdir of its
+own, and that is not fussiness: NetBeans' single-instance handler is keyed
+on the userdir, so two nbcode processes pointed at one do not both start —
+the second hands its command line to the first and exits without ever
+printing a port, which looks from the outside like a server that started
+and said nothing. Set `KG_NBCODE_USERDIR` to pin one anyway and keep its
+index warm between sessions, at the price of running one nbcode at a time.
+
+Being a NetBeans, nbcode is in the same class as jdt.ls rather than faster:
+measured here on a one-file Maven project, about a second and a half from
+spawn to the announce line and around three seconds to the first `M-.`
+answer, cold. A large project's first import is longer, and with a
+per-run userdir it is paid every session.
 
 ## Development
 
@@ -517,7 +725,7 @@ Useful local quality checks:
 
 ```bash
 make check
-make fuzz-keypress
+make fuzz-smoke
 make complexity-check
 make pmccabe-check
 make coverage
@@ -527,6 +735,20 @@ make iwyu
 
 `make iwyu` runs Include What You Use from the compilation database, so
 refresh `compile_commands.json` with `make compile-db` first.
+
+`make fuzz-smoke` runs a five-second sanitizer-backed smoke campaign for
+every native fuzz target.  Build one target with `make fuzz-<name>`, smoke
+test it with `make fuzz-<name>-smoke`, or run it longer with its tracked
+corpus.  The targets are `keypress`, `syntax`, `dirlocals`, `regex`,
+`localvars`, `compile-parse`, `lsp-json`, `width`, and `keybind`; for
+example:
+
+```bash
+make fuzz-syntax
+FUZZ_MAX_TOTAL_TIME=60 make fuzz-syntax-smoke
+./test/fuzz_syntax -artifact_prefix=test/fuzz-artifacts/syntax/ \
+	test/fuzz-corpus/syntax
+```
 
 For crash triage and fuzzing notes, see [doc/FUZZING.md](doc/FUZZING.md).
 

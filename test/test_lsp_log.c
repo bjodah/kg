@@ -45,21 +45,47 @@ static void test_store_keeps_what_fits(void)
 	CHECK(s.data == NULL && s.len == 0);
 }
 
-/* Over the cap the oldest lines go, whole ones only, until it fits.  A
- * store that cut mid-line would leave a first line starting inside a word,
- * which reads as corruption rather than as eviction. */
+/* Over the cap the oldest lines go, whole ones only, and eviction stops a
+ * quarter below the cap rather than at it.  A store that cut mid-line
+ * would leave a first line starting inside a word, which reads as
+ * corruption rather than as eviction. */
 static void test_store_evicts_whole_lines_from_the_head(void)
 {
 	struct lsp_log_store s = { 0 };
 	bool trimmed = false;
 
-	CHECK(push(&s, "aaaa\n", 12, &trimmed)); /* 5 */
-	CHECK(push(&s, "bbbb\n", 12, &trimmed)); /* 10 */
+	CHECK(push(&s, "aaaa\n", 20, &trimmed)); /* 5 */
+	CHECK(push(&s, "bbbb\n", 20, &trimmed)); /* 10 */
+	CHECK(push(&s, "cccc\n", 20, &trimmed)); /* 15 */
+	CHECK(push(&s, "dddd\n", 20, &trimmed)); /* 20, exactly the cap */
 	CHECK(!trimmed);
-	CHECK(push(&s, "cccc\n", 12, &trimmed)); /* 15 > 12 */
+	CHECK(push(&s, "eeee\n", 20, &trimmed)); /* 25 > 20 */
 	CHECK(trimmed);
-	CHECK(s.len == 10);
-	CHECK(memcmp(s.data, "bbbb\ncccc\n", 10) == 0);
+	CHECK(s.len == 15);
+	CHECK(memcmp(s.data, "cccc\ndddd\neeee\n", 15) == 0);
+	lsp_log_store_reset(&s);
+}
+
+/* And that quarter is what keeps the mirror's rewrite off the per-line
+ * path: every trim costs `*lsp-log*` a rewrite of the whole store, so a
+ * store that evicted exactly one line per line pushed made a chatty server
+ * quadratic (200 KiB of pre-announce log measured at 4.1 s, half of it
+ * here).  Forty lines past a cap that holds nine of them is a handful of
+ * trims, not one per line. */
+static void test_store_trims_in_slices_not_per_line(void)
+{
+	struct lsp_log_store s = { 0 };
+	bool trimmed = false;
+	int trims = 0;
+	int i;
+
+	for (i = 0; i < 40; i++) {
+		CHECK(push(&s, "0123456789\n", 100, &trimmed));
+		trims += trimmed ? 1 : 0;
+	}
+	CHECK(trims > 0);
+	CHECK(trims <= 10); /* per line it would be 31 */
+	CHECK(s.len <= 100);
 	lsp_log_store_reset(&s);
 }
 
@@ -194,6 +220,7 @@ int main(void)
 {
 	RUN(test_store_keeps_what_fits);
 	RUN(test_store_evicts_whole_lines_from_the_head);
+	RUN(test_store_trims_in_slices_not_per_line);
 	RUN(test_store_drops_a_line_larger_than_the_cap);
 	RUN(test_the_buffer_is_lazy_prefixed_and_never_selected);
 	RUN(test_the_buffer_follows_the_stores_eviction);

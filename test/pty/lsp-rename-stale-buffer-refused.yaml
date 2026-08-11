@@ -1,0 +1,51 @@
+name: lsp-rename-stale-buffer-refused
+# One character typed while a rename is in flight refuses the rename.
+#
+# kg synchronises lazily -- a didChange goes out only when a command needs
+# one -- so between the question and the answer the buffer can move away
+# from the document the server is holding, and the server's ranges then
+# name text that is no longer where it was.  Applying them anyway is not a
+# rename with a small error in it: it splices `renamed` into the middle of
+# whatever moved into those bytes.
+#
+# The server takes two seconds over the answer (--delay-ms with
+# --delay-method, so the handshake is not slowed with it), the `z` is
+# typed into the buffer while it thinks, and the C-l are the wait.  Both
+# halves of the expectation matter: the file must hold nothing but the
+# typed `z`, and the echo area must say why -- a rename that quietly did
+# nothing looks exactly like a rename that never reached the server.
+requires_feature: lsp
+backend: tmux
+key_delay: 0.35
+env:
+  KG_LSP_SERVER_C: "python3 {REPO}/test/fake_lsp_server.py --mode protocol --delay-ms 2000 --delay-method textDocument/rename --rename-self 0:4:10 --rename-self 1:23:29"
+filename: renstale.c
+initial: |
+  int target(void) { return 1; }
+  int use(void) { return target(); }
+keys:
+  - "M-x"
+  - "lsp-rename"
+  - RET
+  - "renamed"
+  - RET
+  - "z"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+expected_saved: |
+  zint target(void) { return 1; }
+  int use(void) { return target(); }
+expected_screen_contains:
+  - "changed while the server was answering"
+expected_screen_not_contains:
+  - "Renamed"

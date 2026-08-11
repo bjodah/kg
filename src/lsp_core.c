@@ -40,6 +40,8 @@ void lsp_shutdown(void) { lsp_server_shutdown_all(LSP_SHUTDOWN_GRACE_MS); }
 
 int lsp_poll(void) { return lsp_server_poll_all(); }
 
+int lsp_wait_fds(int *fds, int max) { return lsp_server_wait_fds(fds, max); }
+
 #else /* !KG_USE_LSP */
 
 void lsp_init(void) { }
@@ -47,5 +49,12 @@ void lsp_init(void) { }
 void lsp_shutdown(void) { }
 
 int lsp_poll(void) { return 0; }
+
+int lsp_wait_fds(int *fds, int max)
+{
+	(void)fds;
+	(void)max;
+	return 0;
+}
 
 #endif /* KG_USE_LSP */

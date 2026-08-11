@@ -6,17 +6,21 @@
 # claim rests on (doc/plans/kg-tree-sitter-plan.md, Phase 11).
 #
 # The tree-sitter core is a prebuilt prefix on the developer box, not a
-# submodule (Refinement decision 1), and hosted runners have no /opt-9.  v1
-# keeps this lane developer-box-only: with no prefix it SKIPs with a printed
-# reason, the same culture as the Emacs oracle and tmux cases.  Promoting it
-# to hosted CI means building the core from its pinned tag in a cached step,
-# and is a separate decision.
+# submodule (Refinement decision 1), and hosted runners have no such prefix.
+# v1 keeps this lane developer-box-only: with no prefix it SKIPs with a
+# printed reason, the same culture as the Emacs oracle and tmux cases.
+# Promoting it to hosted CI means building the core from its pinned tag in a
+# cached step, and is a separate decision.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 source .ci/ci-env.sh
 
-TREE_SITTER_PREFIX=${TREE_SITTER_PREFIX:-/opt-9/tree-sitter-v0.26.11-release}
+# Same default, and the same order, as the Makefile's TREE_SITTER_PREFIX:
+# an explicit value, else the box's $TREE_SITTER_ROOT, else the install this
+# development environment has.  It is resolved here as well as there
+# because the SKIP below has to know the prefix before make runs.
+TREE_SITTER_PREFIX=${TREE_SITTER_PREFIX:-${TREE_SITTER_ROOT:-/opt-2/tree-sitter-v0.26.12-release}}
 
 if [ ! -e "${TREE_SITTER_PREFIX}/include/tree_sitter/api.h" ]; then
 	echo "SKIP: no tree-sitter prefix at ${TREE_SITTER_PREFIX}" \

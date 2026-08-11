@@ -1,0 +1,58 @@
+name: lsp-rename-two-files
+# A rename reaches files the user never opened.  The server answers in
+# the `documentChanges` shape -- TextDocumentEdit objects with versioned
+# identifiers, which is what a modern server sends -- naming both the
+# document the client opened and a sibling beside it (workspace_files
+# plants it, --rename-sibling names it relative to the last document, so
+# the temporary directory stays out of the case).
+#
+# The harness only reads back the file kg was started on, so the sibling
+# is checked the way test/pty/bufswitch-basic.yaml checks its second
+# file: it is visited (C-x C-f, whose prompt comes prefilled with this
+# file's own directory, so only the basename is typed), saved, and then
+# read back into the main buffer with C-x i.  The tail of the expectation
+# is therefore renhelp.c exactly as the rename left it on disk -- which
+# also says that kg opened it, edited it and left it for the user to
+# save, rather than writing it behind their back.
+requires_feature: lsp
+backend: pexpect
+key_delay: 0.35
+env:
+  KG_LSP_SERVER_C: "python3 {REPO}/test/fake_lsp_server.py --mode protocol --rename-shape documentChanges --rename-self 0:4:10 --rename-self 1:24:30 --rename-sibling renhelp.c:1:24:30"
+filename: renmain.c
+workspace_files:
+  renhelp.c: |
+    /* another file nobody opened */
+    int call(void) { return target(); }
+initial: |
+  int target(void) { return 1; }
+  int main(void) { return target(); }
+keys:
+  - "M-x"
+  - "lsp-rename"
+  - RET
+  - "renamed"
+  - RET
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-x"
+  - "C-f"
+  - "renhelp.c"
+  - RET
+  - "C-x"
+  - "C-s"
+  - "C-x"
+  - "C-f"
+  - "renmain.c"
+  - RET
+  - "M->"
+  - "C-x"
+  - "i"
+  - "renhelp.c"
+  - RET
+expected_saved: |-
+  int renamed(void) { return 1; }
+  int main(void) { return renamed(); }
+  /* another file nobody opened */
+  int call(void) { return renamed(); }

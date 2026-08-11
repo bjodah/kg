@@ -15,17 +15,30 @@ name: lsp-definition-cold-encoding
 # `--definition-echo` is what makes that visible without a real server: it
 # answers with a Location at exactly the position it was asked about.  So
 # the answer is kg's own question handed back, and the jump is a round trip
-# -- encode with the negotiated encoding, decode with it again -- which
-# lands point where it already was.  Only then does the X go where this
-# case says.
+# -- encode with one encoding, decode with another -- which lands point
+# where it started only if BOTH ends used the encoding the handshake
+# settled.  A request built at command time uses the stale one for the
+# question and the settled one for the answer, and the round trip stops
+# being a round trip.
 #
 # Point starts at (1,1) and reaches the end of "int" on line 3 with two
 # Downs and one M-f: byte 12 of `/* ä */ int use(void) ...`, which is UTF-16
 # unit 11 because of the "ä".  A kg that encoded 11 and decoded it as a byte
 # offset would put the X inside "int" instead of after it, which is the
 # whole difference this case exists to see.
+#
+# What this case does NOT assert, said plainly because its name suggests
+# otherwise: that the encoding itself is right.  A kg whose position
+# conversions were byte identity in both directions would pass here, since
+# a round trip through two wrong-but-matching conversions still comes back
+# where it started; lsp-definition-utf16.yaml is where the conversion is
+# pinned to a value.  And the screen assertion is here because the saved
+# file alone could not tell a correct round trip from a server that never
+# answered -- point does not move in either -- so this case used to pass
+# with KG_LSP_SERVER_C set to /bin/false.  "xrefcold.c:3" is the echo area
+# reporting a jump that actually happened, which is why this runs on tmux.
 requires_feature: lsp
-backend: pexpect
+backend: tmux
 key_delay: 0.35
 env:
   KG_LSP_SERVER_C: "python3 {REPO}/test/fake_lsp_server.py --mode protocol --position-encoding utf-8 --definition-echo"
@@ -41,8 +54,16 @@ keys:
   - "M-."
   - "C-l"
   - "C-l"
+  - "C-l"
+trailer_keys:
   - "X"
+  - "C-x"
+  - "C-s"
+  - "C-x"
+  - "C-c"
 expected_saved: |
   int target(void) { return 1; }
   int other(void) { return 2; }
   /* ä */ intX use(void) { return target(); }
+expected_screen_contains:
+  - "xrefcold.c:3"

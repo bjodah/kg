@@ -161,6 +161,28 @@ static char *RUST_HL_keywords[] = {
 	"PartialOrd|", "Ord|", "Hash|", "Iterator|", "IntoIterator|", NULL
 };
 
+/* Go.  The first block is the whole of Go's twenty-five reserved words --
+ * the language does not add any -- plus the predeclared constants, which
+ * are identifiers rather than keywords but read as keywords in every Go
+ * file ever written.  The second block is the predeclared type and builtin
+ * function names: not reserved either (a Go program may shadow `len`), but
+ * a colour is a hint, not a claim about scope. */
+static char *GO_HL_keywords[] = {
+	/* Go keywords */
+	"break", "case", "chan", "const", "continue", "default", "defer",
+	"else", "fallthrough", "for", "func", "go", "goto", "if", "import",
+	"interface", "map", "package", "range", "return", "select", "struct",
+	"switch", "type", "var", "true", "false", "iota", "nil",
+
+	/* Go predeclared types and builtins */
+	"any|", "bool|", "byte|", "comparable|", "complex64|", "complex128|",
+	"error|", "float32|", "float64|", "int|", "int8|", "int16|", "int32|",
+	"int64|", "rune|", "string|", "uint|", "uint8|", "uint16|", "uint32|",
+	"uint64|", "uintptr|", "append|", "cap|", "clear|", "close|", "copy|",
+	"delete|", "len|", "make|", "max|", "min|", "new|", "panic|", "print|",
+	"println|", "recover|", NULL
+};
+
 /* Java */
 static char *JAVA_HL_keywords[] = {
 	/* Java Keywords */
@@ -592,6 +614,8 @@ static const struct legacy_syntax_spec legacy_specs[] = {
 	{ KG_MODE_JAVASCRIPT, JS_HL_keywords, "/*", "*/",
 	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
 	{ KG_MODE_RUST, RUST_HL_keywords, "/*", "*/",
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_GO, GO_HL_keywords, "/*", "*/",
 	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
 	{ KG_MODE_JAVA, JAVA_HL_keywords, "/*", "*/",
 	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
@@ -1719,6 +1743,16 @@ void syntax_backend_after_edit(
 
 	if (last >= b->numrows) {
 		last = b->numrows - 1;
+	}
+	/* One row of look-behind: a Markdown setext underline colours the
+	 * row *above* it, the one dependency in this backend that points
+	 * up.  markdown_syntax() re-triggers the row above when the row it
+	 * scans IS an underline, but a row that just STOPPED being one
+	 * takes another branch and leaves the row above stale.  The setext
+	 * branches write no hl_oc, so this rescan cannot perturb the
+	 * forward carry settled below. */
+	if (first > 0) {
+		syntax_update_row_only(b, &b->row[first - 1]);
 	}
 	for (i = first; i <= last; i++) {
 		syntax_update_row_only(b, &b->row[i]);

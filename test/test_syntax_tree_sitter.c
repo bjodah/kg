@@ -145,59 +145,149 @@ static void test_missing_grammar_degrades(void)
 	CHECK(err[0] != '\0');
 }
 
+/* Where libtree-sitter-c.so actually is on this box: the compiled-in search
+ * path, walked the way the loader walks it -- colon-separated entries, one
+ * %s substitution per entry.  The loader's own resolver is static to
+ * src/syntax_tree_sitter_lang.c; repeating its two rules here is what lets
+ * the fixtures below be built out of the real grammar whatever layout the
+ * install happens to have. */
+static int find_c_grammar_so(char *out, size_t outsz)
+{
+	const char *cursor = kg_ts_grammar_search_path();
+
+	while (*cursor != '\0') {
+		const char *sep = strchr(cursor, ':');
+		size_t n = sep ? (size_t)(sep - cursor) : strlen(cursor);
+		char entry[512], dir[512];
+		const char *pct;
+
+		if (n > 0 && n < sizeof(entry)) {
+			memcpy(entry, cursor, n);
+			entry[n] = '\0';
+			pct = strstr(entry, "%s");
+			if (pct) {
+				snprintf(dir, sizeof(dir), "%.*s%s%s",
+				    (int)(pct - entry), entry, "c", pct + 2);
+			} else {
+				snprintf(dir, sizeof(dir), "%s", entry);
+			}
+			snprintf(out, outsz, "%s/libtree-sitter-c.so", dir);
+			if (access(out, R_OK) == 0) {
+				return 1;
+			}
+		}
+		if (!sep) {
+			break;
+		}
+		cursor = sep + 1;
+	}
+	out[0] = '\0';
+	CHECKF(0, "no libtree-sitter-c.so on the search path (%s)",
+	    kg_ts_grammar_search_path());
+	return 0;
+}
+
+static int make_fixture_dir(const char *path)
+{
+	if (mkdir(path, 0700) != 0 && errno != EEXIST) {
+		CHECKF(0, "cannot make %s: %s", path, strerror(errno));
+		return 0;
+	}
+	return 1;
+}
+
+/* Point <dir>/libtree-sitter-c.so at the real grammar, so a directory that
+ * is a grammar directory only because a symlink says so still loads. */
+static int link_c_grammar_into(const char *dir)
+{
+	char real[512], sopath[640];
+
+	if (!find_c_grammar_so(real, sizeof(real))) {
+		return 0;
+	}
+	snprintf(sopath, sizeof(sopath), "%s/libtree-sitter-c.so", dir);
+	unlink(sopath);
+	if (symlink(real, sopath) != 0) {
+		CHECKF(0, "cannot symlink %s -> %s: %s", sopath, real,
+		    strerror(errno));
+		return 0;
+	}
+	return 1;
+}
+
+static void unlink_c_grammar_from(const char *dir)
+{
+	char sopath[640];
+
+	snprintf(sopath, sizeof(sopath), "%s/libtree-sitter-c.so", dir);
+	unlink(sopath);
+}
+
 /* Both spellings of a search-path entry resolve, and a path is searched in
  * order: a plain directory means <entry>/libtree-sitter-c.so, and an entry
  * containing %s has the grammar name substituted first, which is what lets
- * one entry cover a whole one-prefix-per-grammar tree. */
+ * one entry cover a whole one-prefix-per-grammar tree.
+ *
+ * The install this box has is flat -- every grammar .so beside the core in
+ * one directory -- so the tree the %s form exists for is built here out of
+ * a symlink rather than found.  The substitution is a live feature of the
+ * loader, and an Emacs-shaped one-prefix-per-grammar install is exactly
+ * what it is for, so it stays asserted against a real dlopen instead of
+ * going away with the layout that used to supply one. */
 static void test_search_path_forms(void)
 {
-	char err[160];
+	const char *root = "test/.ts-grammar-prefix";
+	char prefix[256], plain[320], subst[320], mixed[640], err[160];
+
+	snprintf(prefix, sizeof(prefix), "%s/tree-sitter-grammar-c", root);
+	snprintf(plain, sizeof(plain), "%s/lib", prefix);
+	if (!make_fixture_dir(root) || !make_fixture_dir(prefix)
+	    || !make_fixture_dir(plain) || !link_c_grammar_into(plain)) {
+		return;
+	}
+	snprintf(subst, sizeof(subst), "%s/tree-sitter-grammar-%%s/lib", root);
 
 	err[0] = '\0';
-	CHECK(kg_ts_grammar_load(
-		  "c", "/opt-9/tree-sitter-grammar-c/lib", err, sizeof(err))
-	    != NULL);
+	CHECKF(kg_ts_grammar_load("c", plain, err, sizeof(err)) != NULL, "%s",
+	    err);
 	err[0] = '\0';
-	CHECK(kg_ts_grammar_load(
-		  "c", "/opt-9/tree-sitter-grammar-%s/lib", err, sizeof(err))
-	    != NULL);
+	CHECKF(kg_ts_grammar_load("c", subst, err, sizeof(err)) != NULL, "%s",
+	    err);
 	/* Misses before the hit are skipped, not fatal, and empty entries
 	 * are not "the current directory". */
+	snprintf(mixed, sizeof(mixed), "/nonexistent::%s", subst);
 	err[0] = '\0';
-	CHECK(kg_ts_grammar_load("c",
-		  "/nonexistent::/opt-9/tree-sitter-grammar-%s/lib", err,
-		  sizeof(err))
-	    != NULL);
+	CHECKF(kg_ts_grammar_load("c", mixed, err, sizeof(err)) != NULL, "%s",
+	    err);
+
+	unlink_c_grammar_from(plain);
+	rmdir(plain);
+	rmdir(prefix);
+	rmdir(root);
 }
 
 /* $KG_TS_GRAMMAR_PATH wins over the compiled-in default when it is set to
  * something non-empty, and the default is what an unset or empty variable
- * means. */
+ * means.  What the default IS is the Makefile's business, so the assertion
+ * is that the same answer comes back, not that it spells any one layout. */
 static void test_env_overrides_search_path(void)
 {
-	char sopath[256];
 	const char *dir = "test/.ts-grammar-env";
+	char dflt[1024];
 	char err[160];
 
-	CHECK(strstr(kg_ts_grammar_search_path(), "%s") != NULL);
+	unsetenv("KG_TS_GRAMMAR_PATH");
+	snprintf(dflt, sizeof(dflt), "%s", kg_ts_grammar_search_path());
+	CHECK(dflt[0] != '\0');
 	setenv("KG_TS_GRAMMAR_PATH", "/somewhere/else", 1);
 	CHECK(strcmp(kg_ts_grammar_search_path(), "/somewhere/else") == 0);
 	setenv("KG_TS_GRAMMAR_PATH", "", 1);
-	CHECK(strstr(kg_ts_grammar_search_path(), "%s") != NULL);
+	CHECK(strcmp(kg_ts_grammar_search_path(), dflt) == 0);
 	unsetenv("KG_TS_GRAMMAR_PATH");
+	CHECK(strcmp(kg_ts_grammar_search_path(), dflt) == 0);
 
-	/* And a directory that is only a grammar because a symlink says so
-	 * loads exactly like the pinned prefix does. */
-	if (mkdir(dir, 0700) != 0 && errno != EEXIST) {
-		CHECKF(0, "cannot make %s: %s", dir, strerror(errno));
-		return;
-	}
-	snprintf(sopath, sizeof(sopath), "%s/libtree-sitter-c.so", dir);
-	unlink(sopath);
-	if (symlink(
-		"/opt-9/tree-sitter-grammar-c/lib/libtree-sitter-c.so", sopath)
-	    != 0) {
-		CHECKF(0, "cannot symlink %s: %s", sopath, strerror(errno));
+	/* And the override is a path the loader really searches. */
+	if (!make_fixture_dir(dir) || !link_c_grammar_into(dir)) {
 		return;
 	}
 	setenv("KG_TS_GRAMMAR_PATH", dir, 1);
@@ -207,7 +297,7 @@ static void test_env_overrides_search_path(void)
 		!= NULL,
 	    "%s", err);
 	unsetenv("KG_TS_GRAMMAR_PATH");
-	unlink(sopath);
+	unlink_c_grammar_from(dir);
 	rmdir(dir);
 }
 
@@ -247,6 +337,7 @@ static void test_registry_queries_compile(void)
 		{ KG_MODE_TYPESCRIPT, "a.ts", "typescript" },
 		{ KG_MODE_JAVA, "A.java", "java" },
 		{ KG_MODE_RUST, "a.rs", "rust" },
+		{ KG_MODE_GO, "a.go", "go" },
 		{ KG_MODE_HTML, "a.html", "html" },
 		{ KG_MODE_LISP, "init.el", "elisp" },
 		{ KG_MODE_MAKEFILE, "Makefile", "make" },
@@ -373,16 +464,21 @@ static void test_query_predicates_are_rejected(void)
 }
 
 /* A mode with no registry row is not an error and costs nothing.  C# and
- * Vue are the deliberate examples, and they are deliberate in a way Shell
- * was not: batch 2 gave Shell a grammar-shaped problem rather than a row
- * (see test_bash_grammar_abi_is_rejected()), and every OTHER mode kg has
- * with no grammar in /opt-9 is a plain-text mode by Refinement decision 4
- * and expected to stay one.  A slice that gives C# a grammar moves this
- * anchor again; that is the intended cost of the anchor being real. */
+ * Vue are the deliberate examples: the install has no grammar for either,
+ * so they are plain-text modes by Refinement decision 4 and expected to
+ * stay ones.  A slice that gives C# a grammar moves this anchor; that is
+ * the intended cost of the anchor being real.
+ *
+ * Shell is here for a different reason.  The install DOES ship a
+ * tree-sitter-bash the loader accepts now (it did not when batch 2 was
+ * written -- see test_grammar_abi_is_rejected()), so Shell is grammarless
+ * only because no row and no query have been written for it yet.  This
+ * line is what the slice that writes them has to change. */
 static void test_unregistered_mode_has_no_language(void)
 {
 	CHECK(kg_ts_language_for_mode(KG_MODE_CSHARP, "a.cs") == NULL);
 	CHECK(kg_ts_language_for_mode(KG_MODE_VUE, "a.vue") == NULL);
+	CHECK(kg_ts_language_for_mode(KG_MODE_SHELL, "a.sh") == NULL);
 	CHECK(kg_ts_language_for_mode(KG_MODE_TEXT, NULL) == NULL);
 	/* The git modes stay grammarless by policy rather than by accident:
 	 * they bind C-c keys that quit the editor, so their behaviour must
@@ -397,35 +493,45 @@ static void test_unregistered_mode_has_no_language(void)
 	    == NULL);
 }
 
-/* Shell, and why it has no row.  /opt-9 does ship a tree-sitter-bash, but
- * it is v0.6.0 -- grammar ABI 6, where this tree-sitter reads 13 to 15 --
- * so the loader refuses it, with the ABI it found and the range it wants in
- * the message.  This is the ABI guard's only real-world case in the tree,
- * and it is worth pinning for two reasons: it says the guard runs against a
- * genuine mismatch rather than only against a hand-made one, and it is what
- * will fail, loudly and here, on the day the /opt-9 pin is refreshed and
- * Shell can finally have a row.
+/* A grammar whose ABI this tree-sitter cannot read is refused, in both
+ * directions, with the ABI it found in the message -- not loaded, not
+ * parsed with, not half-installed.
  *
- * Skipped rather than failed if the .so is not installed: this suite's hard
- * requirement is the C grammar, and an absent bash is the same "no row"
- * answer by a different route. */
-static void test_bash_grammar_abi_is_rejected(void)
+ * The mismatch used to be a real one: the box shipped a tree-sitter-bash of
+ * grammar ABI 6, and this test pointed at it.  Every grammar the current
+ * install ships is in range, so the case the guard exists for is built
+ * instead -- test/fake_ts_grammar.c, compiled by the Makefile into
+ * test/.ts-fake-grammar/ as two .so files reporting ABI 6 and ABI 999.
+ * A manufactured mismatch is a weaker witness than a found one, so the
+ * assertion is on the ABI NUMBER in the message rather than on the word:
+ * that is what says the guard read the version the fixture planted, and a
+ * fixture whose shape the core has outgrown reports something else and
+ * fails here.
+ *
+ * Not skipped when the fixture is missing.  It is built by the same make
+ * invocation that built this binary, so missing means broken, and a guard
+ * that quietly stops running is the failure this whole test is against. */
+static void test_grammar_abi_is_rejected(void)
 {
-	const char *dir = "/opt-9/tree-sitter-grammar-bash/lib";
+	static const struct {
+		const char *grammar;
+		const char *reported;
+	} fakes[] = {
+		{ "kgfakeold", "ABI 6" },
+		{ "kgfakenew", "ABI 999" },
+	};
+	const char *dir = "test/.ts-fake-grammar";
 	char err[160];
-	char sopath[256];
-	FILE *fp;
+	size_t i;
 
-	snprintf(sopath, sizeof(sopath), "%s/libtree-sitter-bash.so", dir);
-	fp = fopen(sopath, "r");
-	if (!fp) {
-		return;
+	for (i = 0; i < sizeof(fakes) / sizeof(fakes[0]); i++) {
+		err[0] = '\0';
+		CHECK(
+		    kg_ts_grammar_load(fakes[i].grammar, dir, err, sizeof(err))
+		    == NULL);
+		CHECKF(strstr(err, fakes[i].reported) != NULL,
+		    "%s: unexpected reason: %s", fakes[i].grammar, err);
 	}
-	fclose(fp);
-	err[0] = '\0';
-	CHECK(kg_ts_grammar_load("bash", dir, err, sizeof(err)) == NULL);
-	CHECKF(strstr(err, "ABI") != NULL, "unexpected reason: %s", err);
-	CHECK(kg_ts_language_for_mode(KG_MODE_SHELL, "a.sh") == NULL);
 }
 
 /* ---- Captures to faces ---- */
@@ -719,9 +825,10 @@ static void test_markdown_list_and_thematic_break(void)
  * query had been written from memory instead of from a probe.  The rest of
  * each language rides the machinery batch 1 already proved.
  *
- * (There is no Shell section.  /opt-9's tree-sitter-bash is v0.6.0, ABI 6,
- * and this tree-sitter reads 13-15; test_bash_grammar_abi_is_rejected()
- * above is what Shell gets until that pin moves.) */
+ * (There is no Shell section, because there is no Shell row.  The
+ * tree-sitter-bash this install ships loads -- the ABI-6 one batch 2 met
+ * does not exist here any more -- so what Shell is waiting on is a row and
+ * a query, not a grammar.) */
 
 /* JavaScript: a template string is NOT one string.  `${n}` is code, so the
  * two backticks and the two fragments around the substitution are painted
@@ -819,6 +926,36 @@ static void test_rust_raw_string(void)
 
 	load_mode("Rust", lines, 1);
 	check_hl(0, "4440000066666666660");
+	teardown();
+}
+
+/* ---- Go ---- */
+
+/* A predeclared TYPE is an ordinary (type_identifier), so `int` is coloured
+ * by being a type and not by being listed; the number and the one comment
+ * node come out beside it. */
+static void test_go_type_number_and_comment(void)
+{
+	static const char *const lines[] = { "var n int = 0xff // c" };
+
+	load_mode("Go", lines, 1);
+	check_hl(0, "444000555000777702222");
+	teardown();
+}
+
+/* The predeclared CONSTANTS are named nodes rather than keyword tokens --
+ * quoting "true" in the query would not compile -- and a rune literal is
+ * its own node, so 'c' is a string span where Go calls it an integer. */
+static void test_go_constants_and_rune(void)
+{
+	static const char *const lines[] = {
+		"const ok = true",
+		"var r = 'c'",
+	};
+
+	load_mode("Go", lines, 2);
+	check_hl(0, "444440000004444");
+	check_hl(1, "44400000666");
 	teardown();
 }
 
@@ -1587,8 +1724,10 @@ static const struct diff_case markdown_cases[] = {
  *               because of what came before them".
  *
  * JavaScript stands in for bash here.  bash was the intended
- * external-scanner-heavy pick, and /opt-9's tree-sitter-bash is too old to
- * load at all (test_bash_grammar_abi_is_rejected()).
+ * external-scanner-heavy pick, and the tree-sitter-bash on the box was too
+ * old to load at all when these fixtures were written.  The install has
+ * since moved on and bash loads, so this is now a fixture the Shell slice
+ * may take over rather than a substitution it has to keep.
  *
  * TypeScript/TSX, Java and Makefile ride the same machinery with no
  * fixture of their own, which is the arrangement batch 1 established: a
@@ -2249,7 +2388,7 @@ int main(void)
 	RUN(test_typescript_variant_selection);
 	RUN(test_query_predicates_are_rejected);
 	RUN(test_unregistered_mode_has_no_language);
-	RUN(test_bash_grammar_abi_is_rejected);
+	RUN(test_grammar_abi_is_rejected);
 	RUN(test_declaration_number_and_comment);
 	RUN(test_string_literals);
 	RUN(test_multiline_block_comment);
@@ -2274,6 +2413,8 @@ int main(void)
 	RUN(test_rust_lifetime_is_not_a_char);
 	RUN(test_rust_attributes);
 	RUN(test_rust_raw_string);
+	RUN(test_go_type_number_and_comment);
+	RUN(test_go_constants_and_rune);
 	RUN(test_html_tag_attribute_and_value);
 	RUN(test_html_unquoted_value_and_comment);
 	RUN(test_html_script_content_is_plain);

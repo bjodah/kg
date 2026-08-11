@@ -7,7 +7,7 @@
  *
  * Nothing here is linked at build time.  Grammars are shared objects
  * resolved at run time through a search path, which is Emacs' model and
- * the reason kg can use the very same /opt-9 installs Emacs does
+ * the reason kg can use the very same installs Emacs does
  * (doc/plans/kg-tree-sitter-plan.md, Refinement decision 1).  A grammar
  * that is not installed, speaks an ABI this tree-sitter cannot read, or
  * carries a query that will not compile is not an error: that mode is
@@ -30,7 +30,7 @@
  * The Makefile passes the developer box's layout; the fallback here keeps
  * the file compilable on its own. */
 #ifndef KG_TS_GRAMMAR_DEFAULT_PATH
-#define KG_TS_GRAMMAR_DEFAULT_PATH "/opt-9/tree-sitter-grammar-%s/lib"
+#define KG_TS_GRAMMAR_DEFAULT_PATH "/opt-2/tree-sitter-v0.26.12-release/lib"
 #endif
 
 /* Longest search-path entry and longest resolved .so path this loader will
@@ -330,6 +330,40 @@ static const char JAVA_HIGHLIGHT_QUERY[]
       "(class_declaration name: (identifier) @type)\n"
       "(method_declaration name: (identifier) @type)\n";
 
+/* Go.  One comment node, not two: the grammar spells a line comment and a
+ * block one with the same (comment), so there is nothing to list twice.
+ *
+ * The predeclared constants are NAMED nodes ((true), (false), (nil),
+ * (iota)) rather than anonymous keyword tokens, which is the Rust lesson
+ * again -- they are identifiers as far as the language is concerned, and
+ * quoting them does not compile.  A predeclared TYPE is not a node at all:
+ * `int` and `string` are ordinary (type_identifier)s, so they are coloured
+ * by being types rather than by being listed, and a program that shadows
+ * one still reads correctly.
+ *
+ * The three string spellings are three nodes: (interpreted_string_literal)
+ * for "...", (raw_string_literal) for a backquoted one, and (rune_literal)
+ * for 'x' -- which is an integer in Go but is written and read as a
+ * character literal. */
+static const char GO_HIGHLIGHT_QUERY[]
+    = "(comment) @comment\n"
+      "(interpreted_string_literal) @string\n"
+      "(raw_string_literal) @string\n"
+      "(rune_literal) @string\n"
+      "[ (int_literal) (float_literal) (imaginary_literal) ] @number\n"
+      "[\n"
+      "  \"break\" \"case\" \"chan\" \"const\" \"continue\" \"default\"\n"
+      "  \"defer\" \"else\" \"fallthrough\" \"for\" \"func\" \"go\"\n"
+      "  \"goto\" \"if\" \"import\" \"interface\" \"map\" \"package\"\n"
+      "  \"range\" \"return\" \"select\" \"struct\" \"switch\" \"type\"\n"
+      "  \"var\"\n"
+      "] @keyword\n"
+      "[ (true) (false) (nil) (iota) ] @keyword\n"
+      "[ (type_identifier) (package_identifier) ] @type\n"
+      "(function_declaration name: (identifier) @type)\n"
+      "(method_declaration name: (field_identifier) @type)\n"
+      "(call_expression function: (identifier) @type)\n";
+
 /* Rust.  Two node names here are the ones worth having probed.
  *
  * A LIFETIME is not a character literal.  `'a` is (lifetime (identifier))
@@ -506,8 +540,8 @@ static const struct {
  *
  * The `grammar` column is the soname stem, so the row also picks WHICH
  * grammar of a family is loaded.  "markdown" is the block grammar; the
- * companion "markdown-inline" install is a separate prefix and a separate
- * soname, and kg does not load it -- inline highlighting inside a
+ * companion "markdown-inline" grammar is a separate soname sitting beside
+ * it, and kg does not load it -- inline highlighting inside a
  * paragraph is language injection, which is out of v1 (Refinement
  * decision 4).  A future injection slice adds a second row shape, not a
  * second name in this one.
@@ -523,19 +557,20 @@ static const struct {
  * javascript grammar parses JSX, so it should not.
  *
  * Two kg modes that a reader will look for are deliberately absent.
- * SHELL has no row because /opt-9's tree-sitter-bash is v0.6.0, grammar
- * ABI 6, and this tree-sitter reads 13-15 -- the loader would reject it,
- * correctly, and the row would buy a status-line message instead of
- * colours.  The remaining modes (C#, PHP, Ruby, Swift, SQL, Dart, Vue,
- * Angular, Svelte) have no grammar in /opt-9 and are plain text by
- * Refinement decision 4; Git commit and Git rebase stay grammarless by
- * policy, because their C-c keys quit the editor and must never depend on
- * a third-party parser.
+ * SHELL has no row yet: the box's tree-sitter-bash was grammar ABI 6 when
+ * batch 2 was written, below the 13-15 this tree-sitter reads, so a row
+ * would have bought a status-line message instead of colours.  The install
+ * has since moved to a bash the loader accepts, and what is missing now is
+ * the row and its query (doc/TODO.md, "Tree-sitter follow-ups").  The
+ * remaining modes (C#, PHP, Ruby, Swift, SQL, Dart, Vue, Angular, Svelte)
+ * have no grammar installed and are plain text by Refinement decision 4;
+ * Git commit and Git rebase stay grammarless by policy, because their C-c
+ * keys quit the editor and must never depend on a third-party parser.
  *
- * The grammars these rows name are pinned by the /opt-9 environment rather
- * than by kg: c v0.24.2, python v0.25.0, yaml v0.7.2, markdown v0.5.3,
- * javascript v0.25.0, typescript + tsx v0.23.2, java v0.23.5, rust
- * v0.24.2, html v0.23.2, elisp 1.6.1, make v1.1.1
+ * The grammars these rows name are versioned by the install
+ * TREE_SITTER_PREFIX points at, not by kg, so nothing here depends on
+ * which release is in it: test_registry_queries_compile() is what says the
+ * installed set still answers to these queries
  * (doc/plans/kg-tree-sitter-plan.md, "Grammar manifest"). */
 static struct kg_ts_language ts_registry[] = {
 	{ KG_MODE_C, NULL, "c", C_HIGHLIGHT_QUERY, KG_TS_LANG_UNTRIED, NULL,
@@ -558,6 +593,8 @@ static struct kg_ts_language ts_registry[] = {
 	    NULL, NULL, 0, { 0 }, { 0 } },
 	{ KG_MODE_RUST, NULL, "rust", RUST_HIGHLIGHT_QUERY, KG_TS_LANG_UNTRIED,
 	    NULL, NULL, 0, { 0 }, { 0 } },
+	{ KG_MODE_GO, NULL, "go", GO_HIGHLIGHT_QUERY, KG_TS_LANG_UNTRIED, NULL,
+	    NULL, 0, { 0 }, { 0 } },
 	{ KG_MODE_HTML, NULL, "html", HTML_HIGHLIGHT_QUERY, KG_TS_LANG_UNTRIED,
 	    NULL, NULL, 0, { 0 }, { 0 } },
 	{ KG_MODE_LISP, NULL, "elisp", ELISP_HIGHLIGHT_QUERY,
@@ -626,9 +663,10 @@ static int path_next_entry(const char **cursor, char *buf, size_t bufsz)
 
 /* Turn one search-path entry into the .so path to try.  An entry
  * containing "%s" has the grammar name substituted (once, at the first
- * occurrence) -- that is what makes /opt-9's one-prefix-per-grammar layout
+ * occurrence) -- that is what makes a one-prefix-per-grammar install
  * expressible as a single entry; an entry without one is an ordinary
- * directory.  Either way the file name is Emacs' soname,
+ * directory, which is what a flat install needs.  Either way the file name
+ * is Emacs' soname,
  * libtree-sitter-<grammar>.so.  0 when the result would not fit. */
 static int grammar_so_path(
     char *out, size_t outsz, const char *entry, const char *grammar)

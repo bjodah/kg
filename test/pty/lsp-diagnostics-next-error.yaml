@@ -1,0 +1,50 @@
+name: lsp-diagnostics-next-error
+# Showing the listing makes it the next-error source (Emacs'
+# next-error-last-buffer), so M-g M-n walks the diagnostics themselves
+# rather than a compilation's or an occur's -- and it walks them in file
+# and position order, which is the order the listing prints.
+#
+# Point never leaves the source window: the listing is displayed in the
+# other one without being selected, exactly as occur's is.  Each stop is
+# therefore proved the only way a results buffer can be, by editing at
+# point afterwards, so the saved file spells out the whole walk: X at the
+# error's own column on line 1 (character 4, the "t" of target) and Y at
+# the warning's on line 2 (character 23, the "t" of the call).  A visit
+# that landed at the start of the line, or that decoded the column
+# against the wrong row, moves the letter.
+#
+# The two `M-x lsp-diagnostics` are the same shape as
+# test/pty/lsp-diagnostics-listing.yaml's: the first sends the didOpen the
+# publish answers, the second lists what arrived and takes the keys.
+#
+# M-g M-n rather than M-g n on purpose: the Meta spelling of the second
+# key is a binding worth covering.
+requires_feature: lsp
+backend: tmux
+dimensions: [24, 80]
+key_delay: 0.35
+env:
+  KG_LSP_SERVER_C: "python3 {REPO}/test/fake_lsp_server.py --mode protocol --publish-diagnostic '0:4:1:cannot find target' --publish-diagnostic '1:23:2:unused result'"
+filename: walk.c
+initial: |
+  int target(void) { return 1; }
+  int use(void) { return target(); }
+keys:
+  - "M-x"
+  - "lsp-diagnostics"
+  - "RET"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "M-x"
+  - "lsp-diagnostics"
+  - "RET"
+  - "M-g"
+  - "M-n"
+  - "X"
+  - "M-g"
+  - "M-n"
+  - "Y"
+expected_saved: |
+  int Xtarget(void) { return 1; }
+  int use(void) { return Ytarget(); }

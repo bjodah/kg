@@ -66,7 +66,13 @@ SCRIPT = """
 ;; would come back as something else, or as garbage, long before the
 ;; loop ends.  Made outside the loop on purpose: this lane's cost is
 ;; per collection, and creating a binding once adds nothing per
-;; iteration.
+;; iteration.  Phase 18's follow-up added the `let' over one of them
+;; that is LEFT in the other buffer, on the periodic branch for the same
+;; cost reason.  Its restore does not go through the value cell: it goes
+;; to the stash of the buffer the binding displaced, chosen by a tag fe
+;; carried across the form.  It reports nothing new, and that is the
+;; point -- the two buffer-local values at the end of the list are what
+;; a restore landing in the wrong buffer would change.
 (defvar gcprobe-local 'the-default)
 (setq gcprobe-one (get-buffer-create "gc-stress-one"))
 (setq gcprobe-two (get-buffer-create "gc-stress-two"))
@@ -84,6 +90,10 @@ SCRIPT = """
   (if (= n (* 20 (/ n 20)))
       (progn (put 'gcprobe (intern "p") n)
              (setq kept (cons (get 'gcprobe 'p) kept))
+             (with-current-buffer gcprobe-one
+               (let ((gcprobe-local (list 'let n)))
+                 (set-buffer gcprobe-two)
+                 gcprobe-local))
              (sort (list 3 1 2) '<)
              (setq shaped
                    (cons (string-join

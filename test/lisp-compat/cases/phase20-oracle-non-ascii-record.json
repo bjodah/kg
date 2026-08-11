@@ -1,0 +1,6 @@
+{
+ "id": "phase20-oracle-non-ascii-record",
+ "setup": [],
+ "expr": "(list (concat \"caf\" (char-to-string 233)) (substring (concat \"caf\" (char-to-string 233)) 3) (length (concat \"caf\" (char-to-string 233))))",
+ "note": "Phase 20: the first case in either corpus whose RECORD carries a multibyte character. It could not exist before, because the oracle shim handed `json-serialize''s unibyte UTF-8 bytes to `princ', which put them through stdout's coding system a second time and wrote Emacs' internal representation of each raw byte -- a snapshot that is not decodable UTF-8. The shim writes the bytes verbatim now. The expression is built with `char-to-string' so the case FILE stays ASCII, which is a separate and deliberate choice; what is being pinned here is the record."
+}

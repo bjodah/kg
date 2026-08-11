@@ -4987,6 +4987,125 @@ static void test_phase14_excursion_hygiene(void)
 	teardown_editor();
 }
 
+/* The rest of that sweep, over the prelude's FUNCTION temporaries.
+ *
+ * Since Phase 11 a `let` over a `defvar`'d name binds dynamically, so any
+ * prelude temporary still bound while USER code runs is a two-way
+ * capture: the callback's assignment lands on the prelude's accumulator
+ * and the prelude's accumulator is what the user's variable reads back.
+ * The measured `before` for each line is in the comment beside it; the
+ * fix is that these temporaries are lambda PARAMETERS now, which fe binds
+ * lexically unconditionally.  Seven of these are also compat cases
+ * (prelude-hygiene-*), pinned against the oracle; what is here is the
+ * whole battery plus the halves a compat case cannot ask -- the
+ * LOADER's, which needs a file on disk.
+ *
+ * Every `defvar` below is the trap: the case is only meaningful because
+ * the name it marks special is the one the prelude used to bind. */
+static void test_prelude_temporary_hygiene(void)
+{
+	char loaded[] = "/tmp/kg-hygiene-load-XXXXXX";
+	char form[512];
+
+	CHECK(write_temp_lisp(
+	    loaded, "(setq h 'SET-BY-LOADED-FILE)\n(setq cell 'ALSO-SET)\n"));
+
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	/* Higher-order functions.  Before: (wrong-type-argument listp 3) --
+	 * the callback had replaced the half-built list with an integer. */
+	CHECK(eval_eq("(progn (defvar res 0) (list "
+		      "(mapcar (lambda (x) (setq res x) x) (list 1 2 3)) res))",
+	    "((1 2 3) 3)"));
+	/* Before: (3 0) -- `mapc` answered its own temporary, not the list. */
+	CHECK(eval_eq("(progn (defvar original 0) (list "
+		      "(mapc (lambda (x) (setq original x)) (list 1 2 3)) "
+		      "original))",
+	    "((1 2 3) 3)"));
+	/* Before: ("ab" 0) -- the first-iteration flag stayed truthy, so the
+	 * separator was never emitted. */
+	CHECK(eval_eq("(progn (defvar first 0) (list "
+		      "(mapconcat (lambda (x) (setq first x) x) "
+		      "(list \"a\" \"b\") \"-\") first))",
+	    "(\"a-b\" \"b\")"));
+	/* mapconcat holds two; the accumulator is the other.  Before:
+	 * ("a-b" 0) -- the string was right and the user's variable lost. */
+	CHECK(eval_eq("(progn (defvar result 0) (list "
+		      "(mapconcat (lambda (x) (setq result x) x) "
+		      "(list \"a\" \"b\") \"-\") result))",
+	    "(\"a-b\" \"b\")"));
+	/* A function REP holds five.  `limit` and `mb` raised
+	 * (wrong-type-argument number-or-marker-p "b"); `start` and `out`
+	 * answered ("aXc" 0), losing only the user's variable. */
+	CHECK(eval_eq("(progn (defvar limit 0) (list "
+		      "(replace-regexp-in-string \"b\" "
+		      "(lambda (m) (setq limit m) \"X\") \"abc\") limit))",
+	    "(\"aXc\" \"b\")"));
+	CHECK(eval_eq("(progn (defvar mb 0) (list "
+		      "(replace-regexp-in-string \"b\" "
+		      "(lambda (m) (setq mb m) \"X\") \"abc\") mb))",
+	    "(\"aXc\" \"b\")"));
+	/* kg's `sort` is a Lisp merge sort, so the predicate runs inside
+	 * `internal--merge`'s accumulator.  Before: (wrong-type-argument
+	 * listp 3) for `out`, and ((1 2 3) 0) for `sort`'s own `runs`. */
+	CHECK(eval_eq("(progn (defvar out 0) (list "
+		      "(sort (list 3 1 2) (lambda (a b) (setq out a) (< a b))) "
+		      "out))",
+	    "((1 2 3) 2)"));
+	CHECK(eval_eq("(progn (defvar runs 0) (list "
+		      "(sort (list 3 1 2) (lambda (a b) (setq runs a) (< a b)))"
+		      " runs))",
+	    "((1 2 3) 2)"));
+	/* The seq- shim is ordinary prelude Lisp, so all three of these ran
+	 * their predicate inside a capturable accumulator. */
+	CHECK(eval_eq("(progn (defvar out2 0) (list "
+		      "(seq-filter (lambda (x) (setq out2 x) t) (list 1 2 3)) "
+		      "out2))",
+	    "((1 2 3) 3)"));
+	CHECK(eval_eq("(progn (defvar found 0) (list "
+		      "(seq-find (lambda (x) (setq found x) (= x 2)) "
+		      "(list 1 2 3)) found))",
+	    "(2 2)"));
+	CHECK(eval_eq("(progn (defvar hit 0) (list "
+		      "(seq-some (lambda (x) (setq hit x) nil) (list 1 2 3)) "
+		      "hit))",
+	    "(nil 3)"));
+
+	/* The macro half: `dotimes` expands into `internal--dotimes`, whose
+	 * counter was held across the `funcall` of the body.  Before, the
+	 * body and the loop shared one binding, each iteration incremented
+	 * it twice, and the user's counter answered 0. */
+	CHECK(eval_eq(
+	    "(progn (defvar i 0) (dotimes (k 3) (setq i (+ i 1))) i)", "3"));
+
+	/* Not a callback at all: `add-to-list` takes the NAME of a variable,
+	 * and its temporary had the shape of one.  Before: (9) -- the `set`
+	 * wrote the shadow the function's own binding had just made, and
+	 * nothing said so. */
+	CHECK(eval_eq("(progn (defvar current (list 9)) "
+		      "(add-to-list 'current 1) current)",
+	    "(1 9)"));
+
+	/* THE LOADER, which no compat case can ask: `internal--load-loop`
+	 * holds its stream handle and its form cell across the `eval` of
+	 * every form in the file it is reading.  Before, with `h` and `cell`
+	 * marked special, the loaded file's own `setq h` replaced the stream
+	 * handle and the next `internal--read-form` raised
+	 * wrong-type-argument -- so a file could not even define a variable
+	 * of that name.  Both names reach the user's binding now, and the
+	 * load completes. */
+	(void)snprintf(form, sizeof(form),
+	    "(progn (defvar h 'INIT) (defvar cell 'INIT) (load \"%s\") "
+	    "(list h cell))",
+	    loaded);
+	CHECK(eval_eq(form, "(SET-BY-LOADED-FILE ALSO-SET)"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+	(void)unlink(loaded);
+}
+
 /* ---- Phase 15: the package-writer's string and list library ---------
  *
  * Every expectation below was measured against the pinned oracle Emacs
@@ -5176,10 +5295,16 @@ static void test_phase15_string_library(void)
 		      "(string-suffix-p \"BC\" \"abc\" t))",
 	    "(t nil t)"));
 
+	/* `string<' and `string>' are fe primitives since Phase 20 and were
+	 * prelude Lisp before it; the answers are unchanged and this is
+	 * where kg asks for them through its own stack. */
 	CHECK(eval_eq("(list (string< \"a\" \"b\") (string< \"a\" \"a\") "
 		      "(string< \"ab\" \"a\") (string< \"A\" \"a\") "
 		      "(string< 'abc \"abd\"))",
 	    "(t nil nil t t)"));
+	CHECK(eval_eq("(list (string> \"b\" \"a\") (string> \"a\" \"b\") "
+		      "(string> 'b 'a))",
+	    "(t nil t)"));
 	/* Codepoints, not bytes: a multi-byte character sorts above every
 	 * ASCII one because its first byte does. */
 	CHECK(eval_eq("(string< \"z\" \"\xc3\xa9\")", "t"));
@@ -5556,14 +5681,20 @@ static void test_quit_uncaught(void)
  * (move-beginning-of-line, move-end-of-line), +40 for Phase 15's string
  * and list library, +3 for Phase 17's with-temp-buffer and the
  * beginning-of-buffer/end-of-buffer pair, +1 for Phase 19's
- * internal--defined-names. */
-#define PRELUDE_DEFS 127
+ * internal--defined-names, and net +1 at Phase 20 (-1 for `string<',
+ * which became an fe primitive, +2 for `documentation-property' and its
+ * `internal--variable-doc-put' helper). */
+#define PRELUDE_DEFS 128
 
 static void test_prelude_source_file(void)
 {
 	static char names[PRELUDE_DEFS][64];
 	static char types[PRELUDE_DEFS][16];
-	static char text[65536];
+	/* Two things bound this: the file has to fit whole (the CHECK
+	 * below), and it is `static' rather than automatic because a
+	 * 128 KiB frame is not something to put on the C stack.  The
+	 * prelude passed 64 KiB at Phase 20; it is 74 KiB there. */
+	static char text[131072];
 	const char *paths[] = { "lisp/prelude.el", "../lisp/prelude.el" };
 	FILE *fp = nullptr;
 	size_t len = 0, count = 0, i, let_index = PRELUDE_DEFS;
@@ -5920,23 +6051,40 @@ static void test_phase8_library(void)
 	 * test_perf.c's prelude case makes: after the whole prelude and
 	 * every form above it, more than half the arena is still free and
 	 * the high-water mark is a small fraction of it.  Re-measured on this
-	 * build via kg_lisp_arena_stats() at the Phase 19 pin:
-	 * 56259 object slots (56239 at the Phase 14 pin, 56225 at the Phase 12
-	 * pin, 56226 at the Phase 11 fix cycle's pin, 56224 at the Phase 10
-	 * pin, 56222 before that -- the frame record fe's dynamic-binding work
-	 * grew costs one frame slot, frame_capacity 1096 -> 1095, and returns
-	 * two object slots; Phase 12's fe additions take one object slot back
-	 * and no frame slot; Phase 14's grow FeMinimumArenaSize by 2264 bytes,
-	 * which moves two frame slots' worth of bytes to the object side, 1095
+	 * build via kg_lisp_arena_stats() at the let-binding-buffer-tag pin:
+	 * 56147 object slots (56263 at the Phase 20 pin, 56259 at the Phase
+	 * 19 pin, 56239 at the Phase 14
+	 * pin, 56225 at the Phase 12 pin, 56226 at the Phase 11 fix cycle's
+	 * pin, 56224 at the Phase 10 pin, 56222 before that -- the frame record
+	 * fe's dynamic-binding work grew costs one frame slot, frame_capacity
+	 * 1096 -> 1095, and returns two object slots; Phase 12's fe additions
+	 * take one object slot back and no frame slot; Phase 14's grow
+	 * FeMinimumArenaSize by 2264 bytes, which moves two frame slots' worth
+	 * of bytes to the object side, 1095
 	 * -> 1093 frames and +14 objects; Phase 19's seeded `error-message'
 	 * properties grow it by 3248 more, moving three more frame slots'
-	 * worth across, 1093 -> 1090 frames and +20 objects),
-	 * peak_live 9887 after the prelude alone
-	 * (6205 at the Phase 14 pin, 5301 at the Phase 12 pin, 5295 at the
-	 * Phase 11 fix cycle's pin, 5210 at the Phase 10 pin, 5188 at
-	 * Phase 9's), and 12984 at this point in this function, after every
-	 * Phase 8 form above -- 23.1% of the arena for everything kg ships
-	 * plus this test's own corpus.  Both figures were re-measured here
+	 * worth across, 1093 -> 1090 frames and +20 objects; Phase 20's two
+	 * string primitives and two condition rows grow it by 608, one more
+	 * frame slot's worth, 1090 -> 1089 frames and +4 objects; and the
+	 * let-binding-buffer-tag pin's per-cleanup-entry host tag grows it by
+	 * 2064, which the FRAME side pays for this time, 1089 -> 1087 frames
+	 * and -116 objects),
+	 * peak_live 11339 after the prelude alone
+	 * (11281 at the merge that opened Phase 20, 6205 at the Phase 14
+	 * pin, 5301 at the Phase 12 pin, 5295 at the Phase 11 fix cycle's
+	 * pin, 5210 at the Phase 10 pin, 5188 at Phase 9's -- the 9887 this
+	 * comment carried for the Phase 19 pin measures 11281 on the merged
+	 * tree, so most of that gap is the LSP/occur/xref wave's own natives
+	 * and prelude and not this phase's 54), and 14776 at this point in
+	 * this function, after every
+	 * Phase 8 form above -- 26.3% of the arena for everything kg ships
+	 * plus this test's own corpus.  That second figure and the one the
+	 * `peak_live * 3` comment below carries are the SAME quantity read
+	 * from the same `after`; they had drifted apart (12984 here against
+	 * 14579 there at the Phase 19 pin) because they were measured at
+	 * different times, and Phase 20 measured them once.
+	 *
+	 * Both figures were re-measured here
 	 * at the Phase 19 pin by instrumenting these two lines, and both had
 	 * gone stale: Phases 15-18 grew the prelude by the string and list
 	 * library, the seq shim and the buffer-local forms without
@@ -5977,8 +6125,11 @@ static void test_phase8_library(void)
 	 * now carries a docstring for each of its 102 public definitions,
 	 * which is 5527 bytes of text and +1341 objects, and the figure
 	 * this line bounds -- the high-water mark after the prelude AND
-	 * every form this function evaluated above -- measures 14579 of
-	 * 56259 (25.9%) where it measured 13238 of 56239 (23.5%).  The
+	 * every form this function evaluated above -- measures 14817 of
+	 * 56147 (26.4%) at the let-binding-buffer-tag pin, where it measured
+	 * 14776 of 56263 (26.3%) at Phase 20's, 14579 of
+	 * 56259 (25.9%) at Phase 19's and 13238 of 56239 (23.5%) before
+	 * that.  The
 	 * claim being made is margin, and a third of a fixed arena for
 	 * everything kg ships plus this file's corpus is still margin;
 	 * what would not be is a bound nobody re-measured. */
@@ -6080,10 +6231,13 @@ static void test_save_excursion_pool_bound(void)
 
 	/* 5. Nesting is what the pool USED to bound, and since sub-plan 12D
 	 * Part 3 it does not.  Re-measured on this tree at
-	 * LISP_MAX_OBJECTS 256: 218 nested excursions answer `deep' and the
-	 * 219th raises "evaluation frame limit exceeded" -- fe's frame
+	 * LISP_MAX_OBJECTS 256: 217 nested excursions answer `deep' and the
+	 * 218th raises "evaluation frame limit exceeded" -- fe's frame
 	 * limit, the same ceiling `with-current-buffer' has had all along
-	 * (155 deep, 156 raising, unchanged by this).  At 64 the pool was
+	 * (155 deep, 156 raising, unchanged by this).  It was 218/219 until
+	 * the arena's frame partition fell 1089 -> 1087 at the
+	 * let-binding-buffer-tag pin, which is what a ceiling measured
+	 * rather than chosen does.  At 64 the pool was
 	 * the binding constraint and the 65th nested form raised.  Five
 	 * deep in the assertion, because a 218-form C string literal tests
 	 * nothing this does not; the ceiling itself is the measurement, and
@@ -6204,13 +6358,27 @@ static void test_phase17_char_motion(void)
 	/* A negative count reverses each of them. */
 	CHECK(eval_eq("(progn (goto-char 1) (backward-char -3) (point))", "4"));
 
-	/* The recorded divergence: kg clamps where Emacs signals, and does
-	 * so at both ends. */
-	CHECK(eval_eq("(progn (goto-char 1) (list (forward-char 900) (point)))",
+	/* Emacs' answer since Phase 20, where kg clamped silently before:
+	 * point moves as far as it can and the count that could not be
+	 * spent signals the end it ran into, with no data.  Landing exactly
+	 * on an end is not a signal, which the (forward-char 2) case above
+	 * and the two here bracket. */
+	CHECK(eval_eq("(progn (goto-char 1) (list (condition-case e "
+		      "(forward-char 900) (error e)) (point)))",
+	    "((end-of-buffer) 7)"));
+	CHECK(eval_eq("(progn (goto-char 7) (list (condition-case e "
+		      "(backward-char 900) (error e)) (point)))",
+	    "((beginning-of-buffer) 1)"));
+	CHECK(eval_eq("(progn (goto-char 1) (list (condition-case e "
+		      "(forward-char 6) (error e)) (point)))",
 	    "(nil 7)"));
-	CHECK(
-	    eval_eq("(progn (goto-char 7) (list (backward-char 900) (point)))",
-		"(nil 1)"));
+	/* An `error' handler catches either, both being children of
+	 * `error' in fe's hierarchy as they are in Emacs', and neither
+	 * catches the other. */
+	CHECK(eval_eq("(progn (goto-char 1) (condition-case nil "
+		      "(forward-char 900) (beginning-of-buffer 'bob) "
+		      "(end-of-buffer 'eob)))",
+	    "eob"));
 
 	kg_lisp_shutdown();
 	teardown_editor();
@@ -6297,6 +6465,19 @@ static void test_phase17_buffer_edits(void)
 	CHECK(eval_eq("(progn (goto-char 3) (delete-char -2)"
 		      " (buffer-substring (point-min) (point-max)))",
 	    "f\nghi"));
+	/* A count the buffer is too short for signals the end it ran into
+	 * and deletes NOTHING, which is Emacs' answer and the one this
+	 * family clamped away until Phase 20 -- the only member of it whose
+	 * clamp cost a user text. */
+	CHECK(eval_eq("(progn (goto-char 1) (list (condition-case e "
+		      "(delete-char 99) (error e)) "
+		      "(buffer-substring (point-min) (point-max)) (point)))",
+	    "((end-of-buffer) \"f\nghi\" 1)"));
+	CHECK(eval_eq("(progn (goto-char 3) (list (condition-case e "
+		      "(delete-char -99) (error e)) "
+		      "(buffer-substring (point-min) (point-max)) (point)))",
+	    "((beginning-of-buffer) \"f\nghi\" 3)"));
+
 	/* erase-buffer empties it and leaves point at the only position. */
 	CHECK(eval_eq(
 	    "(progn (erase-buffer) (list (point) (point-max)))", "(1 1)"));
@@ -6354,6 +6535,67 @@ static void test_phase17_buffer_status(void)
  * dropping, that a killed buffer's binding is reclaimed rather than
  * leaked, and that the swap survives being asked for the same buffer
  * repeatedly. */
+/* Phase 20: a variable's docstring on the symbol's plist, where Emacs
+ * keeps one and where `documentation-property' reads it back. */
+static void test_phase20_variable_documentation(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	/* `defvar', `defconst' and `defcustom' (which expands to `defvar')
+	 * all put; an undocumented `defvar' puts nothing, so the property
+	 * stays unset rather than becoming nil. */
+	CHECK(eval_eq("(progn (defvar p20a 1 \"A docstring.\") "
+		      "(get 'p20a 'variable-documentation))",
+	    "A docstring."));
+	CHECK(eval_eq("(progn (defvar p20b 2) "
+		      "(get 'p20b 'variable-documentation))",
+	    "nil"));
+	CHECK(eval_eq("(progn (defconst p20c 3 \"A const docstring.\") "
+		      "(get 'p20c 'variable-documentation))",
+	    "A const docstring."));
+	CHECK(eval_eq("(progn (defcustom p20d 4 \"A custom docstring.\" "
+		      ":type 'integer) (get 'p20d 'variable-documentation))",
+	    "A custom docstring."));
+	/* Emacs' re-`defvar' rule, both halves: the VALUE is left alone and
+	 * the DOCSTRING is replaced. */
+	CHECK(eval_eq("(progn (defvar p20e 1 \"first\") "
+		      "(defvar p20e 2 \"second\") "
+		      "(list p20e (get 'p20e 'variable-documentation)))",
+	    "(1 \"second\")"));
+
+	/* `documentation-property' answers a string property and nothing
+	 * else: nil for a property that is not a string (Emacs' own answer
+	 * for an integer, which indexes a DOC file kg does not have), nil
+	 * for one nobody set, and nil for nil, which owns no plist. */
+	CHECK(eval_eq("(documentation-property 'p20a 'variable-documentation)",
+	    "A docstring."));
+	CHECK(eval_eq("(progn (put 'p20f 'kg-probe 5) "
+		      "(documentation-property 'p20f 'kg-probe))",
+	    "nil"));
+	CHECK(eval_eq("(documentation-property 'p20f 'kg-never-set)", "nil"));
+	CHECK(eval_eq(
+	    "(documentation-property nil 'variable-documentation)", "nil"));
+	/* RAW is accepted and ignored. */
+	CHECK(
+	    eval_eq("(documentation-property 'p20a 'variable-documentation t)",
+		"A docstring."));
+	/* A non-symbol is `get''s own wrong-type-argument, not a nil --
+	   Emacs' answer too, `(wrong-type-argument symbolp "str")'. */
+	CHECK(eval_eq("(condition-case e (documentation-property \"str\" "
+		      "'variable-documentation) (error e))",
+	    "(wrong-type-argument symbolp \"str\")"));
+	/* A program can put its own over one, which is the reason the
+	 * docstring lives on the plist rather than only in kg's registry. */
+	CHECK(eval_eq("(progn (put 'p20a 'variable-documentation \"Mine.\") "
+		      "(documentation-property 'p20a "
+		      "'variable-documentation))",
+	    "Mine."));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
 static void test_phase18_buffer_locals(void)
 {
 	setup_editor();
@@ -6413,6 +6655,86 @@ static void test_phase18_buffer_locals(void)
 	    "   (internal--set-buffer-local (intern (format \"p18n%d\" i)) i)"
 	    "   (setq i (1+ i)))))",
 	    "too many buffer-local variables"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+/* The buffer tag a `let' over a buffer-local name carries (Phase 18's
+ * follow-up, fe FE_API_VERSION 11).  The five *values* this produces are
+ * pinned against the oracle in test/lisp-compat -- the
+ * lettag-let-binding-buffer-tag row -- so what is here is the half a
+ * compat case cannot reach: the tag's own lifetime rules, and the two
+ * shapes that must NOT be tagged at all. */
+static void test_let_binding_buffer_tag(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	/* A `let' over a name with no buffer-local binding anywhere is
+	 * tagged with nothing and restores into the value cell, which is
+	 * the state every session that never says `setq-local' stays in.
+	 * Asserted first because it is the one this seam must not have
+	 * changed. */
+	CHECK(eval_eq("(progn (defvar plt1 'D) (let ((plt1 'L)) plt1))", "L"));
+	CHECK(eval_eq("plt1", "D"));
+
+	/* A lambda parameter named after a special is bound LEXICALLY and
+	 * pushes no dynamic binding, so it reaches no tag either: the
+	 * buffer-local binding underneath is untouched by the call. */
+	CHECK(eval_eq("(with-current-buffer (get-buffer-create \"tag-one\")"
+		      " (setq-local plt1 'A)"
+		      " (list ((lambda (plt1) plt1) 'ARG) plt1))",
+	    "(ARG A)"));
+
+	/* A stamp is not reused: the binding this `let' displaced is killed
+	 * inside the form and a DIFFERENT variable takes the table slot, so
+	 * a tag matched by index rather than by identity would restore the
+	 * old value into the new binding.  It must be dropped instead. */
+	CHECK(eval_eq("(with-current-buffer (get-buffer \"tag-one\")"
+		      " (let ((plt1 'L))"
+		      "  (kill-local-variable 'plt1)"
+		      "  (setq-local plt2 'FRESH))"
+		      " (list plt1 (local-variable-p 'plt1) plt2))",
+	    "(D nil FRESH)"));
+
+	/* The buffer a live binding named is killed while another buffer is
+	 * current: the restore has nowhere to land and drops the value
+	 * rather than writing it into whatever is in force.  Emacs' own
+	 * answer -- its unbind consults `local-variable-p SYM WHERE', and a
+	 * killed buffer has no local variables. */
+	CHECK(eval_eq("(progn (defvar plt3 'D)"
+		      " (with-current-buffer (get-buffer-create \"tag-two\")"
+		      "  (setq-local plt3 'A))"
+		      " (get-buffer-create \"tag-three\")"
+		      " (with-current-buffer (get-buffer \"tag-two\")"
+		      "  (let ((plt3 'L))"
+		      "   (set-buffer (get-buffer \"tag-three\"))"
+		      "   (kill-buffer (get-buffer \"tag-two\"))))"
+		      " (list (default-value 'plt3)"
+		      "  (with-current-buffer (get-buffer \"tag-three\")"
+		      "   plt3)))",
+	    "(D D)"));
+
+	/* And an error out of such a form restores the same way a normal
+	 * return does: the drain that runs the restore is the same one on
+	 * every completion kind. */
+	CHECK(eval_eq("(progn (defvar plt4 'D)"
+		      " (with-current-buffer (get-buffer-create \"tag-four\")"
+		      "  (setq-local plt4 'A))"
+		      " (with-current-buffer (get-buffer-create \"tag-five\")"
+		      "  (setq-local plt4 'B))"
+		      " (condition-case nil"
+		      "  (with-current-buffer (get-buffer \"tag-four\")"
+		      "   (let ((plt4 'L))"
+		      "    (set-buffer (get-buffer \"tag-five\"))"
+		      "    (car 5)))"
+		      "  (error nil))"
+		      " (list (buffer-local-value 'plt4"
+		      "   (get-buffer \"tag-four\"))"
+		      "  (buffer-local-value 'plt4 (get-buffer \"tag-five\"))"
+		      "  (default-value 'plt4)))",
+	    "(A B D)"));
 
 	kg_lisp_shutdown();
 	teardown_editor();
@@ -6892,7 +7214,9 @@ int main(void)
 	RUN(test_phase17_skip_chars);
 	RUN(test_phase17_buffer_edits);
 	RUN(test_phase17_buffer_status);
+	RUN(test_phase20_variable_documentation);
 	RUN(test_phase18_buffer_locals);
+	RUN(test_let_binding_buffer_tag);
 	RUN(test_phase17_with_temp_buffer);
 	RUN(test_phase17_switch_to_buffer);
 	RUN(test_with_current_buffer);
@@ -6932,6 +7256,7 @@ int main(void)
 	RUN(test_phase13_trap_battery);
 	RUN(test_phase14_symbols);
 	RUN(test_phase14_excursion_hygiene);
+	RUN(test_prelude_temporary_hygiene);
 	RUN(test_phase15_string_natives);
 	RUN(test_phase15_regex_seam);
 	RUN(test_phase15_string_library);

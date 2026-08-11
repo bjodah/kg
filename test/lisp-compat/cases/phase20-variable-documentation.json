@@ -1,0 +1,6 @@
+{
+ "id": "phase20-variable-documentation",
+ "setup": [],
+ "expr": "(list (progn (defvar kg-dv-a 1 \"A docstring.\") (get 'kg-dv-a 'variable-documentation)) (progn (defvar kg-dv-b 2) (get 'kg-dv-b 'variable-documentation)) (progn (defconst kg-dc-a 3 \"A const docstring.\") (get 'kg-dc-a 'variable-documentation)) (progn (defvar kg-dv-c 1 \"first\") (defvar kg-dv-c 2 \"second\") (list kg-dv-c (get 'kg-dv-c 'variable-documentation))) (documentation-property 'kg-dv-a 'variable-documentation))",
+ "note": "Phase 20: a `defvar'/`defconst' docstring lands on the symbol's `variable-documentation' property, an undocumented one leaves the property unset, and a re-`defvar' replaces the docstring while leaving the VALUE alone -- Emacs' measured rule, which kg's `defvar' already had for the value half."
+}

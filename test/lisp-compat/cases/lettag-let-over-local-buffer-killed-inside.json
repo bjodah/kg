@@ -1,0 +1,7 @@
+{
+ "id": "lettag-let-over-local-buffer-killed-inside",
+ "setup": [],
+ "expr": "(progn (defvar pltk 'D) (with-current-buffer (get-buffer-create \"plt-k1\") (setq-local pltk 'A)) (get-buffer-create \"plt-k2\") (list (with-current-buffer (get-buffer \"plt-k1\")  (let ((pltk 'LET)) (set-buffer (get-buffer \"plt-k2\")) (kill-buffer (get-buffer \"plt-k1\")) pltk))  (default-value 'pltk)  (with-current-buffer (get-buffer \"plt-k2\") pltk)))",
+ "expect": "agree",
+ "note": "The buffer a live `let' binding displaced is killed before the form exits. The binding named that buffer's storage and that storage is gone, so the restore has nowhere to land; what must NOT happen is it landing on whatever is current instead, which is the default here."
+}

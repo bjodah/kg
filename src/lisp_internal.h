@@ -267,6 +267,11 @@ FeObject *lisp_callable_designator(FeContext *context, FeObject *object,
  * (lisp_core.c). */
 [[noreturn]] void lisp_raise_void_variable(
     FeContext *context, FeObject *symbol);
+/* Raise Emacs' `(end-of-buffer)' / `(beginning-of-buffer)', the two edges
+ * a motion or an edit runs into.  Both carry no data, and both became
+ * raisable at the Phase 20 fe pin, which is what added them to fe's
+ * condition table (lisp_core.c). */
+[[noreturn]] void lisp_raise_buffer_edge(FeContext *context, bool at_end);
 /* The two type checks a native writes most, raising wrong-type-argument
  * with Emacs' predicate name rather than letting fe's own accessor produce
  * its "expected string, got integer" prose (lisp_core.c).  kg takes a

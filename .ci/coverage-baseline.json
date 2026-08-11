@@ -4,15 +4,15 @@
  "how": "make coverage PTY_JOBS=8 PTY_ACCEPT_ARGS=--require-tools (gcc -O0 --coverage, lcov --branch-coverage), src/*.c after lcov --extract",
  "note": "Per-file floors: no file may cover a smaller share of its lines or functions than it does here. Measured with the recipe in \"how\"; PTY_JOBS does not change the result (verified: PTY_JOBS=1 and two PTY_JOBS=8 runs agreed file for file), so the lane keeps the fast setting.",
  "total": {
-  "lines_found": 21862,
-  "lines_hit": 19230,
-  "line_rate": 0.8796,
-  "functions_found": 2067,
-  "functions_hit": 2028,
-  "function_rate": 0.9811,
-  "branches_found": 13474,
-  "branches_hit": 10161,
-  "branch_rate": 0.7541
+  "lines_found": 21927,
+  "lines_hit": 19291,
+  "line_rate": 0.8798,
+  "functions_found": 2075,
+  "functions_hit": 2036,
+  "function_rate": 0.9812,
+  "branches_found": 13522,
+  "branches_hit": 10203,
+  "branch_rate": 0.7545
  },
  "files": {
   "src/autocomplete.c": {
@@ -280,15 +280,15 @@
    "branch_rate": 0.8614
   },
   "src/lisp_core.c": {
-   "lines_found": 622,
-   "lines_hit": 530,
-   "line_rate": 0.8521,
-   "functions_found": 64,
-   "functions_hit": 63,
-   "function_rate": 0.9844,
-   "branches_found": 260,
-   "branches_hit": 191,
-   "branch_rate": 0.7346
+   "lines_found": 625,
+   "lines_hit": 533,
+   "line_rate": 0.8528,
+   "functions_found": 65,
+   "functions_hit": 64,
+   "function_rate": 0.9846,
+   "branches_found": 262,
+   "branches_hit": 193,
+   "branch_rate": 0.7366
   },
   "src/lisp_hooks.c": {
    "lines_found": 226,
@@ -302,9 +302,9 @@
    "branch_rate": 0.6391
   },
   "src/lisp_io.c": {
-   "lines_found": 472,
-   "lines_hit": 433,
-   "line_rate": 0.9174,
+   "lines_found": 470,
+   "lines_hit": 431,
+   "line_rate": 0.917,
    "functions_found": 43,
    "functions_hit": 43,
    "function_rate": 1.0,
@@ -313,15 +313,15 @@
    "branch_rate": 0.7762
   },
   "src/lisp_locals.c": {
-   "lines_found": 192,
-   "lines_hit": 187,
-   "line_rate": 0.974,
-   "functions_found": 23,
-   "functions_hit": 23,
+   "lines_found": 212,
+   "lines_hit": 207,
+   "line_rate": 0.9764,
+   "functions_found": 26,
+   "functions_hit": 26,
    "function_rate": 1.0,
-   "branches_found": 104,
-   "branches_hit": 97,
-   "branch_rate": 0.9327
+   "branches_found": 124,
+   "branches_hit": 116,
+   "branch_rate": 0.9355
   },
   "src/lisp_motion.c": {
    "lines_found": 145,
@@ -330,9 +330,9 @@
    "functions_found": 17,
    "functions_hit": 17,
    "function_rate": 1.0,
-   "branches_found": 68,
-   "branches_hit": 64,
-   "branch_rate": 0.9412
+   "branches_found": 70,
+   "branches_hit": 66,
+   "branch_rate": 0.9429
   },
   "src/lisp_obj.c": {
    "lines_found": 407,
@@ -445,15 +445,15 @@
    "branch_rate": 0.7368
   },
   "src/lsp_complete.c": {
-   "lines_found": 199,
-   "lines_hit": 175,
-   "line_rate": 0.8794,
-   "functions_found": 20,
-   "functions_hit": 20,
+   "lines_found": 233,
+   "lines_hit": 205,
+   "line_rate": 0.8798,
+   "functions_found": 23,
+   "functions_hit": 23,
    "function_rate": 1.0,
-   "branches_found": 148,
-   "branches_hit": 101,
-   "branch_rate": 0.6824
+   "branches_found": 166,
+   "branches_hit": 115,
+   "branch_rate": 0.6928
   },
   "src/lsp_core.c": {
    "lines_found": 4,
@@ -599,9 +599,9 @@
    "branch_rate": 0.6111
   },
   "src/main.c": {
-   "lines_found": 100,
-   "lines_hit": 89,
-   "line_rate": 0.89,
+   "lines_found": 101,
+   "lines_hit": 90,
+   "line_rate": 0.8911,
    "functions_found": 4,
    "functions_hit": 3,
    "function_rate": 0.75,
@@ -863,15 +863,15 @@
    "branch_rate": 0.9808
   },
   "src/winmgr.c": {
-   "lines_found": 268,
-   "lines_hit": 236,
-   "line_rate": 0.8806,
-   "functions_found": 22,
-   "functions_hit": 22,
+   "lines_found": 277,
+   "lines_hit": 245,
+   "line_rate": 0.8845,
+   "functions_found": 23,
+   "functions_hit": 23,
    "function_rate": 1.0,
-   "branches_found": 172,
-   "branches_hit": 131,
-   "branch_rate": 0.7616
+   "branches_found": 178,
+   "branches_hit": 136,
+   "branch_rate": 0.764
   },
   "src/word.c": {
    "lines_found": 805,

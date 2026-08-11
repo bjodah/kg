@@ -38,6 +38,9 @@ endif
 ifeq ($(wildcard fe/fe_run.c),)
 FE_SPLIT_MISSING = 1
 endif
+ifeq ($(wildcard fe/fe_unwind.c),)
+FE_SPLIT_MISSING = 1
+endif
 ifeq ($(FE_SPLIT_MISSING),1)
 ifeq ($(filter-out clean distclean coverage-clean,$(MAKECMDGOALS)),)
 ifneq ($(MAKECMDGOALS),)
@@ -45,20 +48,22 @@ SKIP_FE_CHECK = 1
 endif
 endif
 ifneq ($(SKIP_FE_CHECK),1)
-$(error one of fe/fe.c, fe/fe_eval.c, fe/fe_run.c is missing; run 'git submodule update --init --recursive' or build with 'WITH_LISP=0')
+$(error one of fe/fe.c, fe/fe_eval.c, fe/fe_run.c, fe/fe_unwind.c is missing; run 'git submodule update --init --recursive' or build with 'WITH_LISP=0')
 endif
 endif
 override CFLAGS += -DKG_USE_LISP=1
 override LDLIBS += -lm
 # The evaluator lives in its own translation unit since Fe sub-plan 03B
-# (fe.c -> fe.c + fe_eval.c, behind a private fe/fe_internal.h), and the run
+# (fe.c -> fe.c + fe_eval.c, behind a private fe/fe_internal.h), the run
 # driver plus the public FeEvaluate*/FeCall* surface in a third since Fe
-# sub-plan 11B (fe_eval.c -> fe_eval.c + fe_run.c, which is how fe kept its
-# 520 per-file cap binding while dynamic binding landed); a list so every
-# consumer below is a one-line change.
-FE_OBJ = $(OBJDIR)/fe.o $(OBJDIR)/fe_eval.o $(OBJDIR)/fe_run.o
+# sub-plan 11B, and the completion machinery -- the condition hierarchy, the
+# cleanup registry and every raise -- in a fourth since Fe's Phase 20; both
+# splits are how fe kept its 520 per-file cap binding on the evaluator. A
+# list so every consumer below is a one-line change.
+FE_OBJ = $(OBJDIR)/fe.o $(OBJDIR)/fe_eval.o $(OBJDIR)/fe_run.o \
+	 $(OBJDIR)/fe_unwind.o
 FUZZ_FE_OBJ = $(TESTDIR)/fe_fuzz.o $(TESTDIR)/fe_eval_fuzz.o \
-	      $(TESTDIR)/fe_run_fuzz.o
+	      $(TESTDIR)/fe_run_fuzz.o $(TESTDIR)/fe_unwind_fuzz.o
 endif
 
 ifeq ($(wildcard fe/tiny-regex-c/re.c),)
@@ -577,7 +582,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 8433
+SCC_COMPLEXITY_MAX ?= 8464
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -700,7 +705,10 @@ $(OBJDIR)/fe_eval.o: fe/fe_eval.c fe/fe.h fe/fe_internal.h
 $(OBJDIR)/fe_run.o: fe/fe_run.c fe/fe.h fe/fe_internal.h
 	$(CC) $(FE_CFLAGS) -c $< -o $@
 
-check: header-check lisp-include-check docs-check lisp-compat-check lisp-prelude-check lisp-package-check forecast-check lisp-oracle-check lisp-gc-stress-check forecast-init-check check-unit check-pty
+$(OBJDIR)/fe_unwind.o: fe/fe_unwind.c fe/fe.h fe/fe_internal.h
+	$(CC) $(FE_CFLAGS) -c $< -o $@
+
+check: header-check lisp-include-check docs-check lisp-compat-check lisp-prelude-check lisp-package-check forecast-check lisp-oracle-check lisp-gc-stress-check forecast-init-check check-unit-decoding check-unit check-pty
 
 # Cheap documentation drift: every key the built-in help table names has
 # to be spelled somewhere in kg(1).  Not a substitute for reading either
@@ -837,8 +845,8 @@ test/kgbatch: test/kgbatch.c $(TESTDIR)/stubs_main.o $(FEATURE_CONFIG) \
 # count far above the ordinary one's.  Same shape as test/perfobj: the
 # instrumented fe object gets its own name under test/ and never mixes
 # with src/*.o, so turning the knob on leaves no stale object behind.
-# fe_eval.c and fe_run.c are NOT rebuilt: the macro lives inside fe.c and
-# nothing in fe.h moves with it.
+# fe_eval.c, fe_run.c and fe_unwind.c are NOT rebuilt: the macro lives
+# inside fe.c and nothing in fe.h moves with it.
 GC_STRESS_KGBATCH = $(TESTDIR)/kgbatch-gcstress
 GC_STRESS_FE_OBJ = $(TESTDIR)/fe_gcstress.o
 
@@ -848,11 +856,11 @@ $(TESTDIR)/fe_gcstress.o: fe/fe.c fe/fe.h fe/fe_internal.h
 $(GC_STRESS_KGBATCH): test/kgbatch.c $(TESTDIR)/stubs_main.o \
 	$(FEATURE_CONFIG) $(filter-out $(OBJDIR)/main.o,$(OBJS)) \
 	$(GC_STRESS_FE_OBJ) $(OBJDIR)/fe_eval.o $(OBJDIR)/fe_run.o \
-	$(REGEX_OBJS)
+	$(OBJDIR)/fe_unwind.o $(REGEX_OBJS)
 	$(CC) $(CFLAGS) -I$(OBJDIR) -o $@ $< \
 		$(TESTDIR)/stubs_main.o $(filter-out $(OBJDIR)/main.o,$(OBJS)) \
 		$(GC_STRESS_FE_OBJ) $(OBJDIR)/fe_eval.o $(OBJDIR)/fe_run.o \
-		$(REGEX_OBJS) $(LDLIBS)
+		$(OBJDIR)/fe_unwind.o $(REGEX_OBJS) $(LDLIBS)
 
 # Ordered after lisp-oracle-check rather than beside it: `check`'s
 # prerequisites run in parallel under -j, both targets build
@@ -948,6 +956,27 @@ lisp-include-check:
 check-unit: $(TESTBINS)
 	@$(PYTHON) utils/run_unit_tests.py --runner "$(TEST_RUNNER)" \
 		--json $(CHECK_RESULTS_DIR)/unit.json $(TESTBINS)
+
+# The native layer's report has to survive the bytes a failing test
+# prints.  A test that fails on a fixture prints the fixture, fixtures
+# are often raw bytes, and one invalid UTF-8 sequence used to take the
+# results of all 46 binaries with it -- the whole report replaced by a
+# UnicodeDecodeError traceback.  This drives the real script over a
+# command that prints 0xC3 0x28 and exits 1, and requires one FAIL line
+# with the byte escaped.  `sh -c` as the runner is what lets a shell
+# command stand in for a test binary here.
+check-unit-decoding:
+	@out=$$($(PYTHON) utils/run_unit_tests.py --runner "sh -c" \
+		"printf 'raw: \303\050\n' >&2; exit 1" 2>&1 || true); \
+	case "$$out" in \
+	*Traceback*) echo "check-unit-decoding: the runner died on the byte" >&2; \
+		printf '%s\n' "$$out" >&2; exit 1;; \
+	esac; \
+	case "$$out" in \
+	*'raw: \xc3('*) echo "check-unit-decoding: one FAIL line, byte escaped";; \
+	*) echo "check-unit-decoding: the escaped byte is not in the report" >&2; \
+		printf '%s\n' "$$out" >&2; exit 1;; \
+	esac
 
 check-pty: $(TARGET) $(PTY_TESTS)
 	@$(PYTHON) utils/pty_accept.py $(PTY_ACCEPT_ARGS) \
@@ -1517,6 +1546,9 @@ $(TESTDIR)/fe_eval_fuzz.o: fe/fe_eval.c fe/fe.h fe/fe_internal.h
 	$(FUZZ_CC) $(FE_FUZZ_CFLAGS) -c $< -o $@
 
 $(TESTDIR)/fe_run_fuzz.o: fe/fe_run.c fe/fe.h fe/fe_internal.h
+	$(FUZZ_CC) $(FE_FUZZ_CFLAGS) -c $< -o $@
+
+$(TESTDIR)/fe_unwind_fuzz.o: fe/fe_unwind.c fe/fe.h fe/fe_internal.h
 	$(FUZZ_CC) $(FE_FUZZ_CFLAGS) -c $< -o $@
 
 clean:

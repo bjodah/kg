@@ -49,15 +49,20 @@ config_files:
     (defvar help-fns-buffer-name "*Help*"
       "Buffer the reports are written to.")
 
-    (defvar apropos-max-results 40
+    (defvar apropos-max-results 120
       "How many matches `apropos' reports before it stops collecting.
 
-    Forty is measured, not chosen: every evaluation in kg runs under a step
-    budget, and the broadest pattern in a stock session (the single letter
-    `e', 365 names)
-    fits at 55 and exhausts the budget at 60.  Forty leaves room for the
-    definitions your own init file adds.  Raise it if your patterns are
-    narrow; a report that raises is worth less than a capped one.")
+    A hundred and twenty is measured, not chosen: every evaluation in kg runs
+    under a step budget, and the broadest pattern in a stock session (the
+    single letter `e', 453 names) fits at 158 and exhausts the budget at 159.
+    With kg's five shipped packages loaded the ceiling is 157.  A hundred and
+    twenty leaves room for the definitions your own init file adds.  Raise it
+    if your patterns are narrow; a report that raises is worth less than a
+    capped one.
+
+    It was forty until Phase 20, against a ceiling of 54, because `string<'
+    was prelude Lisp that compared two names a CHARACTER at a time.  It is an
+    fe primitive now, and the ceiling moved 54 -> 158 for that one change.")
 
     ;; A report is built as a list of lines and written in one go, so a
     ;; failure halfway through leaves the previous report intact rather than
@@ -118,8 +123,15 @@ config_files:
     (defun describe-variable (name)
       "Report the value and scope of the variable NAME."
       (interactive "sDescribe variable: ")
+      ;; `documentation-property' and not `documentation': a variable's
+      ;; docstring lives on its symbol's `variable-documentation' property,
+      ;; which is where Emacs puts one and where a program can `put' its own.
+      ;; `documentation' would answer here too -- kg's registry records a
+      ;; `defvar' as well as a `defun' -- but it would answer for the
+      ;; FUNCTION of the same name when the variable has no docstring of its
+      ;; own, and a function's docstring is not a description of a variable.
       (let* ((symbol (if (stringp name) (intern name) name))
-             (doc (documentation symbol)))
+             (doc (documentation-property symbol 'variable-documentation)))
         (help-fns--show
          (append
           (if (boundp symbol)
@@ -153,12 +165,11 @@ config_files:
       (append (env) (internal--command-names)))
 
     ;; NAMES sorted, with adjacent duplicates dropped.  The symbols are
-    ;; sorted and only then described, which is a measured choice and not a
-    ;; style one: `string<' is prelude Lisp that turns both arguments into
-    ;; lists of character codes, so one comparison costs a cons and a few
-    ;; steps per CHARACTER.  Sorting 35 finished report rows (~80 characters
-    ;; each) exhausts an evaluation's step budget; sorting the same 35
-    ;; symbols (~15 characters) does not.  A duplicate is a name in both
+    ;; sorted and only then described, which was a measured choice when
+    ;; `string<' was prelude Lisp charged per CHARACTER, and stays one now
+    ;; that it is an fe primitive: a report row is ~80 characters against a
+    ;; symbol's ~15, so sorting the finished rows is still five times the
+    ;; comparison work for no better order.  A duplicate is a name in both
     ;; halves of `apropos--candidates', which sorting puts side by side.
     (defun apropos--unique-sorted (names)
       "Sort the symbols NAMES by name and drop the repeats."
@@ -187,10 +198,9 @@ config_files:
 
     At most `apropos-max-results' of them; the report says so when there were
     more.  The cap is not decoration: every evaluation in kg runs under a step
-    budget, and sorting and describing a few hundred rows is more work than one
-    budget holds -- `string<' is prelude Lisp that walks both arguments a
-    character at a time, so a sort is charged per character, not per
-    comparison."
+    budget, and describing and sorting every match of a one-letter pattern is
+    still more work than one budget holds -- measured, 158 rows fit and 159
+    do not."
       (interactive "sApropos (substring): ")
       (let ((quoted (regexp-quote pattern))
             (found 0)

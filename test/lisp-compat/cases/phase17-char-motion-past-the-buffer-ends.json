@@ -2,6 +2,6 @@
  "id": "phase17-char-motion-past-the-buffer-ends",
  "setup": [],
  "expr": "(list\n (with-temp-buffer (insert \"abc\") (goto-char 1) (list (condition-case e (forward-char 20) (error (car e))) (point)))\n (with-temp-buffer (insert \"abc\") (goto-char 3) (list (condition-case e (backward-char 20) (error (car e))) (point))))",
- "note": "THE DIVERGENCE. Emacs signals `end-of-buffer'/`beginning-of-buffer' after moving as far as it can; kg clamps and answers nil. fe gates `signal' on its own condition table (fe_eval.c's condition_parents[]) and neither name is in it, so raising one would be an fe language change rather than a kg native -- and kg's own `forward-word' has clamped since sub-plan 03. Point ends in the same place on both sides, which is what the second element of each pair pins.",
- "expect": "diverge"
+ "note": "WAS THE DIVERGENCE, and agrees since Phase 20. Both signal `end-of-buffer'/`beginning-of-buffer' after moving as far as they can. It diverged because fe gates `signal' on its own condition table (condition_parents[]) and held neither name; the Phase 20 fe pin put both in it. Point ends in the same place on both sides, which is what the second element of each pair pins and which was true while the case still diverged. kg's own `forward-word' and `forward-line' still clamp, and so do Emacs'.",
+ "expect": "agree"
 }

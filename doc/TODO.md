@@ -99,6 +99,31 @@ This file remains the broader feature and technical-debt inventory.
       REJECTED (gameable by adding code; punishes headers whose comments
       earn their keep).  `utils/comment_ratio.py` ranks files by comment
       share for one-off verbosity hunts instead.
+- [x] **`utils/run_unit_tests.py` decodes a test's output as strict UTF-8.**
+      `subprocess.run(..., text=True)` with no `errors=`, so a failing test
+      whose message quotes a raw byte from its own fixture ends the whole
+      unit layer in a `UnicodeDecodeError` traceback instead of a FAIL
+      line.  Found 2026-08-11 while forcing `.ci/ci-13` to run:
+      `test/test_syntax_tree_sitter.c` prints the offending byte of a
+      mismatched highlight row, and one such byte took 46 test binaries'
+      results with it.  Fixed 2026-08-11 with
+      `errors="backslashreplace"` rather than the `"replace"` first
+      proposed: the escape keeps the offending byte readable and spells
+      it the way a `\xNN` in the test's own source is, where `"replace"`
+      would leave a U+FFFD that says only "something was here".  `make
+      check-unit-decoding` is the regression gate and rides in `make
+      check`.  The reason this never fired in a green run is that only a
+      FAILING test prints fixture bytes.
+- [ ] **The tree-sitter prefix `.ci/ci-13` pins does not exist on this
+      box.**  `TREE_SITTER_PREFIX` defaults to
+      `/opt-2/tree-sitter-v0.26.12-release` (Makefile and the step agree),
+      the box has 0.26.11 under `/opt-9`, and the step SKIPs rather than
+      failing — correct behaviour, but it means the tree-sitter backend is
+      untested here.  Pointing `TREE_SITTER_PREFIX` at the 0.26.11 prefix
+      is not enough on its own: `KG_TS_GRAMMAR_DEFAULT_PATH` is derived
+      separately and still names the missing `/opt-2` lib directory, so
+      every grammar test fails to `dlopen` anything.  Both should read one
+      variable, and `$TREE_SITTER_ROOT` should be what the box sets.
 
 
 ## LSP follow-ups (v1 landed 2026-08-09)
@@ -275,10 +300,23 @@ real `clangd` and `ty`.  Known follow-ups, none blocking:
         was thinking is refused, the same staleness check the rename
         makes, since kg's completion -- unlike Emacs', which computes and
         consumes its candidates inside one command -- arrives in a later
-        poll.  The listing is passive: a mode map for it
-        wants the mode registry the last bullet of this section asks for,
-        and Emacs' "close it as you type" wants a post-command hook kg
-        has no place for yet.
+        poll.  The listing still binds no keys: a mode map for it
+        wants the mode registry the last bullet of this section asks for.
+        Its lifetime is settled, though.  The 2026-08-11 merge could see
+        that Phase 18 had landed a per-keystroke seam
+        (`kg_lisp_run_post_command_hook()`, from the main loop once per
+        processed keystroke), and `lsp_complete_post_command()` now runs
+        beside it: the listing closes once point leaves the field it is a
+        listing of.  It is C rather than shipped Lisp because a
+        `WITH_LISP=0` kg has no hook to hang it on and would otherwise
+        keep the listing up -- a difference between builds.  What the rule
+        is came from the oracle rather than from the phrase "close it as
+        you type", which measurement contradicted: in Emacs 31.0.90
+        typing more of the symbol leaves *Completions* up and unrefreshed,
+        and it is a delimiter, or point moving out of the region, that
+        takes it down.  Refreshing the listing as you type would mean a
+        request per keystroke, which is auto-completion and a separate
+        decision.
 - ~~**Lisp bindings for the xref commands.**~~  Done by Phase 17's
   `CMD_LISP_CALLABLE` audit, which is the settling this row was waiting
   for: all four are reachable from `(command-execute ...)` now.  They
@@ -402,18 +440,35 @@ cache keyed by that manifest's hash.  Known follow-ups, none blocking:
       made the grep/occur helper writable; the four hash-table names are
       the watch item and stay off the roadmap.  The audit now reports a
       MISSING list of exactly those four.
-- [ ] **`beginning-of-buffer`/`end-of-buffer` as conditions** (Phase 17).
-      Every kg motion native clamps at the ends of the buffer where Emacs
-      signals one of these two, and `delete-char` clamps its count where
-      Emacs signals and deletes nothing.  The cause is one table: fe gates
-      `signal` on `condition_parents[]` (`fe/fe_eval.c`) and neither name
-      is in it, so raising one is an fe language change -- an fe commit,
-      its own compat rows, an `FE_LANGUAGE_VERSION` bump and a pin move --
-      rather than a kg native.  Recorded as five `divergent` rows in
-      `test/lisp-compat/features.json`, each with the case that pins the
-      difference.  The `delete-char` one is the row that costs a user
-      text an Emacs user would still have, so it is the one that decides
-      whether this is worth an fe wave.
+- [x] **`beginning-of-buffer`/`end-of-buffer` as conditions** (Phase 17,
+      closed by Phase 20).  Done exactly as this row priced it: two data
+      lines in fe's `condition_parents[]` (now `fe/fe_unwind.c`), an
+      `FE_LANGUAGE_VERSION` 13 -> 14 bump and a pin move, then one kg
+      helper -- `lisp_raise_buffer_edge()` in `src/lisp_core.c` -- that
+      `forward-char`, `backward-char` and `delete-char` call.  Emacs'
+      ordering came with it and is measured: a motion moves as far as it
+      can and *then* signals, and `delete-char` deletes nothing at all.
+      `native-forward-char`, `native-backward-char` and
+      `native-delete-char` flip from `divergent` to `supported`.  What is
+      NOT closed, and stays: `forward-word`, `backward-word` and
+      `forward-line` still clamp, which is what Emacs' do too, so there
+      was never anything to fix there.
+- [ ] **`string-lessp` and `string-greaterp`**, Emacs' other spellings of
+      the two Phase 20 made fe primitives.  Two prelude `defalias` lines
+      and nothing else -- fe owns the order and neither name needs a
+      second implementation -- and they are not here because nothing
+      measured asks for them: the forecast corpus reaches for `string<`
+      and never for either long name.  Whichever phase next has a reason
+      to touch that part of the prelude can take them for two conses.
+- [ ] **`apropos-max-results` is still a cap, and the next raise needs its
+      own measurement.**  Phase 20 moved it 40 -> 120 by making `string<`
+      a primitive, which moved the measured ceiling 54 -> 158 (157 with
+      kg's five shipped packages loaded); the remaining per-row cost is
+      `apropos--describe`'s `format` and its three predicate calls, not
+      the sort.  Raising it further means measuring THAT, not guessing:
+      the failure mode is an `evaluation step limit exceeded` that loses
+      the whole report, so the margin between the cap and the ceiling is
+      the thing being spent.
 - [ ] **`logand`, `logior`, `logxor`**, declined by Phase 15 with the
       measurement rather than the intuition: the forecast corpus contains
       **zero** references to any bitwise operation.  `ash` landed because
@@ -480,44 +535,75 @@ cache keyed by that manifest's hash.  Known follow-ups, none blocking:
       `phase11-one-arg-defvar-file-scope` row carries what its own case
       actually pins, which is the oracle shim's per-form scoping and not
       the leak.
-- [ ] **The prelude's `internal--let` temporaries are dynamically
-      capturable — UNBLOCKED by Phase 14, mechanism proven, sweep not
-      done.**  A consequence of Phase 11, recorded rather than defended
-      (11A Decision 3): the ~53 generically named temporaries
-      `lisp/prelude.el` binds (`result`, `res`, `doc`, `name`, …) become
-      dynamic the moment a user `defvar`s such a name.  This is exactly
-      Emacs' own exposure for `lexical-binding` libraries, so "fixing" it
-      means gensyms or an obarray-style renaming pass over the prelude.
-      Phase 14 supplied the gensyms, so the remaining cost is the sweep
-      itself and the re-reading it needs, not a missing mechanism.
-      Phase 15's string and list library grew the surface rather than
-      shrinking it, and the number is now measured rather than estimated:
-      **58 distinct names** are bound by a `let`/`let*`/`internal--let`
-      anywhere in `lisp/prelude.el` (counted with the reader in
-      `utils/forecast_audit.py`), of which the short ones a user is most
-      likely to `defvar` -- `a`, `b`, `c`, `d`, `e`, `f`, `h`, `i`, `m`,
-      `n`, `r` -- are eleven.
-      Left here so a future report of a strange interaction has somewhere
-      to land.
-      `internal--excursion` was a 54th name and the one with the sharpest
-      consequence, found by the Phase 11 acceptance review: it is what
-      `save-excursion`/`with-current-buffer` hold their saved state in, so
-      a body that assigned it made the `unwind-protect` cleanup raise —
-      and a raising cleanup REPLACES the completion it is unwinding (fe's
-      06A Decision 4, which is Emacs' rule too:
+- [x] **The prelude's `internal--let` temporaries are dynamically
+      capturable.**  Swept.  A consequence of Phase 11, recorded rather
+      than defended (11A Decision 3): a temporary `lisp/prelude.el` binds
+      becomes dynamic the moment a user `defvar`s that name.  The census,
+      re-measured on the finished tree with the reader in
+      `utils/forecast_audit.py`: **60 distinct names** are bound by a
+      `let`/`let*`/`internal--let` anywhere in the file.  What this row
+      asked for was all of them; what the sweep did was the ones that
+      can be OBSERVED, which is a different and much smaller set, and
+      the classification is the finding.
+      A prelude temporary is capturable only while USER code runs inside
+      its extent, and then it is a capture in both directions at once —
+      the callback's assignment lands on the prelude's accumulator, and
+      the prelude's accumulator is what the user's variable reads back.
+      **22 binding sites across 14 definitions** qualify, in three
+      classes rather than the two the exposure was recorded as: the
+      higher-order functions (`mapcar`, `mapc`, `mapconcat`,
+      `replace-regexp-in-string` with a function REP, `sort` and the two
+      `internal--merge` helpers, `seq-filter`, `seq-find`, `seq-some`,
+      and `internal--dotimes`, which is what `dotimes` expands into);
+      the LOADER (`internal--load-loop` and `require`, which hold
+      temporaries across the `eval` of a loaded file's forms — a file
+      that so much as `setq`'d `h` used to make the next read raise);
+      and `add-to-list`, which is neither, because its VARIABLE argument
+      is a name the caller chose, so asking it to push onto a variable
+      named `current` bound a shadow, read the shadow and `set` the
+      shadow, silently.  The other 38 names bind and unbind with no
+      callback in between and are left alone, counted.
+      **The fix is not `gensym`, and the measurement is why.** A macro
+      substituting a fresh gensym through each body at load time was
+      implemented first and works — but kg's arena is fixed and collects
+      nothing during startup, so the substitution walk's own cost is
+      permanent high-water mark: peak live after the prelude went
+      11281 → 40153 objects of 56259 (20.0% → 71.4%) with a copying
+      walk, and 11281 → 20906 (37.2%) with a destructive one that
+      allocates nothing itself — both measured at `kgbatch -g`'s
+      post-prelude probe.  Carried into `test_lisp.c`'s Phase 8 census,
+      whose margin assertion is `peak_live * 3 < total_slots` and whose
+      measured figure is 14579, that +9625 alone puts the census past a
+      third of the arena.  The cost is fe's call overhead — about nine
+      object slots per call, one call per cons, measured at 590 slots to
+      substitute one name through a 45-cons lambda — not the copy.  The
+      swept temporaries are LAMBDA PARAMETERS instead, bound by an
+      immediately-applied lambda, which fe binds lexically
+      unconditionally (11A Decision 2: the special flag is consulted at
+      fe's binding-list paths and nowhere else — it is the
+      pre-Phase-11 lowering of `let`, used deliberately where hygiene is
+      the requirement).  Measured cost of that: **+4 objects** (11281 →
+      11285) and **no change in prelude load time** (2.811 → 2.810 ms,
+      median of nine runs of the counting build each way).
+      `test_prelude_temporary_hygiene` and the seven
+      `prelude-hygiene-*` oracle cases hold it there.
+      `internal--excursion` was the first name swept and the one with
+      the sharpest consequence, found by the Phase 11 acceptance review:
+      it is what `save-excursion`/`with-current-buffer` hold their saved
+      state in, so a body that assigned it made the `unwind-protect`
+      cleanup raise — and a raising cleanup REPLACES the completion it
+      is unwinding (fe's 06A Decision 4, which is Emacs' rule too:
       `(condition-case e (unwind-protect (error "MY") (error "CLEANUP"))
       (error e))` is `(error "CLEANUP")` on both), so the user's own
       error was lost.  Measured then:
       `(condition-case e (save-excursion (setq internal--excursion nil)
       (error "MY-ERROR")) (error (format "%S" e)))` answered
       `"(error \"internal--excursion-restore: expected a marker or a
-      buffer\")"`.  **DONE for that one name**, Phase 14: both macros bind
-      a `(gensym "internal--excursion-")` instead, the same form now
-      answers `"(error \"MY-ERROR\")"`, and
-      `test_phase14_excursion_hygiene` plus the
-      `phase14-excursion-gensym-hygiene` oracle case hold it there.  It is
-      also this wave's worked example of what the sweep would look like:
-      two lines per macro, one `gensym` call per expansion.
+      buffer\")"`.  Done for that one name by Phase 14: both macros
+      bind a `(gensym "internal--excursion-")` instead, because a MACRO
+      can mint a name at expansion time and pay for it once.  A function
+      body has no expansion to mint one in, which is the whole reason
+      the rest of the sweep took the other shape.
 - [x] **Buffer-local variables.**  Done by Phase 18.  Not with the
       per-buffer binding table this row asked for: kg took Emacs' own
       representation instead, one value cell per symbol holding whichever
@@ -527,11 +613,16 @@ cache keyed by that manifest's hash.  Known follow-ups, none blocking:
       `setq-default`, `set-default`, `default-value`,
       `make-local-variable`, `kill-local-variable`, `local-variable-p`
       and `buffer-local-value` all exist; the lifetime rule is that a
-      binding dies with its buffer.  Three named gaps survive and are
-      recorded rather than hidden: `phase18-let-buffer-switched-out`,
-      `phase18-make-local-while-let-bound` and
-      `phase18-automatically-buffer-local` (no
-      `make-variable-buffer-local`/`defvar-local`).  `add-hook`'s LOCAL
+      binding dies with its buffer.  Phase 18 left three named gaps and
+      its follow-up closed two of them: a `let` now carries the buffer
+      tag Emacs' specpdl carries, through fe's `FeSetBindingFns`
+      (FE_API_VERSION 11), so `phase18-let-buffer-switched-out` and
+      `phase18-make-local-while-let-bound` are `supported` and the
+      interactions around them are pinned by
+      `lettag-let-binding-buffer-tag`.  ONE gap survives and is recorded
+      rather than hidden: `phase18-automatically-buffer-local` (no
+      `make-variable-buffer-local`/`defvar-local`, so a plain `setq`
+      never creates a binding where Emacs would).  `add-hook`'s LOCAL
       argument was unaffected, as this row said.
 - [x] **The printer's `(quote X)` → `'X` abbreviation.**  Done by Phase 11
       (11A Decision 4) in fe's `WriteObject`, as the symmetric copy of the

@@ -734,10 +734,13 @@ FeObject *native_set_buffer_modified_p(FeContext *context, FeObject *arguments)
 /* (delete-char &optional N): N characters after point, or |N| before it
  * for a negative N, as one gateway call and therefore one undo step.
  *
- * Emacs signals `end-of-buffer'/`beginning-of-buffer' and deletes nothing
- * when the buffer is too short; kg clamps and deletes what is there, the
- * same choice the motion natives make and for the same reason (fe's
- * condition table has neither name).  Recorded in the manifest. */
+ * A count the buffer is too short for deletes NOTHING and signals
+ * `end-of-buffer'/`beginning-of-buffer' -- measured on the pinned
+ * 31.0.90, `(delete-char 9)' at the start of "ab" leaves "ab" and point
+ * where it was.  kg clamped and deleted what was there until the Phase 20
+ * fe pin put both names in fe's condition table; that clamp was the one
+ * divergence in this family that cost a user text, which is what the
+ * doc/TODO.md row named as the decider. */
 FeObject *native_delete_char(FeContext *context, FeObject *arguments)
 {
 	long count = lisp_optional_count(context, &arguments);
@@ -750,11 +753,8 @@ FeObject *native_delete_char(FeContext *context, FeObject *arguments)
 	if (b->readonly) {
 		FeHandleError(context, "buffer is read-only");
 	}
-	if (other < 0) {
-		other = 0;
-	}
-	if (other > lisp_buffer_char_length(b)) {
-		other = lisp_buffer_char_length(b);
+	if (other < 0 || other > lisp_buffer_char_length(b)) {
+		lisp_raise_buffer_edge(context, other > 0);
 	}
 	beg = lisp_byte_of_char_offset(b, count < 0 ? other : here);
 	end = lisp_byte_of_char_offset(b, count < 0 ? here : other);

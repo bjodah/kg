@@ -502,10 +502,16 @@ completion back in one step. A completion whose buffer changed while the
 server was answering — you kept typing, as one does — is refused rather
 than inserted against text that is no longer there.
 
-The `*Completions*` listing is passive, which is a divergence worth
-knowing: unlike Emacs' it binds no keys, and it is neither taken down nor
-refreshed as you keep typing. It is an ordinary read-only buffer — `C-x
-0` closes its window, and the next completion rebuilds it in place.
+The `*Completions*` listing **closes itself once point leaves the symbol
+it is a listing of** — Emacs' rule, and Emacs' surprising half of it too:
+typing more of that symbol leaves the listing up (Emacs does not refresh
+it either, and neither does kg), while a space, a `C-a` back past where
+the completion began, or a move to another line takes it down. Stepping
+into it with `C-x o` keeps it, so it does not vanish as you arrive.
+Repeating `M-TAB` keeps it and replaces it when the next answer lands.
+The listing is still passive in the one way it was: unlike Emacs' it
+binds no keys. It is an ordinary read-only buffer — `C-x 0` closes its
+window by hand, and closing it does not kill it.
 
 Servers are **started lazily**, and never by opening a file: the first
 `M-.` or `M-?` in a C buffer is what spawns `clangd`, and every buffer under the same

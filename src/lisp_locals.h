@@ -31,10 +31,12 @@
  */
 
 #include <stddef.h>
+#include <stdint.h>
 
 #include "bufhandle.h"
 
 struct FeContext;
+struct FeObject;
 
 /* How many distinct variable names may have a buffer-local binding at
  * once, and how many (name, buffer) bindings may be live at once.  Both
@@ -63,12 +65,23 @@ struct kg_lisp_local_var {
 
 /* One (variable, buffer) binding.  `cell' holds the value while this
  * buffer is NOT the swapped-in one; while it is, the value is in the
- * variable's own cell and `cell' is stale, exactly as Emacs' is. */
+ * variable's own cell and `cell' is stale, exactly as Emacs' is.
+ *
+ * `stamp' names THIS binding, and only this one, for as long as it lives:
+ * it is what a live `let' over the binding carries as its fe tag, so a
+ * restore can ask whether the storage it displaced still exists.  A slot
+ * that is reclaimed and handed out again gets a fresh stamp, which is the
+ * whole point -- the old tag then matches nothing and its saved value is
+ * dropped, as Emacs drops a binding whose buffer has stopped having one.
+ * Never zero (zero is the tag for "the default"), and monotonic: wrapping
+ * it needs 2^64 buffer-local bindings to have been created in one
+ * session. */
 struct kg_lisp_local_binding {
 	bool active;
 	size_t var; /* index into lisp_locals_table::vars */
 	struct kg_buffer_handle buffer;
 	struct FeObject *cell;
+	uintptr_t stamp;
 };
 
 /* `swapped' is which buffer's bindings are in the variables' own value
@@ -82,6 +95,7 @@ struct lisp_locals_table {
 	struct kg_lisp_local_binding bindings[LISP_MAX_LOCAL_BINDINGS];
 	struct kg_buffer_handle swapped;
 	size_t var_count; /* active entries; zero is the whole fast path */
+	uintptr_t stamps; /* how many bindings have ever been created */
 };
 
 /* Make `to` the buffer whose bindings are in force: stash the outgoing
@@ -103,5 +117,34 @@ void lisp_locals_switch(struct FeContext *ctx, struct kg_buffer_handle to);
  * raise, for lisp_locals_switch()'s reason. */
 void lisp_locals_buffer_killed(
     struct FeContext *ctx, struct kg_buffer_handle handle);
+
+/* ---- What a `let' over a buffer-local name displaced ------------------
+ *
+ * These two are fe's `FeBindingSaveFn'/`FeBindingTargetFn' (FE_API_VERSION
+ * 11), registered once in src/lisp_core.c, and they are the whole of the
+ * per-binding buffer tag Emacs keeps in its specpdl.  fe's `let' saves the
+ * symbol's one value cell; these say which storage that cell BELONGED to
+ * when it was saved, and therefore where the saved value goes back.
+ *
+ * Both are pure reads of the table above and of nothing else -- no
+ * allocation, no raise, no evaluation, which is fe's contract for them --
+ * and deliberately no re-synchronisation with the execution context: what
+ * the value cell holds is what `swapped' says it holds, by definition, so
+ * asking anything else would answer about a buffer whose values are not in
+ * the cells.
+ *
+ * lisp_locals_bind_tag() answers zero for "the default was in the cell",
+ * which is every binding of every ordinary variable, and the binding's
+ * `stamp' when the swapped-in buffer had a local binding of its own.
+ *
+ * lisp_locals_bind_target() turns that back into a cell: the default's
+ * current home for a zero tag (which is Emacs' `set-default' when a
+ * `setq-local' inside the form created a binding meanwhile), the symbol's
+ * own cell when the tagged binding is the swapped-in one, that binding's
+ * stash otherwise, and NULL -- fe's "drop it" -- when the binding is gone
+ * or its buffer is dead. */
+uintptr_t lisp_locals_bind_tag(struct FeContext *ctx, struct FeObject *symbol);
+struct FeObject *lisp_locals_bind_target(
+    struct FeContext *ctx, struct FeObject *symbol, uintptr_t tag);
 
 #endif /* KG_LISP_LOCALS_H */

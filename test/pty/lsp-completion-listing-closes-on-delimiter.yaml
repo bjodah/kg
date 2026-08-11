@@ -1,0 +1,46 @@
+name: lsp-completion-listing-closes-on-delimiter
+# Typing past the end of the symbol takes the listing down.
+#
+# The oracle's own spelling of this is a space: in emacs -q -nw 31.0.90,
+# `(prin` + M-TAB lists eight candidates and one SPC removes the
+# *Completions* window, because the completion function asked again
+# reports a field beginning after the space rather than where it began.
+# kg's word scan says the same about any byte that is not a word
+# constituent; `,` is the one this harness can send that leaves no
+# trailing blank in the expectation (a literal `;` is a command separator
+# to tmux send-keys).
+#
+# Why the assertion is C-x o's message and not the listing's own text: a
+# tmux capture is 50 lines of scrollback plus the pane, so every frame kg
+# has painted may be in it and may equally have scrolled out of it -- it
+# can say neither "is on screen now" nor "was on screen once".  What it
+# can say is what the *last* frame's status line says, and "No other
+# windows." is a message only one window can produce.  That this fixture
+# does put up a second window is asserted by its two siblings,
+# lsp-completion-listing-survives-in-field.yaml and
+# lsp-completion-listing-survives-other-window.yaml, which are red if
+# M-TAB stops listing at all.
+#
+# Closing a listing is not an edit: the saved file is what was typed.
+requires_feature: lsp
+backend: tmux
+key_delay: 0.35
+env:
+  KG_LSP_SERVER_C: "python3 {REPO}/test/fake_lsp_server.py --mode protocol --completion alpha --completion avocado"
+filename: complclose.c
+initial: |-
+  a
+keys:
+  - "M->"
+  - "M-TAB"
+  - "C-l"
+  - "C-l"
+  - ","
+  - "C-x"
+  - "o"
+  - "C-l"
+  - "C-l"
+expected_saved: |-
+  a,
+expected_screen_contains:
+  - "No other windows."

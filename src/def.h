@@ -534,6 +534,10 @@ void win_cycle_next(void);
 void win_delete_current(void);
 void win_delete_others(void);
 void win_display_buffer_other_window(int buffer_index);
+/* The other direction: stop showing this buffer, without killing it.
+ * Declines when the buffer is not on screen, when its window is the only
+ * one, or when its window is the current one. */
+void win_undisplay_buffer(int buffer_index);
 int win_can_display_buffer_other_window(int buffer_index);
 void win_position_at_end(int buffer_index);
 /* Put point on `row` (0-based) in every window showing this buffer,

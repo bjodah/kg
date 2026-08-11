@@ -80,6 +80,24 @@ static struct kg_lisp_local_binding *binding_find(
 	return nullptr;
 }
 
+/* The binding `stamp` names, or NULL once it has been killed, reclaimed or
+ * has died with its buffer.  A stamp is never reused, so "not found" and
+ * "found something else" are the same answer here and the caller does not
+ * have to tell them apart. */
+static struct kg_lisp_local_binding *binding_by_stamp(uintptr_t stamp)
+{
+	size_t i;
+
+	for (i = 0; i < LISP_MAX_LOCAL_BINDINGS; i++) {
+		struct kg_lisp_local_binding *b = &state.locals.bindings[i];
+
+		if (b->active && b->stamp == stamp) {
+			return b;
+		}
+	}
+	return nullptr;
+}
+
 /* Where this variable's DEFAULT lives right now: in its stash cell while
  * the swapped-in buffer has a binding of its own, and in the variable's
  * own value cell otherwise -- which is the ordinary global case, and the
@@ -240,11 +258,49 @@ static struct kg_lisp_local_binding *binding_intern(
 		b->cell = stash_cell(ctx, "local", i);
 		b->var = (size_t)(v - state.locals.vars);
 		b->buffer = state.locals.swapped;
+		b->stamp = ++state.locals.stamps;
 		b->active = true;
 		cell_write(ctx, v->cell, cell_read(ctx, v->symbol));
 		return b;
 	}
 	FeHandleError(ctx, "too many buffer-local bindings");
+}
+
+/* ---- The buffer tag on a `let' ----------------------------------------
+ * See lisp_locals.h for what these two answer and why they read nothing but
+ * the table.  They are fe's binding hooks, so they run at every dynamic
+ * bind and every dynamic restore in the editor, including the ones that
+ * have nothing to do with buffers: the first test in each is the one that
+ * makes those cost a load and a compare. */
+
+uintptr_t lisp_locals_bind_tag(FeContext *ctx, FeObject *symbol)
+{
+	struct kg_lisp_local_var *v;
+	struct kg_lisp_local_binding *b;
+
+	(void)ctx;
+	if (state.locals.var_count == 0) {
+		return 0;
+	}
+	v = var_find(symbol);
+	b = v != nullptr ? binding_find(v, state.locals.swapped) : nullptr;
+	return b != nullptr ? b->stamp : 0;
+}
+
+FeObject *lisp_locals_bind_target(
+    FeContext *ctx, FeObject *symbol, uintptr_t tag)
+{
+	struct kg_lisp_local_binding *b;
+
+	(void)ctx;
+	if (tag == 0) {
+		return default_cell(symbol);
+	}
+	b = binding_by_stamp(tag);
+	if (b == nullptr || buf_resolve(b->buffer) == nullptr) {
+		return nullptr;
+	}
+	return handle_eq(b->buffer, state.locals.swapped) ? symbol : b->cell;
 }
 
 /* ---- Natives ----------------------------------------------------------

@@ -43,6 +43,7 @@ void copy_result(char *result, size_t result_size, const char *text)
  * below against lisp.h's declarations, via the top-of-file include. */
 #include "lisp_hooks.h"
 #include "lisp_internal.h"
+#include "lisp_locals.h"
 #include "lisp_obj.h"
 #include "lisp_process.h"
 
@@ -52,8 +53,8 @@ void copy_result(char *result, size_t result_size, const char *text)
 #define lisp_free_arena free
 #endif
 
-static_assert(FE_API_VERSION == 10);
-static_assert(FE_LANGUAGE_VERSION == 13);
+static_assert(FE_API_VERSION == 11);
+static_assert(FE_LANGUAGE_VERSION == 14);
 
 #ifndef KG_LISP_ARENA_SIZE
 #define KG_LISP_ARENA_SIZE (1024U * 1024U)
@@ -64,11 +65,11 @@ static_assert(FE_LANGUAGE_VERSION == 13);
 #endif
 
 /* The arena holds the whole Fe context, its 4096-slot GC stack and Fe's
- * arena-resident evaluator frames. FeMinimumArenaSize() measures 58080
- * bytes (~56.7 KiB) at the pinned Fe, so an override much below ~64 KiB
- * fails to start; the default's 1 MiB still leaves roughly 95% of the
- * arena for objects and frame growth -- 56225 object slots and a
- * 1095-frame evaluator stack, as kg_lisp_arena_stats() reports them.
+ * arena-resident evaluator frames. FeMinimumArenaSize() measures 66264
+ * bytes (~64.7 KiB) at the pinned Fe, so an override much below ~72 KiB
+ * fails to start; the default's 1 MiB still leaves roughly 94% of the
+ * arena for objects and frame growth -- 56147 object slots and a
+ * 1087-frame evaluator stack, as kg_lisp_arena_stats() reports them.
  * All three are measured at the pin, never carried forward. */
 static constexpr size_t lisp_arena_size = KG_LISP_ARENA_SIZE;
 static constexpr size_t lisp_step_limit = KG_LISP_STEP_LIMIT;
@@ -412,6 +413,13 @@ int kg_lisp_init(void)
 	FeSetUserData(context, &state);
 	FeSetErrorFn(context, handle_error);
 	FeSetGCFn(context, lisp_object_gc);
+	/* The per-binding buffer tag Emacs keeps in its specpdl, in the one
+	 * place fe offers for it (FE_API_VERSION 11).  Registered here rather
+	 * than lazily when the first buffer-local binding appears, because a
+	 * `let' pushed before the registration would carry no tag and restore
+	 * to the wrong cell afterwards; src/lisp_locals.c's fast path is what
+	 * makes it free for a session that never says `setq-local'. */
+	FeSetBindingFns(context, lisp_locals_bind_tag, lisp_locals_bind_target);
 	state.frame.gc_checkpoint = FeSaveGC(context);
 	state.frame_active = true;
 	if (setjmp(state.frame.error_jump) != 0) {
@@ -796,6 +804,19 @@ static void cleanup_prefix_binding(FeContext *context, void *ptr)
 	parts[1] = second;
 	raise_signal_form(
 	    context, "args-out-of-range", FeMakeList(context, parts, 2));
+}
+
+/* Raise Emacs' `(end-of-buffer)` or `(beginning-of-buffer)`: the two edges
+ * a motion or an edit runs into, both with NO data -- measured on the
+ * pinned 31.0.90, `(condition-case e (forward-char 20) (error e))` in a
+ * three-character buffer is `(end-of-buffer)` and nothing more.  Both
+ * names joined fe's condition table at the Phase 20 pin; before that
+ * `signal` refused them and every kg native that reached an edge clamped
+ * silently instead. */
+[[noreturn]] void lisp_raise_buffer_edge(FeContext *context, bool at_end)
+{
+	raise_signal_form(context,
+	    at_end ? "end-of-buffer" : "beginning-of-buffer", FeNil(context));
 }
 
 /* The two type checks a native writes most: `(wrong-type-argument stringp

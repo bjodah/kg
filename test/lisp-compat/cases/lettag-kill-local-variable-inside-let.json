@@ -1,0 +1,7 @@
+{
+ "id": "lettag-kill-local-variable-inside-let",
+ "setup": [],
+ "expr": "(progn (defvar pltc 'D) (with-current-buffer (get-buffer-create \"plt-c\")  (setq-local pltc 'A)  (list (let ((pltc 'LET)) (kill-local-variable 'pltc) (list pltc (local-variable-p 'pltc)))   pltc (local-variable-p 'pltc) (default-value 'pltc))))",
+ "expect": "agree",
+ "note": "The storage a live `let' binding displaced is destroyed from under it by `kill-local-variable'. The binding named this buffer's local binding and there is no longer one, so the saved value is dropped rather than written into the default that has taken its place."
+}

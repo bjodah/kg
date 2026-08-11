@@ -1,0 +1,8 @@
+{
+ "id": "prelude-hygiene-replace-regexp-function",
+ "setup": [
+  "(defvar limit 0)"
+ ],
+ "expr": "(list (replace-regexp-in-string \"b\" (lambda (m) (setq limit m) \"X\") \"abc\") limit)",
+ "note": "REP may be a function, and kg's `replace-regexp-in-string' held five temporaries across the `funcall' of it.  `limit' is the one whose capture raised outright -- (wrong-type-argument number-or-marker-p \"b\") -- because the loop compares it.  Emacs' own definition is Lisp too, in subr.el, and is immune for a reason kg does not have: it is byte-compiled under lexical-binding, so its locals became stack slots before any user `defvar' could mark the name."
+}

@@ -1,0 +1,8 @@
+{
+ "id": "prelude-hygiene-dotimes-counter",
+ "setup": [
+  "(defvar i 0)"
+ ],
+ "expr": "(progn (dotimes (k 3) (setq i (+ i 1))) i)",
+ "note": "The macro half of the same exposure: `dotimes' expands into `internal--dotimes', whose loop counter was a `let'-bound `i' held across the `funcall' of the body.  With `i' `defvar'd the body and the loop shared one binding -- each iteration incremented it twice, so the loop ran twice and answered 0 for the user's counter.  Three now, on both sides."
+}

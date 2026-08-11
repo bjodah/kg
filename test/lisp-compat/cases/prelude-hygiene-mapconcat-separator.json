@@ -1,0 +1,8 @@
+{
+ "id": "prelude-hygiene-mapconcat-separator",
+ "setup": [
+  "(defvar first 0)"
+ ],
+ "expr": "(list (mapconcat (lambda (x) (setq first x) x) (list \"a\" \"b\") \"-\") first)",
+ "note": "`mapconcat' holds two temporaries across its callback, and `first' is the first-iteration flag.  A callback assigning that name used to keep the flag truthy, so the separator was never emitted: this answered (\"ab\" 0).  (\"a-b\" \"b\") on both sides now."
+}

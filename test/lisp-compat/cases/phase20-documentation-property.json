@@ -1,0 +1,9 @@
+{
+ "id": "phase20-documentation-property",
+ "setup": [
+  "(put 'kg-doc-probe 'variable-documentation \"Put by hand.\")",
+  "(put 'kg-doc-probe 'kg-not-a-string 5)"
+ ],
+ "expr": "(list (documentation-property 'kg-doc-probe 'variable-documentation) (documentation-property 'kg-doc-probe 'kg-not-a-string) (documentation-property 'kg-doc-probe 'kg-never-set) (documentation-property 'kg-no-such-symbol-at-all 'variable-documentation) (documentation-property nil 'variable-documentation) (documentation-property 'kg-doc-probe 'variable-documentation t))",
+ "note": "Phase 20: `documentation-property' answers the property when it is a string, nil for a property that is not a string, nil for one nobody set, and nil for nil (which owns no plist here and is the symbol nil there). The RAW argument is accepted and ignored on this side and changes nothing on Emacs' for a property that carries no markup."
+}

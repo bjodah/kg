@@ -1,0 +1,48 @@
+name: lsp-completion-listing-survives-in-field
+# The half of the listing's lifetime that is *not* "close on any key":
+# typing more of the symbol being completed leaves the listing up.
+#
+# Measured against emacs -q -nw 31.0.90 rather than assumed.  With `(prin`
+# in an emacs-lisp buffer, M-TAB lists eight candidates; typing `1`, and
+# then `z` and `q` -- text no candidate matches -- leaves the *Completions*
+# window exactly where it was, and unrefreshed.  `completion-in-region-mode'
+# survives a keystroke while point is at or after the region's start, still
+# on its line, and the completion function asked afresh still says the
+# region begins where it began; none of those change when the symbol grows.
+# kg's stand-in for the last clause is M-/'s word scan (src/dabbrev.h), so
+# this case is what pins that "al" is still the same field as "a".
+#
+# The two candidates share no more than the "a" already typed, so the first
+# M-TAB lists rather than inserting a common prefix.
+#
+# The assertion is C-x o: it lands in the listing rather than reporting one
+# window, so "No other windows." is a message this session cannot produce
+# while the listing is up -- and unlike the listing's own text, it is not
+# already sitting in the scrollback the capture includes (see
+# lsp-completion-listing-closes-on-delimiter.yaml).  The second C-x o goes
+# back, because the run ends by saving whatever buffer point is in and the
+# listing is not it.
+requires_feature: lsp
+backend: tmux
+key_delay: 0.35
+env:
+  KG_LSP_SERVER_C: "python3 {REPO}/test/fake_lsp_server.py --mode protocol --completion alpha --completion avocado"
+filename: complstay.c
+initial: |-
+  a
+keys:
+  - "M->"
+  - "M-TAB"
+  - "C-l"
+  - "C-l"
+  - "l"
+  - "C-x"
+  - "o"
+  - "C-x"
+  - "o"
+  - "C-l"
+  - "C-l"
+expected_saved: |-
+  al
+expected_screen_not_contains:
+  - "No other windows."

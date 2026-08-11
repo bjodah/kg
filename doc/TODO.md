@@ -99,6 +99,26 @@ This file remains the broader feature and technical-debt inventory.
       REJECTED (gameable by adding code; punishes headers whose comments
       earn their keep).  `utils/comment_ratio.py` ranks files by comment
       share for one-off verbosity hunts instead.
+- [ ] **`utils/run_unit_tests.py` decodes a test's output as strict UTF-8.**
+      `subprocess.run(..., text=True)` with no `errors=`, so a failing test
+      whose message quotes a raw byte from its own fixture ends the whole
+      unit layer in a `UnicodeDecodeError` traceback instead of a FAIL
+      line.  Found 2026-08-11 while forcing `.ci/ci-13` to run:
+      `test/test_syntax_tree_sitter.c` prints the offending byte of a
+      mismatched highlight row, and one such byte took 46 test binaries'
+      results with it.  `errors="replace"` is the fix; the reason it has
+      never fired in a green run is that only a FAILING test prints
+      fixture bytes.
+- [ ] **The tree-sitter prefix `.ci/ci-13` pins does not exist on this
+      box.**  `TREE_SITTER_PREFIX` defaults to
+      `/opt-2/tree-sitter-v0.26.12-release` (Makefile and the step agree),
+      the box has 0.26.11 under `/opt-9`, and the step SKIPs rather than
+      failing — correct behaviour, but it means the tree-sitter backend is
+      untested here.  Pointing `TREE_SITTER_PREFIX` at the 0.26.11 prefix
+      is not enough on its own: `KG_TS_GRAMMAR_DEFAULT_PATH` is derived
+      separately and still names the missing `/opt-2` lib directory, so
+      every grammar test fails to `dlopen` anything.  Both should read one
+      variable, and `$TREE_SITTER_ROOT` should be what the box sets.
 
 
 ## LSP follow-ups (v1 landed 2026-08-09)
@@ -279,6 +299,15 @@ real `clangd` and `ty`.  Known follow-ups, none blocking:
         wants the mode registry the last bullet of this section asks for,
         and Emacs' "close it as you type" wants a post-command hook kg
         has no place for yet.
+        The second half of that stopped being true in the 2026-08-11
+        merge: Phase 18 landed `post-command-hook`
+        (`kg_lisp_run_post_command_hook()`, called from the main loop once
+        per processed keystroke), which is exactly the place "close
+        `*Completions*` as you type" belongs.  Neither wave could see it,
+        having been written in parallel.  kg's hook fires per KEYSTROKE
+        rather than per command, which is the right cadence for this one:
+        typing is what should close the listing, and typing is not a
+        command here.
 - ~~**Lisp bindings for the xref commands.**~~  Done by Phase 17's
   `CMD_LISP_CALLABLE` audit, which is the settling this row was waiting
   for: all four are reachable from `(command-execute ...)` now.  They

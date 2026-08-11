@@ -17,7 +17,6 @@
 #include "marker.h"
 #include "syntax.h"
 #include "vgeom.h"
-#include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 

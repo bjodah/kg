@@ -1,0 +1,58 @@
+# What a from-source tree-sitter install for kg is made of.
+#
+# kg does not vendor tree-sitter: it links a prebuilt PREFIX and dlopen's
+# grammars by soname (doc/plans/kg-tree-sitter-plan.md, Refinement decision
+# 1).  This file is the other half of that decision -- the exact core and
+# grammar revisions that prefix is expected to contain, so a box that has no
+# such install can build one (utils/build-tree-sitter.sh) instead of skipping
+# the tree-sitter lane.  It is also the answer to "which grammar is this
+# behaviour from?" when a highlight changes under a grammar bump.
+#
+# Every line is one record of whitespace-separated fields; '#' starts a
+# comment.  The whole file is hashed into the build's cache key, so editing
+# ANY of it -- including this comment -- means the next build is a fresh one.
+#
+#   core     <url> <tag>
+#   grammar  <name> <url> <tag> [subdir]
+#
+# <name> is Emacs' grammar name, which is what kg's registry asks the loader
+# for and what the .so is named after: libtree-sitter-<name>.so.  <subdir> is
+# for the repositories that ship more than one grammar; it defaults to the
+# repository root, and names the directory holding src/parser.c.
+#
+# The set is exactly the grammars src/syntax_tree_sitter_lang.c's ts_registry
+# names, no more: a grammar nothing asks for is build time nobody spends.
+# The versions are the developer box's install
+# (/opt-2/tree-sitter-v0.26.12-release) where that install records one, so a
+# hosted run and a developer run highlight the same bytes.  The nine
+# grammars whose .so there predates grammar metadata carry no version to
+# match, and are pinned at the newest release tag as of 2026-08-11; the
+# comment beside each says which case it is.
+
+core	https://github.com/tree-sitter/tree-sitter	v0.26.12
+
+# Versions the box's install reports through ts_language_metadata().
+grammar	bash		https://github.com/tree-sitter/tree-sitter-bash		v0.25.1
+grammar	c		https://github.com/tree-sitter/tree-sitter-c		v0.24.2
+grammar	javascript	https://github.com/tree-sitter/tree-sitter-javascript	v0.25.0
+grammar	markdown	https://github.com/tree-sitter-grammars/tree-sitter-markdown	v0.5.3	tree-sitter-markdown
+grammar	python		https://github.com/tree-sitter/tree-sitter-python	v0.25.0
+grammar	rust		https://github.com/tree-sitter/tree-sitter-rust		v0.24.1
+
+# Metadata-less on the box (grammar ABI 14 builds); newest release tag.
+grammar	html		https://github.com/tree-sitter/tree-sitter-html		v0.23.2
+grammar	java		https://github.com/tree-sitter/tree-sitter-java		v0.23.5
+grammar	make		https://github.com/tree-sitter-grammars/tree-sitter-make	v1.1.1
+grammar	tsx		https://github.com/tree-sitter/tree-sitter-typescript	v0.23.2	tsx
+grammar	typescript	https://github.com/tree-sitter/tree-sitter-typescript	v0.23.2	typescript
+grammar	yaml		https://github.com/tree-sitter-grammars/tree-sitter-yaml	v0.7.2
+
+# Behind the box (1.7.2), and deliberately: tree-sitter-elisp stopped
+# committing the generated src/parser.c at 1.7.0, and 1.6.1 is the last tag
+# a compiler alone can build.  Generating it needs the tree-sitter CLI --
+# a Rust program with a cargo build in front of it -- which is a far larger
+# dependency than the one grammar it would buy.  The two versions are not
+# known to differ here: 1.6.1 is what the previous install shipped, and the
+# move to 1.7.2 left every elisp case painting byte for byte (see the
+# "repoint the pins" commit).
+grammar	elisp		https://github.com/Wilfred/tree-sitter-elisp		1.6.1

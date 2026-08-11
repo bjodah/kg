@@ -341,6 +341,15 @@ make WITH_TREE_SITTER=1 TREE_SITTER_PREFIX=/usr/local
 ./src/kg -V          # kg 1.1.0 +lisp +tree-sitter +lsp
 ```
 
+On a machine with no such install, `utils/build-tree-sitter.sh` builds one:
+it clones the core and the grammars kg's registry asks for at the revisions
+`utils/tree-sitter-pins` names, compiles each grammar from its checked-in
+`src/parser.c` (no tree-sitter CLI, no cargo, no npm), and prints the path of
+the prefix it cached under `$KG_TS_CACHE` (default `~/.cache/kg-tree-sitter`).
+It wants a C compiler, `git` and network access, and takes about twenty
+seconds. This is what `.ci/ci-13-with-tree-sitter.sh` falls back to when the
+box has no prefix of its own.
+
 `kg -V` names every optional feature as `+word` or `-word`, so it is the way
 to ask a binary which backend it has. The two flags are independent: all four
 combinations of `WITH_LISP` and `WITH_TREE_SITTER` build.

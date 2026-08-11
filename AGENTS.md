@@ -162,9 +162,18 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   - `cbmc` (`CBMC`): `fe/tiny-regex-c`'s `make verify` only.  Nothing kg
     runs needs it -- `make check` there runs `verify-syntax`, which asks
     an ordinary compiler whether the CPROVER harness still builds.
+  - `git` and a route to the pins' hosts: `ci-13` on a box with no
+    tree-sitter install builds the core and grammars
+    `utils/tree-sitter-pins` names (`utils/build-tree-sitter.sh`, ~20 s)
+    into `${KG_TS_CACHE:-~/.cache/kg-tree-sitter}` rather than skipping,
+    and FAILS if it cannot.  A box that has an install --
+    `$TREE_SITTER_PREFIX`, `$TREE_SITTER_ROOT`, or the `/opt-2` one this
+    development box carries -- fetches nothing.
   - Hosted CI needs nothing beyond these: the image carries the toolchain
     and `.woodpecker.yaml` installs only `pmccabe` on top of it.  The
-    runner discovers its steps with a shell glob, so no `jq`.
+    runner discovers its steps with a shell glob, so no `jq`.  The one
+    thing the image does not carry yet is a tree-sitter prefix, which is
+    why `ci-13` builds one per run there.
 - To iterate on one CI gate, run its script directly, e.g.
   `.ci/ci-01-*.sh`; shared defaults come from `.ci/ci-env.sh`.
 - `CC` and `CFLAGS` are overridable on the make command line, e.g.

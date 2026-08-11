@@ -150,7 +150,10 @@ The `WITH_TREE_SITTER=1` backend is complete per
 [doc/plans/kg-tree-sitter-plan.md](plans/kg-tree-sitter-plan.md)'s
 definition of done: 13 registry rows over 11 grammars, incremental
 TSInputEdit parsing with damage-limited repainting, differential-tested
-against full rebuilds.  Known follow-ups, none blocking:
+against full rebuilds.  Hosted CI runs the lane as of 2026-08-11:
+`.ci/ci-13-with-tree-sitter.sh` no longer skips off the developer box, it
+builds `utils/tree-sitter-pins` with `utils/build-tree-sitter.sh` into a
+cache keyed by that manifest's hash.  Known follow-ups, none blocking:
 
 - **Shell**: unblocked.  The grammar the loader used to refuse (a
   tree-sitter-bash of grammar ABI 6) is gone; the installed
@@ -163,9 +166,12 @@ against full rebuilds.  Known follow-ups, none blocking:
 - **TSX tag colouring**: TS and TSX share one query text restricted to
   the common node inventory, so `.tsx` tag names are unpainted; a
   second query literal for the tsx row fixes it if wanted.
-- **Hosted CI promotion**: `.ci/ci-13-with-tree-sitter.sh` SKIPs off
-  the developer box; promoting it means building the pinned core (and
-  grammars) in a cached step (Refinement, "Hosted CI").
+- **Ship the prefix in the CI image**: the pinned build above is a
+  per-run cost on an ephemeral workspace.  ci-13 resolves an environment
+  variable before the cache and the cache before a build, so an image
+  carrying a prefix and exporting `TREE_SITTER_ROOT` retires the build
+  path with no repo change; that is the end state the resolution order
+  was written for.
 - **Query embedding generator** (`utils/embed_tree_sitter_queries.py`):
   deliberately declined twice; revisit only if queries outgrow
   string-literal form.

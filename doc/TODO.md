@@ -166,11 +166,6 @@ against full rebuilds.  Known follow-ups, none blocking:
 - **Hosted CI promotion**: `.ci/ci-13-with-tree-sitter.sh` SKIPs off
   the developer box; promoting it means building the pinned core (and
   grammars) in a cached step (Refinement, "Hosted CI").
-- **Bench cases**: slice 7 measured edit latency ad hoc (1.3-5.6 ms
-  net per keystroke on 6.7k-38.8k-line files); `utils/bench.py` cases
-  for large-file open + edit under the TS build would make that a
-  tracked number.  Parse cancellation stays deferred until a
-  measurement says otherwise (Refinement, "Latency policy").
 - **Query embedding generator** (`utils/embed_tree_sitter_queries.py`):
   deliberately declined twice; revisit only if queries outgrow
   string-literal form.

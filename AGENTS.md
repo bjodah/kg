@@ -121,6 +121,11 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   another counting build -- never against a release `-Os` one. The
   `startup` case is the constant to subtract by eye. `--big` adds the
   1M-line corpus; corpora are cached in the gitignored `test/.bench/`.
+  A case may name a `kg -V` feature it needs, and is reported as skipped
+  with the reason on a build without it: the `ts-*` cases (large-file
+  open and mid-file typing, the tree-sitter latency policy's evidence)
+  need `make bench WITH_TREE_SITTER=1`, and a plain `make bench` skips
+  them.
 - Hosted CI is one Woodpecker step (`.woodpecker.yaml`): a prebuilt image
   with the toolchain in it, `apt-get install pmccabe`, then
   `bash -l .ci/run-ci-steps.sh` -- the same runner, and the same steps

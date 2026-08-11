@@ -26,6 +26,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -1018,6 +1019,66 @@ static void test_listen_hash_socket_eof_mid_frame(void)
 	lsp_transport_close(t);
 }
 
+/* The descriptors a caller's own wait should include, and what they are
+ * worth: polling them wakes on the child's PRE-announce output.
+ *
+ * That is the whole point of the API, and it is why the assertion is a
+ * poll(2) rather than a count.  A transport that named the wrong
+ * descriptor, or none at all, would leave an editor asleep until its own
+ * tick came round -- which is exactly the stall this exists to remove: one
+ * pipe-load per 100 ms, six seconds for a 512 KiB banner.  The timeout is
+ * a bound, not a wait: the child's first line arrives in milliseconds and
+ * five seconds of nothing is a failure to report, not a suite to hang. */
+static void test_wait_fds_wake_on_pre_announce_output(void)
+{
+	struct lsp_transport *t = start_sh_wire(
+	    "printf 'INFO [org.netbeans.core.startup]: starting modules\\n'; "
+	    "sleep 5",
+	    LSP_WIRE_LISTEN_HASH);
+	struct pollfd pfd[LSP_TRANSPORT_WAIT_FDS_MAX];
+	int fds[LSP_TRANSPORT_WAIT_FDS_MAX];
+	int count;
+	int i;
+
+	CHECK(t != NULL);
+	if (!t) {
+		return;
+	}
+	count = lsp_transport_wait_fds(t, fds, LSP_TRANSPORT_WAIT_FDS_MAX);
+	CHECK(count > 0);
+	for (i = 0; i < count; i++) {
+		pfd[i].fd = fds[i];
+		pfd[i].events = POLLIN;
+		pfd[i].revents = 0;
+	}
+	CHECK(poll(pfd, (unsigned long)count, 5000) > 0);
+	lsp_transport_close(t);
+}
+
+/* And a transport that has failed names none of them.  A failed one has
+ * closed its protocol descriptors and has nothing left to read, so a
+ * caller that kept polling what it used to name would be told "ready"
+ * forever and would spin at full speed instead of waiting. */
+static void test_wait_fds_are_empty_once_the_transport_has_failed(void)
+{
+	struct lsp_transport *t = start_sh_wire(
+	    "while :; do printf 'INFO [org.netbeans.core.startup]: "
+	    "................................\\n'; done",
+	    LSP_WIRE_LISTEN_HASH);
+	int fds[LSP_TRANSPORT_WAIT_FDS_MAX];
+	const char *body = NULL;
+	size_t len = 0;
+
+	CHECK(t != NULL);
+	if (!t) {
+		return;
+	}
+	CHECK(pump_until_message(t, &body, &len) == -1);
+	CHECK(lsp_transport_failed(t));
+	CHECK(lsp_transport_wait_fds(t, fds, LSP_TRANSPORT_WAIT_FDS_MAX) == 0);
+	lsp_transport_close(t);
+}
+
 /* A spawn request that names a descriptor for the child's stdin is a
  * caller bug: kg_process_spawn_bidi() makes that pipe itself. */
 static void test_bidi_refuses_a_caller_supplied_stdin(void)
@@ -1184,5 +1245,7 @@ int main(int argc, char **argv)
 	RUN(test_listen_hash_failed_announce_still_delivers_later_lines);
 	RUN(test_listen_hash_firehose_before_announce_is_refused);
 	RUN(test_listen_hash_socket_eof_mid_frame);
+	RUN(test_wait_fds_wake_on_pre_announce_output);
+	RUN(test_wait_fds_are_empty_once_the_transport_has_failed);
 	return test_summary();
 }

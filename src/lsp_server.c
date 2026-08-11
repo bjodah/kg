@@ -18,6 +18,7 @@
 
 #include "lsp_server.h"
 
+#include "lsp.h"
 #include "lsp_client.h"
 #include "lsp_transport.h"
 #include "process.h"
@@ -509,6 +510,27 @@ int lsp_server_poll_all(void)
 		}
 	}
 	return changed;
+}
+
+/* src/lsp.h spells the array size as a number so it can stay free-standing;
+ * this is where that number is held to the two it is the product of. */
+static_assert(KG_LSP_WAIT_FDS_MAX
+	>= LSP_SERVER_MAX_INSTANCES * LSP_TRANSPORT_WAIT_FDS_MAX,
+    "KG_LSP_WAIT_FDS_MAX must hold every instance's every descriptor");
+
+int lsp_server_wait_fds(int *fds, int max)
+{
+	int count = 0;
+	size_t i;
+
+	for (i = 0; i < LSP_SERVER_MAX_INSTANCES; i++) {
+		if (!instances[i].spec) {
+			continue;
+		}
+		count += lsp_client_wait_fds(
+		    instances[i].client, fds + count, max - count);
+	}
+	return count;
 }
 
 void lsp_server_shutdown_all(unsigned grace_ms)

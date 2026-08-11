@@ -448,6 +448,7 @@ static int lines_fill(struct lsp_lines *ch)
 	}
 	n = read(ch->fd, ch->buf.data + ch->buf.len, LSP_TRANSPORT_READ_CHUNK);
 	if (n > 0) {
+		KG_PERF_INC(KG_PERF_LSP_LINES_READ);
 		ch->buf.len += (size_t)n;
 		return 1;
 	}
@@ -1073,4 +1074,34 @@ bool lsp_transport_child_alive(struct lsp_transport *t)
 size_t lsp_transport_pending_bytes(const struct lsp_transport *t)
 {
 	return t->outbox.len - t->outbox_sent;
+}
+
+/* One descriptor into a wait set, if there is room and it is real. */
+static void wait_fd_add(int fd, int *fds, int max, int *count)
+{
+	if (fd >= 0 && *count < max) {
+		fds[(*count)++] = fd;
+	}
+}
+
+int lsp_transport_wait_fds(const struct lsp_transport *t, int *fds, int max)
+{
+	int count = 0;
+
+	/* A failed transport has closed its protocol descriptors and lifted
+	 * its holds; what is left of its line channels is buffered text,
+	 * not something to wait for. */
+	if (t->error != LSP_TRANSPORT_OK) {
+		return 0;
+	}
+	if (!t->eof) {
+		wait_fd_add(proto_read_fd(t), fds, max, &count);
+	}
+	if (!t->err.eof) {
+		wait_fd_add(t->err.fd, fds, max, &count);
+	}
+	if (!t->log.eof) {
+		wait_fd_add(t->log.fd, fds, max, &count);
+	}
+	return count;
 }

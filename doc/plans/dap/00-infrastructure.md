@@ -53,24 +53,24 @@ Three genuinely new capabilities land on the extracted layer (the
 prototype proved these are the only real gaps):
 
 1. **Wrap an already-open fd** as a channel — both the fuzz seam's
-   successor (today only the `KG_FUZZ`-gated, read-only
-   `lsp_transport_attach_fuzz_fd()` exists, src/lsp_transport.c:884)
+   successor (the generic frame fuzzer now wraps a read fd at framed_io;
+   the LSP API retains its `KG_FUZZ` compatibility seam)
    and a real `attach_socket(fd)` constructor (no child, phase OPEN),
    which the Java `lsp-sibling` road needs (subplan 03). Measured
    gotcha: **the constructor sets `O_NONBLOCK` itself** — a caller that
    forgets hangs silently on the first read (the probe lost 8 minutes
    to exactly this).
 2. **Nonblocking TCP connect to host:port, no child, no handshake** —
-   generalized from the correct-but-static loopback connect at
-   src/lsp_transport.c:605-658. v1 may keep loopback-only with the
+   generalized from the correct-but-static loopback `connect_start()` in
+   `src/lsp_transport.c`. v1 may keep loopback-only with the
    restriction documented; the entry point takes a host anyway.
 3. **stdin half-close** (graceful end-of-session): send EOF to the child
    without killing it, so a lingering adapter (debugpy never exits after
    `disconnect` — measured) can be given a deadline before the close
    path's kill backstop.
 4. **Announce parsing separates from connecting.** Today
-   `announce_take()` connects to one compile-time prefix
-   (src/lsp_transport.c:711-712). The measured needs (subplans 03/04):
+   `announce_take()` in `src/lsp_transport.c` connects to one compile-time
+   prefix. The measured needs (subplans 03/04):
    nbcode announces two servers on one stdout and the DAP port must be
    scraped from the *LSP* transport's log channel for a later, separate
    connect; delve announces a bare port with no hash at all. The scan

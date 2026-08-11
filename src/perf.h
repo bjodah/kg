@@ -223,8 +223,8 @@ enum kg_perf_counter {
 	KG_PERF_POST_COMMAND_HOOK_CALLS,
 	KG_PERF_POST_COMMAND_HOOK_RUNS,
 
-	/* read() calls into the LSP transport's inbox that returned bytes
-	 * (src/lsp_transport.c).  The property it exists to pin is that a
+	/* read() calls into the shared framed inbox that returned bytes
+	 * (src/framed_io.c).  The property it exists to pin is that a
 	 * write() carrying several complete frames costs ONE of them: the
 	 * inbox is parsed a frame at a time out of whatever arrived, so a
 	 * server answering three requests in one go must not cost three
@@ -235,7 +235,7 @@ enum kg_perf_counter {
 
 	/* read() calls into a line channel that returned bytes: the child's
 	 * stderr, and on the socket wire its stdout while the announce is
-	 * still being looked for (src/lsp_transport.c).  One per pipe-load,
+	 * still being looked for (src/framed_io.c).  One per pipe-load,
 	 * because that is what a pipe hands over at a time, so this is the
 	 * count of pipe-loads a server's log cost -- the numerator the idle
 	 * counters below are the denominator of. */

@@ -278,7 +278,7 @@ LISP_OBJS = $(addprefix $(OBJDIR)/,$(LISP_SRCS:.c=.o))
 # it: the JSON, client and server-registry files join the same list.
 LSP_SRCS = lsp_core.c
 ifeq ($(WITH_LSP),1)
-LSP_SRCS += lsp_transport.c json.c lsp_uri.c lsp_client.c lsp_server.c \
+LSP_SRCS += framed_io.c lsp_transport.c json.c lsp_uri.c lsp_client.c lsp_server.c \
             lsp_sync.c
 endif
 # The two WITH_LSP=1 modules that reach the whole editor -- lsp_req.c takes
@@ -317,7 +317,8 @@ LSP_OBJS = $(addprefix $(OBJDIR)/,$(LSP_SRCS:.c=.o))
 # the whole editor: the suite that does link it says so itself, below.
 LSP_ALL = $(TESTDIR)/test_xref $(TESTDIR)/test_lsp_log \
           $(TESTDIR)/test_lsp_diag \
-          $(OBJDIR)/lsp_transport.o $(TESTDIR)/test_lsp_transport \
+          $(OBJDIR)/framed_io.o $(OBJDIR)/lsp_transport.o \
+          $(TESTDIR)/test_framed_io $(TESTDIR)/test_lsp_transport \
           $(OBJDIR)/json.o $(TESTDIR)/test_lsp_json \
           $(OBJDIR)/lsp_uri.o \
           $(OBJDIR)/lsp_client.o $(OBJDIR)/lsp_server.o \
@@ -402,7 +403,8 @@ endif
 # to test -- the facade it does have is three no-ops that every other
 # binary already links.
 ifeq ($(WITH_LSP),1)
-TESTBINS += $(TESTDIR)/test_lsp_transport $(TESTDIR)/test_lsp_json \
+TESTBINS += $(TESTDIR)/test_framed_io $(TESTDIR)/test_lsp_transport \
+            $(TESTDIR)/test_lsp_json \
             $(TESTDIR)/test_lsp_client $(TESTDIR)/test_lsp_sync \
             $(TESTDIR)/test_lsp_log $(TESTDIR)/test_xref \
             $(TESTDIR)/test_lsp_diag $(TESTDIR)/test_lsp_edit
@@ -450,8 +452,8 @@ FUZZBIN_COMPILE_PARSE = $(TESTDIR)/fuzz_compile_parse
 FUZZBIN_LSP_JSON = $(TESTDIR)/fuzz_lsp_json
 FUZZBIN_WIDTH = $(TESTDIR)/fuzz_width
 FUZZBIN_KEYBIND = $(TESTDIR)/fuzz_keybind
-FUZZBIN_LSP_FRAMES = $(TESTDIR)/fuzz_lsp_frames
-FUZZBINS = $(FUZZBIN) $(FUZZBIN_SYNTAX) $(FUZZBIN_DIRLOCALS) $(FUZZBIN_REGEX) $(FUZZBIN_LOCALVARS) $(FUZZBIN_COMPILE_PARSE) $(FUZZBIN_LSP_JSON) $(FUZZBIN_WIDTH) $(FUZZBIN_KEYBIND) $(FUZZBIN_LSP_FRAMES)
+FUZZBIN_FRAMES = $(TESTDIR)/fuzz_frames
+FUZZBINS = $(FUZZBIN) $(FUZZBIN_SYNTAX) $(FUZZBIN_DIRLOCALS) $(FUZZBIN_REGEX) $(FUZZBIN_LOCALVARS) $(FUZZBIN_COMPILE_PARSE) $(FUZZBIN_LSP_JSON) $(FUZZBIN_WIDTH) $(FUZZBIN_KEYBIND) $(FUZZBIN_FRAMES)
 FUZZ_SEEDS = $(TESTDIR)/fuzz-seeds
 FUZZ_SEEDS_REGEX = $(FUZZ_SEEDS)/regex
 # The working corpus is gitignored, so a fresh checkout starts each target
@@ -582,7 +584,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 8464
+SCC_COMPLEXITY_MAX ?= 8511
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -1105,21 +1107,21 @@ fuzz-keybind-smoke: $(FUZZBIN_KEYBIND) fuzz-keybind-seed
 		-artifact_prefix=$(FUZZ_ARTIFACTS)/keybind/ \
 		$(FUZZ_CORPUS)/keybind
 
-fuzz-lsp-frames: $(FUZZBIN_LSP_FRAMES)
+fuzz-frames: $(FUZZBIN_FRAMES)
 
-fuzz-lsp-frames-seed:
-	mkdir -p $(FUZZ_CORPUS)/lsp_frames
-	cp -f $(FUZZ_SEEDS)/lsp_frames/* $(FUZZ_CORPUS)/lsp_frames/
+fuzz-frames-seed:
+	mkdir -p $(FUZZ_CORPUS)/frames
+	cp -f $(FUZZ_SEEDS)/frames/* $(FUZZ_CORPUS)/frames/
 
-fuzz-lsp-frames-smoke: $(FUZZBIN_LSP_FRAMES) fuzz-lsp-frames-seed
-	mkdir -p $(FUZZ_ARTIFACTS)/lsp_frames
-	./$(FUZZBIN_LSP_FRAMES) $(FUZZ_SMOKE_ARGS) \
-		-artifact_prefix=$(FUZZ_ARTIFACTS)/lsp_frames/ \
-		$(FUZZ_CORPUS)/lsp_frames
+fuzz-frames-smoke: $(FUZZBIN_FRAMES) fuzz-frames-seed
+	mkdir -p $(FUZZ_ARTIFACTS)/frames
+	./$(FUZZBIN_FRAMES) $(FUZZ_SMOKE_ARGS) \
+		-artifact_prefix=$(FUZZ_ARTIFACTS)/frames/ \
+		$(FUZZ_CORPUS)/frames
 
-fuzz-seed: fuzz-keypress-seed fuzz-syntax-seed fuzz-dirlocals-seed fuzz-regex-seed fuzz-localvars-seed fuzz-compile-parse-seed fuzz-lsp-json-seed fuzz-width-seed fuzz-keybind-seed fuzz-lsp-frames-seed
+fuzz-seed: fuzz-keypress-seed fuzz-syntax-seed fuzz-dirlocals-seed fuzz-regex-seed fuzz-localvars-seed fuzz-compile-parse-seed fuzz-lsp-json-seed fuzz-width-seed fuzz-keybind-seed fuzz-frames-seed
 
-fuzz-smoke: fuzz-keypress-smoke fuzz-syntax-smoke fuzz-dirlocals-smoke fuzz-regex-smoke fuzz-localvars-smoke fuzz-compile-parse-smoke fuzz-lsp-json-smoke fuzz-width-smoke fuzz-keybind-smoke fuzz-lsp-frames-smoke
+fuzz-smoke: fuzz-keypress-smoke fuzz-syntax-smoke fuzz-dirlocals-smoke fuzz-regex-smoke fuzz-localvars-smoke fuzz-compile-parse-smoke fuzz-lsp-json-smoke fuzz-width-smoke fuzz-keybind-smoke fuzz-frames-smoke
 
 # Randomised differential test against Emacs' own matcher.  Not part of
 # `check`: it needs emacs on PATH, and skips itself with a message when it
@@ -1326,6 +1328,10 @@ EXTRA_register    := $(EXTRA_buffer) $(OBJDIR)/register.o
 # does; process_table.o itself is already pulled in by TEST_SRCS_OBJS (see
 # its comment), named again here only for readability.
 EXTRA_process_table := $(EXTRA_buffer) $(OBJDIR)/event.o $(OBJDIR)/process_table.o
+# The framing layer is pure POSIX byte-stream machinery.  Its own direct
+# suite uses the common harness baseline; framed_io.o also arrives through
+# TEST_SRCS_OBJS' LSP_OBJS and is named here for readability.
+EXTRA_framed_io := $(TESTDIR)/stubs.o $(OBJDIR)/framed_io.o $(TEST_SRCS_OBJS)
 # The transport depends on process.h and POSIX and on nothing else in the
 # editor, so this is the minimal link: its own object, plus the baseline
 # every test binary needs for test.o's harness globals.  process.o comes
@@ -1530,13 +1536,13 @@ $(FUZZBIN_KEYBIND): $(TESTDIR)/fuzz_keybind.c $(OBJDIR)/keybind.c $(OBJDIR)/keym
 		$(TESTDIR)/fuzz_keybind.c $(OBJDIR)/keybind.c \
 		$(OBJDIR)/keymap.c $(OBJDIR)/keyevent.c $(OBJDIR)/width.c
 
-# The transport depends on the process layer and on nothing else in the
-# editor, and the harness hands each frame it delivers to the JSON parser
-# the client would call: four translation units, no stubs, no def.h.
-$(FUZZBIN_LSP_FRAMES): $(TESTDIR)/fuzz_lsp_frames.c $(OBJDIR)/lsp_transport.c \
-                       $(OBJDIR)/json.c $(OBJDIR)/process.c $(HDRS)
+# framed_io is independent of LSP policy; process.c supplies only the pipe
+# helper used by the harness.  Each delivered frame goes to the same JSON
+# parser a protocol client calls: four translation units, no stubs or def.h.
+$(FUZZBIN_FRAMES): $(TESTDIR)/fuzz_frames.c $(OBJDIR)/framed_io.c \
+                   $(OBJDIR)/json.c $(OBJDIR)/process.c $(HDRS)
 	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ \
-		$(TESTDIR)/fuzz_lsp_frames.c $(OBJDIR)/lsp_transport.c \
+		$(TESTDIR)/fuzz_frames.c $(OBJDIR)/framed_io.c \
 		$(OBJDIR)/json.c $(OBJDIR)/process.c
 
 $(TESTDIR)/fe_fuzz.o: fe/fe.c fe/fe.h fe/fe_internal.h
@@ -1555,7 +1561,7 @@ clean:
 	rm -f $(OBJS) $(FE_OBJ) $(REGEX_OBJS) $(SYNTAX_BACKEND_ALL) $(LSP_ALL) \
 	      $(OBJDIR)/.features-* $(OBJDIR)/.with-lisp-* $(TESTDIR)/*.o \
 	      $(TESTBINS) $(TESTDIR)/kgbatch $(GC_STRESS_KGBATCH) \
-	      $(FUZZBINS) $(REGEX_DIFF_BIN)
+	      $(FUZZBINS) $(TESTDIR)/fuzz_lsp_frames $(REGEX_DIFF_BIN)
 	rm -rf $(PERFOBJDIR) $(TS_FAKE_GRAMMAR_DIR)
 
 distclean: clean
@@ -1596,6 +1602,6 @@ uninstall:
 	fuzz-regex fuzz-regex-seed fuzz-regex-smoke fuzz-regex-seed-replay \
 	fuzz-localvars fuzz-localvars-seed fuzz-localvars-smoke \
 	fuzz-compile-parse fuzz-compile-parse-seed fuzz-compile-parse-smoke \
-	fuzz-lsp-frames fuzz-lsp-frames-seed fuzz-lsp-frames-smoke \
+	fuzz-frames fuzz-frames-seed fuzz-frames-smoke \
 	fuzz-seed fuzz-smoke \
 	deb release install uninstall

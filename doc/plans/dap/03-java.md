@@ -170,8 +170,8 @@ tolerances (subplan 01 stages 3-6):
    subplan 00-A's "wrap an already-open fd pair" from a fuzz-only seam
    to a real constructor.
 2. Announce scanning becomes **report-every-announce**: today
-   `announce_take()` connects to the one compile-time prefix
-   (src/lsp_transport.c:711-712). One nbcode announces two servers on
+   `announce_take()` in `src/lsp_transport.c` connects to the one
+   compile-time prefix. One nbcode announces two servers on
    one stdout, and the DSA port must come out of the *LSP* transport's
    log channel to be connected later — so the scanner reports (prefix,
    port, hash) tuples upward and the owner decides. Prefix moves from

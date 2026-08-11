@@ -521,7 +521,7 @@ static void test_compilation_mirror_updates_per_read(void)
  * The property is the inbox's whole design -- reads append to it and
  * frames are parsed out of it, so "four messages arrived in one read" and
  * "a header split across three reads" are the same code path
- * (src/lsp_transport.c's opening comment) -- and it is a cost rather than
+ * (src/framed_io.c's framing contract) -- and it is a cost rather than
  * a behaviour: test_lsp_transport.c's test_several_messages_from_one_read()
  * passes just as well with LSP_TRANSPORT_READ_CHUNK set to a single byte,
  * because the parser cannot tell where the reads fell and the transport's

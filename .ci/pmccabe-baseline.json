@@ -871,6 +871,7 @@
   "src/keymap.c:keymap_parse_sequence": 9,
   "src/keymap.c:keymap_reset": 1,
   "src/keymap.c:keymap_set_active": 3,
+  "src/keymap.c:keymap_test_usage": 1,
   "src/keymap.c:keymap_unbind": 7,
   "src/keymap.c:keymap_unresolved_count": 4,
   "src/keymap.c:keys_equal": 3,

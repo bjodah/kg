@@ -63,8 +63,8 @@ struct keymap_match {
 	const struct keymap *map; /* the layer that answered */
 };
 
-/* Creates a map in `layer`, active from the start.  NULL when the map
- * table is full or `name` is missing. */
+/* Creates a map in `layer`, active from the start.  NULL when the map or
+ * name table is full, `name` is missing, or `layer` is invalid. */
 [[nodiscard]] struct keymap *keymap_create(
     const char *name, enum keymap_layer layer);
 [[nodiscard]] const char *keymap_name(const struct keymap *map);
@@ -141,6 +141,17 @@ struct keymap_binding {
  * built-in maps must install with none; user and runtime bindings may
  * have some, and report it at dispatch. */
 [[nodiscard]] int keymap_unresolved_count(void);
+
+/* White-box occupancy for capacity regression tests.  These counters are
+ * observational: callers must not use them to predict whether a future bind
+ * will fit (names are interned and all three pools participate). */
+struct keymap_usage {
+	int maps;
+	int entries;
+	int name_bytes;
+};
+
+[[nodiscard]] struct keymap_usage keymap_test_usage(void);
 
 /* Drops every map and binding.  For tests; the editor installs its maps
  * once. */

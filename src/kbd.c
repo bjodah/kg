@@ -20,6 +20,7 @@
 #include "kbd.h"
 #include "keyevent.h"
 #include "keymap.h"
+#include "lsp_diag.h"
 #include "marker.h"
 #include "mouse.h"
 #include "occur.h"
@@ -470,6 +471,12 @@ static const struct {
 	/* Emacs' M-/ .  Its own ESC '/' row in tty.c's meta_keys is what
 	 * makes this reachable at all; see the comment there. */
 	{ "M-/", "dabbrev-expand" },
+	/* Emacs' completion-at-point, on the key a terminal can actually
+	 * send: C-M-i and M-TAB are the same two bytes there (ESC, TAB),
+	 * and kg's decoder calls the second byte TAB, so the sequence is
+	 * spelled M-TAB.  Its own ESC TAB row in tty.c's meta_keys is what
+	 * makes it reachable at all. */
+	{ "M-TAB", "completion-at-point" },
 	{ "C-SPC", "set-mark-command" },
 	{ "M-h", "mark-paragraph" },
 	{ "M-@", "mark-word" },
@@ -594,6 +601,7 @@ enum mode_map {
 	MODE_MAP_COMPILATION,
 	MODE_MAP_XREF,
 	MODE_MAP_OCCUR,
+	MODE_MAP_DIAGNOSTICS,
 	MODE_MAP_GIT_COMMIT,
 	MODE_MAP_GIT_REBASE,
 	MODE_MAP_COUNT,
@@ -626,6 +634,10 @@ static const struct {
 	{ MODE_MAP_OCCUR, "n", "occur-next" },
 	{ MODE_MAP_OCCUR, "p", "occur-prev" },
 	{ MODE_MAP_OCCUR, "q", "quit-window" },
+	{ MODE_MAP_DIAGNOSTICS, "RET", "lsp-diagnostics-goto" },
+	{ MODE_MAP_DIAGNOSTICS, "n", "next-line" },
+	{ MODE_MAP_DIAGNOSTICS, "p", "previous-line" },
+	{ MODE_MAP_DIAGNOSTICS, "q", "quit-window" },
 	{ MODE_MAP_GIT_COMMIT, "C-c C-c", "server-edit" },
 	{ MODE_MAP_GIT_COMMIT, "C-c C-k", "git-commit-abort" },
 	{ MODE_MAP_GIT_REBASE, "C-c C-c", "server-edit" },
@@ -657,13 +669,14 @@ static const struct {
  * one that a third name-keyed map would otherwise have been a third
  * hand-written exclusion for. */
 static const struct {
-	enum mode_map map;
 	const char *buffer_name;
+	enum mode_map map;
 	bool listing; /* binds RET to a visit command of its own */
 } name_keyed_maps[] = {
-	{ MODE_MAP_COMPILATION, "*compilation*", false },
-	{ MODE_MAP_XREF, XREF_BUFFER_NAME, true },
-	{ MODE_MAP_OCCUR, OCCUR_BUFFER_NAME, true },
+	{ "*compilation*", MODE_MAP_COMPILATION, false },
+	{ XREF_BUFFER_NAME, MODE_MAP_XREF, true },
+	{ OCCUR_BUFFER_NAME, MODE_MAP_OCCUR, true },
+	{ LSP_DIAG_BUFFER_NAME, MODE_MAP_DIAGNOSTICS, true },
 };
 
 static struct keymap *global_map;
@@ -777,6 +790,8 @@ void key_install_builtin_maps(void)
 	    = keymap_create("compilation", KEYMAP_LAYER_MAJOR);
 	mode_maps[MODE_MAP_XREF] = keymap_create("xref", KEYMAP_LAYER_MAJOR);
 	mode_maps[MODE_MAP_OCCUR] = keymap_create("occur", KEYMAP_LAYER_MAJOR);
+	mode_maps[MODE_MAP_DIAGNOSTICS]
+	    = keymap_create("diagnostics", KEYMAP_LAYER_MAJOR);
 	mode_maps[MODE_MAP_GIT_COMMIT]
 	    = keymap_create("git-commit", KEYMAP_LAYER_MAJOR);
 	mode_maps[MODE_MAP_GIT_REBASE]

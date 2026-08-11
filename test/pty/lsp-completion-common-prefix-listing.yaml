@@ -1,0 +1,40 @@
+name: lsp-completion-common-prefix-listing
+# The two outcomes M-TAB has when there is more than one candidate, in
+# the order Emacs has them.
+#
+# The first M-TAB finds "alpha_one" and "alpha_two", which share more
+# than the "alp" that was typed, so it inserts what they share and says
+# so; the saved file is the whole of that assertion -- "alpha_" and not
+# either candidate.  The second M-TAB has nothing left to insert, so it
+# builds the read-only *Completions* listing and leaves point where it
+# was, which is what the screen assertion is for.
+#
+# One candidate carries an `insertText` and the other only a label: both
+# shapes are legal and the listing shows the label either way.
+#
+# tmux, because this is the one case that has to look at the screen; the
+# file ends without a final newline for the reason
+# lsp-completion-sole-match.yaml's does.
+requires_feature: lsp
+backend: tmux
+key_delay: 0.35
+env:
+  KG_LSP_SERVER_C: "python3 {REPO}/test/fake_lsp_server.py --mode protocol --completion-list --completion-insert alpha_one:alpha_one --completion alpha_two"
+filename: complmany.c
+initial: |-
+  alp
+keys:
+  - "M->"
+  - "M-TAB"
+  - "C-l"
+  - "C-l"
+  - "M-TAB"
+  - "C-l"
+  - "C-l"
+expected_saved: |-
+  alpha_
+expected_screen_contains:
+  - "*Completions*"
+  - "2 completions"
+  - "alpha_one"
+  - "alpha_two"

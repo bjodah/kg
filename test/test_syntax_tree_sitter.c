@@ -337,6 +337,7 @@ static void test_registry_queries_compile(void)
 		{ KG_MODE_TYPESCRIPT, "a.ts", "typescript" },
 		{ KG_MODE_JAVA, "A.java", "java" },
 		{ KG_MODE_RUST, "a.rs", "rust" },
+		{ KG_MODE_GO, "a.go", "go" },
 		{ KG_MODE_HTML, "a.html", "html" },
 		{ KG_MODE_LISP, "init.el", "elisp" },
 		{ KG_MODE_MAKEFILE, "Makefile", "make" },
@@ -925,6 +926,36 @@ static void test_rust_raw_string(void)
 
 	load_mode("Rust", lines, 1);
 	check_hl(0, "4440000066666666660");
+	teardown();
+}
+
+/* ---- Go ---- */
+
+/* A predeclared TYPE is an ordinary (type_identifier), so `int` is coloured
+ * by being a type and not by being listed; the number and the one comment
+ * node come out beside it. */
+static void test_go_type_number_and_comment(void)
+{
+	static const char *const lines[] = { "var n int = 0xff // c" };
+
+	load_mode("Go", lines, 1);
+	check_hl(0, "444000555000777702222");
+	teardown();
+}
+
+/* The predeclared CONSTANTS are named nodes rather than keyword tokens --
+ * quoting "true" in the query would not compile -- and a rune literal is
+ * its own node, so 'c' is a string span where Go calls it an integer. */
+static void test_go_constants_and_rune(void)
+{
+	static const char *const lines[] = {
+		"const ok = true",
+		"var r = 'c'",
+	};
+
+	load_mode("Go", lines, 2);
+	check_hl(0, "444440000004444");
+	check_hl(1, "44400000666");
 	teardown();
 }
 
@@ -2382,6 +2413,8 @@ int main(void)
 	RUN(test_rust_lifetime_is_not_a_char);
 	RUN(test_rust_attributes);
 	RUN(test_rust_raw_string);
+	RUN(test_go_type_number_and_comment);
+	RUN(test_go_constants_and_rune);
 	RUN(test_html_tag_attribute_and_value);
 	RUN(test_html_unquoted_value_and_comment);
 	RUN(test_html_script_content_is_plain);

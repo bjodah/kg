@@ -1,0 +1,4 @@
+Content-Length: 112
+Content-Type: application/vscode-jsonrpc
+
+{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///tmp/a.c","diagnostics":[]}}

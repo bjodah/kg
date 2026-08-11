@@ -44,6 +44,11 @@ char *JS_HL_extensions[] = { ".js", ".jsx", ".mjs", ".cjs", NULL };
 /* Rust */
 char *RUST_HL_extensions[] = { ".rs", ".rlib", NULL };
 
+/* Go.  Only ".go": a go.mod or a go.sum is the module's manifest, not Go
+ * source, and it is a workspace marker (src/lsp_server.c) rather than a
+ * mode. */
+char *GO_HL_extensions[] = { ".go", NULL };
+
 /* Java */
 char *JAVA_HL_extensions[] = { ".java", ".class", NULL };
 
@@ -127,6 +132,7 @@ struct editor_syntax HLDB[] = {
 	{ KG_MODE_SHELL, "Shell", SHELL_HL_extensions, "#", NULL },
 	{ KG_MODE_JAVASCRIPT, "JavaScript", JS_HL_extensions, "//", NULL },
 	{ KG_MODE_RUST, "Rust", RUST_HL_extensions, "//", NULL },
+	{ KG_MODE_GO, "Go", GO_HL_extensions, "//", NULL },
 	{ KG_MODE_JAVA, "Java", JAVA_HL_extensions, "//", NULL },
 	{ KG_MODE_TYPESCRIPT, "TypeScript", TS_HL_extensions, "//", NULL },
 	{ KG_MODE_CSHARP, "C#", CSHARP_HL_extensions, "//", NULL },

@@ -3,6 +3,8 @@
 
 #include <stddef.h>
 
+#include "lsp_transport.h" /* enum lsp_wire */
+
 /* One language server, spoken to as JSON-RPC: request ids, the callbacks
  * their answers land in, the initialize/initialized handshake and the
  * capabilities it settles, and the crash detection that keeps a dead server
@@ -81,6 +83,43 @@ typedef void (*lsp_client_log_fn)(
     const char *server, const char *text, size_t len);
 void lsp_client_set_log_hook(lsp_client_log_fn fn);
 
+/* Told about a notification the server sent that kg never asked for:
+ * `method` is its name and `params` the notification's own `params` member,
+ * NULL when it carried none.  Both are borrowed and live only for the
+ * duration of the call, like every other node here.
+ *
+ * Method-agnostic on purpose.  `textDocument/publishDiagnostics` is the
+ * only one anything reads today (src/lsp_diag.h), but which methods matter
+ * is a decision for a layer that knows what a diagnostic is, and this one
+ * does not: it delivers the name and the node and takes no view.
+ *
+ * One hook for the whole module, not one per client and not a registry,
+ * for the reason the log hook above gives: there is exactly one thing in kg
+ * that keeps this state, and a registry of listeners for a single listener
+ * is a table to get wrong.  NULL, the default, drops the notification --
+ * which is what this layer did with every one of them before there was a
+ * hook, and what a test binary with no editor in it still wants. */
+typedef void (*lsp_client_notify_fn)(struct lsp_client *c, const char *method,
+    const struct lsp_json_value *params);
+void lsp_client_set_notify_hook(lsp_client_notify_fn fn);
+
+/* Told that `c` has just reached READY, from inside the handshake itself:
+ * after `initialized` has gone out and before anything held during the
+ * handshake is flushed.  That instant is the whole point of the hook.  It
+ * is the first moment lsp_client_caps() answers about the server rather
+ * than about the defaults, and the last moment at which a message can still
+ * be put in FRONT of the queue -- which is what a `textDocument/didOpen`
+ * has to be, since the request that asks about the document is already
+ * sitting in it.  Anything sent from here is written straight to the
+ * transport, the state being READY already.
+ *
+ * One hook for the whole module, for the log hook's reason: exactly one
+ * thing in kg holds work back for the capabilities (src/lsp_sync.h).  NULL,
+ * the default, is a client nobody is waiting on -- which is what a test
+ * binary with no editor in it wants. */
+typedef void (*lsp_client_ready_fn)(struct lsp_client *c);
+void lsp_client_set_ready_hook(lsp_client_ready_fn fn);
+
 /* Build a request's `params` at the moment the message is actually written.
  *
  * Returns a malloc'd JSON value and its length -- the same bytes
@@ -156,7 +195,7 @@ struct lsp_capabilities {
 /* Spawn `req`'s command and start the handshake: the child is running and
  * `initialize` is queued for it when this returns, so the state is
  * INITIALIZING and not READY -- the result arrives in a later
- * lsp_client_poll().  `req->stdin_fd` must be -1, as lsp_transport_start()
+ * lsp_client_poll().  `req->stdin_fd` must be -1, as lsp_transport_start_wire()
  * requires.
  *
  * `root_path` is the workspace root, an absolute directory path.  It becomes
@@ -168,6 +207,18 @@ struct lsp_capabilities {
  * started or memory ran out. */
 struct lsp_client *lsp_client_start(
     const struct kg_spawn_request *req, const char *root_path);
+
+/* The same, on `wire` (src/lsp_transport.h).  lsp_client_start() is this
+ * with LSP_WIRE_STDIO.
+ *
+ * A LSP_WIRE_LISTEN_HASH client is INITIALIZING with its `initialize`
+ * queued in the transport, exactly as a stdio one whose server has not
+ * answered yet is: the socket comes up inside a later lsp_client_poll(),
+ * and the request goes out then.  So a server that never announces a port
+ * is not a case for this layer at all -- it is a request that goes
+ * unanswered, which the per-request deadline already ends. */
+struct lsp_client *lsp_client_start_wire(const struct kg_spawn_request *req,
+    const char *root_path, enum lsp_wire wire);
 
 /* What this client is called in a message a user reads: the server's own
  * name ("clangd"), set by the registry that knows it (src/lsp_server.c).
@@ -266,8 +317,9 @@ int lsp_client_notify(struct lsp_client *c, const char *method,
  * Responses are matched to their request by id.  A server-to-client
  * *request* is answered immediately with a JSON-RPC MethodNotFound error,
  * because kg implements none of them and a request left hanging is a server
- * that eventually stops answering.  A notification kg did not ask for is
- * dropped.  A message that is not JSON at all is a protocol violation and
+ * that eventually stops answering.  A notification kg did not ask for goes
+ * to the notification hook above, and is dropped when there is none.  A
+ * message that is not JSON at all is a protocol violation and
  * kills the client: the framing was intact, so the bytes inside it are the
  * server's own doing, and a client that guesses past that is one that
  * navigates somewhere wrong. */
@@ -296,5 +348,15 @@ const char *lsp_client_root(const struct lsp_client *c);
 /* How many requests are outstanding.  For tests and for a caller deciding
  * whether a server is busy; not part of any protocol decision. */
 size_t lsp_client_pending_count(const struct lsp_client *c);
+
+/* Why a request was just refused, for the caller that has to say so.  A -1
+ * from either request function is one of two very different things, and the
+ * command layer cannot tell them apart: the client is not in a state to
+ * take the question, or kg's own pending table is full -- which is a bound
+ * of kg's, on a server that is perfectly well.  Telling a user "the server
+ * is not ready" about a healthy server sends them to look at the wrong
+ * process, so the distinction is made here, once, rather than spelled into
+ * each of the three call sites. */
+const char *lsp_client_refusal_text(const struct lsp_client *c);
 
 #endif /* KG_LSP_CLIENT_H */

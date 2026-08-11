@@ -212,6 +212,16 @@ enum kg_perf_counter {
 	KG_PERF_LISP_USER_INIT_NS,
 	KG_PERF_LISP_PACKAGE_LOAD_NS,
 
+	/* read() calls into the LSP transport's inbox that returned bytes
+	 * (src/lsp_transport.c).  The property it exists to pin is that a
+	 * write() carrying several complete frames costs ONE of them: the
+	 * inbox is parsed a frame at a time out of whatever arrived, so a
+	 * server answering three requests in one go must not cost three
+	 * reads -- and nothing in the transport's own API can see the
+	 * difference, which is how test_several_messages_from_one_read()
+	 * came to pass with the read chunk set to a single byte. */
+	KG_PERF_LSP_INBOX_READ,
+
 	KG_PERF_COUNTER_COUNT
 };
 

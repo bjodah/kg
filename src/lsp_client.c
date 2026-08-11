@@ -11,7 +11,7 @@
  * one of exactly three things, and the dispatcher says which in three
  * lines, because the interesting decisions are what happens next: a
  * response finds its slot by id, a server request is refused, a
- * notification is dropped.
+ * notification goes to the one hook that may care about it.
  *
  * The invariant worth stating: a registered callback is invoked exactly
  * once, whatever happens.  The reply runs it, and if no reply will ever
@@ -61,6 +61,9 @@
 #define LSP_JSONRPC_METHOD_NOT_FOUND (-32601)
 #define LSP_JSONRPC_INTERNAL_DEAD (-32099)
 #define LSP_JSONRPC_INTERNAL_TIMEOUT (-32098)
+/* A response that carried neither `result` nor `error`.  Out of spec, and
+ * not a death: the server is alive and answered, with nothing in it. */
+#define LSP_JSONRPC_INTERNAL_EMPTY (-32097)
 
 /* How long a client's name may be: "rust-analyzer" with room to spare, and
  * short enough that every message it prefixes still leaves a line's worth
@@ -119,6 +122,11 @@ struct lsp_client {
 	long long next_id;
 	long long shutdown_id;
 	bool exit_sent;
+	/* Whether a complete frame has ever arrived from this server.  It is
+	 * what tells "the server answered and then the stream ended" from
+	 * "the connection ended without a word", which are the same
+	 * LSP_TRANSPORT_ERR_EOF and two different things to report. */
+	bool frame_seen;
 	struct lsp_pending pending[LSP_CLIENT_MAX_PENDING];
 	struct lsp_queued queued[LSP_CLIENT_MAX_QUEUED];
 	size_t queued_count;
@@ -133,6 +141,18 @@ struct lsp_client {
 static lsp_client_log_fn log_hook;
 
 void lsp_client_set_log_hook(lsp_client_log_fn fn) { log_hook = fn; }
+
+/* Who hears about the notifications kg never asked for; see
+ * src/lsp_client.h.  One hook, for the log hook's reason. */
+static lsp_client_notify_fn notify_hook;
+
+void lsp_client_set_notify_hook(lsp_client_notify_fn fn) { notify_hook = fn; }
+
+/* Who hears that the handshake settled; see src/lsp_client.h.  One hook,
+ * for the log hook's reason. */
+static lsp_client_ready_fn ready_hook;
+
+void lsp_client_set_ready_hook(lsp_client_ready_fn fn) { ready_hook = fn; }
 
 /* CLOCK_MONOTONIC in milliseconds.  Monotonic and not the wall clock: a
  * deadline measured against a clock that can be stepped is one a time-zone
@@ -475,6 +495,47 @@ static struct lsp_json *error_doc(int code, const char *message)
  * send.  The reason goes to the log as well: "why did that hang" is asked
  * of the log buffer, and a server that died while a question was in flight
  * is the commonest answer. */
+/* What killed this client, in the words the user reads.  `why` is not only
+ * logged: pending_fail_all() wraps it in the error object every abandoned
+ * callback reports, and the command layer prints that in the echo area --
+ * so the sentence here is the whole of what a user is told about a server
+ * that stopped, and one sentence for every way of stopping tells them
+ * nothing.  The transport already knows which failure it was and, for the
+ * one reason that has two sides, which side it was on
+ * (src/lsp_transport.h); this is that verdict spelled out.
+ *
+ * The two arms of ERR_EOF are the distinction worth the field behind them:
+ * a stream that ended after the server had spoken is a server that exited,
+ * and one that ended before it ever did is a connection that was closed on
+ * kg -- a rejected listen-hash handshake, an exec that failed, a child that
+ * died in its own startup.  Neither guesses which of those it was, because
+ * kg cannot know: it reports what it saw.
+ *
+ * LSP_TRANSPORT_OK is the child dying with the stream still healthy, which
+ * is what "server exited" has always meant. */
+static const char *transport_death_text(struct lsp_client *c)
+{
+	switch (lsp_transport_error(c->t)) {
+	case LSP_TRANSPORT_ERR_EOF:
+		return c->frame_seen ? "server exited"
+				     : "the server closed the connection "
+				       "without answering";
+	case LSP_TRANSPORT_ERR_IO:
+		return "the connection to the server failed";
+	case LSP_TRANSPORT_ERR_PROTOCOL:
+		return "the server sent a malformed frame";
+	case LSP_TRANSPORT_ERR_TOO_LARGE:
+		return lsp_transport_error_outbound(c->t)
+		    ? "kg could not keep up with the server"
+		    : "the server sent more than kg will hold";
+	case LSP_TRANSPORT_ERR_NOMEM:
+		return "kg ran out of memory for this server";
+	case LSP_TRANSPORT_OK:
+		break;
+	}
+	return "server exited";
+}
+
 static void client_die(struct lsp_client *c, const char *why)
 {
 	struct lsp_json *doc = error_doc(LSP_JSONRPC_INTERNAL_DEAD, why);
@@ -644,12 +705,29 @@ static void on_initialize(struct lsp_client *c,
 	(void)error;
 	(void)ctx;
 	if (lsp_json_kind_of(result) != LSP_JSON_OBJECT) {
-		client_die(c, "initialize failed");
+		/* "initialize failed" is the verdict on an ANSWER that cannot
+		 * be used -- an error reply, a result that is not an object,
+		 * or the deadline passing with the server still alive.  A
+		 * client that is already dead is a different story, and one
+		 * that has already been told: this callback is then running
+		 * from inside client_die(), whose reason says what actually
+		 * happened to the transport, and dying a second time would
+		 * replace it with a summary that fits every failure and
+		 * explains none. */
+		if (c->state != LSP_CLIENT_DEAD) {
+			client_die(c, "initialize failed");
+		}
 		return;
 	}
 	capture_caps(c, lsp_json_get(result, "capabilities"));
 	c->state = LSP_CLIENT_READY;
 	(void)client_notify_now(c, "initialized");
+	/* Between `initialized` and the held queue, which is the one moment a
+	 * message that had to wait for the capabilities can still go out
+	 * ahead of the request that was queued behind it. */
+	if (ready_hook) {
+		ready_hook(c);
+	}
 	pending_restart_deadlines(c);
 	flush_queued(c);
 }
@@ -705,6 +783,31 @@ static void refuse_server_request(
 	(void)client_write(c, text, len, true);
 }
 
+/* Run a matched response's callback.  A reply carrying neither `result`
+ * nor `error` is out of spec, and handing it on as two NULLs would report a
+ * live server as one that died before answering -- that shape is reserved
+ * for "no reply will ever arrive" (src/lsp_client.h) and this is a reply.
+ * So it becomes an error object of kg's own, naming the method, which is
+ * the one thing about it a user can act on. */
+static void response_deliver(struct lsp_client *c,
+    const struct lsp_pending *slot, const struct lsp_json_value *root)
+{
+	const struct lsp_json_value *result = lsp_json_get(root, "result");
+	const struct lsp_json_value *error = lsp_json_get(root, "error");
+	char text[LSP_CLIENT_METHOD_MAX + 64];
+	struct lsp_json *doc;
+
+	if (result || error) {
+		slot->cb(c, result, error, slot->ctx);
+		return;
+	}
+	snprintf(text, sizeof(text),
+	    "no result and no error in the reply to %s", slot->method);
+	doc = error_doc(LSP_JSONRPC_INTERNAL_EMPTY, text);
+	slot->cb(c, NULL, lsp_json_root(doc), slot->ctx);
+	lsp_json_free(doc);
+}
+
 /* Match a response to its request and run its callback.  A response with an
  * id nobody is waiting for is dropped: it is a duplicate, or the answer to
  * a request the client already failed, and neither is worth dying over. */
@@ -725,10 +828,24 @@ static void handle_response(struct lsp_client *c,
 		slot = c->pending[i];
 		memset(&c->pending[i], 0, sizeof(c->pending[i]));
 		if (slot.cb) {
-			slot.cb(c, lsp_json_get(root, "result"),
-			    lsp_json_get(root, "error"), slot.ctx);
+			response_deliver(c, &slot, root);
 		}
 		return;
+	}
+}
+
+/* A notification: a `method` with no `id`, and so nothing to answer.  It
+ * goes to the module-level hook when one is installed and is dropped when
+ * none is, which is what this layer did with every notification before the
+ * hook existed.  A `method` that is not a string is not a notification kg
+ * can name, and is dropped without troubling the hook. */
+static void handle_notification(
+    struct lsp_client *c, const struct lsp_json_value *root)
+{
+	const char *method = lsp_json_str(lsp_json_get(root, "method"), NULL);
+
+	if (notify_hook && method) {
+		notify_hook(c, method, lsp_json_get(root, "params"));
 	}
 }
 
@@ -752,6 +869,8 @@ static void dispatch_message(struct lsp_client *c, const char *body, size_t len)
 	if (lsp_json_get(root, "method")) {
 		if (id) {
 			refuse_server_request(c, id);
+		} else {
+			handle_notification(c, root);
 		}
 	} else if (id) {
 		handle_response(c, root, id);
@@ -888,8 +1007,8 @@ int lsp_client_notify(struct lsp_client *c, const char *method,
 	return client_write(c, msg, len, false);
 }
 
-struct lsp_client *lsp_client_start(
-    const struct kg_spawn_request *req, const char *root_path)
+struct lsp_client *lsp_client_start_wire(const struct kg_spawn_request *req,
+    const char *root_path, enum lsp_wire wire)
 {
 	struct lsp_client *c = calloc(1, sizeof(*c));
 	char *params;
@@ -907,7 +1026,7 @@ struct lsp_client *lsp_client_start(
 	if (root_path) {
 		snprintf(c->root, sizeof(c->root), "%s", root_path);
 	}
-	c->t = lsp_transport_start(req);
+	c->t = lsp_transport_start_wire(req, wire);
 	params = c->t ? build_initialize(c->root, &len) : NULL;
 	sent = params
 	    && client_request(
@@ -922,6 +1041,12 @@ struct lsp_client *lsp_client_start(
 		return NULL;
 	}
 	return c;
+}
+
+struct lsp_client *lsp_client_start(
+    const struct kg_spawn_request *req, const char *root_path)
+{
+	return lsp_client_start_wire(req, root_path, LSP_WIRE_STDIO);
 }
 
 /* Hand whatever the server has written to its standard error to the log,
@@ -961,12 +1086,13 @@ int lsp_client_poll(struct lsp_client *c)
 	for (;;) {
 		rc = lsp_transport_next_message(c->t, &body, &len);
 		if (rc < 0) {
-			client_die(c, "server exited");
+			client_die(c, transport_death_text(c));
 			return 1;
 		}
 		if (rc == 0) {
 			break;
 		}
+		c->frame_seen = true;
 		dispatch_message(c, body, len);
 		changed = 1;
 		if (c->state == LSP_CLIENT_DEAD) {
@@ -974,7 +1100,7 @@ int lsp_client_poll(struct lsp_client *c)
 		}
 	}
 	if (!lsp_transport_child_alive(c->t)) {
-		client_die(c, "server exited");
+		client_die(c, transport_death_text(c));
 		return 1;
 	}
 	/* Last, and only for a client that is still alive: a request whose
@@ -1053,6 +1179,14 @@ void lsp_client_set_name(struct lsp_client *c, const char *name)
 }
 
 const char *lsp_client_name(const struct lsp_client *c) { return c->name; }
+
+const char *lsp_client_refusal_text(const struct lsp_client *c)
+{
+	if (lsp_client_pending_count(c) >= LSP_CLIENT_MAX_PENDING) {
+		return "too many requests are already in flight";
+	}
+	return "the server is not ready";
+}
 
 size_t lsp_client_pending_count(const struct lsp_client *c)
 {

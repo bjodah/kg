@@ -204,6 +204,12 @@ def token_to_bytes(token: str) -> bytes:
 		return b"\x1b\r"
 	if upper == "TAB":
 		return b"\t"
+	# M-TAB is completion-at-point, and needs a token of its own for the
+	# reason M-RET does and one more: "M-" plus a NAMED key falls through
+	# to the generic Meta rule below, which would send the three letters
+	# T, A, B after the escape.
+	if upper in ("M-TAB", "C-M-I"):
+		return b"\x1b\t"
 	if upper in ("SPC", "SPACE"):
 		return b" "
 	if upper in ("C-SPC", "C-SPACE", "C-@"):
@@ -260,6 +266,10 @@ def send_token_pexpect(child: pexpect.spawn, token: str) -> None:
 		child.sendcontrol("@")
 		return
 
+	if upper in ("M-TAB", "C-M-I"):
+		child.send("\x1b")
+		child.send("\t")
+		return
 	if upper in ("INSERT", "INS"):
 		child.send("\x1b[2~")
 		return
@@ -320,6 +330,8 @@ def tmux_key_name(token: str) -> tuple[str, str]:
 		return ("key", "M-Enter")
 	if upper == "TAB":
 		return ("key", "Tab")
+	if upper in ("M-TAB", "C-M-I"):
+		return ("key", "M-Tab")
 	if upper in ("SPC", "SPACE"):
 		return ("key", "Space")
 	if upper in ("C-SPC", "C-SPACE", "C-@"):

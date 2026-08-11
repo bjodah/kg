@@ -1,0 +1,57 @@
+name: lsp-listen-hash-dead-port
+# The socket wire's own failure, end to end: a server that announces a port
+# nothing is listening on.
+#
+# `listen-hash: ` selects the wire, and the whole server is a printf: it
+# writes one well-formed announce line -- prefix, port, " with hash ", a
+# hash -- and then stays alive holding its standard output open, so there is
+# no EOF and no garbage anywhere in this case.  Port 1 is the point: on the
+# loopback interface nothing listens there (binding it needs privileges no
+# test has), so kg's connect is refused, and a refused connect is the
+# transport's ERR_IO.
+#
+# That is what makes this case the wire's, and nothing else's.  Every other
+# way an LSP session can fail -- a server that never starts, one that says
+# nothing, one that exits -- is reachable over plain stdio and reports
+# itself as such; a connection that was refused is only reachable by having
+# parsed an announce line and acted on it, which only this wire does.  Its
+# sibling lsp-listen-hash-no-announce.yaml deliberately does NOT test that:
+# it pins the client deadline, which is the same code on either wire.
+#
+# KG_LSP_TIMEOUT_MS is generous on purpose, ten times the wait these keys
+# add up to: if the deadline could fire first the echo area would say
+# "initialize failed" and this case would be the deadline's again rather
+# than the connection's.
+#
+# The C-l are the wait -- a shell has to start, write its line and be read
+# -- and C-l is the one key that repaints without moving point.  The trailer
+# is the proof the editor survived it: an X typed after the failure, saved,
+# is a byte on disk only an editor still taking keys could have written.
+requires_feature: lsp
+backend: tmux
+key_delay: 0.35
+env:
+  KG_LSP_SERVER_C: "listen-hash: printf 'Java Language Server listening at port 1 with hash 0123456789abcdef\\n'; sleep 60"
+  KG_LSP_TIMEOUT_MS: "30000"
+filename: xrefdeadport.c
+initial: |
+  int target(void) { return 1; }
+  int use(void) { return target(); }
+keys:
+  - "M-."
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+trailer_keys:
+  - "X"
+  - "C-x"
+  - "C-s"
+  - "C-x"
+  - "C-c"
+expected_saved: |
+  Xint target(void) { return 1; }
+  int use(void) { return target(); }
+expected_screen_contains:
+  - "the connection to the server failed"

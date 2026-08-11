@@ -283,6 +283,27 @@ static void test_editor_set_syntax_persistence(void)
 	teardown();
 }
 
+/* ".go" is the whole of Go mode's file-name rule: a go.mod is the module's
+ * manifest, and is a workspace marker (src/lsp_server.c) rather than Go
+ * source.  The selection matters beyond colours -- the mode is what picks
+ * the language server. */
+static void test_go_selection_go_extension(void)
+{
+	setup(NULL);
+	editor_select_syntax_highlight(bcur(), "main.go");
+	CHECK(bcur()->syntax == syntax_find_by_name("Go"));
+	CHECK(bcur()->syntax && bcur()->syntax->id == KG_MODE_GO);
+	teardown();
+}
+
+static void test_go_selection_go_mod_unchanged(void)
+{
+	setup(NULL);
+	editor_select_syntax_highlight(bcur(), "go.mod");
+	CHECK(bcur()->syntax == NULL);
+	teardown();
+}
+
 static void test_yaml_selection_yaml_extension(void)
 {
 	setup(NULL);
@@ -505,6 +526,8 @@ int main(void)
 	RUN(test_yaml_selection_yaml_extension);
 	RUN(test_yaml_selection_yml_extension);
 	RUN(test_yaml_selection_unrelated_extension_unchanged);
+	RUN(test_go_selection_go_extension);
+	RUN(test_go_selection_go_mod_unchanged);
 	RUN(test_mode_ids_are_unique_and_resolve);
 	RUN(test_mode_lookup_agrees_with_name_lookup);
 	RUN(test_git_mode_predicates_follow_mode_id);

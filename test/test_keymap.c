@@ -434,13 +434,13 @@ static void test_storage_is_bounded(void)
 		CHECKF(maps < 1000, "the map table is unbounded");
 	}
 	/* Bounded above, and bounded below by what one session needs at
-	 * once: kbd.c installs eight maps (the global one and seven mode
-	 * maps), keybind.c creates a ninth the first time a user binds a
-	 * C-c key, and configuration may define its own after that.  A
-	 * table with no room left for the tenth is the state this was in
+	 * once: kbd.c installs ten maps (the global one and nine mode
+	 * maps), keybind.c creates an eleventh the first time a user binds
+	 * a C-c key, and configuration may define its own after that.  A
+	 * table with no room past the built-ins is the state this was in
 	 * before the xref map; test_configuration_maps_fit_the_builtins()
 	 * below is the same claim made against the real maps. */
-	CHECKF(maps >= 12, "only %d maps fit; the editor's own need 9", maps);
+	CHECKF(maps >= 15, "only %d maps fit; the editor's own need 11", maps);
 	keymap_reset();
 
 	map = keymap_create("test-global", KEYMAP_LAYER_GLOBAL);
@@ -529,6 +529,8 @@ static void test_configuration_maps_fit_the_builtins(void)
 	key_install_builtin_maps();
 	CHECKF(
 	    keymap_find("xref") != NULL, "the xref mode map was not created");
+	CHECKF(keymap_find("diagnostics") != NULL,
+	    "the diagnostics mode map was not created");
 	CHECKF(keybind_bind("C-c x", "forward-char") == 0,
 	    "no room for the user's map");
 	match = lookup("C-c x");

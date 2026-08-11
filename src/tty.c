@@ -115,6 +115,12 @@ static const struct meta_key meta_keys[] = {
 	{ ',', ',', 0 },
 	/* M-/ is dabbrev-expand, and is the fourth. */
 	{ '/', '/', 0 },
+	/* ESC TAB is completion-at-point, and is the fifth.  The base is
+	 * KEY_BASE_TAB rather than 'i' with Ctrl on top, because that is
+	 * what a bare 0x09 already decodes to (keyevent.c's byte_keys):
+	 * a terminal sends C-M-i and M-TAB as the same two bytes, so kg
+	 * has one spelling for them and it is M-TAB. */
+	{ KEY_BASE_TAB, '\t', 0 },
 	{ KEY_BASE_RET, '\r', 0 },
 	{ KEY_BASE_RET, '\n', 0 },
 	{ 's', '\x13', KEY_MOD_CTRL }, /* ESC C-s */

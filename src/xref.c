@@ -881,7 +881,8 @@ static void xref_send(const char *who, const char *method, bool references)
 		c, method, xref_build_params, req, NULL, xref_reply, req)
 	    < 0) {
 		xref_request_free(req);
-		editor_set_status_message("%s: the server is not ready", who);
+		editor_set_status_message(
+		    "%s: %s", who, lsp_client_refusal_text(c));
 		return;
 	}
 	editor_set_status_message(

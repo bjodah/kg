@@ -7,15 +7,20 @@
 
 /* Which server a buffer's mode wants, where its workspace starts, and which
  * of them are already running.  The one module that knows the names
- * `clangd` and `ty`, and the only one above it that will ever need to:
- * every caller asks for a client and gets one, or gets told why not.
+ * `clangd`, `ty`, `gopls`, `rust-analyzer` and `jdtls`, and the only one
+ * above it that will ever need to: every caller asks for a client and gets
+ * one, or gets told why not.
  *
  * Instances are keyed by (server, workspace root) and started lazily.
  * Opening a .c file spawns nothing; the first command that needs an answer
  * is what pays for the server, and a second file under the same root shares
- * it.  A server that died is not restarted where it fell -- its slot is
- * reclaimed by the next request for that key, which is the lazy-restart
- * policy of doc/plans/2026-08-08-lsp.md.
+ * it.  A server that died is not restarted where it fell: its slot is
+ * emptied by the next poll that finds the client dead, and by the next
+ * request for that key if one gets there first, and a fresh server is
+ * started by the next command that needs one -- which is the lazy-restart
+ * policy of doc/plans/2026-08-08-lsp.md.  Reclaiming on the poll is what
+ * keeps servers that died in workspaces nobody revisits from holding the
+ * registry full.
  *
  * syntax.h is included for `enum kg_mode_id` alone, which is why it can be:
  * that header names no editor type, so this one stays free-standing
@@ -101,10 +106,11 @@ bool lsp_workspace_root(
 typedef void (*lsp_instance_drop_fn)(struct lsp_client *c);
 void lsp_server_set_instance_drop_hook(lsp_instance_drop_fn fn);
 
-/* Poll every live instance.  Returns nonzero when anything happened,
- * unchanged from lsp_client_poll(), which is lsp_poll()'s repaint
- * convention.  This is what src/lsp_core.c calls from the editor's two poll
- * sites. */
+/* Poll every live instance, and empty the slot of every one that has died.
+ * Returns nonzero when anything happened, unchanged from lsp_client_poll(),
+ * which is lsp_poll()'s repaint convention -- the reclaiming itself is not
+ * something a repaint would show.  This is what src/lsp_core.c calls from
+ * the editor's two poll sites. */
 int lsp_server_poll_all(void);
 
 /* Shut every instance down and empty the registry, for an editor that is
@@ -121,15 +127,29 @@ size_t lsp_server_instance_count(void);
 
 /* The environment override, spelled out because it is a user interface: for
  * every supported mode, `KG_LSP_SERVER_` followed by the mode's name in
- * upper case -- `KG_LSP_SERVER_C` and `KG_LSP_SERVER_PYTHON` today.  Its
- * value is a shell command line, run through `/bin/sh -c` exactly as M-x
+ * upper case -- `KG_LSP_SERVER_C`, `KG_LSP_SERVER_PYTHON`,
+ * `KG_LSP_SERVER_GO`, `KG_LSP_SERVER_RUST` and `KG_LSP_SERVER_JAVA` today.
+ * Its value is a shell command line, run through `/bin/sh -c` exactly as M-x
  * compile's is, so quoting, an absolute path with spaces in it and a
  * wrapper script all work without this module parsing anything.  Set and
  * non-empty replaces the built-in argv; unset or empty leaves it.
  *
  * It is how every deterministic test injects test/fake_lsp_server.py, and
  * how a user points kg at a differently named or differently located
- * binary. */
+ * binary.
+ *
+ * One spelling means more than the command line.  A value beginning with
+ * the token `listen-hash:` followed by whitespace runs the REST of it as
+ * the command, and speaks to it over the socket wire instead of over its
+ * standard input and output (LSP_WIRE_LISTEN_HASH, src/lsp_transport.h):
+ *
+ *     KG_LSP_SERVER_JAVA="listen-hash: nbcode \
+ *         --start-java-language-server=listen-hash:0"
+ *
+ * which is Oracle's nbcode, the one server kg can start that does not
+ * speak LSP on stdio.  Nothing built in selects that wire: no spec names
+ * nbcode, jdt.ls stays the Java default, and the wire arrives with the
+ * command line that needs it or not at all. */
 #define LSP_SERVER_ENV_PREFIX "KG_LSP_SERVER_"
 
 #endif /* KG_LSP_SERVER_H */

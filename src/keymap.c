@@ -10,15 +10,14 @@
  * map with three keys costs three entries rather than a whole table.  A
  * bind that would not fit fails and leaves the map as it was.
  *
- * Twelve maps, not eight.  Eight was exactly what the editor installed --
- * one global map and six mode maps -- plus the one map keybind.c creates
- * the first time a user binds a C-c key, so the table was full before a
- * single `(define-key "my-mode-map" ...)` ran, and every map configuration
- * asked for after that failed to be created at all.  The seventh mode map
- * (xref) would have taken the user's slot outright.  Twelve leaves four
- * for configuration, which is four more than zero; the cost is
- * 12 * sizeof(struct keymap). */
-static constexpr int keymap_max_maps = 12;
+ * Fifteen maps: the editor installs eleven of them itself -- one global
+ * map, nine mode maps, and the one map keybind.c creates the first time a
+ * user binds a C-c key -- and a table with no room past its own built-ins
+ * is one where every `(define-key "my-mode-map" ...)` fails to create its
+ * map at all, silently, because keymap_create() answering nullptr is how a
+ * full table has always been reported.  Fifteen leaves four for
+ * configuration; the cost is 15 * sizeof(struct keymap). */
+static constexpr int keymap_max_maps = 15;
 static constexpr int keymap_max_entries = 256;
 /* The name pool holds every map name AND every command name a binding
  * interns, which is what made it the tightest of the three bounds: at 2048

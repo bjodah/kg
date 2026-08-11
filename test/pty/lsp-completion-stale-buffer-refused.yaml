@@ -1,0 +1,46 @@
+name: lsp-completion-stale-buffer-refused
+# Typing while a completion is in flight refuses the completion.
+#
+# Emacs' completion-at-point cannot race this way: it computes and
+# consumes its candidates inside one command.  kg's answer arrives in a
+# later lsp_poll(), so the text the server was completing can have moved
+# under it -- and the insertion replaces a span measured against text that
+# is no longer there.  With the server taking two seconds and `ue` typed
+# in the meantime, the buffer holding `value_oneue` was the bug; the
+# buffer holding exactly what was typed is the fix.
+#
+# --delay-method keeps the handshake at full speed, so the two seconds are
+# spent where the case needs them.
+requires_feature: lsp
+backend: tmux
+key_delay: 0.35
+env:
+  KG_LSP_SERVER_C: "python3 {REPO}/test/fake_lsp_server.py --mode protocol --delay-ms 2000 --delay-method textDocument/completion --completion-edit value_one:1:0:3"
+filename: complstale.c
+initial: |-
+  int value_one(void);
+  val
+keys:
+  - "M->"
+  - "M-TAB"
+  - "u"
+  - "e"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+  - "C-l"
+expected_saved: |-
+  int value_one(void);
+  value
+expected_screen_contains:
+  - "the buffer changed while the server was answering"
+expected_screen_not_contains:
+  - "Sole completion"

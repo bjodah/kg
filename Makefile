@@ -266,13 +266,26 @@ ifeq ($(WITH_LSP),1)
 LSP_SRCS += lsp_transport.c lsp_json.c lsp_uri.c lsp_client.c lsp_server.c \
             lsp_sync.c
 endif
+# The two WITH_LSP=1 modules that reach the whole editor -- lsp_req.c takes
+# a request's position from the current buffer, lsp_edit.c applies a
+# WorkspaceEdit to buffers and opens files.  They are NOT in LSP_OBJS,
+# which every test binary links (TEST_SRCS_OBJS below): a test that links
+# them would have to link the buffer table, the window table and the
+# command layer with them.  They are src/xref.c's situation one axis over,
+# and the axis is why they are a list rather than a row in SRCS: xref.c is
+# built in both configurations and says so in a #else, while these two
+# exist only where the protocol does.
+ifeq ($(WITH_LSP),1)
+LSP_EDITOR_SRCS = lsp_req.c lsp_edit.c
+endif
 LSP_OBJS = $(addprefix $(OBJDIR)/,$(LSP_SRCS:.c=.o))
 # Named so `make clean` removes what THIS configuration did not build,
 # the way SYNTAX_BACKEND_ALL does for the syntax backends: without it a
 # `make; make WITH_LSP=0 clean` would leave src/lsp_transport.o and the
 # transport's test binary behind.
 #
-# src/visit.c, src/xref.c and src/lsp_log.c are outside all of this on
+# src/visit.c, src/xref.c, src/lsp_log.c, src/lsp_diag.c and
+# src/lsp_hover.c are outside all of this on
 # purpose.  visit.c is
 # the navigation primitive next-error and xref share, so it is built in every
 # configuration; xref.c is built in every configuration too, for lsp_core.c's
@@ -280,23 +293,31 @@ LSP_OBJS = $(addprefix $(OBJDIR)/,$(LSP_SRCS:.c=.o))
 # binding are unconditional, and a WITH_LSP=0 kg answers them by saying the
 # feature was not compiled in.  lsp_log.c is the third: it owns the
 # *lsp-log* buffer, so it reaches the editor exactly as xref.c does, and
-# main.c installs it unconditionally.  None of them is in LSP_OBJS, because
+# main.c installs it unconditionally.  lsp_diag.c and lsp_hover.c are the
+# fourth and fifth, for xref.c's reason exactly: their command-table rows
+# are unconditional, and both reach buffers, windows and the echo area.
+# None of them is in LSP_OBJS, because
 # LSP_OBJS is
 # also what every test binary links (see TEST_SRCS_OBJS) and xref.c reaches
 # the whole editor: the suite that does link it says so itself, below.
 LSP_ALL = $(TESTDIR)/test_xref $(TESTDIR)/test_lsp_log \
+          $(TESTDIR)/test_lsp_diag \
           $(OBJDIR)/lsp_transport.o $(TESTDIR)/test_lsp_transport \
           $(OBJDIR)/lsp_json.o $(TESTDIR)/test_lsp_json \
           $(OBJDIR)/lsp_uri.o \
           $(OBJDIR)/lsp_client.o $(OBJDIR)/lsp_server.o \
           $(TESTDIR)/test_lsp_client \
-          $(OBJDIR)/lsp_sync.o $(TESTDIR)/test_lsp_sync
+          $(OBJDIR)/lsp_sync.o $(TESTDIR)/test_lsp_sync \
+          $(OBJDIR)/lsp_req.o \
+          $(OBJDIR)/lsp_edit.o $(TESTDIR)/test_lsp_edit
 
 # Source files
 SRCS = main.c tty.c syntax.c $(SYNTAX_BACKEND_SRCS) autocomplete.c buffer.c fileio.c \
        display.c search.c basic.c word.c kbd.c yank.c undo.c help.c describe.c bufmgr.c winmgr.c cmd.c cmdstate.c keyevent.c keymap.c macro.c \
        shell.c path.c rect.c $(LISP_SRCS) $(LSP_SRCS) keybind.c mode.c vgeom.c localvars.c compile.c compile_parse.c \
-       compile_nav.c next_error.c occur.c register.c visit.c fileline.c xref.c lsp_log.c dabbrev.c \
+       compile_nav.c next_error.c occur.c register.c visit.c fileline.c xref.c lsp_log.c \
+       lsp_diag.c lsp_hover.c $(LSP_EDITOR_SRCS) lsp_rename.c lsp_complete.c \
+       dabbrev.c \
        width.c dired.c perf.c platform.c process.c process_table.c marker.c decor.c event.c \
        mouse.c showparen.c
 
@@ -367,7 +388,8 @@ endif
 ifeq ($(WITH_LSP),1)
 TESTBINS += $(TESTDIR)/test_lsp_transport $(TESTDIR)/test_lsp_json \
             $(TESTDIR)/test_lsp_client $(TESTDIR)/test_lsp_sync \
-            $(TESTDIR)/test_lsp_log $(TESTDIR)/test_xref
+            $(TESTDIR)/test_lsp_log $(TESTDIR)/test_xref \
+            $(TESTDIR)/test_lsp_diag $(TESTDIR)/test_lsp_edit
 endif
 # test_perf is not built like the other unit tests: it needs the whole
 # editor compiled with -DKG_PERF_COUNTERS=1 (src/perf.h), which must not
@@ -412,7 +434,8 @@ FUZZBIN_COMPILE_PARSE = $(TESTDIR)/fuzz_compile_parse
 FUZZBIN_LSP_JSON = $(TESTDIR)/fuzz_lsp_json
 FUZZBIN_WIDTH = $(TESTDIR)/fuzz_width
 FUZZBIN_KEYBIND = $(TESTDIR)/fuzz_keybind
-FUZZBINS = $(FUZZBIN) $(FUZZBIN_SYNTAX) $(FUZZBIN_DIRLOCALS) $(FUZZBIN_REGEX) $(FUZZBIN_LOCALVARS) $(FUZZBIN_COMPILE_PARSE) $(FUZZBIN_LSP_JSON) $(FUZZBIN_WIDTH) $(FUZZBIN_KEYBIND)
+FUZZBIN_LSP_FRAMES = $(TESTDIR)/fuzz_lsp_frames
+FUZZBINS = $(FUZZBIN) $(FUZZBIN_SYNTAX) $(FUZZBIN_DIRLOCALS) $(FUZZBIN_REGEX) $(FUZZBIN_LOCALVARS) $(FUZZBIN_COMPILE_PARSE) $(FUZZBIN_LSP_JSON) $(FUZZBIN_WIDTH) $(FUZZBIN_KEYBIND) $(FUZZBIN_LSP_FRAMES)
 FUZZ_SEEDS = $(TESTDIR)/fuzz-seeds
 FUZZ_SEEDS_REGEX = $(FUZZ_SEEDS)/regex
 # The working corpus is gitignored, so a fresh checkout starts each target
@@ -543,7 +566,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 7294
+SCC_COMPLEXITY_MAX ?= 7927
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -959,9 +982,21 @@ fuzz-keybind-smoke: $(FUZZBIN_KEYBIND) fuzz-keybind-seed
 		-artifact_prefix=$(FUZZ_ARTIFACTS)/keybind/ \
 		$(FUZZ_CORPUS)/keybind
 
-fuzz-seed: fuzz-keypress-seed fuzz-syntax-seed fuzz-dirlocals-seed fuzz-regex-seed fuzz-localvars-seed fuzz-compile-parse-seed fuzz-lsp-json-seed fuzz-width-seed fuzz-keybind-seed
+fuzz-lsp-frames: $(FUZZBIN_LSP_FRAMES)
 
-fuzz-smoke: fuzz-keypress-smoke fuzz-syntax-smoke fuzz-dirlocals-smoke fuzz-regex-smoke fuzz-localvars-smoke fuzz-compile-parse-smoke fuzz-lsp-json-smoke fuzz-width-smoke fuzz-keybind-smoke
+fuzz-lsp-frames-seed:
+	mkdir -p $(FUZZ_CORPUS)/lsp_frames
+	cp -f $(FUZZ_SEEDS)/lsp_frames/* $(FUZZ_CORPUS)/lsp_frames/
+
+fuzz-lsp-frames-smoke: $(FUZZBIN_LSP_FRAMES) fuzz-lsp-frames-seed
+	mkdir -p $(FUZZ_ARTIFACTS)/lsp_frames
+	./$(FUZZBIN_LSP_FRAMES) $(FUZZ_SMOKE_ARGS) \
+		-artifact_prefix=$(FUZZ_ARTIFACTS)/lsp_frames/ \
+		$(FUZZ_CORPUS)/lsp_frames
+
+fuzz-seed: fuzz-keypress-seed fuzz-syntax-seed fuzz-dirlocals-seed fuzz-regex-seed fuzz-localvars-seed fuzz-compile-parse-seed fuzz-lsp-json-seed fuzz-width-seed fuzz-keybind-seed fuzz-lsp-frames-seed
+
+fuzz-smoke: fuzz-keypress-smoke fuzz-syntax-smoke fuzz-dirlocals-smoke fuzz-regex-smoke fuzz-localvars-smoke fuzz-compile-parse-smoke fuzz-lsp-json-smoke fuzz-width-smoke fuzz-keybind-smoke fuzz-lsp-frames-smoke
 
 # Randomised differential test against Emacs' own matcher.  Not part of
 # `check`: it needs emacs on PATH, and skips itself with a message when it
@@ -1208,6 +1243,17 @@ EXTRA_lsp_log := $(EXTRA_buffer) $(OBJDIR)/lsp_log.o
 # xref_location_of(): a location parser is where a server's three answer
 # shapes are either read right or navigated wrong.
 EXTRA_xref        := $(EXTRA_cmd)
+# Applying a WorkspaceEdit reaches the buffer table, the edit gateway and
+# the undo stack, and completion's prefix scanner reaches dabbrev's -- so
+# this links the same everything-but-main.c set EXTRA_cmd does, for
+# EXTRA_xref's reason.
+EXTRA_lsp_edit    := $(EXTRA_cmd)
+# The diagnostics store and the hover renderer, together: both are the
+# command layer, both reach buffers, decorations and the echo area, and
+# the store's position conversion is only observable against a real
+# buffer's rows -- so this links the same everything-but-main.c set
+# EXTRA_xref does, and for the same reason.
+EXTRA_lsp_diag    := $(EXTRA_cmd)
 # fileline.c answers "what does line N of that file say" from an open
 # buffer or from disk, so its suite needs real buffers holding real files:
 # EXTRA_buffer's set (bufmgr.o for buf_open_path(), fileio.o to load one)
@@ -1346,6 +1392,15 @@ $(FUZZBIN_KEYBIND): $(TESTDIR)/fuzz_keybind.c $(OBJDIR)/keybind.c $(OBJDIR)/keym
 		$(TESTDIR)/fuzz_keybind.c $(OBJDIR)/keybind.c \
 		$(OBJDIR)/keymap.c $(OBJDIR)/keyevent.c $(OBJDIR)/width.c
 
+# The transport depends on the process layer and on nothing else in the
+# editor, and the harness hands each frame it delivers to the JSON parser
+# the client would call: four translation units, no stubs, no def.h.
+$(FUZZBIN_LSP_FRAMES): $(TESTDIR)/fuzz_lsp_frames.c $(OBJDIR)/lsp_transport.c \
+                       $(OBJDIR)/lsp_json.c $(OBJDIR)/process.c $(HDRS)
+	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ \
+		$(TESTDIR)/fuzz_lsp_frames.c $(OBJDIR)/lsp_transport.c \
+		$(OBJDIR)/lsp_json.c $(OBJDIR)/process.c
+
 $(TESTDIR)/fe_fuzz.o: fe/fe.c fe/fe.h fe/fe_internal.h
 	$(FUZZ_CC) $(FE_FUZZ_CFLAGS) -c $< -o $@
 
@@ -1399,5 +1454,6 @@ uninstall:
 	fuzz-regex fuzz-regex-seed fuzz-regex-smoke fuzz-regex-seed-replay \
 	fuzz-localvars fuzz-localvars-seed fuzz-localvars-smoke \
 	fuzz-compile-parse fuzz-compile-parse-seed fuzz-compile-parse-smoke \
+	fuzz-lsp-frames fuzz-lsp-frames-seed fuzz-lsp-frames-smoke \
 	fuzz-seed fuzz-smoke \
 	deb release install uninstall

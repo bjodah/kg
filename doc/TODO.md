@@ -264,7 +264,15 @@ real `clangd` and `ty`.  Known follow-ups, none blocking:
   added when `*Occur*` became the third such buffer.  That is the shape
   of the answer, not the answer: a real mode registry owning the table,
   with the predicates and the buffer names on the modes rather than in
-  kbd.c, is still what this wants.
+  kbd.c, is still what this wants.  Read-only-on-unwritable (2026-08-11)
+  made the overlap cheaper to reach: any ordinary file buffer visiting a
+  write-protected file is now read-only without the user typing
+  `C-x C-q`, so `MODE_MAP_BUFFER_LIST` is live there and its `q` closes
+  the window instead of saying "Buffer is read-only" (`RET` stays
+  harmless only because `ibuffer-visit-buffer` checks the buffer's
+  syntax first).  Keying that map on the `*Buffer List*` name is the
+  fix, and it belongs to this cleanup rather than to the read-only
+  change that exposed it.
 
 ## Tree-sitter follow-ups (v1 landed 2026-08-08)
 

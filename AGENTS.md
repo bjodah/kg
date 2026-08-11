@@ -328,6 +328,13 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   the tree. `{CWD}` in a value expands to that directory, as `{REPO}`
   does, because a compilation database's `"directory"` cannot be relative
   and the directory is a fresh mkdtemp.
+- `file_mode:` sets the permission bits the file under test is created
+  with, written the way chmod(1) takes them and quoted (`"0444"` — YAML
+  reads a bare 0444 as decimal). It is the one fixture property contents
+  cannot express, and the read-only-on-unwritable cases need it before
+  kg starts; note the box runs tests as root, for whom `access(W_OK)`
+  succeeds on a 0444 file, so cases assert via the mode-bit clause and
+  must not assume a write to such a file fails.
 - `requires_tool: <name>` SKIPs the case with a printed reason when that
   bare executable is not on PATH, and `--require-tools` turns it into an
   upfront failure, exactly as for tmux and the Emacs oracle. It is how the

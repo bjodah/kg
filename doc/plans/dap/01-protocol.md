@@ -87,8 +87,17 @@ The frames-level fuzzer is already covered by subplan 00-A's retarget.
 
 `src/dap_config.[ch]`: adapter specs + launch configs.
 
-- `struct dap_adapter_spec { name; argv; transport (stdio|tcp); }` and
+- `struct dap_adapter_spec { name; argv; transport; cwd; }` and
   `struct dap_launch_config { name; adapter; request; arguments_json }`.
+  Transport kinds: `stdio` (lldb-dap, debugpy), `tcp` (plain attach),
+  `spawn-port` (spawn then scrape a port announce then connect —
+  delve, subplan 04) and `lsp-sibling` (endpoint discovered through a
+  named LSP session — nbcode, subplan 03); only the first two ship in
+  v1. `cwd` is the *adapter's* working directory, distinct from the
+  debuggee's `arguments.cwd` — delve resolves programs and writes its
+  build artifact relative to it (measured, subplan 04), so
+  `kg_spawn_request.directory` is plumbed through adapter spawn from
+  the start even though v1's two adapters don't need it.
   Built-ins: `lldb-dap` (stdio, PATH lookup) and `python3 -m
   debugpy.adapter` (stdio — the prototype ran debugpy over stdio
   end-to-end; TCP+autoport becomes necessary only with child sessions).

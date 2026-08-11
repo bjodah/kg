@@ -9,6 +9,9 @@ The reviewed implementation plan lives at
 - `doc/plans/dap/01-protocol.md` — feature axis, transport, client,
   session state machine, breakpoints, execution, tests
 - `doc/plans/dap/02-ui.md` — panes, layout, keybindings, REPL
+- `doc/plans/dap/03-java.md` — Java via nbcode (measured end-to-end);
+  jdtls road recorded, deferred
+- `doc/plans/dap/04-go.md` — Go via delve (measured end-to-end)
 
 The exploratory ChatGPT draft that previously lived here was reviewed
 against the tree and against live traces of lldb-dap 21.1.8 and debugpy

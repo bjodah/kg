@@ -23,10 +23,14 @@ spawn policy, the nbcode announce/hash state machine and its
 Three genuinely new capabilities land on the extracted layer (the
 prototype proved these are the only real gaps):
 
-1. **Wrap an already-open fd pair** as a channel (today only the
-   `KG_FUZZ`-gated `lsp_transport_attach_fuzz_fd()` exists, read-only,
-   src/lsp_transport.c:884). This also lets the frames fuzzer target
-   framed_io directly instead of through an LSP-named seam.
+1. **Wrap an already-open fd** as a channel — both the fuzz seam's
+   successor (today only the `KG_FUZZ`-gated, read-only
+   `lsp_transport_attach_fuzz_fd()` exists, src/lsp_transport.c:884)
+   and a real `attach_socket(fd)` constructor (no child, phase OPEN),
+   which the Java `lsp-sibling` road needs (subplan 03). Measured
+   gotcha: **the constructor sets `O_NONBLOCK` itself** — a caller that
+   forgets hangs silently on the first read (the probe lost 8 minutes
+   to exactly this).
 2. **Nonblocking TCP connect to host:port, no child, no handshake** —
    generalized from the correct-but-static loopback connect at
    src/lsp_transport.c:605-658. v1 may keep loopback-only with the
@@ -35,6 +39,24 @@ prototype proved these are the only real gaps):
    without killing it, so a lingering adapter (debugpy never exits after
    `disconnect` — measured) can be given a deadline before the close
    path's kill backstop.
+4. **Announce scanning becomes a three-knob scanner.** Today
+   `announce_take()` connects to one compile-time prefix
+   (src/lsp_transport.c:711-712). The measured needs (subplans 03/04):
+   nbcode announces two servers on one stdout and the DAP port must be
+   scraped from the *LSP* transport's log channel for a later, separate
+   connect; delve announces a bare port with no hash at all. So the
+   scanner takes *prefix*, *optional secret separator*, *what to write
+   on connect* — delve = (prefix, none, nothing), nbcode = (prefix,
+   `" with hash "`, the hash), jdtls = no scan (attach_socket) — and
+   reports (prefix, port, hash) tuples upward rather than connecting
+   itself. Prefix moves from macro to per-transport data with NULL
+   meaning today's LSP prefix, so existing callers are untouched.
+   Measured size for all three parameterizations together: 117 lines
+   on today's `lsp_transport.{c,h}` (the probe's
+   transport-parameterization.diff). While there, fix the comment at
+   src/lsp_transport.h:100-104 — the measured sibling line reads
+   `Java Debug Server Adapter listening at port ...`, with a leading
+   `Java ` the comment omits.
 
 Tests: `test_lsp_transport.c` stays green untouched (the strongest
 regression proof of a faithful extraction); new native cases for

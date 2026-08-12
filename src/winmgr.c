@@ -8,6 +8,8 @@
 #include "bufhandle.h"
 #include "def.h"
 #include "event.h"
+#include "winmgr.h"
+#include "winmgr_internal.h"
 
 struct editor_window winlist[MAX_WINDOWS];
 int win_current = 0;
@@ -55,17 +57,24 @@ static void window_vgeom_reset_all(void)
 /* Give `slot` a fresh window identity: bump its generation so any handle
  * taken on whatever was there stops resolving, then hand out the next id
  * (or leave it 0, unresolvable, once the counter is exhausted).  Called
- * whenever a slot starts a new window -- win_init() and both splits -- and
- * deliberately not by anything that merely copies a window's viewport. */
-static void win_claim_slot(int slot)
+ * whenever a slot starts a new window -- win_init(), both splits and a bulk
+ * layout -- and deliberately not by anything that merely copies a window's
+ * viewport. */
+int win_identities_available(int count)
+{
+	return count >= 0 && (uint64_t)count <= UINT64_MAX - win_next_id;
+}
+
+int win_claim_slot_for_layout(int slot)
 {
 	winlist[slot].generation++;
 	if (win_next_id == UINT64_MAX) {
 		winlist[slot].id = 0;
 		editor_set_status_message("Window identity exhausted.");
-		return;
+		return 0;
 	}
 	winlist[slot].id = win_next_id++;
+	return 1;
 }
 
 struct kg_window_handle win_handle(int slot)
@@ -383,7 +392,7 @@ void win_init(void)
 
 	winlist[0].active = 1;
 	winlist[0].col_group = 0;
-	win_claim_slot(0);
+	(void)win_claim_slot_for_layout(0);
 	/* No-op during init_editor(), which runs before any buffer exists:
 	 * buf_load_args()' first buf_select() is what gives window 0 its
 	 * buffer.  It matters for a caller that opens the buffers first. */
@@ -455,7 +464,7 @@ void win_split_horizontal(void)
 	 * free -- the parent still owns and uses that vector) and lazily
 	 * builds its own on first query. */
 	winlist[slot].vgeom = NULL;
-	win_claim_slot(slot);
+	(void)win_claim_slot_for_layout(slot);
 	win_publish_split_attach(&winlist[slot]);
 
 	win_count++;
@@ -502,7 +511,7 @@ void win_split_vertical(void)
 	/* See the horizontal split's identical line: a struct copy aliases
 	 * the parent's vgeom pointer, and the new view must not share it. */
 	winlist[slot].vgeom = NULL;
-	win_claim_slot(slot);
+	(void)win_claim_slot_for_layout(slot);
 	win_publish_split_attach(&winlist[slot]);
 
 	win_count++;

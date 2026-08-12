@@ -43,6 +43,7 @@
 #include "edit.h"
 #include "marker.h"
 #include "process.h"
+#include "winmgr.h"
 
 #define SHELL_INITIAL_CAP 4096
 

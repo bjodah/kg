@@ -93,6 +93,7 @@
 #include "keyevent.h"
 #include "marker.h"
 #include "perf.h"
+#include "winmgr.h"
 
 /* Key action codes */
 enum KEY_ACTION {
@@ -292,7 +293,6 @@ struct kg_point {
 struct kg_vgeom_index;
 
 /* Per-window viewport state. */
-#define MAX_WINDOWS 8
 struct editor_window {
 	/* Which buffer this window shows, by identity rather than by slot:
 	 * a slot is reused, so a window left on a killed buffer would
@@ -524,28 +524,6 @@ void buf_open_help(void);
 void buf_ibuffer_select(void);
 void buf_display_name(int idx, char *out, size_t outsize);
 void editor_cleanup(void);
-
-/* winmgr.c */
-void win_init(void);
-void win_reflow(void);
-void win_split_horizontal(void);
-void win_split_vertical(void);
-void win_cycle_next(void);
-void win_delete_current(void);
-void win_delete_others(void);
-void win_display_buffer_other_window(int buffer_index);
-/* The other direction: stop showing this buffer, without killing it.
- * Declines when the buffer is not on screen, when its window is the only
- * one, or when its window is the current one. */
-void win_undisplay_buffer(int buffer_index);
-int win_can_display_buffer_other_window(int buffer_index);
-void win_position_at_end(int buffer_index);
-/* Put point on `row` (0-based) in every window showing this buffer,
- * scrolling as little as it takes to bring it into view.  win_position_at_end()
- * with a row of the caller's choosing: for a results buffer whose cursor
- * has to follow a walk driven from somewhere else (M-g n over *Occur*),
- * which is a window that is not the current one. */
-void win_position_at_row(int buffer_index, int row);
 
 /* autocomplete.c */
 int editor_find_close_char(int open_char);

@@ -89,6 +89,7 @@ size_t lsp_complete_common_prefix(const char *const *texts, size_t n)
 #include "lsp_edit.h"
 #include "lsp_req.h"
 #include "lsp_sync.h"
+#include "winmgr.h"
 
 #include <stdio.h>
 

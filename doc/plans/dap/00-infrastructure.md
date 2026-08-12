@@ -249,8 +249,10 @@ picks it up). Then, in winmgr:
 Tests: native save/restore round-trip; resize between save and restore;
 the selected saved buffer killed; an unselected saved buffer killed;
 arrange at the minimum dimensions and at one-less-than-minimum (clean
-refusal); a PTY case asserting a 2×3 arrangement paints (tmux backend,
-`expected_screen_contains` on pane titles).
+refusal). The tmux `expected_screen_contains` proof that a 2×3
+arrangement paints lands in subplan 02 through the first real F12
+production call path: Stage E has no shipped invoker for the bulk API and
+adds no lasting test-only command merely to reach it.
 
 ## Stage F — MAX_BUFFERS
 

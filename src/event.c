@@ -195,20 +195,25 @@ static void ring_push(const struct kg_event *ev, command_id token)
 	ring_count++;
 }
 
+static size_t droppable_capacity(void)
+{
+	return ring_capacity > KG_EVENT_LIFECYCLE_RESERVE
+	    ? ring_capacity - KG_EVENT_LIFECYCLE_RESERVE
+	    : 0;
+}
+
 /* Slots a droppable change event may use: the rest stay free for
  * kg_event_reserve_lifecycle(). */
 static bool droppable_has_room(void)
 {
-	size_t droppable_cap = ring_capacity > KG_EVENT_LIFECYCLE_RESERVE
-	    ? ring_capacity - KG_EVENT_LIFECYCLE_RESERVE
-	    : 0;
+	size_t droppable_cap = droppable_capacity();
 
-	return ring_count < droppable_cap;
-}
-
-static bool lifecycle_has_room(void)
-{
-	return ring_count + reserved_outstanding < ring_capacity;
+	/* The fixed reserve protects future lifecycle callers; outstanding
+	 * reservations protect slots already promised to callers.  Test the
+	 * latter as a subtraction so corrupted/hostile sizes cannot wrap an
+	 * addition into apparent room. */
+	return ring_count < droppable_cap
+	    && reserved_outstanding < ring_capacity - ring_count;
 }
 
 /* Record or extend `buffer`'s overflow summary.  A matching in-use entry
@@ -359,11 +364,29 @@ enum kg_event_enqueue_result kg_event_queue_broad_change(
 
 struct kg_event_reservation kg_event_reserve_lifecycle(void)
 {
-	if (!lifecycle_has_room()) {
+	struct kg_event_reservation res;
+
+	if (!kg_event_reserve_lifecycle_batch(&res, 1)) {
 		return (struct kg_event_reservation) { .valid = false };
 	}
-	reserved_outstanding++;
-	return (struct kg_event_reservation) { .valid = true };
+	return res;
+}
+
+bool kg_event_reserve_lifecycle_batch(
+    struct kg_event_reservation out[], size_t count)
+{
+	if (count == 0) {
+		return true;
+	}
+	if (!out || count > ring_capacity
+	    || ring_count + reserved_outstanding > ring_capacity - count) {
+		return false;
+	}
+	for (size_t i = 0; i < count; i++) {
+		out[i].valid = true;
+	}
+	reserved_outstanding += count;
+	return true;
 }
 
 void kg_event_release_reservation(struct kg_event_reservation *res)

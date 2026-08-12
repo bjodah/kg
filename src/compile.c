@@ -2,6 +2,7 @@
 #include "def.h"
 #include "kbd.h"
 #include "process.h"
+#include "winmgr.h"
 #include <errno.h>
 #include <signal.h>
 #include <stdio.h>

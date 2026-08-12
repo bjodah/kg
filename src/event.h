@@ -283,6 +283,13 @@ struct kg_event_reservation {
  * not-yet-drained lifecycle events can. */
 struct kg_event_reservation kg_event_reserve_lifecycle(void);
 
+/* Atomically reserve `count` lifecycle publications into caller storage.
+ * Zero succeeds even with `out == NULL`.  A positive count with no output
+ * storage, or any count larger than the currently available ring space,
+ * fails without creating even one reservation. */
+bool kg_event_reserve_lifecycle_batch(
+    struct kg_event_reservation out[], size_t count);
+
 /* Spend `*res`, publishing `ev` (built by one of the lifecycle
  * constructors above) into the ring.  Returns KG_EVENT_REFUSED without
  * publishing anything when `*res` is not a live reservation -- this is a

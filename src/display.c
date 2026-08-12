@@ -18,6 +18,7 @@
 #include "showparen.h"
 #include "syntax.h"
 #include "vgeom.h"
+#include "winmgr.h"
 
 #ifndef ABUF_INIT
 #define ABUF_INIT { NULL, 0, 0, 0 }

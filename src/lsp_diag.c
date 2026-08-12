@@ -25,6 +25,7 @@
 #include "next_error.h"
 #include "syntax.h"
 #include "visit.h"
+#include "winmgr.h"
 
 #include <limits.h>
 #include <stdarg.h>

@@ -59,6 +59,7 @@
 #include "perf.h"
 #include "process_table.h"
 #include "register.h"
+#include "winmgr.h"
 #include "yank.h"
 
 struct editor_config editor;

@@ -26,6 +26,7 @@
 #include "perf.h"
 #include "process_table.h"
 #include "tty.h"
+#include "winmgr.h"
 
 #ifndef _WIN32
 static struct termios orig_termios; /* In order to restore at exit.*/

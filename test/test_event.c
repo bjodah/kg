@@ -555,6 +555,77 @@ static void test_event_lifecycle_reservation_failure_and_release(void)
 	teardown();
 }
 
+static void test_event_lifecycle_batch_is_all_or_none(void)
+{
+	struct kg_event_reservation batch[4] = { 0 };
+	struct kg_event_reservation one;
+
+	setup();
+	kg_event_queue_set_capacity_for_test(3);
+	CHECK(kg_event_reserve_lifecycle_batch(NULL, 0));
+	CHECK(!kg_event_reserve_lifecycle_batch(NULL, 1));
+	CHECK(!kg_event_reserve_lifecycle_batch(batch, 4));
+	/* Both failures left all three credits available. */
+	CHECK(kg_event_reserve_lifecycle_batch(batch, 3));
+	CHECK(batch[0].valid && batch[1].valid && batch[2].valid);
+	one = kg_event_reserve_lifecycle();
+	CHECK(!one.valid);
+
+	kg_event_release_reservation(&batch[1]);
+	one = kg_event_reserve_lifecycle();
+	CHECK(one.valid);
+	kg_event_release_reservation(&one);
+	kg_event_release_reservation(&batch[0]);
+	kg_event_release_reservation(&batch[2]);
+	/* Near capacity, an oversized batch still takes no partial credit. */
+	CHECK(!kg_event_reserve_lifecycle_batch(batch, 4));
+	CHECK(kg_event_reserve_lifecycle_batch(batch, 3));
+	for (int i = 0; i < 3; i++) {
+		kg_event_release_reservation(&batch[i]);
+	}
+	teardown();
+}
+
+static void test_event_batch_credits_exclude_droppable_events(void)
+{
+	struct kg_event_reservation batch[6] = { 0 };
+	struct kg_event out[8];
+	struct kg_buffer_handle changed_a = mkbuf(0, 10, 1);
+	struct kg_buffer_handle changed_b = mkbuf(1, 11, 1);
+
+	setup();
+	kg_event_queue_set_capacity_for_test(6);
+	CHECK(kg_event_reserve_lifecycle_batch(batch, 6));
+	/* The physical ring is wholly promised even though its ordinary
+	 * droppable quota is two.  Both changes must take the out-of-ring
+	 * overflow path rather than overwrite promised lifecycle events. */
+	CHECK(kg_event_queue_text_change(
+		  changed_a, 0, 0, 1, mkext(0, 1), 1, CMD_ID_NONE)
+	    == KG_EVENT_QUEUED_BROAD);
+	CHECK(kg_event_queue_text_change(
+		  changed_b, 0, 0, 1, mkext(0, 1), 1, CMD_ID_NONE)
+	    == KG_EVENT_QUEUED_BROAD);
+	for (int i = 0; i < 6; i++) {
+		struct kg_buffer_handle opened = mkbuf(i + 2, 20 + i, 1);
+
+		CHECK(kg_event_publish_lifecycle(
+			  &batch[i], kg_event_make_buffer_opened(opened))
+		    == KG_EVENT_QUEUED);
+	}
+	CHECK(drain_all(out, 8) == 8);
+	CHECK(out[0].kind == KG_EVENT_BUFFER_BROAD_CHANGE);
+	CHECK(out[0].payload.broad.buffer.id == 10);
+	CHECK(out[1].kind == KG_EVENT_BUFFER_BROAD_CHANGE);
+	CHECK(out[1].payload.broad.buffer.id == 11);
+	for (int i = 0; i < 6; i++) {
+		CHECK(out[i + 2].kind == KG_EVENT_BUFFER_OPENED);
+		CHECK(out[i + 2].payload.buffer_life.buffer.id
+		    == (uint64_t)(20 + i));
+	}
+	CHECK(kg_event_queue_pop(NULL) == false);
+	teardown();
+}
+
 static void test_event_publish_requires_a_live_reservation(void)
 {
 	setup();
@@ -1690,6 +1761,8 @@ int main(void)
 	RUN(test_event_overflow_collapse_one_buffer);
 	RUN(test_event_overflow_collapse_several_buffers);
 	RUN(test_event_lifecycle_reservation_failure_and_release);
+	RUN(test_event_lifecycle_batch_is_all_or_none);
+	RUN(test_event_batch_credits_exclude_droppable_events);
 	RUN(test_event_publish_requires_a_live_reservation);
 	RUN(test_event_lifecycle_round_trip_all_kinds);
 	RUN(test_event_kill_before_drain);

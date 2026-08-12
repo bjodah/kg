@@ -31,6 +31,7 @@
 #include "showparen.h"
 #include "syntax.h"
 #include "vgeom.h"
+#include "winmgr.h"
 #include "xref.h"
 #include "yank.h"
 

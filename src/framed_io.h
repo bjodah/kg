@@ -1,7 +1,6 @@
 #ifndef KG_FRAMED_IO_H
 #define KG_FRAMED_IO_H
 
-#include <stdbool.h>
 #include <stddef.h>
 
 /* A bounded, non-blocking Content-Length byte stream.  This layer owns

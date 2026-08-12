@@ -9,7 +9,6 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
 enum lsp_transport_phase {
 	LSP_PHASE_OPEN = 0,

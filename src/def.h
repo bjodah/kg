@@ -326,8 +326,11 @@ struct editor_window {
 	struct kg_vgeom_index *vgeom;
 };
 
-/* Per-buffer state saved when switching away from a buffer. */
-#define MAX_BUFFERS 20
+/* Per-buffer state saved when switching away from a buffer.  The bound
+ * sizes buflist[] and every sibling table indexed by a buffer slot, so a
+ * user's own files, the special buffers kg opens for them and the
+ * debugger's transcript and console all come out of the same 32. */
+#define MAX_BUFFERS 32
 struct editor_buffer {
 	/* Identity of whatever buffer currently occupies this slot.  `id` is
 	 * drawn from a counter that never repeats, so it names one buffer for

@@ -1014,18 +1014,20 @@ static void test_slot_exhaustion_and_reuse(void)
 	names[0] = strdup(tmppath("a.txt"));
 	session(1, names);
 
+	/* An open is ~3 lifecycle events (the outgoing view's detach, the
+	 * incoming one's attach, the buffer's open) against a 64-slot queue,
+	 * so filling the table drains as it goes -- the same relief a real
+	 * session's per-keystroke safe point gives.  Without it the last
+	 * slots are refused for want of event capacity, and this suite would
+	 * be asserting that ceiling instead of the buffer table's. */
 	for (i = 1; i < MAX_BUFFERS; i++) {
 		snprintf(name, sizeof(name), "f%02d.txt", i);
 		write_text_file(tmppath(name), "x\n");
 		buf_open_path(tmppath(name), 0);
+		kg_event_drain_safe();
 	}
 	CHECK(buf_count == MAX_BUFFERS);
 	invariants();
-	/* Filling every slot is ~2 lifecycle events each (open, then the
-	 * window following it); drain them here, the same relief a real
-	 * session's safe points give, so the kill/reopen below is not the
-	 * operation that happens to hit the reserved capacity's ceiling. */
-	kg_event_drain_safe();
 
 	/* One more is refused rather than overwriting a slot. */
 	write_text_file(tmppath("overflow.txt"), "x\n");
@@ -1063,6 +1065,103 @@ static void test_slot_exhaustion_and_reuse(void)
 	CHECK(bslot(5)->dirty == 0);
 	CHECK(!kg_mark_is_set(bslot(5)));
 	CHECK(kg_marker_resolve(killed_marker, &marker_pos) == KG_MARKER_GONE);
+
+	session_teardown();
+	free(names[0]);
+}
+
+/* The bound sizes buflist[] and every sibling table indexed by a buffer
+ * slot, and only a full table reaches the last entry of any of them.  Fill
+ * it, then take the buffer that landed in the last slot through the whole
+ * lifecycle: resolve, display in another window, undisplay, kill, reuse,
+ * and a change that collapses into that slot's event-overflow entry. */
+static void test_last_slot_lifecycle(void)
+{
+	const int last = MAX_BUFFERS - 1;
+	char *names[1];
+	char name[64];
+	struct kg_buffer_handle handle, reopened;
+	struct kg_event ev;
+	int i, other;
+
+	write_text_file(tmppath("a.txt"), "alpha\n");
+	names[0] = strdup(tmppath("a.txt"));
+	session(1, names);
+
+	/* Bounded by the iteration count as well as by buf_count, so an open
+	 * that stops taking slots ends the loop instead of spinning; the
+	 * drain is what keeps the event queue from being the thing that
+	 * stops it (see test_slot_exhaustion_and_reuse()). */
+	for (i = 1; i < MAX_BUFFERS && buf_count < MAX_BUFFERS; i++) {
+		snprintf(name, sizeof(name), "f%02d.txt", i);
+		write_text_file(tmppath(name), "x\n");
+		buf_open_path(tmppath(name), 0);
+		kg_event_drain_safe();
+	}
+	CHECK(buf_count == MAX_BUFFERS);
+	CHECK(bslot(last)->active);
+	invariants();
+
+	/* One past the last slot is refused rather than folded onto one. */
+	write_text_file(tmppath("over.txt"), "x\n");
+	buf_open_path(tmppath("over.txt"), 0);
+	CHECK(buf_count == MAX_BUFFERS);
+	invariants();
+
+	/* The last slot answers to a handle like any other. */
+	handle = buf_handle(last);
+	CHECK(buf_resolve(handle) == bslot(last));
+	CHECK(buf_handle_slot(handle) == last);
+
+	/* It displays in a second window, and stops being displayed.  The
+	 * fill left it selected, and a buffer already on screen is not
+	 * displayed again, so look away from it first. */
+	CHECK(buf_select(0));
+	kg_event_drain_safe();
+	CHECK(win_can_display_buffer_other_window(last));
+	win_display_buffer_other_window(last);
+	other = other_window();
+	CHECK(other >= 0);
+	CHECK(win_buffer_slot(&winlist[other]) == last);
+	win_undisplay_buffer(last);
+	CHECK(win_count == 1);
+	for (i = 0; i < MAX_WINDOWS; i++) {
+		CHECK(!winlist[i].active
+		    || !win_shows_buffer(&winlist[i], handle));
+	}
+	invariants();
+	kg_event_drain_safe();
+
+	/* Killing it frees the last slot, and it is the only free one, so
+	 * the next open must take it back. */
+	buf_select(last);
+	buf_kill(-1);
+	CHECK(buf_count == MAX_BUFFERS - 1);
+	CHECK(!bslot(last)->active);
+	CHECK(buf_resolve(handle) == NULL);
+	buf_open_path(tmppath("over.txt"), 0);
+	CHECK(buf_count == MAX_BUFFERS);
+	CHECK(bslot(last)->active);
+	CHECK(strstr(bslot(last)->filename, "over.txt") != NULL);
+	reopened = buf_handle(last);
+	CHECK(buf_resolve(reopened) == bslot(last));
+	CHECK(buf_resolve(handle) == NULL);
+	invariants();
+	kg_event_drain_safe();
+
+	/* With no droppable room left, a change to the reused buffer folds
+	 * into the overflow entry the last slot owns, and the drain hands it
+	 * back naming that buffer's current identity. */
+	CHECK(buf_select(last));
+	kg_event_drain_safe();
+	kg_event_queue_set_capacity_for_test(KG_EVENT_LIFECYCLE_RESERVE);
+	editor_insert_char('Q');
+	CHECK(kg_event_queue_pop(&ev));
+	CHECK(ev.kind == KG_EVENT_BUFFER_BROAD_CHANGE);
+	CHECK(ev.payload.broad.buffer.slot == last);
+	CHECK(ev.payload.broad.buffer.id == reopened.id);
+	CHECK(kg_event_queue_pop(NULL) == false);
+	kg_event_queue_init();
 
 	session_teardown();
 	free(names[0]);
@@ -2325,6 +2424,7 @@ int main(void)
 	RUN(test_kill_buffer_shown_twice);
 	RUN(test_kill_shown_in_two_windows_publishes_killing_detach_killed);
 	RUN(test_slot_exhaustion_and_reuse);
+	RUN(test_last_slot_lifecycle);
 	RUN(test_append_to_hidden_buffer_leaves_current_alone);
 	RUN(test_append_to_visible_buffer_follows_that_window);
 	RUN(test_reflow_sizes);

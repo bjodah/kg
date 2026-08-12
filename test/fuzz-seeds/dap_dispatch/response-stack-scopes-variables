@@ -1,0 +1,7 @@
+Content-Length: 358
+
+{"seq": 1, "type": "response", "request_seq": 3, "success": true, "command": "stackTrace", "body": {"stackFrames": [{"id": 1000, "name": "main", "line": 12, "column": 1, "source": {"name": "a.c", "path": "/tmp/a.c"}}, {"id": 1001, "name": "__libc_start", "line": 74, "column": 3, "source": {"name": "libc-start.c", "sourceReference": 3}}], "totalFrames": 2}}Content-Length: 176
+
+{"seq": 2, "type": "response", "request_seq": 4, "success": true, "command": "launch", "body": {"scopes": [{"name": "Locals", "variablesReference": 1001, "expensive": false}]}}Content-Length: 230
+
+{"seq": 3, "type": "event", "event": "kgVariables", "body": {"variables": [{"name": "argv", "value": "0x7ffd", "type": "char **", "variablesReference": 1002}, {"name": "n", "value": "42", "type": "int", "variablesReference": 0}]}}

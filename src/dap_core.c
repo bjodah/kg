@@ -7,10 +7,10 @@
  * the command layer, and this object is linked by every test binary (see
  * TEST_SRCS_OBJS in the Makefile).  It lives in src/dap_keymap.c.
  *
- * Stage 2 of doc/plans/dap/01-protocol.md built src/dap_transport.c but
- * nothing that holds one: an adapter for these legs to service, and a
- * descriptor for them to report, needs the client and session of stage 3.
- * Until then both halves are the same no-ops.
+ * Stages 2 and 3 of doc/plans/dap/01-protocol.md built src/dap_transport.c
+ * and src/dap_client.c, but nothing that holds one: an adapter for these
+ * legs to service, and a descriptor for them to report, needs the session
+ * of stage 4.  Until then both halves are the same no-ops.
  */
 
 #include "dap.h"

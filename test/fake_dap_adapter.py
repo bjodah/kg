@@ -69,6 +69,79 @@ Lifecycle modes (new here; each one is a measured adapter behaviour):
     the response and the EOF can arrive in the same read.  The response
     must be delivered before the end of stream is.
 
+Protocol mode (stage 3): ``protocol`` speaks just enough of the Debug
+Adapter Protocol to be an adapter -- it answers ``initialize`` with the
+capabilities argv names and every other request with an echo -- and every
+deviation from that is one measured adapter behaviour, switched on by one
+option, so a test asserts against a value it chose.
+
+Two properties hold in every configuration and are what the client's cases
+read.  Every reply's body carries ``clientResponses``, the number of
+RESPONSES kg has sent this adapter, which is how a case sees whether a
+reverse request was answered without guessing at timing.  And every
+response kg sends is reported back as a ``kgReverse`` event carrying its
+``command``, ``success``, ``message``, ``request_seq`` and ``seq``, which is
+how a case sees WHAT kg answered -- including that it echoed a zero
+``request_seq`` verbatim and stamped a nonzero ``seq`` of its own.
+
+Protocol options:
+
+``--capabilities JSON``
+    The body of the ``initialize`` response, which by the specification is
+    the Capabilities object itself (default ``{}``).
+``--capabilities-event JSON``, ``--capabilities-event-on CMD``
+    Sent as a ``capabilities`` event right after the initialize response,
+    or before answering CMD instead: lldb-dap adds two capabilities this
+    way ~15 ms late, and an event may also turn one OFF.  Deferring it to a
+    later command is what lets a case read the capability set both before
+    and after the merge rather than racing one poll against the other.
+``--seq-zero`` / ``--seq-string`` / ``--no-seq``
+    How this adapter numbers what it sends: always zero (lldb-dap), as a
+    decimal string (netcoredbg), or not at all.  None of the three changes
+    ``request_seq``, which is kg's own number coming back.
+``--request-seq-string``
+    Send ``request_seq`` as a decimal string.
+``--no-reply CMD`` (repeatable)
+    Never answer CMD: the only thing that can end such a request is kg's
+    own deadline, or the absence of one.
+``--duplicate CMD``
+    Answer CMD twice, byte for byte.
+``--reorder CMD`` (repeatable)
+    Hold CMD's replies and flush them in reverse order once two are held.
+``--event-before CMD:EVENT``
+    Emit EVENT immediately before answering CMD.
+``--mismatch CMD``
+    Answer CMD with a ``command`` naming something else, at CMD's own
+    ``request_seq``.
+``--stray-before CMD``, ``--stray-request-seq N``
+    Before answering CMD, send a response whose ``request_seq`` is a number
+    nobody is waiting for -- by default one that is merely unknown, and
+    with N past 2**31 one that is not a protocol id at all.
+``--bad-type-before CMD``
+    Before answering CMD, send a message whose ``type`` is not one of the
+    protocol's three.
+``--error-message CMD:TEXT`` / ``--error-format CMD:TEXT``
+    Refuse CMD with the failure in ``message`` (debugpy's shape) or in
+    ``body.error.format`` with ``showUser``, ``url`` and ``urlLabel``
+    (lldb-dap's, which uses no other).
+``--reverse CMD``, ``--reverse-on TRIGGER``, ``--reverse-seq N``,
+``--reverse-hold``
+    Send CMD as a reverse request when TRIGGER (default ``launch``)
+    arrives.  ``--reverse-seq`` forces the number stamped on it -- 0 for
+    lldb-dap's shape, -1 to omit it entirely, so that kg has nothing to
+    correlate an answer to -- and ``--reverse-hold`` leaves TRIGGER itself
+    unanswered until kg has answered the reverse request, which is the
+    reverse-request-mid-launch case.
+``--pre-init NAME`` (repeatable: ``telemetry``, ``output``, ``initialized``)
+    Events sent BEFORE the initialize response, which debugpy really does.
+``--flood N``
+    Emit N ``kgFlood`` events after the initialize response, for the
+    per-poll work budget.
+``--report-initialize``
+    Report the ``initialize`` request's own arguments back as a
+    ``kgInitializeArguments`` event, which is how a case asserts what kg
+    promised -- and, more to the point, what it did not.
+
 Options:
 
 ``--listen``
@@ -86,6 +159,7 @@ Options:
 """
 
 import argparse
+import json
 import signal
 import socket
 import sys
@@ -228,6 +302,198 @@ def mode_respond_then_exit(stdin, stdout, _args):
         write_all(stdout, frame(body))
 
 
+def pairs(specs):
+    """``CMD:TEXT`` options as a dict, splitting on the FIRST colon so the
+    text may contain one."""
+    out = {}
+    for spec in specs:
+        name, _, text = spec.partition(":")
+        out[name] = text
+    return out
+
+
+class Protocol:
+    """An adapter's half of the conversation, deviating only where argv
+    says.  Nothing here is timed: every byte it writes is written from
+    inside the handling of a message kg sent, so a test drives it by
+    sending requests and never by waiting."""
+
+    def __init__(self, stdout, args):
+        self.stdout = stdout
+        self.args = args
+        self.seq = 0
+        self.client_responses = 0
+        self.reordered = []
+        self.reverse_held = []
+        self.event_before = pairs(args.event_before)
+        self.error_message = pairs(args.error_message)
+        self.error_format = pairs(args.error_format)
+
+    def next_seq(self):
+        self.seq += 1
+        if self.args.seq_zero:
+            return 0
+        if self.args.seq_string:
+            return str(self.seq)
+        return self.seq
+
+    def write(self, message):
+        write_all(self.stdout, frame(json.dumps(message).encode("utf-8")))
+
+    def send(self, message):
+        if not self.args.no_seq:
+            message["seq"] = self.next_seq()
+        self.write(message)
+
+    def event(self, name, body=None):
+        message = {"type": "event", "event": name}
+        if body is not None:
+            message["body"] = body
+        self.send(message)
+
+    def reply(self, request, body=None, success=True, message=None,
+              command=None, request_seq=None):
+        if request_seq is None:
+            request_seq = request.get("seq", 0)
+        if self.args.request_seq_string:
+            request_seq = str(request_seq)
+        out = {"type": "response", "request_seq": request_seq,
+               "success": success,
+               "command": command or request.get("command", "")}
+        if message is not None:
+            out["message"] = message
+        if body is not None:
+            out["body"] = body
+        self.send(out)
+
+    def pre_init_event(self, name):
+        """The three shapes of pre-initialize traffic that were measured:
+        telemetry to be dropped, user output to be kept, and an
+        ``initialized`` that arrived before the response it must follow."""
+        if name == "telemetry":
+            self.event("output", {"category": "telemetry",
+                                  "output": "adapter-telemetry"})
+        elif name == "output":
+            self.event("output", {"category": "stdout",
+                                  "output": "early-output"})
+        elif name == "initialized":
+            self.event("initialized")
+
+    def initialize(self, message):
+        for name in self.args.pre_init:
+            self.pre_init_event(name)
+        if self.args.report_initialize:
+            self.event("kgInitializeArguments",
+                       {"arguments": message.get("arguments")})
+        self.reply(message, body=json.loads(self.args.capabilities))
+        if self.args.capabilities_event and not self.args.capabilities_event_on:
+            self.send_capabilities_event()
+        for n in range(self.args.flood):
+            self.event("kgFlood", {"n": n})
+
+    def send_capabilities_event(self):
+        self.event("capabilities", {
+            "capabilities": json.loads(self.args.capabilities_event)})
+
+    def send_reverse(self, trigger):
+        """Ask kg something.  Returns whether the trigger's own answer is
+        being held until kg replies."""
+        message = {"type": "request", "command": self.args.reverse,
+                   "arguments": {"kind": "integrated"}}
+        if self.args.reverse_seq is None:
+            message["seq"] = self.next_seq()
+        elif self.args.reverse_seq >= 0:
+            message["seq"] = self.args.reverse_seq
+        self.write(message)
+        if self.args.reverse_hold:
+            self.reverse_held.append(trigger)
+            return True
+        return False
+
+    def emit(self, message):
+        command = message.get("command", "")
+        if command in self.error_message:
+            self.reply(message, success=False,
+                       message=self.error_message[command])
+            return
+        if command in self.error_format:
+            self.reply(message, success=False, body={"error": {
+                "id": 42, "format": self.error_format[command],
+                "showUser": True, "url": "https://example.invalid/why",
+                "urlLabel": "Why this failed"}})
+            return
+        body = {"echo": message.get("arguments"),
+                "clientResponses": self.client_responses}
+        wrong = "kgWrongCommand" if command in self.args.mismatch else None
+        self.reply(message, body=body, command=wrong)
+        if command in self.args.duplicate:
+            self.reply(message, body=body, command=wrong)
+
+    def answer(self, message):
+        command = message.get("command", "")
+        if command in self.event_before:
+            self.event(self.event_before[command], {"tag": command})
+        if self.args.capabilities_event and command == self.args.capabilities_event_on:
+            self.send_capabilities_event()
+        if command in self.args.stray_before:
+            self.write({"seq": self.next_seq(), "type": "response",
+                        "request_seq": self.args.stray_request_seq,
+                        "success": True, "command": "kgStray", "body": {}})
+        if command in self.args.bad_type_before:
+            self.write({"seq": self.next_seq(), "type": "kgNotAType",
+                        "command": command})
+        if self.args.reverse and command == self.args.reverse_on:
+            if self.send_reverse(message):
+                return
+        if command in self.args.no_reply:
+            return
+        if command in self.args.reorder:
+            self.reordered.append(message)
+            if len(self.reordered) >= 2:
+                for held in reversed(self.reordered):
+                    self.emit(held)
+                self.reordered = []
+            return
+        self.emit(message)
+
+    def on_request(self, message):
+        if message.get("command") == "initialize":
+            self.initialize(message)
+            return
+        self.answer(message)
+
+    def on_response(self, message):
+        """kg answering a reverse request.  Reported straight back as an
+        event, so a case reads what kg said rather than inferring it."""
+        self.client_responses += 1
+        self.event("kgReverse", {
+            "command": message.get("command"),
+            "success": message.get("success"),
+            "message": message.get("message"),
+            "request_seq": message.get("request_seq"),
+            "seq": message.get("seq"),
+            "count": self.client_responses})
+        held = self.reverse_held
+        self.reverse_held = []
+        for trigger in held:
+            self.emit(trigger)
+
+    def run(self, stdin):
+        while True:
+            body = read_frame(stdin)
+            if body is None:
+                return
+            message = json.loads(body.decode("utf-8"))
+            if message.get("type") == "response":
+                self.on_response(message)
+            else:
+                self.on_request(message)
+
+
+def mode_protocol(stdin, stdout, args):
+    Protocol(stdout, args).run(stdin)
+
+
 MODES = {
     "echo": mode_echo,
     "split": mode_split,
@@ -241,6 +507,7 @@ MODES = {
     "half-close": mode_half_close,
     "crash": mode_crash,
     "respond-then-exit": mode_respond_then_exit,
+    "protocol": mode_protocol,
 }
 
 
@@ -275,6 +542,54 @@ def main(argv):
                         help="speak the protocol on an accepted TCP socket")
     parser.add_argument("--stderr", dest="stderr_line", action="append",
                         default=[], help="a line to log before the mode runs")
+    parser.add_argument("--capabilities", default="{}",
+                        help="protocol: the initialize response body")
+    parser.add_argument("--capabilities-event", default="",
+                        help="protocol: a capabilities event after it")
+    parser.add_argument("--capabilities-event-on", default="",
+                        help="protocol: send it before this command instead")
+    parser.add_argument("--seq-zero", action="store_true",
+                        help="protocol: stamp seq 0 on everything")
+    parser.add_argument("--seq-string", action="store_true",
+                        help="protocol: stamp seq as a decimal string")
+    parser.add_argument("--no-seq", action="store_true",
+                        help="protocol: send no seq at all")
+    parser.add_argument("--request-seq-string", action="store_true",
+                        help="protocol: send request_seq as a string")
+    parser.add_argument("--no-reply", action="append", default=[],
+                        help="protocol: never answer this command")
+    parser.add_argument("--duplicate", action="append", default=[],
+                        help="protocol: answer this command twice")
+    parser.add_argument("--reorder", action="append", default=[],
+                        help="protocol: hold and reverse these replies")
+    parser.add_argument("--event-before", action="append", default=[],
+                        help="protocol: CMD:EVENT before answering CMD")
+    parser.add_argument("--mismatch", action="append", default=[],
+                        help="protocol: answer CMD naming another command")
+    parser.add_argument("--stray-before", action="append", default=[],
+                        help="protocol: a response nobody awaits, before CMD")
+    parser.add_argument("--stray-request-seq", type=int, default=987654,
+                        help="protocol: the request_seq that stray carries")
+    parser.add_argument("--bad-type-before", action="append", default=[],
+                        help="protocol: a message with no usable type")
+    parser.add_argument("--error-message", action="append", default=[],
+                        help="protocol: CMD:TEXT refused in `message`")
+    parser.add_argument("--error-format", action="append", default=[],
+                        help="protocol: CMD:TEXT refused in body.error")
+    parser.add_argument("--reverse", default="",
+                        help="protocol: a reverse request to send")
+    parser.add_argument("--reverse-on", default="launch",
+                        help="protocol: the request that triggers it")
+    parser.add_argument("--reverse-seq", type=int, default=None,
+                        help="protocol: its seq (-1 omits it)")
+    parser.add_argument("--reverse-hold", action="store_true",
+                        help="protocol: hold the trigger's own reply")
+    parser.add_argument("--pre-init", action="append", default=[],
+                        help="protocol: events before the initialize reply")
+    parser.add_argument("--flood", type=int, default=0,
+                        help="protocol: events after the initialize reply")
+    parser.add_argument("--report-initialize", action="store_true",
+                        help="protocol: report initialize's own arguments")
     args = parser.parse_args(argv[1:])
     for line in args.stderr_line:
         note(line)

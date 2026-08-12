@@ -8,11 +8,12 @@
  * a KG_USE_DAP conditional, and a WITH_DAP=0 editor simply calls entry
  * points that do nothing.
  *
- * What is behind it so far is the axis, the three keymaps and, since stage
- * 2, src/dap_transport.c -- which no editor module reaches and this header
- * does not name: there is still no client, no session and no command, so
- * these four functions have nothing to do.  The remaining protocol modules
- * (client, config, session, breakpoints) land in later stages behind these
+ * What is behind it so far is the axis, the three keymaps and, since stages
+ * 2 and 3, src/dap_transport.c and src/dap_client.c -- which no editor
+ * module reaches and this header does not name: a client is created by
+ * whoever wants an adapter, and nothing an editor can reach wants one yet,
+ * so these four functions still have nothing to do.  The remaining protocol
+ * modules (config, session, breakpoints) land in later stages behind these
  * same four functions; their headers are included by their real C
  * consumers, never from here.
  *
@@ -51,9 +52,10 @@ int dap_poll(void);
 
 /* How many descriptors dap_wait_fds() may write.  Zero, and honestly so.
  * src/dap_transport.c (stage 2) has descriptors and reports them through
- * dap_transport_wait_fds(), but nothing an editor can reach holds a
- * transport yet -- the client and the session that own one land in stage 3
- * -- so this facade has nothing to ask and dap_wait_fds() has nothing to
+ * dap_transport_wait_fds(), and src/dap_client.c (stage 3) passes them on
+ * through dap_client_wait_fds() -- but a client is only as reachable as
+ * whatever holds one, and what holds one is the session of stage 4.  Until
+ * then this facade has nothing to ask and dap_wait_fds() has nothing to
  * answer.  A bound raised ahead of that would size the editor's wait for
  * descriptors that provably cannot exist, which is a promise rather than a
  * fact; the raise belongs with the stage that gives dap_wait_fds()

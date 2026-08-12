@@ -22,6 +22,7 @@ test/fuzz_regex
 test/fuzz_compile_parse
 test/fuzz_lsp_frames
 test/fuzz_frames
+test/fuzz_dap_dispatch
 test/fuzz-artifacts/
 # The working corpus is generated; the tracked seeds live in test/fuzz-seeds.
 test/fuzz-corpus/

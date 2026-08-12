@@ -291,9 +291,14 @@ LISP_OBJS = $(addprefix $(OBJDIR)/,$(LISP_SRCS:.c=.o))
 # does, so it is built whenever EITHER axis is on rather than being named
 # in both lists -- where a WITH_LSP=0 WITH_DAP=1 build would link a
 # debugger with no framing under it.
+#
+# The JSON layer is here for the same reason and since the same stage: it
+# was renamed out of lsp_json.c because both protocols' bodies are JSON,
+# and src/dap_client.c (stage 3) is the second client to parse one, so a
+# WITH_LSP=0 WITH_DAP=1 build needs it as much as the default build does.
 PROTOCOL_SRCS =
 ifneq ($(filter 1,$(WITH_LSP) $(WITH_DAP)),)
-PROTOCOL_SRCS += framed_io.c
+PROTOCOL_SRCS += framed_io.c json.c
 endif
 PROTOCOL_OBJS = $(addprefix $(OBJDIR)/,$(PROTOCOL_SRCS:.c=.o))
 
@@ -307,7 +312,7 @@ PROTOCOL_OBJS = $(addprefix $(OBJDIR)/,$(PROTOCOL_SRCS:.c=.o))
 # it: the JSON, client and server-registry files join the same list.
 LSP_SRCS = lsp_core.c
 ifeq ($(WITH_LSP),1)
-LSP_SRCS += announce.c lsp_transport.c json.c lsp_uri.c lsp_client.c lsp_server.c \
+LSP_SRCS += announce.c lsp_transport.c lsp_uri.c lsp_client.c lsp_server.c \
             lsp_sync.c
 endif
 # The two WITH_LSP=1 modules that reach the whole editor -- lsp_req.c takes
@@ -374,22 +379,24 @@ LSP_ALL = $(TESTDIR)/test_xref $(TESTDIR)/test_lsp_log \
 # Both are compiled in every configuration, the LISP_SRCS/LSP_SRCS shape:
 # the facade's entry points exist either way, so no caller grows a
 # KG_USE_DAP conditional.  Everything BEHIND the facade (transport, client,
-# session, breakpoints) is WITH_DAP=1 only, and dap_transport.c (stage 2)
-# is the first of it: the client, config, session and breakpoint files join
-# the same list in later stages of doc/plans/dap/01-protocol.md.  It links
-# against process.o and $(PROTOCOL_OBJS) and against nothing else in the
-# editor, which is what keeps it inside DAP_OBJS -- and so inside every
-# test binary -- rather than out on DAP_EDITOR_SRCS.
+# session, breakpoints) is WITH_DAP=1 only: dap_transport.c (stage 2) and
+# dap_client.c (stage 3) are what there is of it so far, and the config,
+# session and breakpoint files join the same list in later stages of
+# doc/plans/dap/01-protocol.md.  Both link against process.o and
+# $(PROTOCOL_OBJS) and against nothing else in the editor, which is what
+# keeps them inside DAP_OBJS -- and so inside every test binary -- rather
+# than out on DAP_EDITOR_SRCS.
 DAP_SRCS = dap_core.c
 ifeq ($(WITH_DAP),1)
-DAP_SRCS += dap_transport.c
+DAP_SRCS += dap_transport.c dap_client.c
 endif
 DAP_EDITOR_SRCS = dap_keymap.c
 DAP_OBJS = $(addprefix $(OBJDIR)/,$(DAP_SRCS:.c=.o))
 # What `make clean` must remove because THIS configuration did not build
 # it, LSP_ALL's reason exactly: without it a `make; make WITH_DAP=0 clean`
 # leaves src/dap_transport.o and the transport's suite behind.
-DAP_ALL = $(OBJDIR)/dap_transport.o $(TESTDIR)/test_dap_transport
+DAP_ALL = $(OBJDIR)/dap_transport.o $(TESTDIR)/test_dap_transport \
+          $(OBJDIR)/dap_client.o $(TESTDIR)/test_dap_client
 
 # Source files
 SRCS = main.c tty.c async.c syntax.c $(SYNTAX_BACKEND_SRCS) autocomplete.c buffer.c fileio.c \
@@ -462,11 +469,14 @@ TESTBINS += $(TESTDIR)/test_syntax_legacy
 else
 TESTBINS += $(TESTDIR)/test_syntax_tree_sitter
 endif
-# The framing suite exists wherever the framing does, which is either
-# protocol axis: it is the shared layer's own regression proof and a
-# WITH_LSP=0 WITH_DAP=1 tree needs it as much as the default build does.
+# The two shared layers' suites exist wherever the layers do, which is
+# either protocol axis: they are those layers' own regression proof and a
+# WITH_LSP=0 WITH_DAP=1 tree needs them as much as the default build does.
+# test_lsp_json keeps its name from before json.c was renamed out of
+# lsp_json.c; the suite is the JSON layer's, whichever client parses with
+# it.
 ifneq ($(PROTOCOL_SRCS),)
-TESTBINS += $(TESTDIR)/test_framed_io
+TESTBINS += $(TESTDIR)/test_framed_io $(TESTDIR)/test_lsp_json
 endif
 # Same per-axis rule: the transport's suite links src/lsp_transport.o,
 # which only a WITH_LSP=1 build has.  A WITH_LSP=0 tree has no transport
@@ -474,15 +484,15 @@ endif
 # binary already links.
 ifeq ($(WITH_LSP),1)
 TESTBINS += $(TESTDIR)/test_announce $(TESTDIR)/test_lsp_transport \
-            $(TESTDIR)/test_lsp_json \
             $(TESTDIR)/test_lsp_client $(TESTDIR)/test_lsp_sync \
             $(TESTDIR)/test_lsp_log $(TESTDIR)/test_xref \
             $(TESTDIR)/test_lsp_diag $(TESTDIR)/test_lsp_edit
 endif
-# And the debugger's, on its own axis for the same reason: it links
-# src/dap_transport.o, which only a WITH_DAP=1 build has.
+# And the debugger's, on its own axis for the same reason: they link
+# src/dap_transport.o and src/dap_client.o, which only a WITH_DAP=1 build
+# has.
 ifeq ($(WITH_DAP),1)
-TESTBINS += $(TESTDIR)/test_dap_transport
+TESTBINS += $(TESTDIR)/test_dap_transport $(TESTDIR)/test_dap_client
 endif
 # test_perf is not built like the other unit tests: it needs the whole
 # editor compiled with -DKG_PERF_COUNTERS=1 (src/perf.h), which must not
@@ -530,7 +540,16 @@ FUZZBIN_LSP_JSON = $(TESTDIR)/fuzz_lsp_json
 FUZZBIN_WIDTH = $(TESTDIR)/fuzz_width
 FUZZBIN_KEYBIND = $(TESTDIR)/fuzz_keybind
 FUZZBIN_FRAMES = $(TESTDIR)/fuzz_frames
+FUZZBIN_DAP_DISPATCH = $(TESTDIR)/fuzz_dap_dispatch
 FUZZBINS = $(FUZZBIN) $(FUZZBIN_SYNTAX) $(FUZZBIN_DIRLOCALS) $(FUZZBIN_REGEX) $(FUZZBIN_LOCALVARS) $(FUZZBIN_COMPILE_PARSE) $(FUZZBIN_LSP_JSON) $(FUZZBIN_WIDTH) $(FUZZBIN_KEYBIND) $(FUZZBIN_FRAMES)
+# The debugger's dispatcher exists only on its own axis, so its target
+# joins the aggregates only there -- `make fuzz-smoke WITH_DAP=0` must not
+# ask clang to build a client that configuration does not have.
+DAP_FUZZ_TARGETS =
+ifeq ($(WITH_DAP),1)
+FUZZBINS += $(FUZZBIN_DAP_DISPATCH)
+DAP_FUZZ_TARGETS = dap-dispatch
+endif
 FUZZ_SEEDS = $(TESTDIR)/fuzz-seeds
 FUZZ_SEEDS_REGEX = $(FUZZ_SEEDS)/regex
 # The working corpus is gitignored, so a fresh checkout starts each target
@@ -671,7 +690,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 8908
+SCC_COMPLEXITY_MAX ?= 9064
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -1209,9 +1228,21 @@ fuzz-frames-smoke: $(FUZZBIN_FRAMES) fuzz-frames-seed
 		-artifact_prefix=$(FUZZ_ARTIFACTS)/frames/ \
 		$(FUZZ_CORPUS)/frames
 
-fuzz-seed: fuzz-keypress-seed fuzz-syntax-seed fuzz-dirlocals-seed fuzz-regex-seed fuzz-localvars-seed fuzz-compile-parse-seed fuzz-lsp-json-seed fuzz-width-seed fuzz-keybind-seed fuzz-frames-seed
+fuzz-dap-dispatch: $(FUZZBIN_DAP_DISPATCH)
 
-fuzz-smoke: fuzz-keypress-smoke fuzz-syntax-smoke fuzz-dirlocals-smoke fuzz-regex-smoke fuzz-localvars-smoke fuzz-compile-parse-smoke fuzz-lsp-json-smoke fuzz-width-smoke fuzz-keybind-smoke fuzz-frames-smoke
+fuzz-dap-dispatch-seed:
+	mkdir -p $(FUZZ_CORPUS)/dap_dispatch
+	cp -f $(FUZZ_SEEDS)/dap_dispatch/* $(FUZZ_CORPUS)/dap_dispatch/
+
+fuzz-dap-dispatch-smoke: $(FUZZBIN_DAP_DISPATCH) fuzz-dap-dispatch-seed
+	mkdir -p $(FUZZ_ARTIFACTS)/dap_dispatch
+	./$(FUZZBIN_DAP_DISPATCH) $(FUZZ_SMOKE_ARGS) \
+		-artifact_prefix=$(FUZZ_ARTIFACTS)/dap_dispatch/ \
+		$(FUZZ_CORPUS)/dap_dispatch
+
+fuzz-seed: fuzz-keypress-seed fuzz-syntax-seed fuzz-dirlocals-seed fuzz-regex-seed fuzz-localvars-seed fuzz-compile-parse-seed fuzz-lsp-json-seed fuzz-width-seed fuzz-keybind-seed fuzz-frames-seed $(addsuffix -seed,$(addprefix fuzz-,$(DAP_FUZZ_TARGETS)))
+
+fuzz-smoke: fuzz-keypress-smoke fuzz-syntax-smoke fuzz-dirlocals-smoke fuzz-regex-smoke fuzz-localvars-smoke fuzz-compile-parse-smoke fuzz-lsp-json-smoke fuzz-width-smoke fuzz-keybind-smoke fuzz-frames-smoke $(addsuffix -smoke,$(addprefix fuzz-,$(DAP_FUZZ_TARGETS)))
 
 # Randomised differential test against Emacs' own matcher.  Not part of
 # `check`: it needs emacs on PATH, and skips itself with a message when it
@@ -1439,6 +1470,14 @@ EXTRA_lsp_transport := $(TESTDIR)/stubs.o $(OBJDIR)/lsp_transport.o $(TEST_SRCS_
 # there); dap_transport.o itself does too, through $(DAP_OBJS), and is
 # named for readability as every suite above does.
 EXTRA_dap_transport := $(TESTDIR)/stubs.o $(OBJDIR)/dap_transport.o $(TEST_SRCS_OBJS)
+# The protocol brain one layer up, and the same minimal link: it holds no
+# editor state at all, so its suite needs the transport, the JSON layer and
+# the baseline test.o's harness globals reach for, and nothing else.  Both
+# dap_*.o arrive through TEST_SRCS_OBJS' $(DAP_OBJS) and json.o through
+# $(LSP_OBJS); all three are named for readability, as the suites above do.
+EXTRA_dap_client := $(TESTDIR)/stubs.o $(OBJDIR)/dap_client.o \
+                    $(OBJDIR)/dap_transport.o $(OBJDIR)/json.o \
+                    $(TEST_SRCS_OBJS)
 # The JSON layer depends on the C library and nothing else -- not even
 # process.h -- so its own object would link on its own; the baseline is
 # here because test.o's harness reaches the editor globals stubs.o and
@@ -1651,6 +1690,18 @@ $(FUZZBIN_FRAMES): $(TESTDIR)/fuzz_frames.c $(OBJDIR)/framed_io.c \
                    $(OBJDIR)/json.c $(OBJDIR)/process.c $(HDRS)
 	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ \
 		$(TESTDIR)/fuzz_frames.c $(OBJDIR)/framed_io.c \
+		$(OBJDIR)/json.c $(OBJDIR)/process.c
+
+# The whole protocol stack under the harness, and nothing else: the client
+# holds no editor state, so this is the same four files its unit suite
+# links.
+$(FUZZBIN_DAP_DISPATCH): $(TESTDIR)/fuzz_dap_dispatch.c \
+                   $(OBJDIR)/dap_client.c $(OBJDIR)/dap_transport.c \
+                   $(OBJDIR)/framed_io.c $(OBJDIR)/json.c \
+                   $(OBJDIR)/process.c $(HDRS)
+	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ \
+		$(TESTDIR)/fuzz_dap_dispatch.c $(OBJDIR)/dap_client.c \
+		$(OBJDIR)/dap_transport.c $(OBJDIR)/framed_io.c \
 		$(OBJDIR)/json.c $(OBJDIR)/process.c
 
 $(TESTDIR)/fe_fuzz.o: fe/fe.c fe/fe.h fe/fe_internal.h

@@ -1,0 +1,3 @@
+Content-Length: 102
+
+{"type": "response", "request_seq": 2, "success": true, "command": "threads", "body": {"threads": []}}

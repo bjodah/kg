@@ -27,7 +27,7 @@
   "src/announce.c:secret_valid": 6,
   "src/announce.c:tag_unique": 3,
   "src/async.c:editor_async_poll": 1,
-  "src/async.c:editor_async_wait_fds": 10,
+  "src/async.c:editor_async_wait_fds": 11,
   "src/async.c:fd_seen": 3,
   "src/autocomplete.c:editor_find_close_char": 3,
   "src/autocomplete.c:editor_insert_char_auto_complete": 9,

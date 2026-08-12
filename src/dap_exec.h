@@ -74,7 +74,6 @@
 #define DAP_EXEC_TEXT_MAX 160
 #define DAP_EXEC_NAME_MAX 128
 
-struct dap_session;
 struct kg_json_value; /* src/json.h */
 
 /* What the user asked the program to do.  One enum rather than five entry

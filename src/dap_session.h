@@ -142,6 +142,7 @@ struct dap_session_source {
 };
 
 struct dap_session;
+struct kg_json_value; /* src/json.h */
 
 /* Where a session's news goes.  One `ctx` for all of them, because one
  * thing owns a session, and any hook may be NULL.

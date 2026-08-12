@@ -2,7 +2,6 @@
 #define KG_DAP_CLIENT_H
 
 #include <stddef.h>
-#include <stdint.h>
 
 /* One debug adapter, spoken to as the Debug Adapter Protocol: the two
  * message-number spaces, the pending table its responses are matched in, the

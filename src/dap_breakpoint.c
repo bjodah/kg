@@ -14,6 +14,7 @@
 
 #include "dap_breakpoint.h"
 
+#include "bufhandle.h"
 #include "dap_client.h"
 #include "dap_session.h"
 #include "def.h"
@@ -24,9 +25,12 @@
 #include <assert.h>
 #include <limits.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+struct dap_client; /* src/dap_client.h */
 
 /* A table that could hold more than the configuration join can send would
  * be a table whose extra rows are silently never set. */
@@ -159,6 +163,7 @@ static void report(bool error, const char *fmt, ...)
 	va_list ap;
 
 	va_start(ap, fmt);
+	// NOLINTNEXTLINE(clang-analyzer-valist.Uninitialized)
 	vsnprintf(text, sizeof(text), fmt, ap);
 	va_end(ap);
 	if (report_hook) {

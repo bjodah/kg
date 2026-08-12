@@ -2,7 +2,6 @@
 #define KG_DAP_BREAKPOINT_H
 
 #include <stddef.h>
-#include <stdint.h>
 
 /* The breakpoint table: where a breakpoint LIVES, which is the editor and
  * not a session.

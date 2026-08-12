@@ -312,7 +312,7 @@ static void exec_spawn_request(const struct kg_spawn_request *req)
  * may allocate.  A child with none already opens nothing and returns. */
 static void detach_controlling_terminal(void)
 {
-	int tty = open("/dev/tty", O_RDWR | O_NOCTTY);
+	int tty = open("/dev/tty", O_RDWR | O_NOCTTY | O_CLOEXEC);
 
 	if (tty < 0) {
 		return;

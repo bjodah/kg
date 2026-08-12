@@ -38,6 +38,8 @@
 #include <string.h>
 #include <time.h>
 
+struct dap_held_output; /* defined below */
+
 #define ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
 
 /* One outstanding request.  `deadline_ms` is CLOCK_MONOTONIC milliseconds

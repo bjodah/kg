@@ -24,6 +24,9 @@
 #include <string.h>
 #include <time.h>
 
+struct dap_client; /* src/dap_client.h */
+struct kg_json_value; /* src/json.h */
+
 /* The facade's wait bound is this module's, and the sum in src/async.c is
  * built on it.  A session that could hold more descriptors than the editor
  * will wait on would be a session heard only on the idle tick, so this is a
@@ -126,6 +129,7 @@ static void session_report(
 	va_list ap;
 
 	va_start(ap, fmt);
+	// NOLINTNEXTLINE(clang-analyzer-valist.Uninitialized)
 	vsnprintf(s->st.status, sizeof(s->st.status), fmt, ap);
 	va_end(ap);
 	if (s->hooks.report) {

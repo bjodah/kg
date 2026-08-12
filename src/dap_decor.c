@@ -4,13 +4,16 @@
 
 #include "dap_decor.h"
 
+#include "bufhandle.h"
 #include "dap_breakpoint.h"
 #include "dap_exec.h"
 #include "decor.h"
 #include "def.h"
 #include "event.h"
+#include "marker.h"
 
 #include <limits.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 

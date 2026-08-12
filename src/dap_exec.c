@@ -29,6 +29,8 @@
 #include <sys/stat.h>
 #include <time.h>
 
+struct dap_client; /* src/dap_client.h */
+
 /* How long `dap-restart` waits for the old session to end before it stops
  * waiting.  A restart the user asked for is not allowed to hang on an
  * adapter that will not go: the session's own teardown ladder is bounded
@@ -164,6 +166,7 @@ static void exec_report(bool error, const char *fmt, ...)
 		return;
 	}
 	va_start(ap, fmt);
+	// NOLINTNEXTLINE(clang-analyzer-valist.Uninitialized)
 	vsnprintf(text, sizeof(text), fmt, ap);
 	va_end(ap);
 	g.hooks.report(g.hooks.ctx, error, text);

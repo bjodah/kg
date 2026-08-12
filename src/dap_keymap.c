@@ -23,6 +23,8 @@
 #include "dap_commands.h"
 #include "keymap.h"
 
+#include <stddef.h>
+
 /* Two minor maps, not one, because the two halves of the debugger become
  * available at different times (doc/plans/2026-08-11-dap.md): breakpoint
  * keys work in an ordinary file buffer with no session running, while the

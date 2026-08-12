@@ -447,6 +447,10 @@ static void test_a_buffer_with_no_file_is_refused(void)
 	setup();
 	b = open_one("a.c");
 	CHECK(b != NULL);
+	if (!b) {
+		teardown();
+		return;
+	}
 	b->no_file = 1;
 	result = dap_breakpoint_add(b, 0, NULL);
 	CHECK(result == DAP_BREAKPOINT_NO_FILE);

@@ -13,13 +13,13 @@
 #include "bufmgr.h"
 #include "compile.h"
 #include "dap_breakpoint.h"
-#include "dap_client.h"
 #include "dap_config.h"
 #include "dap_decor.h"
 #include "dap_exec.h"
 #include "dap_session.h"
 #include "def.h"
 #include "json.h"
+#include "localvars.h"
 #include "visit.h"
 #include "winmgr.h"
 
@@ -27,6 +27,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+struct dap_session; /* src/dap_session.h */
 
 #define DAP_WHO "dap-debug"
 

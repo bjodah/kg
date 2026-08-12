@@ -22,6 +22,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+struct kg_json_value; /* src/json.h */
+
 #define ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
 
 /* --------------------------------- errors ----------------------------- */
@@ -37,6 +39,7 @@ static void set_error(struct dap_config_error *err, const char *path,
 	snprintf(err->path, sizeof(err->path), "%s", path ? path : "");
 	err->offset = offset;
 	va_start(ap, fmt);
+	// NOLINTNEXTLINE(clang-analyzer-valist.Uninitialized)
 	vsnprintf(err->message, sizeof(err->message), fmt, ap);
 	va_end(ap);
 }
@@ -330,6 +333,7 @@ static bool schema_fail(struct schema *s, const char *fmt, ...)
 	char message[DAP_CONFIG_MESSAGE_MAX];
 
 	va_start(ap, fmt);
+	// NOLINTNEXTLINE(clang-analyzer-valist.Uninitialized)
 	vsnprintf(message, sizeof(message), fmt, ap);
 	va_end(ap);
 	set_error(s->err, s->path, DAP_CONFIG_NO_OFFSET, "%s", message);
@@ -830,6 +834,10 @@ static char *read_file(
 	}
 	got = fread(text, 1, (size_t)st.st_size, fp);
 	fclose(fp);
+	/* fread returns at most the count it was asked for, and the buffer
+	 * is one byte longer; the ArrayBound checker does not model the
+	 * first half of that. */
+	// NOLINTNEXTLINE(clang-analyzer-security.ArrayBound)
 	text[got] = '\0';
 	*len = got;
 	return text;

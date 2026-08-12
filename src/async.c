@@ -3,7 +3,7 @@
 #include "async.h"
 
 #include <assert.h>
-#include <string.h>
+#include <stddef.h>
 
 #include "dap.h"
 #include "lsp.h"
@@ -83,7 +83,9 @@ int editor_async_wait_fds(int *fds, int max)
 			}
 		}
 	}
-	memcpy(fds, staged, (size_t)unique * sizeof(*fds));
+	for (i = 0; i < unique; i++) {
+		fds[i] = staged[i];
+	}
 	return unique;
 }
 

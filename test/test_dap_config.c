@@ -87,6 +87,17 @@ static const char *expand(const char *in, const struct dap_config_context *ctx)
 	return out;
 }
 
+/* The expansion succeeded AND said `want`.  expand() may return NULL, so
+ * no CHECK hands its result to strcmp directly -- a failed expansion must
+ * fail the case, not crash it. */
+static bool expands_to(
+    const char *in, const struct dap_config_context *ctx, const char *want)
+{
+	const char *got = expand(in, ctx);
+
+	return got != NULL && strcmp(got, want) == 0;
+}
+
 /* The value of `key` in an expanded arguments document, as a string. */
 static bool expanded_member(const char *arguments,
     const struct dap_config_context *ctx, const char *key, char *out,
@@ -570,20 +581,17 @@ static void test_the_closed_set_expands_longest_key_first(void)
 {
 	struct dap_config_context ctx = test_ctx();
 
-	CHECK(strcmp(expand("${file}", &ctx), "/proj/src/main.c") == 0);
+	CHECK(expands_to("${file}", &ctx, "/proj/src/main.c"));
 	/* `${fileDir}` must never be read as `${file}` with `Dir}` left
 	 * over, which is the whole reason the table is ordered. */
-	CHECK(strcmp(expand("${fileDir}", &ctx), "/proj/src") == 0);
-	CHECK(strcmp(expand("${workspaceRoot}", &ctx), "/proj") == 0);
+	CHECK(expands_to("${fileDir}", &ctx, "/proj/src"));
+	CHECK(expands_to("${workspaceRoot}", &ctx, "/proj"));
 	/* Adjacent substitutions, and one with no separator between. */
-	CHECK(
-	    strcmp(expand("${workspaceRoot}${fileDir}", &ctx), "/proj/proj/src")
-	    == 0);
-	CHECK(strcmp(expand("a${file}b", &ctx), "a/proj/src/main.cb") == 0);
+	CHECK(expands_to("${workspaceRoot}${fileDir}", &ctx, "/proj/proj/src"));
+	CHECK(expands_to("a${file}b", &ctx, "a/proj/src/main.cb"));
 	/* A `$` that begins nothing is an ordinary byte. */
-	CHECK(strcmp(expand("$HOME and $ {file}", &ctx), "$HOME and $ {file}")
-	    == 0);
-	CHECK(strcmp(expand("", &ctx), "") == 0);
+	CHECK(expands_to("$HOME and $ {file}", &ctx, "$HOME and $ {file}"));
+	CHECK(expands_to("", &ctx, ""));
 }
 
 static void test_unknown_and_unset_substitutions_are_errors(void)
@@ -611,11 +619,11 @@ static void test_env_substitution_is_one_pass(void)
 	struct dap_config_context ctx = test_ctx();
 
 	CHECK(setenv("KG_DAP_TEST_VALUE", "plain", 1) == 0);
-	CHECK(strcmp(expand("${env:KG_DAP_TEST_VALUE}", &ctx), "plain") == 0);
+	CHECK(expands_to("${env:KG_DAP_TEST_VALUE}", &ctx, "plain"));
 	/* What a substitution expands TO is data: an environment variable
 	 * holding a substitution is those characters, not another round. */
 	CHECK(setenv("KG_DAP_TEST_VALUE", "${file}", 1) == 0);
-	CHECK(strcmp(expand("${env:KG_DAP_TEST_VALUE}", &ctx), "${file}") == 0);
+	CHECK(expands_to("${env:KG_DAP_TEST_VALUE}", &ctx, "${file}"));
 	CHECK(unsetenv("KG_DAP_TEST_VALUE") == 0);
 }
 

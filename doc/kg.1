@@ -3435,7 +3435,7 @@ Go
 Rust
 .Pq Ic rust-analyzer
 and Java
-.Pq Ic jdtls .
+.Pq Ic nbcode .
 Any other mode reports that it has no server rather than starting one.
 .Pp
 The workspace root is the nearest ancestor directory holding a marker of
@@ -3476,8 +3476,7 @@ sits above it, because the go command finds the workspace above the module
 on its own; a file in a Cargo workspace member roots on the member, because
 .Ic cargo metadata
 resolves the workspace above it.
-Java's markers are the files
-.Ic jdtls Ns 's
+Java's markers are the files a Java server's
 own Maven and Gradle importers look for, and there the rule is a compromise
 in one place: a Gradle subproject's
 .Pa build.gradle
@@ -3856,13 +3855,51 @@ reads its standard output for that line, connects without blocking, sends
 the hash, and frames travel over the socket both ways; everything else the
 server prints there, that line included, joins its standard error in
 .Pa *lsp-log* .
-No built-in server uses that wire \(em
-.Ic jdtls
-is still the Java default \(em so it arrives with the command line that
-asks for it, or not at all.
+Java's own built-in row uses that wire, since
+.Ic nbcode
+is the Java default; the token is what an override needs when it points at
+another one.
+An override otherwise speaks stdio whatever the row it replaces uses, so
+.Ev KG_LSP_SERVER_JAVA Ns = Ns Ic jdtls
+is jdt.ls on its own arrangement: the wire belongs to the command, and an
+override that inherited nbcode's would write a handshake at a server with
+nothing to answer it with.
 .Pp
-Java's server is the Eclipse JDT Language Server, spawned as the bare name
-.Ic jdtls .
+Java's server is Oracle's
+.Ic nbcode ,
+the NetBeans-based server behind the Java extension for VS Code
+.Pq Ic oracle/javavscode ,
+spawned as the bare name
+.Ic nbcode
+with both
+.Fl -start-java-language-server Ns = Ns Ic listen-hash:0
+and
+.Fl -start-java-debug-adapter-server Ns = Ns Ic listen-hash:0 .
+It is the default because it is also the Java debugger: one
+.Ic nbcode
+process announces a language server and a Java debug adapter on one
+standard output, so debugging Java talks to the server that is already
+open rather than starting a second toolchain.
+.Pp
+.Nm
+sends it one thing it sends no other server: an
+.Ic initializationOptions.nbcodeCapabilities
+object, which turns its Java support on and names the command namespace it
+answers under.
+Every flag in it for a facility
+.Nm
+does not have \(em a status bar, a test-results view, an HTML page
+renderer \(em is sent false, since advertising a facility it lacks is how
+a client is sent messages it silently drops.
+.Pp
+The Eclipse JDT Language Server was the Java default before
+.Ic nbcode
+and is one override away
+.Pq Ev KG_LSP_SERVER_JAVA Ns = Ns Ic jdtls ,
+though Java cannot be debugged through it: the Java debug adapter is a
+socket the
+.Ic nbcode
+process announces beside its language server.
 It ships as a tarball rather than a package, and
 .Pa utils/install-jdtls.sh
 in the source distribution downloads the newest milestone, or builds a
@@ -3883,30 +3920,15 @@ parsing one translation unit: expect the first
 .Ic M-.
 in a Java buffer to take a few seconds.
 .Pp
-Oracle's
-.Ic nbcode ,
-the NetBeans-based server behind the Java extension for VS Code
-.Pq Ic oracle/javavscode ,
-is the other real Java server, and it does not speak LSP on stdio.
-Started with
-.Fl -start-java-language-server Ns = Ns Ic listen-hash:0
-it prints a port and a hash on its standard output and waits to be
-connected to; the client opens a TCP socket to that port on
+.Ic nbcode
+does not speak LSP on stdio at all.
+Started with a
+.Ic listen-hash:0
+server option it prints a port and a 128-character hash per server on its
+standard output and waits to be connected to; the client opens a TCP
+socket to that port on
 .Ic 127.0.0.1
 and writes the hash before the first LSP byte.
-A
-.Ev KG_LSP_SERVER_ Ns Ar MODE
-value beginning with the token
-.Ic listen-hash:
-followed by whitespace asks
-.Nm
-for that wire, and the rest of the value is the command line, run through
-.Ic /bin/sh -c
-as any other is:
-.Bd -literal -offset indent
-KG_LSP_SERVER_JAVA="listen-hash: nbcode \e
-    --start-java-language-server=listen-hash:0"
-.Ed
 .Pp
 .Pa utils/install-nbcode.sh
 in the source distribution installs it, taking the same options as the

@@ -183,8 +183,14 @@ Options, all of them optional:
     the bare array.  Both are legal and a client has to read both.
 ``--server-request METHOD``
     Before the first reply, send a server-to-client *request* named METHOD.
-    The client is required to answer it with a MethodNotFound error;
-    whether it did is reported by ``kg/state``.
+    Every method but ``workspace/configuration`` is required to be answered
+    with a MethodNotFound error; whether it was is reported by
+    ``kg/state``, along with whatever the client did answer.
+``--server-request-params JSON``
+    The ``params`` of that request, as one JSON value.  Defaults to ``{}``.
+    This is how the ``workspace/configuration`` cases ask about zero, one,
+    many and malformed ``items``: the responder's contract is positional,
+    so what a test varies is the shape of the question.
 ``--notify METHOD``
     Before the first reply, send a notification named METHOD, which the
     client is required to ignore.
@@ -300,9 +306,14 @@ they cannot be confused with the protocol's:
     Answers with the request's own params, which is how a test proves a
     response reached the callback that asked for it.
 ``kg/state``
-    Answers ``{"methodNotFound": bool, "handled": int}``: whether the
-    client answered this server's request with error -32601, and how many
-    requests have been handled so far.
+    Answers ``{"methodNotFound": bool, "handled": int, "answered": bool,
+    "result": any, "errorCode": int|null, "initOptions": any}``: whether
+    the client answered this server's request with error -32601, how many
+    requests have been handled so far, whether the server request was
+    answered at all and with what, and the ``initializationOptions`` the
+    client's ``initialize`` carried -- absent as JSON ``null`` under a
+    false ``hasInitOptions``, since a member that is null and a member
+    that is missing are the two answers this distinguishes.
 """
 
 import argparse
@@ -469,6 +480,13 @@ class Protocol:
         # what --publish-empty-after counts.
         self.did_count = 0
         self.published = False
+        # What the client answered this server's own request with, and
+        # what its initialize carried, both reported by kg/state.
+        self.request_answered = False
+        self.request_result = None
+        self.request_error_code = None
+        self.has_init_options = False
+        self.init_options = None
 
     def send(self, message):
         write_all(self.stdout, frame(json.dumps(message).encode("utf-8")))
@@ -510,8 +528,10 @@ class Protocol:
             return
         self.greeted = True
         if self.args.server_request:
+            params = ({} if self.args.server_request_params is None
+                      else json.loads(self.args.server_request_params))
             self.send({"jsonrpc": "2.0", "id": SERVER_REQUEST_ID,
-                       "method": self.args.server_request, "params": {}})
+                       "method": self.args.server_request, "params": params})
         if self.args.notify:
             self.send({"jsonrpc": "2.0", "method": self.args.notify,
                        "params": {}})
@@ -562,7 +582,12 @@ class Protocol:
             return params
         if method == "kg/state":
             return {"methodNotFound": self.method_not_found,
-                    "handled": self.handled}
+                    "handled": self.handled,
+                    "answered": self.request_answered,
+                    "result": self.request_result,
+                    "errorCode": self.request_error_code,
+                    "hasInitOptions": self.has_init_options,
+                    "initOptions": self.init_options}
         if method == "shutdown":
             return None
         return None
@@ -760,6 +785,12 @@ class Protocol:
             return
         error = message.get("error") or {}
         self.method_not_found = error.get("code") == -32601
+        self.request_answered = True
+        self.request_error_code = error.get("code")
+        # `result` may legitimately be null or [], so the presence of the
+        # member is what decides, not its truth.
+        if "result" in message:
+            self.request_result = message["result"]
 
     def record(self, message):
         """Append a document notification to --record, whole line or none.
@@ -781,6 +812,10 @@ class Protocol:
         method = message["method"]
         if method == "exit":
             raise SystemExit(0)
+        if method == "initialize":
+            params = message.get("params") or {}
+            self.has_init_options = "initializationOptions" in params
+            self.init_options = params.get("initializationOptions")
         if method.startswith("textDocument/"):
             self.note_document(message)
         self.record(message)
@@ -986,6 +1021,8 @@ def main(argv):
                         help="answer completion with a CompletionList")
     parser.add_argument("--server-request", default=None,
                         help="method of a request sent to the client")
+    parser.add_argument("--server-request-params", default=None,
+                        help="JSON params of that request (default {})")
     parser.add_argument("--notify", default=None,
                         help="method of a notification sent to the client")
     parser.add_argument("--delay-ms", type=int, default=0,

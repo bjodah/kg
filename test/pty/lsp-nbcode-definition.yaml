@@ -5,13 +5,17 @@ name: lsp-nbcode-definition
 # printed reason (`--require-tools` turns that into an upfront FAIL), and
 # utils/install-nbcode.sh is what puts that `nbcode` on PATH.
 #
-# The `env:` line IS the case.  nbcode is not a row in server_specs[] --
-# jdtls is the built-in Java default -- so it is reached the way any other
-# server is: by naming it in KG_LSP_SERVER_JAVA.  The `listen-hash:` token
-# in front of the command line is what asks for the socket wire: kg spawns
+# THERE IS NO `env:` LINE, and its absence IS the case.  nbcode is the
+# built-in Java row in server_specs[] -- kg's default Java server since
+# doc/plans/dap/03-java.md's LSP stage -- so what is under test here is the
+# whole default path: a .java file selects Java mode, Java mode selects the
+# nbcode spec, and the spec brings the socket wire, both server flags and
+# the `initializationOptions.nbcodeCapabilities` payload with it.  kg spawns
 # the command, scrapes its stdout for
 #     Java Language Server listening at port <N> with hash <H>
 # connects to 127.0.0.1:<N>, writes <H> and speaks LSP over that socket.
+# (jdt.ls, the previous default, is now the override: KG_LSP_SERVER_JAVA
+# =jdtls, which test_lsp_client.c's registry cases cover.)
 # Measured by hand against this very server (utils/ has no copy; the driver
 # lives with the campaign notes): the hash is 128 lowercase hex characters
 # and is written with no trailing newline and nothing after it.
@@ -79,8 +83,6 @@ requires_tool: nbcode
 backend: pexpect
 key_delay: 0.3
 filename: Fixture.java
-env:
-  KG_LSP_SERVER_JAVA: "listen-hash: nbcode --start-java-language-server=listen-hash:0"
 workspace_files:
   pom.xml: |
     <project xmlns="http://maven.apache.org/POM/4.0.0">

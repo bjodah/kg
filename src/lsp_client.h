@@ -24,6 +24,19 @@
  * moves bytes and runs callbacks.
  */
 
+/* How many sections one `workspace/configuration` request may ask about.
+ *
+ * kg answers that request -- it is the only server-to-client request it
+ * does answer -- with one `null` per requested item, because a server
+ * blocked on it never finishes opening a project (nbcode, measured:
+ * doc/plans/dap/03-java.md).  The array is positional, so its length is
+ * dictated by the server's; this is the point past which kg stops building
+ * one and answers InvalidParams instead.  A real server asks about a
+ * handful of sections at a time -- this is three orders of magnitude above
+ * that, and it is here rather than beside the client's private bounds
+ * because it is the one of them a peer decides and a test has to name. */
+#define LSP_CLIENT_MAX_CONFIGURATION_ITEMS 1024u
+
 struct kg_spawn_request; /* process.h; only ever pointed at here */
 struct lsp_client;
 struct kg_json_value;
@@ -208,17 +221,25 @@ struct lsp_capabilities {
 struct lsp_client *lsp_client_start(
     const struct kg_spawn_request *req, const char *root_path);
 
-/* The same, on `wire` (src/lsp_transport.h).  lsp_client_start() is this
- * with LSP_WIRE_STDIO.
+/* The same, on `wire` (src/lsp_transport.h), and with the server's own
+ * `initializationOptions`.  lsp_client_start() is this with LSP_WIRE_STDIO
+ * and no options.
  *
  * A LSP_WIRE_LISTEN_HASH client is INITIALIZING with its `initialize`
  * queued in the transport, exactly as a stdio one whose server has not
  * answered yet is: the socket comes up inside a later lsp_client_poll(),
  * and the request goes out then.  So a server that never announces a port
  * is not a case for this layer at all -- it is a request that goes
- * unanswered, which the per-request deadline already ends. */
+ * unanswered, which the per-request deadline already ends.
+ *
+ * `init_options` is the bytes of a JSON OBJECT, borrowed for the call and
+ * written into the request raw -- this layer neither parses nor invents
+ * them, because what they mean is a property of one server and not of the
+ * protocol (src/lsp_server.h holds the table that supplies them).  NULL and
+ * "" both mean "no such member", which is what every server but nbcode has
+ * always been sent and must stay being sent. */
 struct lsp_client *lsp_client_start_wire(const struct kg_spawn_request *req,
-    const char *root_path, enum lsp_wire wire);
+    const char *root_path, enum lsp_wire wire, const char *init_options);
 
 /* What this client is called in a message a user reads: the server's own
  * name ("clangd"), set by the registry that knows it (src/lsp_server.c).

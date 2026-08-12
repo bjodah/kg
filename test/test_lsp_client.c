@@ -58,8 +58,8 @@ static double monotonic_seconds(void)
 
 /* ------------------------------ the fake ------------------------------ */
 
-static struct lsp_client *start_protocol_wire(
-    const char *const *extra, enum lsp_wire wire)
+static struct lsp_client *start_protocol_options(
+    const char *const *extra, enum lsp_wire wire, const char *init_options)
 {
 	const char *argv[24];
 	struct kg_spawn_request req = { .stdin_fd = -1 };
@@ -78,7 +78,13 @@ static struct lsp_client *start_protocol_wire(
 	}
 	argv[n] = NULL;
 	req.argv = argv;
-	return lsp_client_start_wire(&req, "/tmp", wire);
+	return lsp_client_start_wire(&req, "/tmp", wire, init_options);
+}
+
+static struct lsp_client *start_protocol_wire(
+    const char *const *extra, enum lsp_wire wire)
+{
+	return start_protocol_options(extra, wire, NULL);
 }
 
 static struct lsp_client *start_protocol(const char *const *extra)
@@ -125,7 +131,70 @@ struct answer {
 	char tag[64];
 	char message[128];
 	bool method_not_found;
+	/* The rest of what kg/state reports about the request the SERVER
+	 * sent: whether it was answered at all, the error code if it was
+	 * refused, and the shape of the result if it was answered.  `items`
+	 * is -1 for "the result was not an array", which is how a `null`
+	 * answer and an empty one stay two different failures. */
+	bool answered;
+	long long error_code;
+	int items;
+	bool items_all_null;
+	/* Whether the client's own `initialize` carried an
+	 * `initializationOptions` member, and what one string inside it
+	 * said.  A member that is absent and one that is null are different
+	 * answers, which is why the bool is not derived from the string. */
+	bool has_init_options;
+	char command_prefix[32];
+	bool wants_java;
+	bool status_bar;
 };
+
+/* What the fake says the client answered its own request with.  Split out
+ * of record() because -fanalyzer runs on the tests (.ci/ci-03) and a
+ * CHECK() that records and continues is not a guard: everything here reads
+ * through the NULL-tolerant accessors instead. */
+static void record_server_request(
+    struct answer *a, const struct kg_json_value *result)
+{
+	const struct kg_json_value *items = kg_json_get(result, "result");
+	size_t i;
+
+	a->answered = kg_json_bool(kg_json_get(result, "answered"), false);
+	a->error_code = kg_json_int(kg_json_get(result, "errorCode"), 0);
+	if (kg_json_kind_of(items) != KG_JSON_ARRAY) {
+		a->items = -1;
+		return;
+	}
+	a->items = (int)kg_json_len(items);
+	a->items_all_null = true;
+	for (i = 0; i < kg_json_len(items); i++) {
+		if (kg_json_kind_of(kg_json_at(items, i)) != KG_JSON_NULL) {
+			a->items_all_null = false;
+		}
+	}
+}
+
+/* The three members of nbcodeCapabilities a test asserts on: the one that
+ * turns Java support on, the command namespace, and one of the UI
+ * facilities kg must advertise as absent. */
+static void record_init_options(
+    struct answer *a, const struct kg_json_value *options)
+{
+	const struct kg_json_value *caps
+	    = kg_json_get(options, "nbcodeCapabilities");
+	const char *prefix
+	    = kg_json_str(kg_json_get(caps, "commandPrefix"), NULL);
+
+	if (prefix) {
+		snprintf(
+		    a->command_prefix, sizeof(a->command_prefix), "%s", prefix);
+	}
+	a->wants_java
+	    = kg_json_bool(kg_json_get(caps, "wantsJavaSupport"), false);
+	a->status_bar
+	    = kg_json_bool(kg_json_get(caps, "statusBarMessageSupport"), true);
+}
 
 static void record(struct lsp_client *c, const struct kg_json_value *result,
     const struct kg_json_value *error, void *ctx)
@@ -147,6 +216,10 @@ static void record(struct lsp_client *c, const struct kg_json_value *result,
 	}
 	a->method_not_found
 	    = kg_json_bool(kg_json_get(result, "methodNotFound"), false);
+	record_server_request(a, result);
+	record_init_options(a, kg_json_get(result, "initOptions"));
+	a->has_init_options
+	    = kg_json_bool(kg_json_get(result, "hasInitOptions"), false);
 }
 
 static long long echo_request(
@@ -532,15 +605,15 @@ static void test_server_death_fails_pending_requests(void)
 	lsp_client_dispose(c, 200);
 }
 
-/* kg implements no server-to-client requests, and answering that with
+/* kg implements almost no server-to-client requests, and answering one with
  * silence is what makes a server stop answering kg.  The fake sends one
  * before its first reply -- while the client is still INITIALIZING, which
- * is when a real server asks for configuration -- and reports through
- * kg/state whether it got the MethodNotFound error back. */
+ * is when a real server asks -- and reports through kg/state whether it got
+ * the MethodNotFound error back. */
 static void test_server_request_is_refused_not_ignored(void)
 {
 	const char *extra[]
-	    = { "--server-request", "workspace/configuration", NULL };
+	    = { "--server-request", "window/showMessageRequest", NULL };
 	struct lsp_client *c = start_protocol(extra);
 	struct answer state = { 0 };
 
@@ -557,8 +630,8 @@ static void test_server_request_is_refused_not_ignored(void)
 }
 
 /* The same, on the socket wire (src/lsp_transport.h), because that is the
- * wire on which it actually happens: nbcode sends `workspace/configuration`
- * and `window/workDoneProgress/create` before its own initialize result,
+ * wire on which it actually happens: nbcode sends
+ * `window/workDoneProgress/create` before its own initialize result,
  * whatever the client advertised, and the refusal has to go back over a
  * socket that only came up after the announce.  It is the same code path
  * -- the client cannot tell the wires apart -- and this is the case that
@@ -570,7 +643,7 @@ static void test_server_request_is_refused_not_ignored(void)
 static void test_server_request_is_refused_over_the_socket(void)
 {
 	const char *extra[]
-	    = { "--server-request", "workspace/configuration", NULL };
+	    = { "--server-request", "window/workDoneProgress/create", NULL };
 	struct lsp_client *c = start_protocol_wire(extra, LSP_WIRE_LISTEN_HASH);
 	struct answer state = { 0 };
 
@@ -583,6 +656,174 @@ static void test_server_request_is_refused_over_the_socket(void)
 	CHECK(pump_until_answered(c) == 0);
 	CHECK(state.calls == 1 && state.had_result);
 	CHECK(state.method_not_found);
+	lsp_client_dispose(c, 200);
+}
+
+/* ------------------- workspace/configuration, answered ---------------- */
+
+/* Drive one `workspace/configuration` with `params` and report what came
+ * back.  Every case below is the same three lines with a different question,
+ * so the question is the only thing spelled out per case. */
+static void configuration_case(const char *params, struct answer *state)
+{
+	const char *extra[] = { "--server-request", "workspace/configuration",
+		"--server-request-params", params, NULL };
+	struct lsp_client *c = start_protocol(extra);
+
+	CHECK(c != NULL);
+	if (!c) {
+		return;
+	}
+	CHECK(pump_until_state(c, LSP_CLIENT_READY) == LSP_CLIENT_READY);
+	CHECK(lsp_client_request(c, "kg/state", NULL, 0, record, state) > 0);
+	CHECK(pump_until_answered(c) == 0);
+	CHECK(state->calls == 1 && state->had_result);
+	CHECK(state->answered);
+	lsp_client_dispose(c, 200);
+}
+
+/* The measured case: several items, one null each.  A server zips the
+ * result against its own `items`, so what is being asserted is the LENGTH
+ * and the element type, not that an answer came at all -- an answer of the
+ * wrong length is read as the wrong settings rather than as an error
+ * (doc/plans/dap/03-java.md; nbcode blocks on this request while opening a
+ * project, and a blocked server never reaches the state the Java debug
+ * socket waits for). */
+static void test_configuration_answers_one_null_per_item(void)
+{
+	struct answer state = { 0 };
+
+	configuration_case(
+	    "{\"items\":[{\"section\":\"jdk\"},"
+	    "{\"section\":\"netbeans\"},{\"scopeUri\":\"file:///\"}]}",
+	    &state);
+	CHECK(state.items == 3);
+	CHECK(state.items_all_null);
+	CHECK(!state.method_not_found);
+}
+
+static void test_configuration_answers_one_item(void)
+{
+	struct answer state = { 0 };
+
+	configuration_case("{\"items\":[{\"section\":\"jdk\"}]}", &state);
+	CHECK(state.items == 1);
+	CHECK(state.items_all_null);
+}
+
+/* Zero items is an empty ARRAY and not null: the member is the answer's
+ * shape, and a server reading `null` where it asked for a list has to
+ * decide what kg meant by it. */
+static void test_configuration_answers_zero_items_with_an_array(void)
+{
+	struct answer state = { 0 };
+
+	configuration_case("{\"items\":[]}", &state);
+	CHECK(state.items == 0);
+}
+
+/* Malformed, three ways, and all of them are zero items rather than a
+ * refusal: there is nothing to be positional about, and the request still
+ * has to be unblocked. */
+static void test_configuration_tolerates_malformed_items(void)
+{
+	struct answer absent = { 0 };
+	struct answer wrong_kind = { 0 };
+	struct answer no_params = { 0 };
+
+	configuration_case("{\"scopeUri\":\"file:///\"}", &absent);
+	CHECK(absent.items == 0);
+	configuration_case("{\"items\":\"jdk\"}", &wrong_kind);
+	CHECK(wrong_kind.items == 0);
+	configuration_case("null", &no_params);
+	CHECK(no_params.items == 0);
+}
+
+/* Past the bound the request is REFUSED rather than answered, and refused
+ * is still an answer: an error reply unblocks the server, which is the
+ * entire reason this request is not simply ignored.  The array is built one
+ * element at a time, so the bound is what stops a peer from deciding how
+ * much kg allocates. */
+static void test_configuration_refuses_an_absurd_item_count(void)
+{
+	struct answer state = { 0 };
+	char params[64];
+	char *text;
+	size_t len = LSP_CLIENT_MAX_CONFIGURATION_ITEMS + 1;
+	size_t i;
+
+	/* `{"items":[{},{},...]}` with one item past the bound. */
+	text = malloc(len * 3 + 32);
+	CHECK(text != NULL);
+	if (!text) {
+		return;
+	}
+	snprintf(params, sizeof(params), "{\"items\":[");
+	memcpy(text, params, strlen(params));
+	len = strlen(params);
+	for (i = 0; i <= LSP_CLIENT_MAX_CONFIGURATION_ITEMS; i++) {
+		text[len++] = '{';
+		text[len++] = '}';
+		text[len++] = ',';
+	}
+	text[len - 1] = ']';
+	text[len++] = '}';
+	text[len] = '\0';
+	configuration_case(text, &state);
+	free(text);
+	CHECK(state.items == -1);
+	CHECK(state.error_code == -32602);
+}
+
+/* ---------------------- initializationOptions ------------------------- */
+
+/* The member is ABSENT, not null, for every server that has nothing to
+ * say.  This is the pin on "every other server's initialization is
+ * unchanged": the Java row is the only one carrying options, and a client
+ * that spelled them as `null` would be sending clangd a request it never
+ * used to get. */
+static void test_initialize_omits_options_when_there_are_none(void)
+{
+	struct lsp_client *c = start_protocol(NULL);
+	struct answer state = { 0 };
+
+	CHECK(c != NULL);
+	if (!c) {
+		return;
+	}
+	CHECK(pump_until_state(c, LSP_CLIENT_READY) == LSP_CLIENT_READY);
+	CHECK(lsp_client_request(c, "kg/state", NULL, 0, record, &state) > 0);
+	CHECK(pump_until_answered(c) == 0);
+	CHECK(state.calls == 1 && state.had_result);
+	CHECK(!state.has_init_options);
+	lsp_client_dispose(c, 200);
+}
+
+/* And when a spec does carry them they arrive as the object it wrote, not
+ * as a string of it: the bytes go through the JSON writer raw, so a server
+ * reads `nbcodeCapabilities.wantsJavaSupport` as a boolean.  The payload
+ * itself is src/lsp_server.c's; what this proves is the plumbing under it
+ * and the two members nbcode's behaviour depends on
+ * (doc/plans/dap/03-java.md). */
+static void test_initialize_carries_a_specs_options_verbatim(void)
+{
+	struct lsp_client *c = start_protocol_options(NULL, LSP_WIRE_STDIO,
+	    "{\"nbcodeCapabilities\":{\"wantsJavaSupport\":true,"
+	    "\"statusBarMessageSupport\":false,\"commandPrefix\":\"jdk\"}}");
+	struct answer state = { 0 };
+
+	CHECK(c != NULL);
+	if (!c) {
+		return;
+	}
+	CHECK(pump_until_state(c, LSP_CLIENT_READY) == LSP_CLIENT_READY);
+	CHECK(lsp_client_request(c, "kg/state", NULL, 0, record, &state) > 0);
+	CHECK(pump_until_answered(c) == 0);
+	CHECK(state.calls == 1 && state.had_result);
+	CHECK(state.has_init_options);
+	CHECK(state.wants_java);
+	CHECK(!state.status_bar);
+	CHECK(strcmp(state.command_prefix, "jdk") == 0);
 	lsp_client_dispose(c, 200);
 }
 
@@ -1319,6 +1560,56 @@ static void test_registry_starts_java_from_the_env(void)
 	unsetenv("KG_LSP_SERVER_JAVA");
 }
 
+/* With no override, Java is nbcode -- the product decision this stage
+ * implements (doc/plans/dap/03-java.md, parent plan decision 4).  The
+ * assertion is the client's NAME, which is the spec's own and not the
+ * command line's, because that is the one thing about the built-in row an
+ * outside caller can read on a box that has no nbcode installed: the child
+ * is spawned, fails to exec, and dies, and the row it came from is still
+ * the row the registry chose. */
+static void test_java_defaults_to_nbcode(void)
+{
+	enum lsp_server_status status = LSP_SERVER_OK;
+	struct lsp_client *c;
+	char file[PATH_MAX];
+
+	unsetenv("KG_LSP_SERVER_JAVA");
+	path_of(file, sizeof(file), tree, "mvn/mod/src/A.java");
+	c = lsp_server_for(KG_MODE_JAVA, file, &status);
+	CHECK(c != NULL);
+	CHECK(status == LSP_SERVER_OK);
+	CHECK(c && strcmp(lsp_client_name(c), "nbcode") == 0);
+	lsp_server_shutdown_all(300);
+	CHECK(lsp_server_instance_count() == 0);
+}
+
+/* And the other half of the swap: jdt.ls is still reachable, and reaching
+ * it does NOT drag Java's new wire along.  An override that says nothing
+ * about a wire is a stdio command line, whatever the row it replaces uses
+ * -- without that rule this override would write a hash handshake at a
+ * server speaking the protocol on its standard input, and the case would
+ * hang rather than fail. */
+static void test_a_java_override_is_stdio_unless_it_says_otherwise(void)
+{
+	enum lsp_server_status status = LSP_SERVER_OK;
+	struct lsp_client *c;
+	char file[PATH_MAX];
+	char command[PATH_MAX + 64];
+
+	snprintf(command, sizeof(command), "python3 %s --mode protocol",
+	    script_path);
+	setenv("KG_LSP_SERVER_JAVA", command, 1);
+	path_of(file, sizeof(file), tree, "mvn/mod/src/A.java");
+	c = lsp_server_for(KG_MODE_JAVA, file, &status);
+	CHECK(c != NULL);
+	if (c) {
+		CHECK(
+		    pump_until_state(c, LSP_CLIENT_READY) == LSP_CLIENT_READY);
+	}
+	lsp_server_shutdown_all(300);
+	unsetenv("KG_LSP_SERVER_JAVA");
+}
+
 /* The override is a shell command line, so a wrapper with arguments and
  * quoting works -- which is also how every one of these cases injects a
  * server.  Here it is the real fake, driven to a full handshake through the
@@ -1895,6 +2186,13 @@ int main(int argc, char **argv)
 	RUN(test_server_death_fails_pending_requests);
 	RUN(test_server_request_is_refused_not_ignored);
 	RUN(test_server_request_is_refused_over_the_socket);
+	RUN(test_configuration_answers_one_null_per_item);
+	RUN(test_configuration_answers_one_item);
+	RUN(test_configuration_answers_zero_items_with_an_array);
+	RUN(test_configuration_tolerates_malformed_items);
+	RUN(test_configuration_refuses_an_absurd_item_count);
+	RUN(test_initialize_omits_options_when_there_are_none);
+	RUN(test_initialize_carries_a_specs_options_verbatim);
 	RUN(test_unsolicited_notification_is_ignored);
 	RUN(test_a_notification_reaches_the_hook);
 	RUN(test_a_notification_with_no_hook_is_dropped);
@@ -1920,6 +2218,8 @@ int main(int argc, char **argv)
 	RUN(test_registry_refuses_an_unsupported_mode);
 	RUN(test_registry_starts_go_and_rust_from_the_env);
 	RUN(test_registry_starts_java_from_the_env);
+	RUN(test_java_defaults_to_nbcode);
+	RUN(test_a_java_override_is_stdio_unless_it_says_otherwise);
 	RUN(test_env_override_spawns_the_fake_server);
 	RUN(test_the_registry_names_the_client);
 

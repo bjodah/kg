@@ -517,7 +517,7 @@ Servers are **started lazily**, and never by opening a file: the first
 `M-.` or `M-?` in a C buffer is what spawns `clangd`, and every buffer under the same
 workspace root then shares it. Five modes have a built-in server — `clangd`
 for C, `ty server` for Python, `gopls` for Go, `rust-analyzer` for Rust and
-`jdtls` for Java;
+`nbcode` for Java;
 any other mode says it has no server rather than starting one. The
 workspace root is the nearest ancestor holding that language's build-system
 marker (`.clangd`, `compile_commands.json`, `compile_flags.txt`,
@@ -531,7 +531,7 @@ tooling gives: a file inside a Go module roots on that module even when a
 `go.work` sits above it, because the go command finds the workspace above
 the module by itself; a file in a Cargo workspace member roots on the
 member, because `cargo metadata` resolves the workspace above it. Java's
-markers are the ones jdt.ls itself imports a project from, and there the
+markers are the ones a Java server itself imports a project from, and there the
 rule is a compromise in one place: a Gradle subproject's `build.gradle` is
 nearer than the `settings.gradle` at the top of the build, so kg starts a
 server per subproject and a definition in a sibling subproject is not in
@@ -651,14 +651,81 @@ output, and expects the client to connect to `127.0.0.1:N` and write the
 hash before the first LSP byte. kg reads its stdout for that line, connects
 without ever blocking the editor, sends the hash, and the frames go over the
 socket both ways; everything else the server prints there, announce line
-included, becomes `*lsp-log*` lines beside its standard error. Nothing
-built in selects that wire — `jdtls` is still the Java default — so it
-arrives with the command line that asks for it or not at all.
+included, becomes `*lsp-log*` lines beside its standard error. Java's own
+built-in row selects that wire, since nbcode is the Java default; the token
+is what an *override* needs when it points at another nbcode.
+
+An override otherwise speaks stdio, whatever the row it replaces uses. So
+`KG_LSP_SERVER_JAVA=jdtls` is jdt.ls on its own arrangement even though
+Java's built-in row is a socket — the wire belongs to the command, and an
+override that inherited nbcode's would write a handshake at a server with
+nothing to answer it with.
 
 ### Java setup
 
-Java's server is the Eclipse JDT Language Server, and kg spawns it as the
-bare name `jdtls`. It ships as a tarball rather than a package, so
+Java's server is Oracle's nbcode — the NetBeans-based one behind the Java
+extension for VS Code (`oracle/javavscode`) — and kg spawns it as the bare
+name `nbcode`. It is the default because it is also kg's *debugger* for
+Java: one nbcode process announces a language server and a Java debug
+adapter on one stdout, so debugging Java means talking to the server that
+is already open rather than starting a second toolchain.
+
+Unlike every other server kg speaks to, nbcode does not use stdio. kg
+starts it with `--start-java-language-server=listen-hash:0` and
+`--start-java-debug-adapter-server=listen-hash:0`; it prints a port and a
+128-character hash per server on its stdout and then waits to be *connected
+to*, and kg opens a TCP socket to that port and writes the hash before the
+first LSP byte. Nothing blocks while that happens.
+
+```bash
+utils/install-nbcode.sh    # runtime -> ~/.local/share, wrapper -> ~/.local/bin
+```
+
+`install-nbcode.sh` takes the same options as the jdtls one below —
+`--prefix`, `--version`, `--from-source`, `--dry-run` — and by default gets
+nbcode the cheap way, because the published extension is a zip with a
+complete NetBeans runtime inside it: it downloads that from open-vsx.org
+(~150 MB) and unpacks `extension/nbcode` into `<prefix>/share/nbcode`.
+`--from-source` builds a javavscode checkout with Ant instead, which wants
+that checkout's `netbeans` submodule fetched and `ant apply-patches`
+already run, and takes tens of minutes. Java 17 or newer either way.
+
+The `<prefix>/bin/nbcode` wrapper exists to give each run a userdir of its
+own, and that is not fussiness: NetBeans' single-instance handler is keyed
+on the userdir, so two nbcode processes pointed at one do not both start —
+the second hands its command line to the first and exits without ever
+printing a port, which looks from the outside like a server that started
+and said nothing. Set `KG_NBCODE_USERDIR` to pin one anyway and keep its
+index warm between sessions, at the price of running one nbcode at a time.
+
+Being a NetBeans, nbcode is a JVM rather than something fast: measured
+here on a one-file project, about a second and a half from spawn to the
+announce lines and around three seconds to the first `M-.` answer, cold. A
+large project's first import is longer, and with a per-run userdir it is
+paid every session.
+
+kg sends nbcode one thing it sends no other server: an
+`initializationOptions.nbcodeCapabilities` object, which is what turns its
+Java support on and names the command namespace it answers under. Every
+flag in it for a facility kg does not have — a status bar, a test-results
+view, an HTML page renderer — is sent as false, because advertising a
+facility kg lacks is how a client ends up being sent messages it silently
+drops.
+
+### Java with jdt.ls instead
+
+The Eclipse JDT Language Server was kg's Java default before nbcode and is
+still one override away:
+
+```bash
+export KG_LSP_SERVER_JAVA=jdtls
+```
+
+kg cannot debug Java through it. The Java debug adapter is a socket the
+nbcode process announces beside its language server, so a `dap-debug` in a
+Java buffer whose server is jdt.ls says so rather than starting something.
+
+jdt.ls ships as a tarball rather than a package, so
 `utils/install-jdtls.sh` is here to do the tedious part:
 
 ```bash
@@ -681,46 +748,6 @@ jdt.ls is a JVM, so the first `M-.` in a Java buffer is slower than the
 first one in a C buffer: roughly two to three seconds on a warm box before
 the answer arrives, and longer the first time a Maven or Gradle project is
 imported. Nothing blocks while it thinks.
-
-### Java with nbcode instead
-
-Oracle's nbcode is the other real Java server: the NetBeans-based one
-behind the Java extension for VS Code (`oracle/javavscode`). Unlike every
-other server kg speaks to, it does not use stdio. Started with
-`--start-java-language-server=listen-hash:0` it prints a port and a hash on
-its stdout and then waits to be *connected to*, and the client has to open
-a TCP socket to that port and write the hash before the first LSP byte.
-The `listen-hash:` token in front of a `KG_LSP_SERVER_<MODE>` command line
-is what asks kg for that wire; everything after it is the command, run
-through `/bin/sh -c` as usual:
-
-```bash
-utils/install-nbcode.sh    # runtime -> ~/.local/share, wrapper -> ~/.local/bin
-export KG_LSP_SERVER_JAVA="listen-hash: nbcode --start-java-language-server=listen-hash:0"
-```
-
-`install-nbcode.sh` takes the same options as the jdtls one — `--prefix`,
-`--version`, `--from-source`, `--dry-run` — and by default gets nbcode the
-cheap way, because the published extension is a zip with a complete
-NetBeans runtime inside it: it downloads that from open-vsx.org (~150 MB)
-and unpacks `extension/nbcode` into `<prefix>/share/nbcode`.
-`--from-source` builds a javavscode checkout with Ant instead, which wants
-that checkout's `netbeans` submodule fetched and `ant apply-patches`
-already run, and takes tens of minutes. Java 17 or newer either way.
-
-The `<prefix>/bin/nbcode` wrapper exists to give each run a userdir of its
-own, and that is not fussiness: NetBeans' single-instance handler is keyed
-on the userdir, so two nbcode processes pointed at one do not both start —
-the second hands its command line to the first and exits without ever
-printing a port, which looks from the outside like a server that started
-and said nothing. Set `KG_NBCODE_USERDIR` to pin one anyway and keep its
-index warm between sessions, at the price of running one nbcode at a time.
-
-Being a NetBeans, nbcode is in the same class as jdt.ls rather than faster:
-measured here on a one-file Maven project, about a second and a half from
-spawn to the announce line and around three seconds to the first `M-.`
-answer, cold. A large project's first import is longer, and with a
-per-run userdir it is paid every session.
 
 ## Debugger (optional, on by default)
 

@@ -54,11 +54,14 @@
 #define LSP_CLIENT_METHOD_MAX 64
 
 /* The JSON-RPC code for "no such method", answered to every server-to-client
- * request, and the implementation-defined codes kg synthesises for a request
- * that will never be answered -- because the client is dead, or because the
- * request ran out of time.  -32099 is the low end of the
- * implementation-defined range the specification reserves for exactly this. */
+ * request but `workspace/configuration`; the one for a request whose
+ * parameters kg will not act on; and the implementation-defined codes kg
+ * synthesises for a request that will never be answered -- because the
+ * client is dead, or because the request ran out of time.  -32099 is the low
+ * end of the implementation-defined range the specification reserves for
+ * exactly this. */
 #define LSP_JSONRPC_METHOD_NOT_FOUND (-32601)
+#define LSP_JSONRPC_INVALID_PARAMS (-32602)
 #define LSP_JSONRPC_INTERNAL_DEAD (-32099)
 #define LSP_JSONRPC_INTERNAL_TIMEOUT (-32098)
 /* A response that carried neither `result` nor `error`.  Out of spec, and
@@ -232,8 +235,16 @@ static char *build_call(long long id, const char *method, const char *params,
  * a server that offers it saves every conversion; UTF-16 is listed because
  * the protocol makes it mandatory and a server may honour nothing else.
  * `workspaceFolders` is null deliberately: one root per instance is the
- * registry's model, and multi-root is recorded as out of scope. */
-static char *build_initialize(const char *root, size_t *out_len)
+ * registry's model, and multi-root is recorded as out of scope.
+ *
+ * `init_options` is the one part of this request that is not kg's opinion
+ * but the SERVER's: the bytes of an `initializationOptions` object the
+ * registry attached to the spec (src/lsp_server.h).  It is written raw and
+ * last, so a server that wants none produces byte for byte the request it
+ * always got -- the key is absent rather than null, which is the difference
+ * between "kg has nothing to say" and "kg says nothing applies". */
+static char *build_initialize(
+    const char *root, const char *init_options, size_t *out_len)
 {
 	struct kg_jsonw w;
 	char uri[PATH_MAX + 64];
@@ -276,6 +287,10 @@ static char *build_initialize(const char *root, size_t *out_len)
 	kg_jsonw_end_array(&w);
 	kg_jsonw_end_object(&w);
 	kg_jsonw_end_object(&w);
+	if (init_options && init_options[0]) {
+		kg_jsonw_key(&w, "initializationOptions");
+		kg_jsonw_raw(&w, init_options, strlen(init_options));
+	}
 	kg_jsonw_end_object(&w);
 	if (kg_jsonw_finish(&w, &text, out_len) != 0) {
 		return NULL;
@@ -755,41 +770,121 @@ static void on_shutdown(struct lsp_client *c,
 	c->exit_sent = true;
 }
 
-/* Answer a server-to-client request with MethodNotFound.  kg implements
- * none of them -- not `window/showMessageRequest`, not
- * `workspace/configuration` -- and the protocol's answer to that is an
- * error reply, not silence: a server waiting on a reply that never comes
- * eventually stops answering kg's own requests. */
-static void refuse_server_request(
-    struct lsp_client *c, const struct kg_json_value *id)
+/* The envelope every server-to-client reply shares: `jsonrpc` and the id
+ * echoed back, whatever shape it arrived in.  An id kg cannot read as a
+ * number goes back as null, which is JSON-RPC's own spelling for "the
+ * request this answers could not be identified" and is the client's
+ * existing policy rather than a new one. */
+static void reply_begin(
+    struct kg_jsonw *w, const struct kg_json_value *id, const char *member)
 {
-	struct kg_jsonw w;
 	long long n = 0;
+
+	kg_jsonw_init(w);
+	kg_jsonw_begin_object(w);
+	kg_jsonw_key(w, "jsonrpc");
+	kg_jsonw_string(w, "2.0");
+	kg_jsonw_key(w, "id");
+	if (id_value(id, &n)) {
+		kg_jsonw_int(w, n);
+	} else {
+		kg_jsonw_null(w);
+	}
+	kg_jsonw_key(w, member);
+}
+
+static void reply_finish(struct lsp_client *c, struct kg_jsonw *w)
+{
 	char *text = NULL;
 	size_t len = 0;
 
-	kg_jsonw_init(&w);
-	kg_jsonw_begin_object(&w);
-	kg_jsonw_key(&w, "jsonrpc");
-	kg_jsonw_string(&w, "2.0");
-	kg_jsonw_key(&w, "id");
-	if (id_value(id, &n)) {
-		kg_jsonw_int(&w, n);
-	} else {
-		kg_jsonw_null(&w);
-	}
-	kg_jsonw_key(&w, "error");
-	kg_jsonw_begin_object(&w);
-	kg_jsonw_key(&w, "code");
-	kg_jsonw_int(&w, LSP_JSONRPC_METHOD_NOT_FOUND);
-	kg_jsonw_key(&w, "message");
-	kg_jsonw_string(&w, "kg implements no server-to-client requests");
-	kg_jsonw_end_object(&w);
-	kg_jsonw_end_object(&w);
-	if (kg_jsonw_finish(&w, &text, &len) != 0) {
+	kg_jsonw_end_object(w);
+	if (kg_jsonw_finish(w, &text, &len) != 0) {
 		return;
 	}
 	(void)client_write(c, text, len, true);
+}
+
+/* Answer a server-to-client request with an error.  kg implements almost
+ * none of them -- not `window/showMessageRequest`, not
+ * `window/workDoneProgress/create` -- and the protocol's answer to that is
+ * an error reply, not silence: a server waiting on a reply that never comes
+ * eventually stops answering kg's own requests. */
+static void refuse_server_request(struct lsp_client *c,
+    const struct kg_json_value *id, long long code, const char *why)
+{
+	struct kg_jsonw w;
+
+	reply_begin(&w, id, "error");
+	kg_jsonw_begin_object(&w);
+	kg_jsonw_key(&w, "code");
+	kg_jsonw_int(&w, code);
+	kg_jsonw_key(&w, "message");
+	kg_jsonw_string(&w, why);
+	kg_jsonw_end_object(&w);
+	reply_finish(c, &w);
+}
+
+/* `workspace/configuration`, the one server-to-client request kg answers.
+ *
+ * It is answered because refusing it DEADLOCKS a server that asked before
+ * it would finish opening a project -- nbcode is the measured one
+ * (doc/plans/dap/03-java.md), and a server blocked on this request never
+ * reaches the state the Java debugger's socket waits for.  What kg has to
+ * say about any setting, though, is nothing: it holds no per-section
+ * configuration, and `null` is the protocol's own word for "unset, use your
+ * default", so every item gets one.
+ *
+ * The shape is what matters and the shape is positional: the result is an
+ * array with EXACTLY one element per requested item, because a server zips
+ * it against its own `items` and a short array is read as the wrong
+ * settings rather than as fewer of them.  Hence zero items answer `[]`
+ * rather than null, and a `params` with no `items` array in it -- absent,
+ * or not an array -- is zero items too: there is nothing to be positional
+ * about, and inventing an element would be answering a question that was
+ * not asked.
+ *
+ * The bound is the house rule and not a guess about servers: a peer that
+ * asks for more items than this is not configuring an editor, and kg
+ * refuses the request rather than building the array it asked for.  Refusal
+ * is safe here in a way silence is not -- an error reply unblocks the
+ * server, which is the whole reason this function exists. */
+static void answer_configuration(
+    struct lsp_client *c, const struct kg_json_value *id, size_t count)
+{
+	struct kg_jsonw w;
+	size_t i;
+
+	reply_begin(&w, id, "result");
+	kg_jsonw_begin_array(&w);
+	for (i = 0; i < count; i++) {
+		kg_jsonw_null(&w);
+	}
+	kg_jsonw_end_array(&w);
+	reply_finish(c, &w);
+}
+
+static void handle_server_request(struct lsp_client *c,
+    const struct kg_json_value *root, const struct kg_json_value *id)
+{
+	const char *method = kg_json_str(kg_json_get(root, "method"), NULL);
+	const struct kg_json_value *items;
+	size_t count;
+
+	if (!method || strcmp(method, "workspace/configuration") != 0) {
+		refuse_server_request(c, id, LSP_JSONRPC_METHOD_NOT_FOUND,
+		    "kg implements no server-to-client requests");
+		return;
+	}
+	items = kg_json_get(kg_json_get(root, "params"), "items");
+	count
+	    = kg_json_kind_of(items) == KG_JSON_ARRAY ? kg_json_len(items) : 0;
+	if (count > LSP_CLIENT_MAX_CONFIGURATION_ITEMS) {
+		refuse_server_request(c, id, LSP_JSONRPC_INVALID_PARAMS,
+		    "too many configuration items");
+		return;
+	}
+	answer_configuration(c, id, count);
 }
 
 /* Run a matched response's callback.  A reply carrying neither `result`
@@ -877,7 +972,7 @@ static void dispatch_message(struct lsp_client *c, const char *body, size_t len)
 	id = kg_json_get(root, "id");
 	if (kg_json_get(root, "method")) {
 		if (id) {
-			refuse_server_request(c, id);
+			handle_server_request(c, root, id);
 		} else {
 			handle_notification(c, root);
 		}
@@ -1017,7 +1112,7 @@ int lsp_client_notify(struct lsp_client *c, const char *method,
 }
 
 struct lsp_client *lsp_client_start_wire(const struct kg_spawn_request *req,
-    const char *root_path, enum lsp_wire wire)
+    const char *root_path, enum lsp_wire wire, const char *init_options)
 {
 	struct lsp_client *c = calloc(1, sizeof(*c));
 	char *params;
@@ -1036,7 +1131,7 @@ struct lsp_client *lsp_client_start_wire(const struct kg_spawn_request *req,
 		snprintf(c->root, sizeof(c->root), "%s", root_path);
 	}
 	c->t = lsp_transport_start_wire(req, wire);
-	params = c->t ? build_initialize(c->root, &len) : NULL;
+	params = c->t ? build_initialize(c->root, init_options, &len) : NULL;
 	sent = params
 	    && client_request(
 		   c, "initialize", params, len, on_initialize, NULL, true)
@@ -1055,7 +1150,7 @@ struct lsp_client *lsp_client_start_wire(const struct kg_spawn_request *req,
 struct lsp_client *lsp_client_start(
     const struct kg_spawn_request *req, const char *root_path)
 {
-	return lsp_client_start_wire(req, root_path, LSP_WIRE_STDIO);
+	return lsp_client_start_wire(req, root_path, LSP_WIRE_STDIO, NULL);
 }
 
 /* Hand whatever the server has written to its standard error to the log,

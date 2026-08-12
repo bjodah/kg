@@ -722,6 +722,85 @@ spawn to the announce line and around three seconds to the first `M-.`
 answer, cold. A large project's first import is longer, and with a
 per-run userdir it is paid every session.
 
+## Debugger (optional, on by default)
+
+kg speaks the Debug Adapter Protocol, so a program can be run under a debug
+adapter from inside the editor. Optional at build time (`make WITH_DAP=0`),
+on by default, and `kg -V` prints `+dap` or `-dap` to say which this binary
+is. A binary built without it still has every `dap-*` command, and each one
+answers "kg was built without DAP support" rather than leaving `M-x` to
+report an unknown command.
+
+Adapters are found on `PATH` at run time; nothing is downloaded or
+installed, the same rule the LSP client follows. Two ship built in:
+`lldb-dap` for C and C++, and `python3 -m debugpy.adapter` for Python.
+
+The commands, none of them bound to a key yet (the keys arrive with the
+debugger UI):
+
+| Command | What it does |
+| --- | --- |
+| `dap-debug` | Start a session from a launch configuration |
+| `dap-continue` | Let the program run until it stops again |
+| `dap-next` / `dap-step-in` / `dap-step-out` | Step over, into, out |
+| `dap-step-instruction` | Step one instruction, if the adapter can |
+| `dap-until` | Run to this line, then stop |
+| `dap-goto` | Jump execution to this line without running it |
+| `dap-pause` | Ask a running program to stop |
+| `dap-breakpoint-toggle` / `dap-breakpoint-temporary` | Set or clear one |
+| `dap-evaluate` | Evaluate an expression in the selected frame |
+| `dap-frame-up` / `dap-frame-down` | Walk the stack |
+| `dap-repl` | Show `*dap-repl*` |
+| `dap-many-windows` | Toggle the debug layout, and restore it |
+| `dap-restart` | Restart under the same configuration |
+| `dap-disconnect` / `dap-terminate` | Leave the program running, or not |
+
+All of them are Lisp-callable; the three that prompt (`dap-debug`,
+`dap-evaluate`, `dap-goto`) are refused from a Lisp activation with no
+terminal. None of them edits buffer text, so all of them work in a
+read-only buffer — debugging somebody else's source is the ordinary case.
+
+**Breakpoints belong to the editor, not to a session.** One can be set with
+nothing running, it survives the session that verified it, and it is
+anchored to the text in an open buffer so an edit above it takes it along.
+They are marked in the first column of their line, in one colour when an
+adapter has verified them and a dimmer one when none has; the line the
+program is stopped on is marked across its width. All three marks are
+projections of the tables and are rebuilt when a buffer is opened and when
+a session ends.
+
+**Launch configurations live in `.kg-dap.json`**, in the nearest ancestor
+directory of the file being debugged; that directory is what
+`${workspaceRoot}` means. With no such file, kg's built-in configurations
+apply.
+
+```json
+{ "version": 1,
+  "configurations": [
+    { "name": "Python current file",
+      "adapter": "debugpy",
+      "request": "launch",
+      "build": { "command": "make", "cwd": "${workspaceRoot}" },
+      "arguments": { "program": "${file}", "cwd": "${workspaceRoot}" } } ] }
+```
+
+`adapter` is a built-in name or an inline object (`command`, `args`,
+`transport`, `cwd`). The optional `build` step runs through kg's ordinary
+compilation machinery — same `*compilation*` buffer, same diagnostics, same
+`C-c C-k` — and the launch happens only if it exited zero. `arguments` is
+passed to the adapter untouched, with four substitutions made inside its
+strings: `${file}`, `${fileDir}`, `${workspaceRoot}` and `${env:NAME}`. The
+set is closed and an unknown one is an error rather than an empty string —
+`${workspaecRoot}/prog` expanding to `/prog` is a debugger that silently
+debugs the wrong program.
+
+**`.kg-dap.json` is trusted code.** It names a command to spawn and
+arguments handed to a debugger that will run a program; there is nothing to
+sandbox and no pretence of one, the same story as `init.el`. The validation
+is there for the other failure — a mistyped file that would otherwise start
+the wrong thing without saying so.
+
+
 ## Development
 
 Before submitting changes, format the C sources and tests:

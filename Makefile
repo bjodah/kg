@@ -392,9 +392,13 @@ LSP_ALL = $(TESTDIR)/test_xref $(TESTDIR)/test_lsp_log \
 DAP_SRCS = dap_core.c
 ifeq ($(WITH_DAP),1)
 DAP_SRCS += dap_transport.c dap_client.c dap_config.c dap_session.c \
-            dap_breakpoint.c
+            dap_breakpoint.c dap_exec.c dap_decor.c
 endif
-DAP_EDITOR_SRCS = dap_keymap.c
+# dap_commands.c joins dap_keymap.c for the same reason and in both
+# configurations: it is the one debugger file that prompts, opens buffers
+# and arranges windows, so a test binary linking it would link the whole
+# editor -- and its WITH_DAP=0 half is what keeps the cmdtable rows honest.
+DAP_EDITOR_SRCS = dap_keymap.c dap_commands.c
 DAP_OBJS = $(addprefix $(OBJDIR)/,$(DAP_SRCS:.c=.o))
 # What `make clean` must remove because THIS configuration did not build
 # it, LSP_ALL's reason exactly: without it a `make; make WITH_DAP=0 clean`
@@ -403,7 +407,9 @@ DAP_ALL = $(OBJDIR)/dap_transport.o $(TESTDIR)/test_dap_transport \
           $(OBJDIR)/dap_client.o $(TESTDIR)/test_dap_client \
           $(OBJDIR)/dap_config.o $(TESTDIR)/test_dap_config \
           $(OBJDIR)/dap_session.o $(TESTDIR)/test_dap_session \
-          $(OBJDIR)/dap_breakpoint.o $(TESTDIR)/test_dap_breakpoint
+          $(OBJDIR)/dap_breakpoint.o $(TESTDIR)/test_dap_breakpoint \
+          $(OBJDIR)/dap_exec.o $(TESTDIR)/test_dap_exec \
+          $(OBJDIR)/dap_decor.o $(TESTDIR)/test_dap_commands
 
 # Source files
 SRCS = main.c tty.c async.c syntax.c $(SYNTAX_BACKEND_SRCS) autocomplete.c buffer.c fileio.c \
@@ -501,7 +507,8 @@ endif
 ifeq ($(WITH_DAP),1)
 TESTBINS += $(TESTDIR)/test_dap_transport $(TESTDIR)/test_dap_client \
             $(TESTDIR)/test_dap_config $(TESTDIR)/test_dap_session \
-            $(TESTDIR)/test_dap_breakpoint
+            $(TESTDIR)/test_dap_breakpoint $(TESTDIR)/test_dap_exec \
+            $(TESTDIR)/test_dap_commands
 endif
 # test_perf is not built like the other unit tests: it needs the whole
 # editor compiled with -DKG_PERF_COUNTERS=1 (src/perf.h), which must not
@@ -699,7 +706,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 9717
+SCC_COMPLEXITY_MAX ?= 10043
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -1511,6 +1518,17 @@ EXTRA_dap_session := $(TESTDIR)/stubs.o $(OBJDIR)/dap_session.o \
 # through TEST_SRCS_OBJS' $(DAP_OBJS) and is named here for readability as
 # every suite above does.
 EXTRA_dap_breakpoint := $(EXTRA_winmgr) $(OBJDIR)/dap_breakpoint.o
+# The stop model sits on the session and holds no editor state either, so
+# its suite is the session's link plus dap_exec.o and the breakpoint table
+# it routes `breakpoint` events and temporary breakpoints through.  Both
+# arrive through TEST_SRCS_OBJS' $(DAP_OBJS); named here for readability,
+# as every suite above does.
+EXTRA_dap_exec := $(EXTRA_dap_session) $(OBJDIR)/dap_exec.o \
+                  $(OBJDIR)/dap_breakpoint.o
+# The commands are the one debugger file that reaches the command table,
+# so their suite links the same everything-but-main.c set EXTRA_cmd does --
+# which is also the only link in which src/dap_commands.o exists at all.
+EXTRA_dap_commands := $(EXTRA_cmd)
 # The JSON layer depends on the C library and nothing else -- not even
 # process.h -- so its own object would link on its own; the baseline is
 # here because test.o's harness reaches the editor globals stubs.o and

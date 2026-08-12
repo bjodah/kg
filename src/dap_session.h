@@ -271,6 +271,27 @@ void dap_session_get_state(
  * DEAD, which is also the one honest answer to "can I send something". */
 struct dap_client *dap_session_client(struct dap_session *session);
 
+/* ------------------------- the phase, from above ---------------------- */
+
+/* The three transitions the execution model (src/dap_exec.h) owns and the
+ * session cannot see for itself, because they are about a request rather
+ * than about a message: kg is ABOUT to ask the program to run, the request
+ * to do so was refused, and the program IS running.
+ *
+ * They are here rather than as assignments in stage 6 for the reason every
+ * other transition is: the phase is this module's invariant, and a caller
+ * that could write it could write DEAD.
+ *
+ * dap_session_begin_resume() is what "no second execution command while
+ * RESUMING" means -- it succeeds only from STOPPED, so a second step
+ * against a program already going is refused here rather than sent.  A
+ * failed execution request takes the session back to STOPPED, where its
+ * caller refetches; and dap_session_note_resumed() is what a `continued`
+ * does, whether the adapter sent it or stage 6 synthesised it [M-10]. */
+bool dap_session_begin_resume(struct dap_session *session);
+void dap_session_note_stopped(struct dap_session *session);
+void dap_session_note_resumed(struct dap_session *session);
+
 /* The deadlines a test would otherwise wait out: the client's two
  * (initialize, ordinary request -- never launch, which has none by
  * protocol) and the transport's shutdown ladder. */

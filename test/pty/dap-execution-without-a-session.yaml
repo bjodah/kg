@@ -1,0 +1,26 @@
+# One oracle, one sentence: every execution command asks the same question
+# and the answer with no program suspended is the same one
+# (doc/plans/dap/01-protocol.md stage 6).  Nothing is sent, nothing is
+# spawned, and the buffer is untouched.
+name: dap-execution-without-a-session
+filename: dap-nosession.c
+requires_feature: dap
+initial: |
+  int main(void)
+  {
+  	return 0;
+  }
+keys:
+  - M-x
+  - dap-next
+  - RET
+  - M-x
+  - dap-continue
+  - RET
+expected_saved: |
+  int main(void)
+  {
+  	return 0;
+  }
+expected_screen_contains:
+  - "No stopped thread"

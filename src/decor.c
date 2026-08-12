@@ -32,7 +32,7 @@ static bool decor_face_valid(enum kg_decor_face face)
 	 * face -- which is also what keeps this function's cost where it was
 	 * when there were two of them. */
 	return face >= KG_DECOR_FACE_MATCH
-	    && face <= KG_DECOR_FACE_PAREN_MISMATCH;
+	    && face <= KG_DECOR_FACE_DEBUG_CURRENT;
 }
 
 static bool decor_store_reserve(struct kg_decor_store *store)

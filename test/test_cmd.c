@@ -85,6 +85,15 @@ static const char *const reads_terminal[] = {
 	"revert-buffer",
 	"quoted-insert",
 	"switch-to-buffer",
+	/* The debugger's three, audited once in stage 6
+	 * (doc/plans/dap/01-protocol.md): the configuration chooser and the
+	 * program path, the expression, and the jump target when
+	 * `gotoTargets` answered with several.  The other sixteen dap-*
+	 * rows read nothing, which is what makes them safe from a hook --
+	 * test/test_dap_commands.c pins all nineteen from the other side. */
+	"dap-debug",
+	"dap-evaluate",
+	"dap-goto",
 };
 
 /* And the other side of the same question: commands that do NOT read the

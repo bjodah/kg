@@ -1,10 +1,10 @@
-# Coordinate spaces: buffer bytes, chars, render, display columns
+# Coordinate spaces: buffer bytes, chars, render, display columns, DAP
 
 kg addresses text in one buffer-wide space and a line in three different
-spaces.  Mixing them is not a
-compile error, and every defect this document exists to prevent was one
-function producing a number in one space and another consuming it as if
-it were in a different one.
+spaces, and reads a fourth off the wire when a debug adapter is talking.
+Mixing them is not a compile error, and every defect this document exists
+to prevent was one function producing a number in one space and another
+consuming it as if it were in a different one.
 
 | Space | What one unit is | Where the numbers live |
 | --- | --- | --- |
@@ -12,9 +12,25 @@ it were in a different one.
 | **chars** | one byte of `row->chars` | point (`cx + coloff`), resolved mark columns, every row-local match offset, `row->size` |
 | **render** | one byte of `row->render` (a TAB is already expanded to spaces there) | `row->hl` indexing, `row->rsize`, the row-drawing loop's cursor |
 | **display column** ("visual column", vcol) | one terminal cell | goal column, rectangle bounds, the reported column, everything visual-line mode measures |
+| **DAP line/column** | a line and a character position in the *adapter's* notion of the file | `stopped` → `stackTrace` frames, `setBreakpoints` lines, `gotoTargets` — `src/dap_breakpoint.c`, `src/dap_exec.c` |
 
 They coincide only for a row that is pure single-width ASCII with no
 tabs, which is why a test that uses such a row proves nothing here.
+
+The last row is a protocol's space rather than the editor's, and it is
+here because it looks like the others and is not.  Its **lines are 1-based**,
+negotiated with `linesStartAt1` in the initialize request, so the editor
+row of a DAP line is `line - 1` and every conversion between them happens
+at exactly two seams: `src/dap_breakpoint.c`, where a breakpoint's editor
+row becomes a wire line and back, and `src/dap_exec.c`, where a frame's
+line becomes the row the source is shown at.  Its **columns are ignored
+for navigation in v1**: a DAP column is a character position in the
+adapter's own reading of the file, not a byte offset into `row->chars`,
+and the two disagree for any line with a tab or a multi-byte glyph in it.
+kg therefore navigates by line and passes column 1 where the protocol
+insists on one (`gotoTargets`).  Making them agree needs the adapter's
+column encoding, which the protocol does not state; until it does,
+guessing would be worse than ignoring.
 
 ## Naming convention
 

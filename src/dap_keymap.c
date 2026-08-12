@@ -20,6 +20,7 @@
 #ifdef KG_USE_DAP
 
 #include "dap_breakpoint.h"
+#include "dap_commands.h"
 #include "keymap.h"
 
 /* Two minor maps, not one, because the two halves of the debugger become
@@ -63,6 +64,12 @@ void dap_init(void)
 	 * lifecycle here, so a file opened at startup already re-anchors
 	 * whatever a later session will be told about. */
 	dap_breakpoint_init();
+	/* And the command layer's own wiring, which subscribes the
+	 * decoration projection to the same lifecycle and gives the session
+	 * and the stop model somewhere to report to.  Here rather than in
+	 * src/dap_core.c for this file's own reason: it reaches buffers,
+	 * windows and the command table. */
+	dap_commands_init();
 	for (i = 0; i < sizeof(dap_maps) / sizeof(*dap_maps); i++) {
 		struct keymap *map
 		    = keymap_create(dap_maps[i].name, dap_maps[i].layer);

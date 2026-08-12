@@ -410,6 +410,36 @@ class Protocol:
         self.event_before = pairs(args.event_before)
         self.error_message = pairs(args.error_message)
         self.error_format = pairs(args.error_format)
+        self.bodies = {}
+        for name, text in ((spec.partition(":")[0], spec.partition(":")[2])
+                           for spec in args.body):
+            self.bodies.setdefault(name, []).append(text)
+        # ONE-SHOT, both of them, and in argv order: a repeating trigger
+        # would make a `stopped` that provokes a `threads` that provokes a
+        # `stopped` -- and several of the races these exist for need
+        # exactly N events, not a stream.
+        self.events_after = self.event_specs(args.event_after)
+        self.events_during = self.event_specs(args.event_during)
+
+    @staticmethod
+    def event_specs(specs):
+        out = []
+        for spec in specs:
+            command, _, rest = spec.partition(":")
+            name, _, text = rest.partition(":")
+            out.append((command, name, text))
+        return out
+
+    def fire_events(self, pending, command):
+        """Every one-shot whose trigger is `command`, in order, removed as
+        it goes."""
+        keep = []
+        for trigger, name, text in pending:
+            if trigger == command:
+                self.event(name, json.loads(text) if text else None)
+            else:
+                keep.append((trigger, name, text))
+        return keep
 
     def next_seq(self):
         self.seq += 1
@@ -543,7 +573,14 @@ class Protocol:
                 "showUser": True, "url": "https://example.invalid/why",
                 "urlLabel": "Why this failed"}})
             return
-        if command == "setBreakpoints":
+        if command in self.bodies:
+            # Popped in order while more than one remains, so a case can
+            # script successive answers to one command; the last one is
+            # sticky, which is what a repeated `threads` wants.
+            scripted = self.bodies[command]
+            body = json.loads(scripted.pop(0) if len(scripted) > 1
+                              else scripted[0])
+        elif command == "setBreakpoints":
             body = self.breakpoints_body(message)
         else:
             body = {"echo": message.get("arguments"),
@@ -560,6 +597,7 @@ class Protocol:
                                        "arguments": message.get("arguments")})
         if command in self.event_before:
             self.event(self.event_before[command], {"tag": command})
+        self.events_during = self.fire_events(self.events_during, command)
         if self.args.capabilities_event and command == self.args.capabilities_event_on:
             self.send_capabilities_event()
         if command in self.args.stray_before:
@@ -619,6 +657,7 @@ class Protocol:
             if self.stopped_bodies:
                 body = json.loads(self.stopped_bodies.pop(0))
             self.event("stopped", body)
+        self.events_after = self.fire_events(self.events_after, command)
         if command in self.args.exited_after:
             self.event("exited", {"exitCode": self.args.exit_code})
         if command in self.args.terminated_after:
@@ -796,6 +835,12 @@ def main(argv):
                         help="protocol: exit once CMD has been answered")
     parser.add_argument("--report-arguments", action="append", default=[],
                         help="protocol: report CMD's arguments back")
+    parser.add_argument("--body", action="append", default=[],
+                        help="protocol: CMD:JSON as CMD's response body")
+    parser.add_argument("--event-after", action="append", default=[],
+                        help="protocol: CMD:EVENT:JSON once, after CMD")
+    parser.add_argument("--event-during", action="append", default=[],
+                        help="protocol: CMD:EVENT:JSON once, before CMD's reply")
     parser.add_argument("--linger-after-eof", action="store_true",
                         help="protocol: outlive the client's half-close")
     args = parser.parse_args(argv[1:])

@@ -214,6 +214,12 @@ static int decor_face_to_hl(enum kg_decor_face face)
 		return HL_PAREN_MATCH;
 	case KG_DECOR_FACE_PAREN_MISMATCH:
 		return HL_PAREN_MISMATCH;
+	case KG_DECOR_FACE_BREAKPOINT:
+		return HL_BREAKPOINT;
+	case KG_DECOR_FACE_BREAKPOINT_PENDING:
+		return HL_BREAKPOINT_PENDING;
+	case KG_DECOR_FACE_DEBUG_CURRENT:
+		return HL_DEBUG_CURRENT;
 	}
 	return HL_NORMAL;
 }

@@ -1,0 +1,29 @@
+# A breakpoint is not buffer text, so a read-only buffer takes one -- which
+# is the ordinary case, since the source most people debug is somebody
+# else's.  No adapter is involved and none is started: the table is editor
+# property and exists with nothing running (doc/plans/dap/01-protocol.md
+# stage 5), so this is deterministic without a fake adapter.
+name: dap-breakpoint-toggle-readonly
+filename: dap-bp.c
+requires_feature: dap
+initial: |
+  int main(void)
+  {
+  	return 0;
+  }
+keys:
+  - M-x
+  - read-only-mode
+  - RET
+  - C-n
+  - C-n
+  - M-x
+  - dap-breakpoint-toggle
+  - RET
+expected_saved: |
+  int main(void)
+  {
+  	return 0;
+  }
+expected_screen_contains:
+  - Breakpoint on line 3

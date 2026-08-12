@@ -46,6 +46,9 @@ struct kg_syntax_state;
 #define HL_WARNING 9 /* Overlong commit subject, etc. */
 #define HL_PAREN_MATCH 10 /* show-paren: the pair agrees. */
 #define HL_PAREN_MISMATCH 11 /* show-paren: it does not, or has no partner. */
+#define HL_BREAKPOINT 12 /* The debugger: a verified breakpoint. */
+#define HL_BREAKPOINT_PENDING 13 /* ... one no adapter has verified. */
+#define HL_DEBUG_CURRENT 14 /* ... the line the program is stopped on. */
 
 /* Stable identity of an editor mode, independent of how -- or whether --
  * it highlights.  Every struct editor_syntax carries one: the HLDB

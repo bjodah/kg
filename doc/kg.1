@@ -2236,6 +2236,136 @@ expansion to the case pattern that was typed, and it does not continue
 into other buffers.
 Bound to
 .Ic M-/ .
+.It dap-breakpoint-temporary
+Set a breakpoint on the current line that is removed the first time it is
+hit, and on the end of the session either way.
+Works from a read-only buffer, like every other debugger command.
+See
+.Sx DEBUGGER .
+.It dap-breakpoint-toggle
+Set a breakpoint on the current line, or clear the one that is there.
+Breakpoints belong to the editor, not to a session: they can be set with
+no program running, they survive the session that verified them, and a
+session starting is an occasion to tell an adapter about them.
+A buffer visiting no file on disk is refused, since there is no source
+for an adapter to name.
+See
+.Sx DEBUGGER .
+.It dap-continue
+Let the program run until it stops again.
+See
+.Sx DEBUGGER .
+.It dap-debug
+Start a debug session.
+Reads the nearest
+.Pa .kg-dap.json ,
+asks which of its configurations to run when there is more than one,
+runs that configuration's optional build step and launches only if it
+succeeded, and remembers the choice so a second
+.Ic dap-debug ,
+and
+.Ic dap-restart ,
+need not ask again.
+A configuration with no program of its own \(em kg's built-in
+.Ic lldb-dap
+one \(em asks for the program to debug rather than guessing at one.
+See
+.Sx DEBUGGER .
+.It dap-disconnect
+End the debug session and leave the program running.
+Detaching is the point of this one; use
+.Ic dap-terminate
+to end the program with it.
+See
+.Sx DEBUGGER .
+.It dap-evaluate
+Read an expression and evaluate it in the selected stack frame,
+reporting the answer in the echo area.
+A failed evaluation is reported in place and does not end the session.
+See
+.Sx DEBUGGER .
+.It dap-frame-down
+Select the frame the selected one called, walking back towards where the
+program is actually stopped.
+See
+.Sx DEBUGGER .
+.It dap-frame-up
+Select the caller of the selected frame.
+The first walk of a stop is what fetches the stack: a stop itself asks
+the adapter for one frame, since that is all it needs to show where the
+program is.
+See
+.Sx DEBUGGER .
+.It dap-goto
+Jump execution to the current line without running what lies between.
+Needs an adapter that advertises
+.Ic gotoTargets ;
+one that does not is not asked.
+When the adapter reports several targets on the line, they are retained
+and a second
+.Ic dap-goto
+asks which to jump to.
+See
+.Sx DEBUGGER .
+.It dap-many-windows
+Toggle the debugger's window layout: the source, the stack and the
+breakpoints in one column, the locals, the program's output and the REPL
+in another.
+The window arrangement in force when it is turned on is restored when it
+is turned off, and when the session ends.
+See
+.Sx DEBUGGER .
+.It dap-next
+Step over the call on the current line.
+See
+.Sx DEBUGGER .
+.It dap-pause
+Ask a running program to stop.
+See
+.Sx DEBUGGER .
+.It dap-repl
+Show the
+.Pa *dap-repl*
+buffer in another window.
+See
+.Sx DEBUGGER .
+.It dap-restart
+Restart the program under the same configuration, keeping the breakpoint
+table and the window layout.
+Adapters that advertise the protocol's own
+.Ic restart
+request are asked for it; the rest are ended and started again.
+See
+.Sx DEBUGGER .
+.It dap-step-in
+Step into the call on the current line.
+See
+.Sx DEBUGGER .
+.It dap-step-instruction
+Step one instruction rather than one line.
+Adapters that do not advertise stepping granularity are asked for an
+ordinary
+.Ic dap-next
+instead of for a request they might refuse.
+See
+.Sx DEBUGGER .
+.It dap-step-out
+Run until the selected frame returns.
+See
+.Sx DEBUGGER .
+.It dap-terminate
+End the debug session and the program with it.
+See
+.Sx DEBUGGER .
+.It dap-until
+Run to the current line and stop there.
+A one-shot breakpoint is set first and the program is let go only once
+the adapter has confirmed it \(em so a
+.Ic dap-until
+whose line the adapter refuses stops nothing and says so, rather than
+running to the end.
+See
+.Sx DEBUGGER .
 .It delete-backward-char
 Delete the character before point.
 Bound to
@@ -3765,6 +3895,207 @@ pins one instead, keeping its index warm between sessions at the price of
 running one
 .Ic nbcode
 at a time.
+.Sh DEBUGGER
+kg speaks the Debug Adapter Protocol, so a program can be run under a
+debug adapter from inside the editor: breakpoints in the source, a
+stopped line, stepping, an expression evaluated in the frame the program
+is stopped in, and a window layout that shows the rest.
+It is optional at build time
+.Pq Ic make WITH_DAP=0 ,
+on by default, and
+.Ic kg -V
+prints
+.Sq +dap
+or
+.Sq -dap
+to say which this binary is.
+A binary built without it still has every
+.Ic dap-*
+command, and each of them answers
+.Do
+kg was built without DAP support
+.Dc
+rather than leaving
+.Ic M-x
+to report a command nobody has heard of.
+.Pp
+Adapters are found on
+.Ev PATH
+at run time and nothing is downloaded or installed, the same rule the
+language-server client follows.
+Two are built in:
+.Ic lldb-dap
+for C and C++, and
+.Ic python3 -m debugpy.adapter
+for Python.
+kg's shipped debugpy configuration sets
+.Li "console": "internalConsole"
+and
+.Li "subProcess": false ,
+which is what routes the program's output through the protocol rather
+than through a terminal kg does not have.
+.Pp
+The commands, none of which is bound to a key yet:
+.Ic M-x dap-debug ,
+.Ic M-x dap-continue ,
+.Ic M-x dap-next ,
+.Ic M-x dap-step-in ,
+.Ic M-x dap-step-instruction ,
+.Ic M-x dap-step-out ,
+.Ic M-x dap-until ,
+.Ic M-x dap-goto ,
+.Ic M-x dap-pause ,
+.Ic M-x dap-breakpoint-toggle ,
+.Ic M-x dap-breakpoint-temporary ,
+.Ic M-x dap-evaluate ,
+.Ic M-x dap-frame-up ,
+.Ic M-x dap-frame-down ,
+.Ic M-x dap-repl ,
+.Ic M-x dap-many-windows ,
+.Ic M-x dap-restart ,
+.Ic M-x dap-disconnect
+and
+.Ic M-x dap-terminate .
+Every one of them is callable from Lisp as
+.Ql (command-execute "dap-continue")
+and the like; the three that prompt \(em
+.Ic dap-debug ,
+.Ic dap-evaluate
+and
+.Ic dap-goto
+\(em are refused from a Lisp activation that has no terminal to prompt
+on, rather than reading from a descriptor that is not there.
+None of them edits buffer text, so all of them work in a read-only
+buffer: debugging somebody else's source is the ordinary case.
+.Ss Breakpoints
+A breakpoint is a place in a file, and it belongs to the editor.
+It exists with no adapter running, it survives the session that verified
+it, and a session starting is an occasion to tell an adapter about the
+table rather than an occasion to own it.
+In an open buffer a breakpoint is anchored to the text, so an edit above
+it takes it with the line it was set on; in a file nobody has open it is
+remembered as a line number and re-anchors when the file is opened.
+.Pp
+Breakpoints are marked in the first column of their line: one colour for
+a breakpoint an adapter has verified and another, dimmer one for a
+breakpoint no adapter has confirmed \(em because none is running, or
+because the one that is running could not place it.
+The line the program is stopped on is marked across its width.
+All three are projections of what kg knows; they are rebuilt whenever a
+buffer is opened and when the session ends, and they are never a second
+copy of the table.
+.Pp
+An adapter may move a breakpoint \(em debugpy silently relocates a line
+past the end of a function and calls it verified \(em and what is marked
+is the line the adapter reported, not the line that was asked for.
+.Ss Launch configurations
+.Pa .kg-dap.json ,
+in the nearest ancestor directory of the file being debugged, says what
+to run.
+That file's directory is what
+.Li ${workspaceRoot}
+means.
+With no such file anywhere above, kg's built-in configurations apply and
+.Li ${workspaceRoot}
+is the file's own directory.
+.Bd -literal -offset indent
+{ "version": 1,
+  "configurations": [
+    { "name": "Python current file",
+      "adapter": "debugpy",
+      "request": "launch",
+      "build": { "command": "make", "cwd": "${workspaceRoot}" },
+      "arguments": { "program": "${file}",
+                     "cwd": "${workspaceRoot}" } } ] }
+.Ed
+.Pp
+.Li adapter
+is a built-in adapter's name or an inline object with
+.Li command ,
+.Li args ,
+.Li transport
+and
+.Li cwd
+for one kg does not ship.
+.Li request
+is
+.Li launch
+or
+.Li attach .
+.Li build
+is optional; when it is there,
+.Ic dap-debug
+runs it through kg's ordinary compilation machinery \(em the same
+.Pa *compilation*
+buffer, the same diagnostics, the same
+.Ic C-c C-k
+\(em and launches only if it exited zero.
+.Li arguments
+is passed to the adapter untouched: the members kg does not know are the
+point, since an adapter's launch arguments are its own vocabulary.
+.Pp
+Four substitutions are made inside
+.Li arguments
+strings:
+.Li ${file} ,
+.Li ${fileDir} ,
+.Li ${workspaceRoot}
+and
+.Li ${env:NAME} .
+The set is closed, and an unknown one is an error rather than an empty
+string \(em
+.Li ${workspaecRoot}/prog
+expanding to
+.Pa /prog
+is a debugger that silently debugs the wrong program.
+Substitution happens inside decoded string values and is never a textual
+splice into the JSON, so a path containing a quote or a backslash arrives
+as that path.
+.Pp
+.Sy This file is trusted code .
+A launch configuration names a command to spawn and arguments handed to a
+debugger that will run a program; there is nothing to sandbox and no
+pretence of one, the same story as
+.Pa init.el .
+What the validation is for is the other failure: a mistyped file that
+would otherwise start the wrong thing without saying so.
+Unknown
+.Li version ,
+duplicate configuration names, duplicate JSON keys, an invalid
+.Li request ,
+an unknown transport and a NUL inside a path are all refused with a
+message naming the file and the byte the parser stopped at.
+Every collection is bounded: 256 KiB of file, 64 configurations, 32
+arguments to an adapter command.
+.Ss Stopping and stepping
+Stepping needs a stopped thread, and there is one answer to whether there
+is one: without it every execution command reports
+.Do
+No stopped thread: the program is not suspended
+.Dc
+and nothing is sent.
+.Pp
+When the program stops, kg asks for the thread list, then for one stack
+frame, and shows that frame's source if the adapter named a file that is
+there.
+A frame naming a path that is relative, that does not exist, or that the
+adapter can only produce on request is listed but not opened \(em the
+first stack of a C program routinely contains all three \(em and kg then
+fetches a page of frames and shows the topmost one it can open.
+When it can open none, source focus stays where it was and kg says so.
+.Pp
+Line numbers are the protocol's, counted from one.
+Columns are ignored for navigation: an adapter's column is a position in
+its own notion of the file, not a byte offset into kg's row
+.Pq see Pa doc/coordinates.md .
+.Ss Ending a session
+.Ic dap-disconnect
+leaves the program running,
+.Ic dap-terminate
+ends it, and quitting kg terminates a program kg launched but only
+detaches from one it attached to.
+An adapter that cannot be asked politely is closed, and a child kg
+started is killed as the backstop.
 .Sh READ-ONLY MODE
 .Ic M-x read-only-mode
 .Pq bound to Ic C-x C-q
@@ -4589,6 +4920,11 @@ Falls back to
 .It Pa $XDG_CONFIG_HOME/kg/lisp/
 Package directory searched by
 .Li (load "name") .
+.It Pa .kg-dap.json
+Debug launch configurations, read from the nearest ancestor directory of
+the file being debugged.
+Trusted code; see
+.Sx DEBUGGER .
 .El
 .Sh SEE ALSO
 .Xr mg 1 ,

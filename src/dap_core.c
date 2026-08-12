@@ -19,6 +19,8 @@
 #ifdef KG_USE_DAP
 
 #include "dap_breakpoint.h"
+#include "dap_decor.h"
+#include "dap_exec.h"
 #include "dap_session.h"
 
 /* The whole budget for ending every running session, split between them by
@@ -33,12 +35,28 @@
 void dap_shutdown(void)
 {
 	dap_session_shutdown_all(DAP_SHUTDOWN_GRACE_MS);
+	/* The marks come off before the table they are a projection of goes
+	 * away, since a decoration never outlives what it describes. */
+	dap_decor_reset();
 	/* The table outlives every session, but not the editor: this is
 	 * where its sources and their markers go. */
 	dap_breakpoint_reset();
 }
 
-int dap_poll(void) { return dap_session_poll_all(); }
+/* Both legs of a poll: the sessions, and the stop model's own tick -- the
+ * debounced `thread` re-request, the reaping of a session that has died,
+ * and the relaunch a client-side `dap-restart` is waiting to start.  Each
+ * reports a repaint the way lsp_poll() does, and either one may want one. */
+int dap_poll(void)
+{
+	int changed = dap_session_poll_all();
+
+	changed |= dap_exec_poll();
+	if (changed) {
+		dap_decor_refresh();
+	}
+	return changed;
+}
 
 int dap_wait_fds(int *fds, int max) { return dap_session_wait_fds(fds, max); }
 

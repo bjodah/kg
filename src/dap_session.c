@@ -494,10 +494,35 @@ static void on_stopped(struct dap_session *s, const struct kg_json_value *body)
 	session_changed(s);
 }
 
-static void on_continued(struct dap_session *s)
+static void on_continued(struct dap_session *s) { dap_session_note_resumed(s); }
+
+/* The three transitions stage 6 owns (src/dap_session.h).  Each is
+ * idempotent and each refuses from every phase but the one it names, so a
+ * caller never has to know which phase the session is in to be safe. */
+bool dap_session_begin_resume(struct dap_session *s)
 {
-	if (s->st.phase != DAP_PHASE_STOPPED
-	    && s->st.phase != DAP_PHASE_RESUMING) {
+	if (!s || s->st.phase != DAP_PHASE_STOPPED) {
+		return false;
+	}
+	s->st.phase = DAP_PHASE_RESUMING;
+	session_changed(s);
+	return true;
+}
+
+void dap_session_note_stopped(struct dap_session *s)
+{
+	if (!s || s->st.phase != DAP_PHASE_RESUMING) {
+		return;
+	}
+	s->st.phase = DAP_PHASE_STOPPED;
+	session_changed(s);
+}
+
+void dap_session_note_resumed(struct dap_session *s)
+{
+	if (!s
+	    || (s->st.phase != DAP_PHASE_STOPPED
+		&& s->st.phase != DAP_PHASE_RESUMING)) {
 		return;
 	}
 	s->st.phase = DAP_PHASE_ACTIVE;

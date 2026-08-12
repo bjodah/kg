@@ -13,6 +13,7 @@
 #include "cmdstate.h"
 #include "compile.h"
 #include "dabbrev.h"
+#include "dap_commands.h"
 #include "def.h"
 #include "describe.h"
 #include "edit.h"
@@ -118,6 +119,39 @@ static void cmd_xref_go_back(int fd) { editor_xref_go_back(fd); }
 static void cmd_lsp_rename(int fd) { editor_lsp_rename(fd); }
 static void cmd_completion_at_point(int fd) { editor_completion_at_point(fd); }
 static void cmd_previous_error(int fd) { editor_previous_error(fd); }
+
+/* The debugger's commands.  Unconditional rows for the same reason the
+ * language-server ones are: a WITH_DAP=0 kg answers each of them with why
+ * there is no answer (src/dap_commands.h) rather than with "Unknown
+ * command". */
+static void cmd_dap_debug(int fd) { editor_dap_debug(fd); }
+static void cmd_dap_disconnect(int fd) { editor_dap_disconnect(fd); }
+static void cmd_dap_terminate(int fd) { editor_dap_terminate(fd); }
+static void cmd_dap_continue(int fd) { editor_dap_continue(fd); }
+static void cmd_dap_pause(int fd) { editor_dap_pause(fd); }
+static void cmd_dap_next(int fd) { editor_dap_next(fd); }
+static void cmd_dap_step_in(int fd) { editor_dap_step_in(fd); }
+static void cmd_dap_step_instruction(int fd)
+{
+	editor_dap_step_instruction(fd);
+}
+static void cmd_dap_step_out(int fd) { editor_dap_step_out(fd); }
+static void cmd_dap_breakpoint_toggle(int fd)
+{
+	editor_dap_breakpoint_toggle(fd);
+}
+static void cmd_dap_breakpoint_temporary(int fd)
+{
+	editor_dap_breakpoint_temporary(fd);
+}
+static void cmd_dap_until(int fd) { editor_dap_until(fd); }
+static void cmd_dap_goto(int fd) { editor_dap_goto(fd); }
+static void cmd_dap_restart(int fd) { editor_dap_restart(fd); }
+static void cmd_dap_evaluate(int fd) { editor_dap_evaluate(fd); }
+static void cmd_dap_repl(int fd) { editor_dap_repl(fd); }
+static void cmd_dap_frame_up(int fd) { editor_dap_frame_up(fd); }
+static void cmd_dap_frame_down(int fd) { editor_dap_frame_down(fd); }
+static void cmd_dap_many_windows(int fd) { editor_dap_many_windows(fd); }
 
 /* M-x occur, and the three keys its listing binds. */
 static void cmd_occur(int fd) { editor_occur(fd); }
@@ -1576,6 +1610,50 @@ static const struct named_cmd cmdtable[] = {
 	    "Copy the region into a register named by a key" },
 	{ "dabbrev-expand", cmd_dabbrev_expand, EDITS | LISP_OK,
 	    "Expand the word before point from this buffer" },
+	/* The debugger's nineteen (doc/plans/dap/01-protocol.md stage 6).
+	 * Unconditional rows, the xref commands' reason exactly; every one
+	 * of them is Lisp-callable, since scripting a debugger is what a
+	 * Lisp layer is FOR, and the three that prompt say so with
+	 * READS_TERM so that cmd_invoke() refuses them from an activation
+	 * with no descriptor to prompt on rather than reading fd -1.  None
+	 * of them carries EDITS: a breakpoint is not buffer text, and
+	 * debugging a read-only buffer is the ordinary case. */
+	{ "dap-breakpoint-temporary", cmd_dap_breakpoint_temporary, LISP_OK,
+	    "Set a one-shot breakpoint on this line" },
+	{ "dap-breakpoint-toggle", cmd_dap_breakpoint_toggle, LISP_OK,
+	    "Set or clear a breakpoint on this line" },
+	{ "dap-continue", cmd_dap_continue, LISP_OK,
+	    "Let the program run until it stops again" },
+	{ "dap-debug", cmd_dap_debug, READS_TERM | LISP_OK,
+	    "Start a debug session from a launch configuration" },
+	{ "dap-disconnect", cmd_dap_disconnect, LISP_OK,
+	    "End the session, leaving the program running" },
+	{ "dap-evaluate", cmd_dap_evaluate, READS_TERM | LISP_OK,
+	    "Evaluate an expression in the selected frame" },
+	{ "dap-frame-down", cmd_dap_frame_down, LISP_OK,
+	    "Select the frame this one was called from" },
+	{ "dap-frame-up", cmd_dap_frame_up, LISP_OK,
+	    "Select the caller of the selected frame" },
+	{ "dap-goto", cmd_dap_goto, READS_TERM | LISP_OK,
+	    "Jump execution to this line without running it" },
+	{ "dap-many-windows", cmd_dap_many_windows, LISP_OK,
+	    "Toggle the debugger's window layout" },
+	{ "dap-next", cmd_dap_next, LISP_OK,
+	    "Step over the call on this line" },
+	{ "dap-pause", cmd_dap_pause, LISP_OK,
+	    "Ask the running program to stop" },
+	{ "dap-repl", cmd_dap_repl, LISP_OK, "Show the debugger's REPL" },
+	{ "dap-restart", cmd_dap_restart, LISP_OK,
+	    "Restart the program under the same configuration" },
+	{ "dap-step-in", cmd_dap_step_in, LISP_OK,
+	    "Step into the call on this line" },
+	{ "dap-step-instruction", cmd_dap_step_instruction, LISP_OK,
+	    "Step one instruction rather than one line" },
+	{ "dap-step-out", cmd_dap_step_out, LISP_OK,
+	    "Run until the selected frame returns" },
+	{ "dap-terminate", cmd_dap_terminate, LISP_OK,
+	    "End the session and the program with it" },
+	{ "dap-until", cmd_dap_until, LISP_OK, "Run to this line, then stop" },
 	{ "delete-backward-char", cmd_delete_backward_char,
 	    EDITS | REPEATS | LISP_OK, "Delete the character before point" },
 	{ "delete-char", cmd_delete_char, EDITS | REPEATS | LISP_OK,

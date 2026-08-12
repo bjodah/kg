@@ -142,6 +142,54 @@ Protocol options:
     ``kgInitializeArguments`` event, which is how a case asserts what kg
     promised -- and, more to the point, what it did not.
 
+Session-choreography options (stage 4).  Each one is a measured ordering
+that a real adapter has and the others do not, which is why the session
+cannot be a linear state machine:
+
+``--launch-order {early,between,late}``
+    Where the ``launch``/``attach`` response falls [M-1].  ``early``
+    answers it as it arrives (lldb-dap, which answers before the
+    ``initialized`` event); ``between`` holds it until
+    ``configurationDone`` arrives and answers it BEFORE that one
+    (nbcode, delve); ``late`` answers it AFTER the ``configurationDone``
+    response (debugpy).  A client that waited on the launch response
+    before configuring deadlocks the third.
+``--no-initialized``
+    Never send the ``initialized`` event, so a case can assert that
+    configuration is driven by the event and by nothing else.  The event is
+    otherwise sent once, after the initialize response -- or before it, and
+    then not again, with ``--pre-init initialized``.
+``--stopped-before CMD`` (repeatable)
+    A ``stopped`` event immediately before answering CMD: with
+    ``configurationDone`` that is lldb-dap's stopOnEntry, whose stop lands
+    while the session is nominally still configuring [M-10].
+``--exited-after CMD``, ``--terminated-after CMD``
+    An ``exited`` event (carrying ``--exit-code``) or a ``terminated``
+    event after answering CMD.  They are separate on purpose: ``exited``
+    is the debuggee's status and does not end the session, ``terminated``
+    does [M-8].
+``--terminated-restart JSON``
+    The ``restart`` value that ``terminated`` carries, which a client
+    retains for its restart policy.
+``--terminated-twice``
+    Send ``terminated`` twice, which delve really does: ending must be
+    idempotent.
+``--breakpoint-fail PATH`` (repeatable)
+    Refuse ``setBreakpoints`` for that source alone, so a case can prove
+    one failed source is reported without wedging the join.
+``--report-arguments CMD`` (repeatable)
+    Report CMD's own ``arguments`` back as a ``kgArguments`` event before
+    answering it, which is how a case asserts what kg ASKED for -- the
+    exception filters it chose, the breakpoints it sent -- rather than
+    inferring it from what came back.
+``--die-after CMD``
+    Exit with ``--exit-code`` once CMD has been answered: an adapter that
+    crashed, whose session must end on end of stream alone.
+``--linger-after-eof``
+    Stay alive for ``--linger-seconds`` once the client has closed its
+    end, which is debugpy's adapter after ``disconnect`` and what the
+    grace/kill rungs of the shutdown ladder are for.
+
 Options:
 
 ``--listen``
@@ -325,6 +373,7 @@ class Protocol:
         self.client_responses = 0
         self.reordered = []
         self.reverse_held = []
+        self.held_launch = None
         self.event_before = pairs(args.event_before)
         self.error_message = pairs(args.error_message)
         self.error_format = pairs(args.error_format)
@@ -385,11 +434,21 @@ class Protocol:
         if self.args.report_initialize:
             self.event("kgInitializeArguments",
                        {"arguments": message.get("arguments")})
+        if "initialize" in self.error_message or "initialize" in self.error_format:
+            # An adapter that refuses `initialize` is not an adapter, and
+            # nothing that follows one happens: no capabilities, no
+            # `initialized`.
+            self.emit(message)
+            return
         self.reply(message, body=json.loads(self.args.capabilities))
         if self.args.capabilities_event and not self.args.capabilities_event_on:
             self.send_capabilities_event()
         for n in range(self.args.flood):
             self.event("kgFlood", {"n": n})
+        if not self.args.no_initialized and "initialized" not in self.args.pre_init:
+            # Once, and only once: an adapter that already sent it early
+            # (``--pre-init initialized``) does not send it again.
+            self.event("initialized")
 
     def send_capabilities_event(self):
         self.event("capabilities", {
@@ -410,8 +469,20 @@ class Protocol:
             return True
         return False
 
+    def source_refused(self, message):
+        """Whether this `setBreakpoints` names a source argv says to
+        refuse.  One source of several, so that a test sees the join
+        counting a failure rather than losing every breakpoint."""
+        arguments = message.get("arguments") or {}
+        source = arguments.get("source") or {}
+        return source.get("path") in self.args.breakpoint_fail
+
     def emit(self, message):
         command = message.get("command", "")
+        if command == "setBreakpoints" and self.source_refused(message):
+            self.reply(message, success=False,
+                       message="no such source")
+            return
         if command in self.error_message:
             self.reply(message, success=False,
                        message=self.error_message[command])
@@ -431,6 +502,9 @@ class Protocol:
 
     def answer(self, message):
         command = message.get("command", "")
+        if command in self.args.report_arguments:
+            self.event("kgArguments", {"command": command,
+                                       "arguments": message.get("arguments")})
         if command in self.event_before:
             self.event(self.event_before[command], {"tag": command})
         if self.args.capabilities_event and command == self.args.capabilities_event_on:
@@ -447,6 +521,14 @@ class Protocol:
                 return
         if command in self.args.no_reply:
             return
+        if command in ("launch", "attach") and self.args.launch_order != "early":
+            self.held_launch = message
+            return
+        if command in self.args.stopped_before:
+            self.event("stopped", {"reason": "breakpoint", "threadId": 1,
+                                   "allThreadsStopped": True})
+        if command == "configurationDone" and self.args.launch_order == "between":
+            self.release_launch()
         if command in self.args.reorder:
             self.reordered.append(message)
             if len(self.reordered) >= 2:
@@ -455,6 +537,33 @@ class Protocol:
                 self.reordered = []
             return
         self.emit(message)
+        self.after(command)
+
+    def release_launch(self):
+        held = self.held_launch
+        self.held_launch = None
+        if held is not None:
+            self.emit(held)
+
+    def send_terminated(self):
+        body = None
+        if self.args.terminated_restart:
+            body = {"restart": json.loads(self.args.terminated_restart)}
+        self.event("terminated", body)
+        if self.args.terminated_twice:
+            self.event("terminated", body)
+
+    def after(self, command):
+        """What follows an answer: the debuggee's own news, and the launch
+        response for the adapter that answers it last."""
+        if command == "configurationDone" and self.args.launch_order == "late":
+            self.release_launch()
+        if command in self.args.exited_after:
+            self.event("exited", {"exitCode": self.args.exit_code})
+        if command in self.args.terminated_after:
+            self.send_terminated()
+        if command in self.args.die_after:
+            raise SystemExit(self.args.exit_code)
 
     def on_request(self, message):
         if message.get("command") == "initialize":
@@ -492,6 +601,9 @@ class Protocol:
 
 def mode_protocol(stdin, stdout, args):
     Protocol(stdout, args).run(stdin)
+    if args.linger_after_eof:
+        note("protocol: input ended")
+        time.sleep(args.linger_seconds)
 
 
 MODES = {
@@ -590,6 +702,29 @@ def main(argv):
                         help="protocol: events after the initialize reply")
     parser.add_argument("--report-initialize", action="store_true",
                         help="protocol: report initialize's own arguments")
+    parser.add_argument("--launch-order", default="early",
+                        choices=("early", "between", "late"),
+                        help="protocol: where the launch response falls")
+    parser.add_argument("--no-initialized", action="store_true",
+                        help="protocol: never send the initialized event")
+    parser.add_argument("--stopped-before", action="append", default=[],
+                        help="protocol: a stopped event before answering CMD")
+    parser.add_argument("--exited-after", action="append", default=[],
+                        help="protocol: an exited event after answering CMD")
+    parser.add_argument("--terminated-after", action="append", default=[],
+                        help="protocol: a terminated event after answering CMD")
+    parser.add_argument("--terminated-restart", default="",
+                        help="protocol: the restart value terminated carries")
+    parser.add_argument("--terminated-twice", action="store_true",
+                        help="protocol: send terminated twice, as delve does")
+    parser.add_argument("--breakpoint-fail", action="append", default=[],
+                        help="protocol: refuse setBreakpoints for this source")
+    parser.add_argument("--die-after", action="append", default=[],
+                        help="protocol: exit once CMD has been answered")
+    parser.add_argument("--report-arguments", action="append", default=[],
+                        help="protocol: report CMD's arguments back")
+    parser.add_argument("--linger-after-eof", action="store_true",
+                        help="protocol: outlive the client's half-close")
     args = parser.parse_args(argv[1:])
     for line in args.stderr_line:
         note(line)

@@ -75,12 +75,20 @@ int buf_handle_slot(struct kg_buffer_handle handle) { return handle.slot; }
 static char g_model[1 << 16];
 static size_t g_model_len;
 
+/* Set by the one case that needs a compilation which never starts: a
+ * *compilation* buffer that cannot be prepared is the reachable half of
+ * COMPILATION_DONE_SPAWN_FAILED. */
+static int g_prepare_fails;
+
 int buf_prepare_special_text(
     const char *name, struct editor_syntax *syntax, int readonly)
 {
 	(void)name;
 	(void)syntax;
 	(void)readonly;
+	if (g_prepare_fails) {
+		return -1;
+	}
 	g_model_len = 0;
 	g_model[0] = '\0';
 	return 0;
@@ -447,6 +455,182 @@ static void test_kill_compilation_reaches_grandchild(void)
 	CHECK(strstr(g_model, "Compilation terminated by signal") != NULL);
 }
 
+/* ------------------------- the programmatic seam ---------------------- */
+
+/* What the completion callback saw.  `calls` is the assertion that matters
+ * in every case: a caller is called back exactly once or not at all, and
+ * never twice. */
+static struct {
+	int calls;
+	struct compilation_result result;
+	void *ctx;
+} g_done;
+
+static void note_done(const struct compilation_result *result, void *ctx)
+{
+	g_done.calls++;
+	g_done.result = *result;
+	g_done.ctx = ctx;
+}
+
+/* Poll the run AND the top-level delivery point, which is what the editor's
+ * main loop does; bounded, so a case that would hang fails instead. */
+static void pump_compilation(int milliseconds)
+{
+	for (int i = 0; i < milliseconds; i++) {
+		compilation_poll();
+		compilation_deliver_completion();
+		if (!compilation_is_running() && g_done.calls > 0) {
+			return;
+		}
+		usleep(1000);
+	}
+}
+
+static unsigned start_programmatic(const char *command)
+{
+	unsigned generation = 0;
+	char dir[PATH_MAX];
+
+	memset(&g_done, 0, sizeof(g_done));
+	if (!getcwd(dir, sizeof(dir))) {
+		strcpy(dir, ".");
+	}
+	CHECK(compilation_start_programmatic(
+		  command, dir, buf_handle(0), note_done, &g_done, &generation)
+	    == COMPILATION_ACCEPTED);
+	CHECK(generation != 0);
+	return generation;
+}
+
+/* The exit code reaches the caller, exactly once -- and the ordinary
+ * *compilation* behaviour is untouched: the same header, the same output,
+ * the same finish line. */
+static void test_programmatic_reports_the_exit_code(void)
+{
+	start_programmatic("printf 'built\\n'; exit 3");
+	pump_compilation(5000);
+
+	CHECK(g_done.calls == 1);
+	CHECK(g_done.result.status == COMPILATION_DONE_EXITED);
+	CHECK(g_done.result.exit_code == 3);
+	CHECK(!g_done.result.truncated);
+	CHECK(g_done.ctx == &g_done);
+	CHECK(!compilation_is_running());
+	CHECK(strstr(g_model, "Compilation started in ") != NULL);
+	CHECK(strstr(g_model, "built") != NULL);
+	CHECK(strstr(g_model, "Compilation finished with exit code 3") != NULL);
+}
+
+/* A compilation already running answers BUSY and asks nobody anything: the
+ * confirmation prompt this file stubs would have said no in any case, and
+ * the point is that it is never reached. */
+static void test_programmatic_is_busy_rather_than_prompting(void)
+{
+	unsigned second = 1234;
+	char dir[PATH_MAX];
+
+	if (!getcwd(dir, sizeof(dir))) {
+		strcpy(dir, ".");
+	}
+	start_programmatic("sleep 5");
+	for (int i = 0; i < 200 && !compilation_is_running(); i++) {
+		compilation_poll();
+		usleep(1000);
+	}
+	CHECK(compilation_is_running());
+	CHECK(compilation_start_programmatic(
+		  "true", dir, buf_handle(0), note_done, &g_done, &second)
+	    == COMPILATION_BUSY);
+	CHECK(second == 0);
+	CHECK(g_done.calls == 0);
+
+	/* C-c C-k ends it, and the run that was interrupted is reported as
+	 * interrupted rather than as a success. */
+	editor_kill_compilation(0);
+	pump_compilation(5000);
+	CHECK(g_done.calls == 1);
+	CHECK(g_done.result.status == COMPILATION_DONE_SIGNALLED);
+	CHECK(g_done.result.signal_number == SIGINT);
+}
+
+/* The callback runs at the top-level safe point and NOWHERE else:
+ * compilation_poll() runs underneath minibuffer prompts, and a callback
+ * that started a debug session from there would change buffers and windows
+ * under an unrelated question. */
+static void test_programmatic_completion_waits_for_the_safe_point(void)
+{
+	start_programmatic("exit 0");
+	for (int i = 0; i < 5000 && compilation_is_running(); i++) {
+		compilation_poll();
+		usleep(1000);
+	}
+	CHECK(!compilation_is_running());
+	CHECK(g_done.calls == 0);
+	compilation_deliver_completion();
+	CHECK(g_done.calls == 1);
+	CHECK(g_done.result.status == COMPILATION_DONE_EXITED);
+	/* Delivering again delivers nothing: exactly once. */
+	compilation_deliver_completion();
+	CHECK(g_done.calls == 1);
+}
+
+/* Cancelling by generation drops the callback and leaves the RUN alone: the
+ * user's compilation is not the caller's to kill, and *compilation* still
+ * finishes as it always did. */
+static void test_programmatic_cancellation_drops_only_the_callback(void)
+{
+	unsigned generation = start_programmatic("printf 'still here\\n'");
+
+	compilation_cancel_programmatic(generation);
+	for (int i = 0; i < 5000 && compilation_is_running(); i++) {
+		compilation_poll();
+		compilation_deliver_completion();
+		usleep(1000);
+	}
+	CHECK(!compilation_is_running());
+	CHECK(g_done.calls == 0);
+	CHECK(strstr(g_model, "still here") != NULL);
+	CHECK(strstr(g_model, "Compilation finished with exit code 0") != NULL);
+	/* A generation that has been cancelled, and one that never existed,
+	 * are both ignored rather than dropping somebody else's. */
+	compilation_cancel_programmatic(generation);
+	compilation_cancel_programmatic(0);
+}
+
+/* Nothing ever ran, and the caller still hears about it once: one
+ * completion path, not two. */
+static void test_programmatic_spawn_failure_is_a_completion(void)
+{
+	g_prepare_fails = 1;
+	start_programmatic("true");
+	g_prepare_fails = 0;
+	CHECK(!compilation_is_running());
+	CHECK(g_done.calls == 0);
+	compilation_deliver_completion();
+	CHECK(g_done.calls == 1);
+	CHECK(g_done.result.status == COMPILATION_DONE_SPAWN_FAILED);
+}
+
+/* The editor is exiting with a callback still owed: it is delivered, so a
+ * caller can release what it owns, rather than dropped. */
+static void test_programmatic_shutdown_delivers_a_cancellation(void)
+{
+	start_programmatic("sleep 5");
+	for (int i = 0; i < 200 && !compilation_is_running(); i++) {
+		compilation_poll();
+		usleep(1000);
+	}
+	compilation_shutdown();
+	CHECK(g_done.calls == 1);
+	CHECK(g_done.result.status == COMPILATION_DONE_CANCELLED);
+	CHECK(!compilation_is_running());
+	/* And the slot is free again afterwards. */
+	start_programmatic("true");
+	pump_compilation(5000);
+	CHECK(g_done.calls == 1);
+}
+
 int main(void)
 {
 	RUN(test_stream_seam_drives_parser);
@@ -461,5 +645,11 @@ int main(void)
 	RUN(test_resolve_relative_no_slash);
 	RUN(test_resolve_absolute);
 	RUN(test_kill_compilation_reaches_grandchild);
+	RUN(test_programmatic_reports_the_exit_code);
+	RUN(test_programmatic_is_busy_rather_than_prompting);
+	RUN(test_programmatic_completion_waits_for_the_safe_point);
+	RUN(test_programmatic_cancellation_drops_only_the_callback);
+	RUN(test_programmatic_spawn_failure_is_a_completion);
+	RUN(test_programmatic_shutdown_delivers_a_cancellation);
 	return test_summary();
 }

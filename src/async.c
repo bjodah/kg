@@ -11,10 +11,10 @@
 /* Keep this an exact sum: adding a subsystem means adding its public bound
  * here, then adding one collection and one poll below.  A literal public
  * bound keeps async.h standalone while this assertion prevents drift.
- * KG_DAP_WAIT_FDS_MAX is zero until a live transport is reachable from the
- * debugger facade -- src/dap.h says why that is later than the transport
- * itself -- so the sum is the LSP client's bound today and the raise that
- * changes it is a failed assertion here rather than a truncated wait. */
+ * KG_DAP_WAIT_FDS_MAX was zero until a live transport was reachable from
+ * the debugger facade, which is what the session registry made it; the
+ * raise came through this assertion rather than through a truncated
+ * wait. */
 static_assert(
     KG_ASYNC_WAIT_FDS_MAX == KG_LSP_WAIT_FDS_MAX + KG_DAP_WAIT_FDS_MAX,
     "KG_ASYNC_WAIT_FDS_MAX must equal every subsystem wait-fd bound");

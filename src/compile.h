@@ -107,4 +107,98 @@ int compilation_is_running(void);
 void compilation_shutdown(void);
 void editor_kill_compilation(int fd);
 
+/* ------------------------- the programmatic seam ---------------------- */
+
+/* A compilation somebody other than the user asked for, and the one thing
+ * M-x compile never had to answer: what happened.
+ *
+ * It exists for the debugger's optional `build` step
+ * (doc/plans/dap/01-protocol.md stage 4), which must run `make` and then
+ * launch only if it worked -- but it is an EDITOR seam, not a debugger one:
+ * it is compiled in every configuration, it names nothing about debugging,
+ * and any later caller that needs "run this and tell me" gets the same
+ * three properties.
+ *
+ * What makes it different from the interactive entry points, and why it is
+ * a separate function rather than a flag on one of them:
+ *
+ *   - It never prompts.  A compilation already running answers
+ *     COMPILATION_BUSY and nothing else happens; asking a user "kill it?"
+ *     on behalf of a caller who is halfway through starting a debug session
+ *     is a question with no good answer.
+ *   - The completion callback runs EXACTLY ONCE for every accepted call,
+ *     and only at a top-level safe point -- compilation_deliver_completion()
+ *     below, which the main loop calls where it already launches deferred
+ *     restarts.  Never from inside compilation_poll(): that runs underneath
+ *     minibuffer prompts, and a callback that starts a debug session there
+ *     would change buffers and windows under an unrelated question.
+ *   - A caller that has given up says so by generation
+ *     (compilation_cancel_programmatic()), which drops the callback without
+ *     touching the run: the build keeps going and *compilation* keeps its
+ *     output, because the user's compilation is not the caller's to kill.
+ *
+ * Everything else about the run is ordinary: the same *compilation* buffer,
+ * the same header and finish lines, the same diagnostics hooks, the same
+ * C-c C-k. */
+enum compilation_done_status {
+	/* The child exited; `exit_code` says with what.  Zero is the only
+	 * "it worked", and it is the caller's test, not this module's. */
+	COMPILATION_DONE_EXITED = 0,
+	/* A signal ended it, `signal_number` says which -- including the
+	 * SIGINT/SIGKILL of C-c C-k, so a build the user killed is reported
+	 * rather than silently unfinished. */
+	COMPILATION_DONE_SIGNALLED,
+	/* Nothing ever ran: the compilation buffer could not be prepared, or
+	 * the child could not be spawned.  Reported through the callback
+	 * like every other outcome, so a caller has one completion path
+	 * rather than two. */
+	COMPILATION_DONE_SPAWN_FAILED,
+	/* The editor is shutting down and the run is being abandoned.  The
+	 * callback runs so a caller can release what it owns; nothing about
+	 * the build is claimed. */
+	COMPILATION_DONE_CANCELLED,
+};
+
+struct compilation_result {
+	enum compilation_done_status status;
+	int exit_code;
+	int signal_number;
+	/* Whether output hit the retained-output budget.  A build whose
+	 * diagnostics were cut short still succeeded or failed on its exit
+	 * code; this is how a caller knows the buffer is incomplete. */
+	bool truncated;
+};
+
+/* `ctx` is the caller's and is never touched here beyond being handed
+ * back.  It must stay valid until the callback runs or until
+ * compilation_cancel_programmatic() has been called with this run's
+ * generation -- after either, this module holds nothing of the caller's. */
+typedef void (*compilation_done_fn)(
+    const struct compilation_result *result, void *ctx);
+
+enum compilation_start_result {
+	/* The callback will run exactly once, later. */
+	COMPILATION_ACCEPTED = 0,
+	/* A compilation is running, or an accepted one's completion has not
+	 * been delivered yet.  Nothing was started and the callback will
+	 * never run. */
+	COMPILATION_BUSY,
+};
+
+enum compilation_start_result compilation_start_programmatic(
+    const char *command, const char *directory, struct kg_buffer_handle source,
+    compilation_done_fn done_fn, void *ctx, unsigned *generation_out);
+
+/* Abandon the completion of `generation`: its callback will not run and
+ * this module drops its context pointer.  An unknown or already-delivered
+ * generation is ignored, which is what makes it safe to call from a
+ * caller's own teardown without remembering whether it raced the
+ * delivery. */
+void compilation_cancel_programmatic(unsigned generation);
+
+/* Run a completed programmatic run's callback, if there is one waiting.
+ * Called from the top-level input loops beside
+ * compilation_start_pending_restart(), and from nowhere else. */
+void compilation_deliver_completion(void);
+
 #endif

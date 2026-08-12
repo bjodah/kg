@@ -641,6 +641,165 @@ static void test_writer_top_level_array(void)
 	free(out);
 }
 
+/* The writer's numeric half.  JSON has one numeric type, so what matters
+ * is that a value survives the round trip and that the two things JSON
+ * cannot spell are refused rather than written as words. */
+static void test_writer_numbers(void)
+{
+	static const double values[] = { 0.0, 1.0, -1.0, 0.1, 0.5, 1e300,
+		1e-300, 3.141592653589793, 1234567890123.0, -0.0 };
+	struct kg_jsonw w;
+	struct kg_json *doc;
+	char *out = NULL;
+	size_t len = 0;
+	size_t i;
+
+	for (i = 0; i < sizeof(values) / sizeof(*values); i++) {
+		kg_jsonw_init(&w);
+		kg_jsonw_number(&w, values[i]);
+		CHECKF(kg_jsonw_finish(&w, &out, &len) == 0, "%g", values[i]);
+		if (!out) {
+			continue;
+		}
+		doc = kg_json_parse(out, len, NULL);
+		CHECKF(doc != NULL, "`%s` is not JSON", out);
+		CHECKF(kg_json_num(kg_json_root(doc), 1.0) == values[i],
+		    "%g came back as %s", values[i], out);
+		kg_json_free(doc);
+		free(out);
+		out = NULL;
+	}
+	/* And the shortest spelling is chosen, so a `0.1` a user wrote stays
+	 * one rather than becoming 0.10000000000000001. */
+	kg_jsonw_init(&w);
+	kg_jsonw_number(&w, 0.1);
+	CHECK(kg_jsonw_finish(&w, &out, &len) == 0);
+	if (out) {
+		CHECK(strcmp(out, "0.1") == 0);
+		free(out);
+	}
+	/* Neither an infinity nor a NaN is a JSON value. */
+	kg_jsonw_init(&w);
+	kg_jsonw_number(&w, 1.0 / 0.0);
+	CHECK(kg_jsonw_finish(&w, &out, &len) == -1);
+	kg_jsonw_init(&w);
+	kg_jsonw_number(&w, 0.0 / 0.0);
+	CHECK(kg_jsonw_finish(&w, &out, &len) == -1);
+}
+
+/* Serialising a PARSED value, which is the one crossing between the two
+ * halves: the copy must preserve exactly what a protocol peer distinguishes
+ * -- null against omission, a float against an integer, a key or a string
+ * containing a NUL -- and it must escape rather than splice. */
+static void test_writer_copies_a_parsed_value(void)
+{
+	static const char text[]
+	    = "{\"a\":null,\"b\":[1,2.5,true,\"q\\\"q\"],"
+	      "\"c\":{\"d\":\"line\\nbreak\"},\"e\":-0.75,\"f\":\"\"}";
+	struct kg_json *doc = kg_json_parse(text, sizeof(text) - 1, NULL);
+	struct kg_json *again;
+	struct kg_jsonw w;
+	char *out = NULL;
+	size_t len = 0;
+
+	CHECK(doc != NULL);
+	if (!doc) {
+		return;
+	}
+	kg_jsonw_init(&w);
+	kg_jsonw_value(&w, kg_json_root(doc));
+	CHECK(kg_jsonw_finish(&w, &out, &len) == 0);
+	if (!out) {
+		kg_json_free(doc);
+		return;
+	}
+	/* The compact canonical form of the same document. */
+	CHECK(strcmp(out, text) == 0);
+	again = kg_json_parse(out, len, NULL);
+	CHECK(again != NULL);
+	CHECK(kg_json_kind_of(kg_json_get(kg_json_root(again), "a"))
+	    == KG_JSON_NULL);
+	CHECK(kg_json_kind_of(kg_json_get(kg_json_root(again), "zzz"))
+	    == KG_JSON_NONE);
+	CHECK(kg_json_num(kg_json_get(kg_json_root(again), "e"), 0.0) == -0.75);
+	kg_json_free(again);
+	kg_json_free(doc);
+	free(out);
+
+	/* A NULL node is not a value and cannot stand in for one. */
+	kg_jsonw_init(&w);
+	kg_jsonw_value(&w, NULL);
+	CHECK(kg_jsonw_finish(&w, &out, &len) == -1);
+}
+
+/* A key with a NUL in it is legal JSON, and a copy that used strlen would
+ * lose the half after it. */
+static void test_writer_keeps_a_nul_bearing_key(void)
+{
+	static const char text[] = "{\"a\\u0000b\":1}";
+	struct kg_json *doc = kg_json_parse(text, sizeof(text) - 1, NULL);
+	struct kg_jsonw w;
+	char *out = NULL;
+	size_t len = 0;
+
+	CHECK(doc != NULL);
+	if (!doc) {
+		return;
+	}
+	kg_jsonw_init(&w);
+	kg_jsonw_value(&w, kg_json_root(doc));
+	CHECK(kg_jsonw_finish(&w, &out, &len) == 0);
+	if (out) {
+		CHECK(strcmp(out, "{\"a\\u0000b\":1}") == 0);
+		free(out);
+	}
+	kg_json_free(doc);
+}
+
+/* Duplicate members: data for a protocol peer, a refusal for a file.  The
+ * flag is what keeps those two answers apart, and the refusal carries the
+ * offset of the object that carried both. */
+static void test_duplicate_keys_only_under_the_flag(void)
+{
+	static const char text[] = "{\"a\":1,\"b\":{\"c\":1,\"c\":2}}";
+	struct kg_json *doc;
+	size_t offset = 0;
+	char many[16 * 1024];
+	size_t used;
+	size_t i;
+
+	doc = kg_json_parse(text, sizeof(text) - 1, &offset);
+	CHECK(doc != NULL);
+	kg_json_free(doc);
+
+	doc = kg_json_parse_ex(
+	    text, sizeof(text) - 1, KG_JSON_REJECT_DUPLICATE_KEYS, &offset);
+	CHECK(doc == NULL);
+	CHECK(offset > 0);
+	/* Distinct keys are still accepted under the flag, at every
+	 * depth. */
+	doc = kg_json_parse_ex("{\"a\":{\"a\":1},\"b\":2}",
+	    strlen("{\"a\":{\"a\":1},\"b\":2}"), KG_JSON_REJECT_DUPLICATE_KEYS,
+	    &offset);
+	CHECK(doc != NULL);
+	kg_json_free(doc);
+
+	/* Asking for the check bounds how many members one object may have,
+	 * because the check is pairwise. */
+	used = (size_t)snprintf(many, sizeof(many), "{");
+	for (i = 0; i <= KG_JSON_STRICT_MAX_MEMBERS; i++) {
+		used += (size_t)snprintf(many + used, sizeof(many) - used,
+		    "%s\"k%zu\":1", i ? "," : "", i);
+	}
+	used += (size_t)snprintf(many + used, sizeof(many) - used, "}");
+	doc = kg_json_parse(many, used, NULL);
+	CHECK(doc != NULL);
+	kg_json_free(doc);
+	doc = kg_json_parse_ex(
+	    many, used, KG_JSON_REJECT_DUPLICATE_KEYS, &offset);
+	CHECK(doc == NULL);
+}
+
 int main(void)
 {
 	RUN(test_scalars);
@@ -662,5 +821,9 @@ int main(void)
 	RUN(test_writer_round_trip);
 	RUN(test_writer_refusals);
 	RUN(test_writer_top_level_array);
+	RUN(test_writer_numbers);
+	RUN(test_writer_copies_a_parsed_value);
+	RUN(test_writer_keeps_a_nul_bearing_key);
+	RUN(test_duplicate_keys_only_under_the_flag);
 	return test_summary();
 }

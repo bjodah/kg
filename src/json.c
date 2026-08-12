@@ -82,6 +82,7 @@ struct parser {
 	size_t sbuf_len;
 	size_t sbuf_cap;
 	unsigned depth;
+	unsigned flags;
 	size_t err;
 };
 
@@ -541,6 +542,40 @@ static int parse_element(struct parser *p, char close, bool keyed)
 	return -1;
 }
 
+/* The members an object just closed are the topmost run of the scratch
+ * stack, which is what makes this pairwise scan cheap enough to be honest:
+ * it compares keys that are already decoded and already contiguous.  The
+ * member bound is what keeps "pairwise" from meaning "quadratic in the file
+ * size" (see KG_JSON_STRICT_MAX_MEMBERS).  The offset a refusal reports is
+ * the closing brace, because a member does not remember where it was
+ * written and a document that names one setting twice is wrong at the
+ * object rather than at either spelling. */
+static bool check_unique_keys(struct parser *p, size_t base, bool keyed)
+{
+	const struct kg_json_value *members = p->stack + base;
+	size_t n = p->stack_len - base;
+	size_t i;
+	size_t j;
+
+	if (!keyed || !(p->flags & KG_JSON_REJECT_DUPLICATE_KEYS)) {
+		return true;
+	}
+	if (n > KG_JSON_STRICT_MAX_MEMBERS) {
+		return fail(p);
+	}
+	for (i = 1; i < n; i++) {
+		for (j = 0; j < i; j++) {
+			if (members[i].key_len == members[j].key_len
+			    && memcmp(members[i].key, members[j].key,
+				   members[i].key_len)
+				== 0) {
+				return fail(p);
+			}
+		}
+	}
+	return true;
+}
+
 /* Arrays and objects differ in two characters and in whether an element
  * carries a name, so they are one function: the shape they share --
  * depth accounting, the empty case, the scratch run, the copy -- is all of
@@ -566,6 +601,9 @@ static bool parse_container(
 		if (rc < 0) {
 			return false;
 		}
+	}
+	if (!check_unique_keys(p, base, keyed)) {
+		return false;
 	}
 	p->depth--;
 	return take_children(p, base, &out->u.list.items, &out->u.list.count);
@@ -609,6 +647,12 @@ static bool parse_value(struct parser *p, struct kg_json_value *out)
 
 struct kg_json *kg_json_parse(const char *text, size_t len, size_t *err_offset)
 {
+	return kg_json_parse_ex(text, len, 0u, err_offset);
+}
+
+struct kg_json *kg_json_parse_ex(
+    const char *text, size_t len, unsigned flags, size_t *err_offset)
+{
 	struct parser p = { 0 };
 	struct kg_json *doc;
 	bool ok;
@@ -626,6 +670,7 @@ struct kg_json *kg_json_parse(const char *text, size_t len, size_t *err_offset)
 	p.text = text;
 	p.len = len;
 	p.doc = doc;
+	p.flags = flags;
 	ok = parse_value(&p, &doc->root);
 	if (ok) {
 		skip_ws(&p);
@@ -863,12 +908,17 @@ void kg_jsonw_end_array(struct kg_jsonw *w)
 	w->pending_comma = true;
 }
 
-void kg_jsonw_key(struct kg_jsonw *w, const char *key)
+void kg_jsonw_keyn(struct kg_jsonw *w, const char *key, size_t len)
 {
 	w_before_value(w);
-	w_escaped(w, key, strlen(key));
+	w_escaped(w, key, len);
 	w_char(w, ':');
 	w->pending_comma = false;
+}
+
+void kg_jsonw_key(struct kg_jsonw *w, const char *key)
+{
+	kg_jsonw_keyn(w, key, strlen(key));
 }
 
 void kg_jsonw_stringn(struct kg_jsonw *w, const char *s, size_t len)
@@ -905,6 +955,97 @@ void kg_jsonw_null(struct kg_jsonw *w)
 {
 	w_before_value(w);
 	w_append(w, "null", 4);
+}
+
+/* The shortest decimal that reads back as `value`.  Seventeen significant
+ * digits always round-trip a double and fifteen usually do, so the three
+ * are tried in order and the first that survives strtod() is the one
+ * written: it keeps a `0.1` a user typed from becoming
+ * `0.10000000000000001` on its way to an adapter, without ever writing a
+ * number that means something else.  kg never calls setlocale(), so the
+ * decimal point is '.' as JSON requires. */
+void kg_jsonw_number(struct kg_jsonw *w, double value)
+{
+	char buf[KG_JSON_MAX_NUMBER_CHARS];
+	int precision;
+	int n = 0;
+
+	/* Neither an infinity nor a NaN can be spelled in JSON, and the words
+	 * printf would write for them are not values any parser accepts. */
+	if (!(value >= -DBL_MAX && value <= DBL_MAX)) {
+		w->failed = true;
+		return;
+	}
+	for (precision = 15; precision <= 17; precision++) {
+		n = snprintf(buf, sizeof(buf), "%.*g", precision, value);
+		if (n < 0 || (size_t)n >= sizeof(buf)) {
+			w->failed = true;
+			return;
+		}
+		if (strtod(buf, NULL) == value) {
+			break;
+		}
+	}
+	w_before_value(w);
+	w_append(w, buf, (size_t)n);
+}
+
+/* One node, with its own depth guard.  The bound is the parser's, because
+ * every node this is ever called on came from the parser and so is already
+ * within it; the check is here anyway so that this function's recursion is
+ * bounded by its own argument rather than by an invariant somewhere else. */
+static void w_value(
+    struct kg_jsonw *w, const struct kg_json_value *v, unsigned depth)
+{
+	size_t count = kg_json_len(v);
+	const char *s;
+	size_t len = 0;
+	size_t i;
+
+	if (depth > KG_JSON_MAX_DEPTH) {
+		w->failed = true;
+		return;
+	}
+	switch (kg_json_kind_of(v)) {
+	case KG_JSON_NONE:
+		w->failed = true;
+		return;
+	case KG_JSON_NULL:
+		kg_jsonw_null(w);
+		return;
+	case KG_JSON_BOOL:
+		kg_jsonw_bool(w, kg_json_bool(v, false));
+		return;
+	case KG_JSON_NUMBER:
+		kg_jsonw_number(w, kg_json_num(v, 0.0));
+		return;
+	case KG_JSON_STRING:
+		s = kg_json_str(v, &len);
+		kg_jsonw_stringn(w, s, len);
+		return;
+	case KG_JSON_ARRAY:
+		kg_jsonw_begin_array(w);
+		for (i = 0; i < count; i++) {
+			w_value(w, kg_json_at(v, i), depth + 1);
+		}
+		kg_jsonw_end_array(w);
+		return;
+	case KG_JSON_OBJECT:
+		kg_jsonw_begin_object(w);
+		for (i = 0; i < count; i++) {
+			s = kg_json_key_at(v, i, &len);
+			kg_jsonw_keyn(w, s ? s : "", s ? len : 0);
+			w_value(w, kg_json_at(v, i), depth + 1);
+		}
+		kg_jsonw_end_object(w);
+		return;
+	}
+	w->failed = true;
+}
+
+void kg_jsonw_value(struct kg_jsonw *w, const struct kg_json_value *v)
+{
+	w_value(w, v, 0);
 }
 
 void kg_jsonw_raw(struct kg_jsonw *w, const char *json, size_t len)

@@ -45,19 +45,22 @@ static void test_no_live_subsystem_is_a_valid_empty_wait(void)
 	CHECK(editor_async_poll() == 0);
 }
 
-/* The debugger joined the aggregate before it had a transport, which is the
- * one thing worth asserting about it now: it reports no descriptor in
- * either build configuration, and the aggregate's destination bound is the
- * exact sum of the two subsystems' -- the property that makes a later raise
- * a compile-time question in src/async.c rather than a wait that quietly
+/* The debugger reports a session's descriptors now that a registry holds
+ * one (stage 4), and with no session running it reports none -- in either
+ * build configuration.  What is worth asserting here is the arithmetic
+ * around it: the aggregate's destination bound is still the exact sum of
+ * the subsystem bounds, which is the property that makes the NEXT raise a
+ * compile-time question in src/async.c rather than a wait that quietly
  * dropped an adapter. */
-static void test_dap_contributes_no_descriptor_yet(void)
+static void test_dap_reports_no_descriptor_without_a_session(void)
 {
 	int fds[KG_ASYNC_WAIT_FDS_MAX];
 
 	static_assert(
 	    KG_ASYNC_WAIT_FDS_MAX == KG_LSP_WAIT_FDS_MAX + KG_DAP_WAIT_FDS_MAX,
 	    "the aggregate bound is the sum of the subsystem bounds");
+	static_assert(KG_DAP_WAIT_FDS_MAX > 0,
+	    "the debugger facade can report a descriptor since stage 4");
 	CHECK(dap_wait_fds(fds, KG_ASYNC_WAIT_FDS_MAX) == 0);
 	CHECK(dap_poll() == 0);
 }
@@ -172,7 +175,7 @@ int main(void)
 {
 	RUN(test_invalid_destinations_write_nothing);
 	RUN(test_no_live_subsystem_is_a_valid_empty_wait);
-	RUN(test_dap_contributes_no_descriptor_yet);
+	RUN(test_dap_reports_no_descriptor_without_a_session);
 #ifdef KG_USE_LSP
 	RUN(test_live_lsp_is_aggregated_and_wakes_the_wait);
 #endif

@@ -793,6 +793,7 @@ void editor_insert_file(int fd) { (void)fd; }
 
 int compilation_poll(void) { return 0; }
 void compilation_start_pending_restart(void) { }
+void compilation_deliver_completion(void) { }
 void editor_kill_compilation(int fd) { (void)fd; }
 
 /* The buffer-manager and window-manager entry points src/lisp_obj.c reaches

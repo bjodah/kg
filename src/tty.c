@@ -800,6 +800,7 @@ static void idle_tick_work(void)
 	changed |= autorevert_poll();
 	changed |= compilation_poll();
 	compilation_start_pending_restart();
+	compilation_deliver_completion();
 	/* Not part of `changed`: this only moves bytes fd -> queue and
 	 * publishes events, so there is nothing here yet for a repaint to
 	 * show -- the drain that would change the screen runs from a safe

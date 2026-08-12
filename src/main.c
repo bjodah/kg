@@ -249,6 +249,7 @@ int main(int argc, char **argv)
 		editor_process_pending_signals();
 		compilation_poll();
 		compilation_start_pending_restart();
+		compilation_deliver_completion();
 		autorevert_poll();
 		kg_process_table_poll();
 		editor_async_poll();

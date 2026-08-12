@@ -12,11 +12,19 @@
  * and what keeps a third-party JSON library out of a repository whose rule
  * is no new dependencies.
  *
- * Two halves that never meet.  Reading is a parser producing a read-only
+ * Two halves that barely meet.  Reading is a parser producing a read-only
  * tree; writing is an append-only builder producing bytes.  There is
- * deliberately no way to build a tree and serialise it: kg's requests are
+ * deliberately no way to BUILD a tree and serialise it: kg's requests are
  * known at their call sites, so a builder is shorter to write, shorter to
  * read, and cannot allocate a node it forgets to free.
+ *
+ * The one crossing is kg_jsonw_value(), which writes a node that was
+ * PARSED.  It exists for the debugger's launch configuration
+ * (doc/plans/dap/01-protocol.md stage 4), whose `arguments` object is
+ * validated, copied with substitutions applied inside its decoded strings,
+ * and handed on as one value.  Doing that by splicing text into raw JSON
+ * would be the bug: an environment variable holding `a"b\c` pasted
+ * textually produces a document that is either invalid or attacker-shaped.
  *
  * Ownership is a single pointer on each side.  A parsed document owns
  * every node and every decoded string in one arena and is released by one
@@ -79,6 +87,25 @@ enum kg_json_kind {
 struct kg_json;
 struct kg_json_value;
 
+/* Parse flags, for the one caller whose document is a FILE rather than a
+ * message from a peer.
+ *
+ * KG_JSON_REJECT_DUPLICATE_KEYS turns `{"a":1,"a":2}` from a document whose
+ * meaning depends on which member a reader happens to take into a syntax
+ * error.  It is off by default because a protocol peer's duplicate member
+ * is not worth failing a session over -- kg_json_get() takes the first, and
+ * that is a defined answer -- and it is on for a configuration file, where
+ * the two spellings of one setting are the user's mistake and reporting it
+ * is the whole point.
+ *
+ * Asking for it also bounds how many members one object may have
+ * (KG_JSON_STRICT_MAX_MEMBERS), because the check is pairwise: an object
+ * with a hundred thousand members would otherwise cost a hundred million
+ * comparisons to say something about.  A thousand members in one object is
+ * already past anything a configuration file has a reason to hold. */
+#define KG_JSON_REJECT_DUPLICATE_KEYS 1u
+#define KG_JSON_STRICT_MAX_MEMBERS 1024u
+
 /* Parse the whole of `text[0..len)` as one JSON document.  Returns NULL on
  * any syntax error, on exceeding a bound above, or on allocation failure;
  * `err_offset`, when given, is set to the byte offset the parser stopped
@@ -95,6 +122,12 @@ struct kg_json_value;
  * document's single top-level value is an error, so a reply with a stray
  * half-message glued to it is refused rather than half-read. */
 struct kg_json *kg_json_parse(const char *text, size_t len, size_t *err_offset);
+
+/* The same parse under the flags above.  kg_json_parse() is this with no
+ * flag set, which is what every protocol caller wants and why it stays the
+ * short name. */
+struct kg_json *kg_json_parse_ex(
+    const char *text, size_t len, unsigned flags, size_t *err_offset);
 
 /* Release a document and, with it, every node and string reachable from
  * it.  Any `struct kg_json_value *` obtained from it dangles afterwards.
@@ -207,6 +240,11 @@ void kg_jsonw_end_array(struct kg_jsonw *w);
  * closed, which is the unbalanced-call mistake that actually happens. */
 void kg_jsonw_key(struct kg_jsonw *w, const char *key);
 
+/* The same, for a key that carries its length.  A JSON key may legally
+ * contain a NUL, and a copied object's keys are copied rather than
+ * shortened at the first one. */
+void kg_jsonw_keyn(struct kg_jsonw *w, const char *key, size_t len);
+
 /* Strings.  Escaping is not optional and not the caller's job: the quote,
  * the backslash and every byte below 0x20 are escaped on the way out, so a
  * file path with a backslash or a diagnostic with a newline in it cannot
@@ -223,6 +261,26 @@ void kg_jsonw_stringn(struct kg_jsonw *w, const char *s, size_t len);
 void kg_jsonw_int(struct kg_jsonw *w, long long value);
 void kg_jsonw_bool(struct kg_jsonw *w, bool value);
 void kg_jsonw_null(struct kg_jsonw *w);
+
+/* A number that is not an integer.  JSON has no way to spell an infinity or
+ * a NaN, so one of those fails the builder rather than being written as a
+ * word no parser accepts; every finite double is written as the SHORTEST
+ * decimal that reads back as itself, so a `0.1` a user wrote stays `0.1`
+ * and a value that survived a round trip is the same value. */
+void kg_jsonw_number(struct kg_jsonw *w, double value);
+
+/* Write a parsed node as one value, members and elements and all.  The
+ * copy is exact in the ways that matter to a protocol peer: omission stays
+ * omission (a member that was not there is not invented), null stays null
+ * rather than becoming an omission, and a number stays a number rather
+ * than being rounded into an integer -- debugpy errors on an explicit null
+ * where it expects a member to be absent, so the difference is not
+ * cosmetic.  What is not preserved is member ORDER's meaning, which JSON
+ * gives none, and whitespace: this writes the canonical compact form.
+ *
+ * A NULL node writes nothing at all and fails the builder, since there is
+ * no value to stand for it. */
+void kg_jsonw_value(struct kg_jsonw *w, const struct kg_json_value *v);
 
 /* Splice in bytes that are already JSON, as one value.  It is here for the
  * client layer's one recurring need -- a request id or a params blob kept

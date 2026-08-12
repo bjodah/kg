@@ -8,14 +8,14 @@
  * a KG_USE_DAP conditional, and a WITH_DAP=0 editor simply calls entry
  * points that do nothing.
  *
- * What is behind it so far is the axis, the three keymaps and, since stages
- * 2 and 3, src/dap_transport.c and src/dap_client.c -- which no editor
- * module reaches and this header does not name: a client is created by
- * whoever wants an adapter, and nothing an editor can reach wants one yet,
- * so these four functions still have nothing to do.  The remaining protocol
- * modules (config, session, breakpoints) land in later stages behind these
- * same four functions; their headers are included by their real C
- * consumers, never from here.
+ * What is behind it so far is the axis, the three keymaps, the transport
+ * and the client of stages 2 and 3, and -- since stage 4 -- the session
+ * registry that finally HOLDS one.  That is what made these legs real: a
+ * session owns a client, the registry owns the sessions, and dap_poll() and
+ * dap_wait_fds() are the registry's own legs seen from the editor.  The
+ * remaining protocol modules (config, breakpoints) sit behind the same four
+ * functions; their headers are included by their real C consumers, never
+ * from here.
  *
  * When commands do arrive, the WITH_DAP=0 story is the one the tree already
  * uses for the language-server commands (src/xref.c's `#else` half, and the
@@ -50,18 +50,26 @@ void dap_shutdown(void);
  * read the same way by the idle loop. */
 int dap_poll(void);
 
-/* How many descriptors dap_wait_fds() may write.  Zero, and honestly so.
- * src/dap_transport.c (stage 2) has descriptors and reports them through
- * dap_transport_wait_fds(), and src/dap_client.c (stage 3) passes them on
- * through dap_client_wait_fds() -- but a client is only as reachable as
- * whatever holds one, and what holds one is the session of stage 4.  Until
- * then this facade has nothing to ask and dap_wait_fds() has nothing to
- * answer.  A bound raised ahead of that would size the editor's wait for
- * descriptors that provably cannot exist, which is a promise rather than a
- * fact; the raise belongs with the stage that gives dap_wait_fds()
- * something to report.  src/async.c's static_assert is what makes it a
- * compile-time question then rather than a silently truncated wait. */
-#define KG_DAP_WAIT_FDS_MAX 0
+/* How many descriptors dap_wait_fds() may write: every session the registry
+ * can hold times every descriptor its transport waits on
+ * (DAP_SESSION_MAX_SESSIONS x DAP_TRANSPORT_WAIT_FDS_MAX, which
+ * src/dap_session.c asserts against at compile time).  Spelled as a number
+ * here rather than as those two names because this header stays
+ * free-standing, and because it is what a caller sizes an array with --
+ * KG_LSP_WAIT_FDS_MAX's arrangement exactly.
+ *
+ * It was zero until stage 4, and honestly so: a client is only as
+ * reachable as whatever holds one, and until the session registry existed
+ * nothing did.  It is raised HERE, in the same change that gives
+ * dap_wait_fds() something to report, and src/async.c's static_assert is
+ * what turned that raise into a compile-time question rather than a
+ * silently truncated wait.
+ *
+ * The number is the same in both build configurations, as the LSP client's
+ * is: a WITH_DAP=0 editor calls a leg that answers zero, and two unused
+ * ints in the editor's wait buffer are cheaper than a bound that changes
+ * with the build. */
+#define KG_DAP_WAIT_FDS_MAX 2
 
 /* The descriptors the editor's idle wait should include, so that the next
  * dap_poll() happens when an adapter writes rather than when the idle tick

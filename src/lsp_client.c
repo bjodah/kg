@@ -535,7 +535,11 @@ static struct kg_json *error_doc(int code, const char *message)
  * knows which it was.
  *
  * LSP_TRANSPORT_OK is the child dying with the stream still healthy, which
- * is what "server exited" has always meant. */
+ * is what "server exited" has always meant -- unless no frame was ever
+ * received, in which case it gets the same sentence as an unanswered EOF:
+ * whether the reap or the stream end is noticed first is scheduling (under
+ * valgrind it flips), and the user-facing distinction is "did it ever
+ * answer", not which detector fired. */
 static const char *transport_death_text(struct lsp_client *c)
 {
 	switch (lsp_transport_error(c->t)) {
@@ -558,7 +562,9 @@ static const char *transport_death_text(struct lsp_client *c)
 	case LSP_TRANSPORT_OK:
 		break;
 	}
-	return "server exited";
+	return c->frame_seen ? "server exited"
+			     : "the server closed the connection "
+			       "without answering";
 }
 
 static void client_die(struct lsp_client *c, const char *why)

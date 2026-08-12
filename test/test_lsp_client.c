@@ -1834,9 +1834,10 @@ static void test_start_failure_is_reported(void)
 		return;
 	}
 	CHECK(pump_until_state(c, LSP_CLIENT_DEAD) == LSP_CLIENT_DEAD);
-	CHECK(strstr(log_seen,
-		  "the server closed the connection without answering")
-	    != NULL);
+	CHECKF(strstr(log_seen,
+		   "the server closed the connection without answering")
+		!= NULL,
+	    "log said instead: %s", log_seen);
 	/* And not the blanket wording every other failure used to share. */
 	CHECK(strstr(log_seen, "[lsp] server exited\n") == NULL);
 	lsp_client_dispose(c, 50);

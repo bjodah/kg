@@ -302,6 +302,13 @@ int dap_client_poll(struct dap_client *c);
  * of waiting for its next idle tick. */
 bool dap_client_wants_poll(const struct dap_client *c);
 
+/* TEST ONLY: cap the per-poll message budget, 0 restoring the built-in
+ * bound.  One message per poll makes every phase transition observable
+ * from outside -- a burst that stops and continues in one poll is correct
+ * but shows a suite only its last phase.  Process-wide, like the budget it
+ * overrides. */
+void dap_client_set_max_messages_per_poll_for_test(unsigned n);
+
 /* The descriptors a caller's own wait should include so the next poll
  * happens when the adapter writes rather than when a clock says so; the
  * transport decides which, and DAP_TRANSPORT_WAIT_FDS_MAX is what to size

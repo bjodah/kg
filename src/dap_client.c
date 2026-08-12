@@ -956,8 +956,23 @@ static void drain_log(struct dap_client *c)
 /* Whether this poll has done as much as it may.  The first message is
  * always dispatched however large, so one legal oversized body is never
  * stuck behind its own size; after that both budgets bite. */
+/* TEST ONLY.  A poll that dispatches a whole burst is correct but
+ * unobservable from outside: a suite asserting on a phase a later message
+ * in the same burst leaves again -- STOPPED, then the continued right
+ * behind it -- needs one message per poll to see every transition.  Zero
+ * restores the built-in bound. */
+static unsigned g_max_messages_for_test;
+
+void dap_client_set_max_messages_per_poll_for_test(unsigned n)
+{
+	g_max_messages_for_test = n;
+}
+
 static bool budget_spent(unsigned count, size_t bytes)
 {
+	if (g_max_messages_for_test > 0) {
+		return count >= g_max_messages_for_test;
+	}
 	return count >= DAP_CLIENT_MAX_MESSAGES_PER_POLL
 	    || (count > 0 && bytes >= DAP_CLIENT_MAX_BYTES_PER_POLL);
 }

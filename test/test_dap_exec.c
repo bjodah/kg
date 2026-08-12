@@ -161,6 +161,11 @@ static struct dap_session *start_session(const char *extra)
 	memset(&heard, 0, sizeof(heard));
 	dap_breakpoint_reset();
 	dap_exec_set_hooks(&exec_hooks);
+	/* One message per poll: several cases assert on DAP_PHASE_STOPPED
+	 * with a `continued` due right behind it, and at valgrind speed a
+	 * whole burst lands in one poll -- the phase is real but a
+	 * full-budget dispatch never lets a snapshot see it. */
+	dap_client_set_max_messages_per_poll_for_test(1);
 	snprintf(spec.name, sizeof(spec.name), "fake");
 	snprintf(spec.adapter_id, sizeof(spec.adapter_id), "kg-test");
 	spec.transport = DAP_TRANSPORT_STDIO;

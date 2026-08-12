@@ -8,11 +8,13 @@
  * a KG_USE_DAP conditional, and a WITH_DAP=0 editor simply calls entry
  * points that do nothing.
  *
- * Stage 1 is the axis, this facade and the three keymaps, and nothing else:
- * there is no transport, no client and no command yet.  The protocol
- * modules (transport, client, config, session, breakpoints) land in later
- * stages behind these same four functions; their headers are included by
- * their real C consumers, never from here.
+ * What is behind it so far is the axis, the three keymaps and, since stage
+ * 2, src/dap_transport.c -- which no editor module reaches and this header
+ * does not name: there is still no client, no session and no command, so
+ * these four functions have nothing to do.  The remaining protocol modules
+ * (client, config, session, breakpoints) land in later stages behind these
+ * same four functions; their headers are included by their real C
+ * consumers, never from here.
  *
  * When commands do arrive, the WITH_DAP=0 story is the one the tree already
  * uses for the language-server commands (src/xref.c's `#else` half, and the
@@ -47,12 +49,16 @@ void dap_shutdown(void);
  * read the same way by the idle loop. */
 int dap_poll(void);
 
-/* How many descriptors dap_wait_fds() may write.  Zero, and honestly so:
- * stage 1 has no transport, so there is no descriptor for the facade to
- * report and none to size an array with.  It rises with src/dap_transport.c
- * (stage 2), which is where the first one exists, and src/async.c's
- * static_assert is what makes that raise a compile-time question rather
- * than a silently truncated wait. */
+/* How many descriptors dap_wait_fds() may write.  Zero, and honestly so.
+ * src/dap_transport.c (stage 2) has descriptors and reports them through
+ * dap_transport_wait_fds(), but nothing an editor can reach holds a
+ * transport yet -- the client and the session that own one land in stage 3
+ * -- so this facade has nothing to ask and dap_wait_fds() has nothing to
+ * answer.  A bound raised ahead of that would size the editor's wait for
+ * descriptors that provably cannot exist, which is a promise rather than a
+ * fact; the raise belongs with the stage that gives dap_wait_fds()
+ * something to report.  src/async.c's static_assert is what makes it a
+ * compile-time question then rather than a silently truncated wait. */
 #define KG_DAP_WAIT_FDS_MAX 0
 
 /* The descriptors the editor's idle wait should include, so that the next

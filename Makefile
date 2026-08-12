@@ -285,6 +285,18 @@ LISP_SRCS += lisp_prelude.c lisp_string.c lisp_buffer.c lisp_word.c \
 endif
 LISP_OBJS = $(addprefix $(OBJDIR)/,$(LISP_SRCS:.c=.o))
 
+# Content-Length framing belongs to neither protocol client.  It was
+# extracted for exactly that reason (doc/plans/dap/00-infrastructure.md
+# stage A), and src/dap_transport.c composes it as src/lsp_transport.c
+# does, so it is built whenever EITHER axis is on rather than being named
+# in both lists -- where a WITH_LSP=0 WITH_DAP=1 build would link a
+# debugger with no framing under it.
+PROTOCOL_SRCS =
+ifneq ($(filter 1,$(WITH_LSP) $(WITH_DAP)),)
+PROTOCOL_SRCS += framed_io.c
+endif
+PROTOCOL_OBJS = $(addprefix $(OBJDIR)/,$(PROTOCOL_SRCS:.c=.o))
+
 # The LSP client's one editor-facing header is src/lsp.h, and lsp_core.c is
 # always built -- the LISP_SRCS shape above, for the same reason: the
 # facade's entry points exist in both configurations, so no caller grows a
@@ -295,7 +307,7 @@ LISP_OBJS = $(addprefix $(OBJDIR)/,$(LISP_SRCS:.c=.o))
 # it: the JSON, client and server-registry files join the same list.
 LSP_SRCS = lsp_core.c
 ifeq ($(WITH_LSP),1)
-LSP_SRCS += framed_io.c announce.c lsp_transport.c json.c lsp_uri.c lsp_client.c lsp_server.c \
+LSP_SRCS += announce.c lsp_transport.c json.c lsp_uri.c lsp_client.c lsp_server.c \
             lsp_sync.c
 endif
 # The two WITH_LSP=1 modules that reach the whole editor -- lsp_req.c takes
@@ -362,16 +374,27 @@ LSP_ALL = $(TESTDIR)/test_xref $(TESTDIR)/test_lsp_log \
 # Both are compiled in every configuration, the LISP_SRCS/LSP_SRCS shape:
 # the facade's entry points exist either way, so no caller grows a
 # KG_USE_DAP conditional.  Everything BEHIND the facade (transport, client,
-# session, breakpoints) is WITH_DAP=1 only and joins DAP_SRCS in later
-# stages of doc/plans/dap/01-protocol.md.
+# session, breakpoints) is WITH_DAP=1 only, and dap_transport.c (stage 2)
+# is the first of it: the client, config, session and breakpoint files join
+# the same list in later stages of doc/plans/dap/01-protocol.md.  It links
+# against process.o and $(PROTOCOL_OBJS) and against nothing else in the
+# editor, which is what keeps it inside DAP_OBJS -- and so inside every
+# test binary -- rather than out on DAP_EDITOR_SRCS.
 DAP_SRCS = dap_core.c
+ifeq ($(WITH_DAP),1)
+DAP_SRCS += dap_transport.c
+endif
 DAP_EDITOR_SRCS = dap_keymap.c
 DAP_OBJS = $(addprefix $(OBJDIR)/,$(DAP_SRCS:.c=.o))
+# What `make clean` must remove because THIS configuration did not build
+# it, LSP_ALL's reason exactly: without it a `make; make WITH_DAP=0 clean`
+# leaves src/dap_transport.o and the transport's suite behind.
+DAP_ALL = $(OBJDIR)/dap_transport.o $(TESTDIR)/test_dap_transport
 
 # Source files
 SRCS = main.c tty.c async.c syntax.c $(SYNTAX_BACKEND_SRCS) autocomplete.c buffer.c fileio.c \
        display.c search.c basic.c word.c kbd.c yank.c undo.c help.c describe.c bufmgr.c winmgr.c winconfig.c cmd.c cmdstate.c keyevent.c keymap.c macro.c \
-       shell.c path.c rect.c $(LISP_SRCS) $(LSP_SRCS) $(DAP_SRCS) $(DAP_EDITOR_SRCS) keybind.c mode.c vgeom.c localvars.c compile.c compile_parse.c \
+       shell.c path.c rect.c $(LISP_SRCS) $(PROTOCOL_SRCS) $(LSP_SRCS) $(DAP_SRCS) $(DAP_EDITOR_SRCS) keybind.c mode.c vgeom.c localvars.c compile.c compile_parse.c \
        compile_nav.c next_error.c occur.c register.c visit.c fileline.c xref.c lsp_log.c \
        lsp_diag.c lsp_hover.c $(LSP_EDITOR_SRCS) lsp_rename.c lsp_complete.c \
        dabbrev.c \
@@ -439,16 +462,27 @@ TESTBINS += $(TESTDIR)/test_syntax_legacy
 else
 TESTBINS += $(TESTDIR)/test_syntax_tree_sitter
 endif
+# The framing suite exists wherever the framing does, which is either
+# protocol axis: it is the shared layer's own regression proof and a
+# WITH_LSP=0 WITH_DAP=1 tree needs it as much as the default build does.
+ifneq ($(PROTOCOL_SRCS),)
+TESTBINS += $(TESTDIR)/test_framed_io
+endif
 # Same per-axis rule: the transport's suite links src/lsp_transport.o,
 # which only a WITH_LSP=1 build has.  A WITH_LSP=0 tree has no transport
 # to test -- the facade it does have is three no-ops that every other
 # binary already links.
 ifeq ($(WITH_LSP),1)
-TESTBINS += $(TESTDIR)/test_framed_io $(TESTDIR)/test_announce $(TESTDIR)/test_lsp_transport \
+TESTBINS += $(TESTDIR)/test_announce $(TESTDIR)/test_lsp_transport \
             $(TESTDIR)/test_lsp_json \
             $(TESTDIR)/test_lsp_client $(TESTDIR)/test_lsp_sync \
             $(TESTDIR)/test_lsp_log $(TESTDIR)/test_xref \
             $(TESTDIR)/test_lsp_diag $(TESTDIR)/test_lsp_edit
+endif
+# And the debugger's, on its own axis for the same reason: it links
+# src/dap_transport.o, which only a WITH_DAP=1 build has.
+ifeq ($(WITH_DAP),1)
+TESTBINS += $(TESTDIR)/test_dap_transport
 endif
 # test_perf is not built like the other unit tests: it needs the whole
 # editor compiled with -DKG_PERF_COUNTERS=1 (src/perf.h), which must not
@@ -479,6 +513,7 @@ FUZZ_SRCS = $(TESTDIR)/fuzz_keypress.c $(TESTDIR)/fuzz_stubs.c \
 	    $(addprefix $(OBJDIR)/,$(SYNTAX_BACKEND_SRCS)) \
 	    $(OBJDIR)/tty.c $(OBJDIR)/async.c $(OBJDIR)/macro.c $(OBJDIR)/mouse.c \
 	    $(addprefix $(OBJDIR)/,$(LISP_SRCS)) \
+	    $(addprefix $(OBJDIR)/,$(PROTOCOL_SRCS)) \
 	    $(addprefix $(OBJDIR)/,$(LSP_SRCS)) \
 	    $(addprefix $(OBJDIR)/,$(DAP_SRCS)) \
 	    $(OBJDIR)/keybind.c $(OBJDIR)/width.c $(OBJDIR)/cmdstate.c $(OBJDIR)/keyevent.c \
@@ -560,12 +595,15 @@ PTY_TESTS = $(sort $(wildcard $(TESTDIR)/pty/*.yaml))
 # debugger facade's poll legs are called from src/async.c and its shutdown
 # from editor_cleanup().  dap_keymap.o is deliberately NOT here (see
 # DAP_EDITOR_SRCS above).
+# $(PROTOCOL_OBJS) is what both of those stand on: LSP_OBJS used to carry
+# framed_io.o for everyone, and a WITH_LSP=0 WITH_DAP=1 test binary would
+# otherwise link dap_transport.o with nothing under it.
 TEST_SRCS_OBJS = $(OBJDIR)/undo.o $(OBJDIR)/buffer.o $(OBJDIR)/syntax.o \
                  $(SYNTAX_BACKEND_OBJS) \
                  $(OBJDIR)/width.o $(OBJDIR)/marker.o $(OBJDIR)/decor.o \
                  $(OBJDIR)/cmdstate.o $(OBJDIR)/event.o \
                  $(OBJDIR)/process.o $(OBJDIR)/process_table.o \
-                 $(LSP_OBJS) $(DAP_OBJS)
+                 $(PROTOCOL_OBJS) $(LSP_OBJS) $(DAP_OBJS)
 # The tree-sitter backend converts a capture's chars-space columns into
 # render-byte offsets with chars_to_render_col() (src/mode.c), so in that
 # configuration every test binary that links a backend needs mode.o too.
@@ -633,7 +671,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 8856
+SCC_COMPLEXITY_MAX ?= 8908
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -1395,6 +1433,12 @@ EXTRA_announce := $(TESTDIR)/stubs.o $(OBJDIR)/announce.o $(TEST_SRCS_OBJS)
 # every test binary needs for test.o's harness globals.  process.o comes
 # from TEST_SRCS_OBJS.
 EXTRA_lsp_transport := $(TESTDIR)/stubs.o $(OBJDIR)/lsp_transport.o $(TEST_SRCS_OBJS)
+# The debugger's transport is the same minimal link one axis over: its own
+# object plus the baseline test.o's harness globals need.  framed_io.o and
+# process.o both arrive through TEST_SRCS_OBJS (see $(PROTOCOL_OBJS)
+# there); dap_transport.o itself does too, through $(DAP_OBJS), and is
+# named for readability as every suite above does.
+EXTRA_dap_transport := $(TESTDIR)/stubs.o $(OBJDIR)/dap_transport.o $(TEST_SRCS_OBJS)
 # The JSON layer depends on the C library and nothing else -- not even
 # process.h -- so its own object would link on its own; the baseline is
 # here because test.o's harness reaches the editor globals stubs.o and
@@ -1623,6 +1667,7 @@ $(TESTDIR)/fe_unwind_fuzz.o: fe/fe_unwind.c fe/fe.h fe/fe_internal.h
 
 clean:
 	rm -f $(OBJS) $(FE_OBJ) $(REGEX_OBJS) $(SYNTAX_BACKEND_ALL) $(LSP_ALL) \
+	      $(DAP_ALL) \
 	      $(OBJDIR)/.features-* $(OBJDIR)/.with-lisp-* $(TESTDIR)/*.o \
 	      $(TESTBINS) $(TESTDIR)/kgbatch $(GC_STRESS_KGBATCH) \
 	      $(FUZZBINS) $(TESTDIR)/fuzz_lsp_frames $(REGEX_DIFF_BIN)

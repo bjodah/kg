@@ -490,7 +490,7 @@
   "src/compile.c:compilation_cancel_programmatic": 3,
   "src/compile.c:compilation_commit_line": 4,
   "src/compile.c:compilation_deliver_completion": 3,
-  "src/compile.c:compilation_feed_begin": 3,
+  "src/compile.c:compilation_feed_begin": 4,
   "src/compile.c:compilation_feed_bytes": 2,
   "src/compile.c:compilation_feed_finish": 6,
   "src/compile.c:compilation_is_running": 1,

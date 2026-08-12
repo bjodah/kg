@@ -1,5 +1,6 @@
 #include "compile.h"
 #include "def.h"
+#include "event.h"
 #include "kbd.h"
 #include "process.h"
 #include "winmgr.h"
@@ -905,8 +906,16 @@ bool compilation_feed_begin(const char *label, const char *directory)
 	buf_append_special_text(cidx, header, header_len);
 	g_feed.committed_len += (size_t)header_len;
 	compilation_report_diag_reset(g_feed.compilation_buffer, directory);
-	win_display_buffer_other_window(cidx);
-	win_position_at_end(cidx);
+	/* A feed arrives from a poll callback, which runs underneath
+	 * minibuffer prompts.  The buffer and the next-error store take the
+	 * diagnostics either way -- C-x ` works from wherever the user is --
+	 * but rearranging windows under an unrelated question is the hazard
+	 * the completion-callback machinery above exists to avoid, so the
+	 * raise is skipped while a prompt is standing. */
+	if (!kg_event_prompt_active()) {
+		win_display_buffer_other_window(cidx);
+		win_position_at_end(cidx);
+	}
 	g_feed_open = true;
 	return true;
 }

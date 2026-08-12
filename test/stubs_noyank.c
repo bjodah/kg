@@ -226,3 +226,8 @@ void __attribute__((weak)) win_position_at_end(int buffer_index)
 {
 	(void)buffer_index;
 }
+bool __attribute__((weak)) kg_event_prompt_active(void)
+{
+	/* No minibuffer exists here, so a feed may always raise a window. */
+	return false;
+}

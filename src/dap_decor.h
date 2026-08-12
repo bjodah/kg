@@ -20,9 +20,12 @@
  * of it: kg has no fringe and no margin, so column one is the gutter, and a
  * whole line in breakpoint colour would drown the code it is about.  The
  * stopped line is the one exception -- it covers the line, because "where
- * am I" is the question a debugger exists to answer -- and it is given the
- * lower priority of the two, so a breakpoint on the stopped line is still
- * visible in column one.
+ * am I" is the question a debugger exists to answer.
+ *
+ * Where two of them meet, the order is DEFINED and is stated in
+ * src/dap_decor.c: current beats breakpoint, and a verified breakpoint
+ * beats an unverified one.  They overlap in exactly one column, and on that
+ * column the answer is "this is where the program is".
  */
 
 /* How many decorations one projection may make.  Past this the marks are

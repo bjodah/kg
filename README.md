@@ -742,30 +742,73 @@ wants a terminal of its own is not one this version can launch under the
 debugger, and attaching to it while it runs elsewhere is the way to debug
 one.
 
-The commands, none of them bound to a key yet (the keys arrive with the
-debugger UI):
+The keys are gud's, so an Emacs user's fingers already know them:
 
-| Command | What it does |
-| --- | --- |
-| `dap-debug` | Start a session from a launch configuration |
-| `dap-continue` | Let the program run until it stops again |
-| `dap-next` / `dap-step-in` / `dap-step-out` | Step over, into, out |
-| `dap-step-instruction` | Step one instruction, if the adapter can |
-| `dap-until` | Run to this line, then stop |
-| `dap-goto` | Jump execution to this line without running it |
-| `dap-pause` | Ask a running program to stop |
-| `dap-breakpoint-toggle` / `dap-breakpoint-temporary` | Set or clear one |
-| `dap-evaluate` | Evaluate an expression in the selected frame |
-| `dap-frame-up` / `dap-frame-down` | Walk the stack |
-| `dap-repl` | Show `*dap-repl*` |
-| `dap-many-windows` | Toggle the debug layout, and restore it |
-| `dap-restart` | Restart under the same configuration |
-| `dap-disconnect` / `dap-terminate` | Leave the program running, or not |
+| Key | Command | What it does |
+| --- | --- | --- |
+| `F9` / `C-F9` | `dap-breakpoint-toggle` / `-temporary` | Set or clear one |
+| `F4` | `dap-evaluate` | Evaluate an expression in the selected frame |
+| `F5` / `C-F5` | `dap-step-in` / `dap-step-instruction` | Step into, one instruction |
+| `F6` / `F7` | `dap-next` / `dap-step-out` | Step over, step out |
+| `F8` | `dap-continue` | Let the program run until it stops again |
+| `F10` / `M-F10` | `dap-until` / `dap-goto` | Run to this line; jump to it |
+| `F11` / `M-F11` | `dap-restart` / `dap-terminate` | Restart; end it and the program |
+| `F12` | `dap-many-windows` | Toggle the debug layout, and restore it |
+| `M-up` / `M-down` | `dap-frame-up` / `dap-frame-down` | Walk the stack |
+| `PageUp` / `PageDown` | the same two | Walk the stack |
+| — | `dap-debug` | Start a session from a launch configuration |
+| — | `dap-pause` | Ask a running program to stop |
+| — | `dap-repl` | Evaluate an expression in `*dap-repl*` |
+| — | `dap-disconnect` | End the session, leaving the program running |
 
-All of them are Lisp-callable; the three that prompt (`dap-debug`,
-`dap-evaluate`, `dap-goto`) are refused from a Lisp activation with no
-terminal. None of them edits buffer text, so all of them work in a
+`F9` and `C-F9` work in any buffer visiting a file, with nothing running —
+setting a breakpoint before starting is the ordinary first step. Every
+other key is live **only while a session exists**, so outside one they are
+still your own keys. `dap-debug` is reachable through `M-x` whatever the
+keys say.
+
+Both key tables are ordinary native keymaps, so init.el can rebind them:
+
+```elisp
+;; VS Code habits, say.
+(define-key 'dap-mode-map "<f5>" 'dap-continue)
+(define-key 'dap-mode-map "<f11>" 'dap-step-in)
+(define-key 'dap-breakpoint-mode-map "<f9>" 'dap-breakpoint-toggle)
+```
+
+`global-set-key` stays `C-c`-only by design; F-keys are reachable through
+`define-key` precisely because these are real native maps (see
+`doc/lisp-api.md`).
+
+All the commands are Lisp-callable; the four that prompt (`dap-debug`,
+`dap-evaluate`, `dap-goto`, `dap-repl`) are refused from a Lisp activation
+with no terminal. None of them edits buffer text, so all of them work in a
 read-only buffer — debugging somebody else's source is the ordinary case.
+
+**The panes.** `F12` arranges six windows — `*dap-repl*` and `*dap-locals*`
+on the top row, the source and `*dap-output*` in the middle, `*dap-stack*`
+and `*dap-breakpoints*` below — and `F12` again puts your own windows back.
+A terminal too small for six windows refuses cleanly and keeps the layout
+you have. `*dap-breakpoints*` and `*dap-threads*` share the bottom-right
+slot, as GDB's do, and `dap-info-toggle-breakpoints-threads` (`t` in the
+pane) swaps them.
+
+In any of the six panes, `RET` acts on **what the line is**: a frame is
+selected and its source visited, a thread is selected, a breakpoint is
+visited, and a variable is expanded or collapsed. `d` deletes the
+breakpoint on the line, `D` enables or disables it — a disabled breakpoint
+is one kg keeps and the adapter is never told about — and `q` buries the
+pane. A line from an earlier stop is refused rather than acted on: every
+adapter measured answers a stale frame or variable handle with success and
+silently wrong data.
+
+`*dap-output*` and `*dap-repl*` are **transcripts**: append-only, bounded
+at 4 MiB each, with one visible marker where they cut. The debuggee's bytes
+are untrusted and reach the screen only through kg's own glyph spelling, so
+an escape sequence in a program's output is displayed rather than obeyed.
+The REPL's input is the minibuffer — `dap-repl` prompts with `DAP> `, echoes
+the expression into the transcript and appends the answer beside it, since
+answers can arrive out of order.
 
 **Breakpoints belong to the editor, not to a session.** One can be set with
 nothing running, it survives the session that verified it, and it is

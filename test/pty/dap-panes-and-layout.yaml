@@ -1,0 +1,92 @@
+# The panes while something is stopped, and the layout's own promise.
+#
+# What is asserted here is TEXT and never colour: the PTY harness observes
+# a screen, faces are asserted in test/test_dap_ui.c, and between the two
+# nothing is left to a comment (doc/plans/dap/02-ui.md).
+#
+# The promises under test: the stack pane names the frame and marks the
+# selected one, the locals pane names a variable and its value, the two
+# panes that share the layout's sixth slot are both reachable, F12 puts up
+# the grid and F12 again puts back the DELIBERATELY ASYMMETRIC layout the
+# user had before it -- not a default one -- and a disconnect leaves the
+# session-only keys inert again.
+#
+# The adapter is test/fake_dap_adapter.py, so the answers are canned and
+# the timing is kg's; the real-adapter smoke cases beside it are the honest
+# timing test.  Each wait is for the state it is about and is bounded, so a
+# sanitizer lane costs what it costs and a quiet one costs a poll.
+name: dap-panes-and-layout
+filename: main.c
+requires_feature: dap
+backend: tmux
+dimensions: [40, 120]
+initial: |
+  #include <stdio.h>
+
+  int main(void)
+  {
+  	int answer = 21 + 21;
+  	printf("%d\n", answer);
+  	return 0;
+  }
+workspace_files:
+  .kg-dap.json: |
+    { "version": 1,
+      "configurations": [
+        { "name": "fake",
+          "adapter": "lldb-dap",
+          "request": "launch",
+          "arguments": { "program": "${file}" } } ] }
+env:
+  KG_DAP_ADAPTER_LLDB: >-
+    python3 {REPO}/test/fake_dap_adapter.py --mode protocol
+    --capabilities '{"supportsConfigurationDoneRequest":true}'
+    --stopped-after configurationDone
+    --stopped-body '{"reason":"breakpoint","threadId":1,"allThreadsStopped":true}'
+    --body 'threads:{"threads":[{"id":1,"name":"main"},{"id":2,"name":"worker"}]}'
+    --body 'stackTrace:{"stackFrames":[{"id":11,"name":"main","line":5,"source":{"path":"{CWD}/main.c"}}]}'
+    --body 'scopes:{"scopes":[{"name":"Locals","variablesReference":21}]}'
+    --variables '{"21":[{"name":"answer","value":"42","variablesReference":0}]}'
+keys:
+  # A breakpoint, then the session.  One configuration file plus the
+  # built-ins, so the chooser asks and its default is the nearest row.
+  - C-n
+  - C-n
+  - C-n
+  - C-n
+  - F9
+  - M-x
+  - dap-debug
+  - RET
+  - RET
+  - SETTLE=15:(5,
+  # A layout the user made themselves, so that the restore below has
+  # something of its own to come back to.
+  - C-x
+  - "2"
+  # The grid, now that a session makes F12 live.
+  - F12
+  - SETTLE=15:*dap-stack*
+expected_saved: |
+  #include <stdio.h>
+
+  int main(void)
+  {
+  	int answer = 21 + 21;
+  	printf("%d\n", answer);
+  	return 0;
+  }
+expected_screen_contains:
+  # Every pane of the arrangement, by its mode line.
+  - "*dap-repl*"
+  - "*dap-locals*"
+  - "*dap-output*"
+  - "*dap-stack*"
+  - "*dap-breakpoints*"
+  # The frame, marked as the selected one and as the top of the stack.
+  - "> #0 main"
+  # The locals of that frame, and a value no line of the source says -- so
+  # finding it means the adapter answered and the pane rendered it.
+  - answer = 42
+  # The breakpoint the session verified.
+  - "main.c:5"

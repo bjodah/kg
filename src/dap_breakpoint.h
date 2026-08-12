@@ -123,6 +123,10 @@ struct dap_breakpoint_info {
 	bool has_id;
 	int id;
 	bool temporary;
+	/* False for a breakpoint kg keeps and the adapter is not told
+	 * about: `setBreakpoints` replaces the whole set per source, so
+	 * leaving it out of the array is the whole of "disabled". */
+	bool enabled;
 	bool anchored; /* a live marker, rather than a remembered line */
 	char condition[DAP_BREAKPOINT_TEXT_MAX];
 	char hit_condition[DAP_BREAKPOINT_TEXT_MAX];
@@ -180,6 +184,9 @@ bool dap_breakpoint_get(
     size_t source, size_t index, struct dap_breakpoint_info *out);
 bool dap_breakpoint_find(
     const char *path, int line, struct dap_breakpoint_info *out);
+/* `D` in the breakpoint pane.  False when there is no breakpoint there;
+ * true (and a re-send of that source) otherwise, idempotently. */
+bool dap_breakpoint_set_enabled(const char *path, int line, bool enabled);
 
 /* ------------------------- the session's side ------------------------- */
 

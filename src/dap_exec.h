@@ -133,6 +133,25 @@ struct dap_exec_variable {
 	int depth;
 };
 
+/* One `evaluate` answer, handed back with the tags it was SENT under.  The
+ * model has already dropped a reply whose epoch or selection moved on, so a
+ * hook that re-checks them is checking twice on purpose: the UI's REPL
+ * transcript is append-only, and a stale line in it is a line a user cannot
+ * tell from a fresh one.
+ *
+ * `expression` and `context` are the request's own, echoed back because
+ * replies finish out of order -- two evaluates in flight, the second one
+ * faster -- and a bare value in a transcript is a value nobody can
+ * attribute. */
+struct dap_exec_answer {
+	const char *context;
+	const char *expression;
+	const char *text;
+	bool error;
+	unsigned epoch;
+	unsigned selection;
+};
+
 /* Where this module's news goes.  One `ctx` for all of them; any may be
  * NULL, and a NULL hook drops what it would have been told -- which is what
  * a test binary with no editor in it wants.
@@ -153,6 +172,11 @@ struct dap_exec_hooks {
 	void (*report)(void *ctx, bool error, const char *text);
 	void (*changed)(void *ctx);
 	void (*relaunch)(void *ctx);
+	/* Every `evaluate` answer, successful or not.  Unset, an answer goes
+	 * to `report` like every other sentence -- which is what a test
+	 * binary with no REPL in it wants, and what the echo area wanted
+	 * before there was one. */
+	void (*evaluated)(void *ctx, const struct dap_exec_answer *answer);
 };
 
 void dap_exec_set_hooks(const struct dap_exec_hooks *hooks);
@@ -232,6 +256,10 @@ bool dap_exec_evaluate(const char *expression, const char *context);
  * stack in, since the stop itself fetched one frame; the selection is
  * applied when the page lands. */
 bool dap_exec_frame_select(int delta);
+/* The same selection, named rather than stepped: what RET on a line of the
+ * stack pane asks for, since a pane knows which frame it means and counting
+ * steps to it would be a second opinion about where the selection is. */
+bool dap_exec_frame_select_at(size_t index);
 
 /* ------------------------------ what is known ------------------------- */
 

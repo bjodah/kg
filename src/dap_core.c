@@ -16,6 +16,18 @@
 
 #include "dap.h"
 
+#include "dap_ui.h"
+
+/* The panes' debounced repaint, installed by dap_commands_init().  It is a
+ * pointer for a link reason rather than a design one: src/dap_ui.c reaches
+ * buffers and windows, so it is not in the object set every test binary
+ * links, and this file is.  A NULL hook is an editor whose panes are
+ * repainted by nothing, which is exactly what a suite with no editor in it
+ * wants. */
+static int (*ui_poll)(void);
+
+void dap_set_ui_poll(int (*fn)(void)) { ui_poll = fn; }
+
 #ifdef KG_USE_DAP
 
 #include "dap_breakpoint.h"
@@ -54,6 +66,13 @@ int dap_poll(void)
 	changed |= dap_exec_poll();
 	if (changed) {
 		dap_decor_refresh();
+	}
+	/* Third leg, and deliberately after the others: the panes are a
+	 * projection of what the two above just learned, and their repaint
+	 * is debounced -- this is the tick that lets a burst of events
+	 * become one repaint (src/dap_ui.h). */
+	if (ui_poll) {
+		changed |= ui_poll();
 	}
 	return changed;
 }

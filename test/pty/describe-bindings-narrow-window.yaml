@@ -5,8 +5,17 @@
 # folds at the window edge through the same display path every other
 # buffer uses.  Only the key column is padded -- padding the command
 # column too would push the map name off every row at this width.
+#
+# The rows asserted are the debugger's because enumeration order is
+# INSTALL order and dap_init() runs before the built-in maps are
+# installed, so those are what the first screen holds; which rows they are
+# is incidental to this case, and a short one and a folding one is all it
+# needs.  Which is also why there are two of these: a WITH_DAP=0 editor has
+# no such rows, and its own first screen is asserted by
+# describe-bindings-narrow-window-without-dap.yaml.
 name: describe-bindings-narrow-window
 filename: describe-narrow.txt
+requires_feature: dap
 backend: tmux
 dimensions: [24, 40]
 initial: |
@@ -21,7 +30,8 @@ expected_saved: |
 expected_screen_contains:
   - "Key bindings, and the map each is in."
   # Short rows still fit whole at this width.
-  - "C-f         forward-char (global)"
+  - "<f4>        dap-evaluate (dap)"
   # A row that does not fit folds rather than being cut off.
-  - "C-a         move-beginning-of-line (glob"
+  - "<f9>        dap-breakpoint-toggle (dap-b"
+  - "reakpoint)"
   - "VLine"

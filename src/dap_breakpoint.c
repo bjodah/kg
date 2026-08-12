@@ -62,6 +62,11 @@ struct dap_bp {
 	bool has_id;
 	int id;
 	bool temporary;
+	/* Spelled as the NEGATIVE so that zero is an ordinary breakpoint:
+	 * every one of the two creation sites below memsets its slot, and a
+	 * flag that had to be set to true afterwards is a flag one of them
+	 * would eventually forget. */
+	bool disabled;
 	dap_breakpoint_armed_fn armed_cb;
 	void *armed_ctx;
 	char condition[DAP_BREAKPOINT_TEXT_MAX];
@@ -501,6 +506,14 @@ static int build_request(
 	for (i = 0; i < s->count; i++) {
 		int line = bp_refresh(&s->items[i]);
 
+		/* A disabled breakpoint is one kg keeps and the adapter is
+		 * never told about: `setBreakpoints` replaces the whole set
+		 * per source [M-9], so leaving it out of the array IS the
+		 * disable.  The snapshot skips it in step, which is what
+		 * keeps the response's positional zip aligned. */
+		if (s->items[i].disabled) {
+			continue;
+		}
 		snap_take(s, i, line);
 		write_bp_object(&w, c, &s->items[i], line);
 	}
@@ -972,6 +985,7 @@ static void bp_describe(struct dap_bp *bp, struct dap_breakpoint_info *out)
 	out->has_id = bp->has_id;
 	out->id = bp->id;
 	out->temporary = bp->temporary;
+	out->enabled = !bp->disabled;
 	out->anchored = bp->anchored;
 	copy_text(out->condition, sizeof(out->condition), bp->condition);
 	copy_text(
@@ -987,6 +1001,31 @@ bool dap_breakpoint_get(
 		return false;
 	}
 	bp_describe(&sources[source]->items[index], out);
+	return true;
+}
+
+/* Enable or disable one, which is a re-send of its whole source and nothing
+ * else: the table keeps the breakpoint either way, and what changes is
+ * whether the adapter is told about it. */
+bool dap_breakpoint_set_enabled(const char *path, int line, bool enabled)
+{
+	char canonical[PATH_MAX];
+	struct dap_bp_source *s;
+	size_t index = 0;
+	size_t at;
+
+	if (!canonical_path(path, canonical)) {
+		return false;
+	}
+	s = source_find(canonical, &index);
+	if (!s || !bp_find_line(s, line, &at)) {
+		return false;
+	}
+	if (s->items[at].disabled == !enabled) {
+		return true;
+	}
+	s->items[at].disabled = !enabled;
+	source_mutated(index);
 	return true;
 }
 
@@ -1050,6 +1089,9 @@ size_t dap_breakpoint_session_sources(
 		for (j = 0; j < s->count; j++) {
 			int line = bp_refresh(&s->items[j]);
 
+			if (s->items[j].disabled) {
+				continue;
+			}
 			out[written].lines[out[written].line_count++] = line;
 			snap_take(s, j, line);
 			/* The join sends lines and nothing else, so a source

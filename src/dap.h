@@ -1,6 +1,8 @@
 #ifndef KG_DAP_H
 #define KG_DAP_H
 
+#include <stdbool.h>
+
 /* The one editor-facing facade of the optional debugger client
  * (doc/plans/2026-08-11-dap.md).  Everything below exists in both build
  * configurations -- src/dap_core.c and src/dap_keymap.c are compiled
@@ -43,6 +45,17 @@
  * state. */
 void dap_init(void);
 void dap_shutdown(void);
+
+/* Make the debugger's three maps live or not for the buffer the user is in
+ * right now, and answer whether that buffer is one of the debugger's own
+ * panes -- which is the buffer-list map's cue to stand down, since a pane
+ * is read-only and both maps would otherwise bind RET in the major layer.
+ *
+ * Called once per keystroke from src/kbd.c's name-keyed rule, and the ONLY
+ * thing that activates them: a map made active where it was created stays
+ * active in whatever buffer the user switches to next.  A WITH_DAP=0 editor
+ * created no maps and answers false. */
+bool dap_update_mode_maps(void);
 
 /* Services the client's adapters from the two poll sites (the main loop and
  * tty.c's idle path).  Returns nonzero when that changed something the user

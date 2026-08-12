@@ -593,13 +593,20 @@ static void test_builtin_global_map_resolves(void)
 
 #ifdef KG_USE_DAP
 /* dap_init() runs before the init file is read, and what it leaves behind
- * is three maps that do nothing yet: `define-key` creates a map it cannot
+ * is three maps that are switched OFF: `define-key` creates a map it cannot
  * find at KEYMAP_LAYER_MAJOR (src/lisp_cmd.c), so an init.el that ran first
  * would claim `dap` and `dap-breakpoint` in the wrong layer permanently,
  * and a map that was active from startup would shadow global keys before a
  * session exists.  Both halves of that rule are asserted here, together
  * with the layer each map was created in -- asked by what the layers do,
- * since a map does not report its own. */
+ * since a map does not report its own.
+ *
+ * Since subplan 02 the maps arrive with their default table in them
+ * (doc/plans/dap/02-ui.md): the gud-style F-keys, the arrows and the four
+ * keys of the info panes.  The counts below are what that costs, measured,
+ * and they are here because the name pool is historically the tightest of
+ * the three keymap bounds -- a table that grew past it would leave the
+ * debugger's keys silently unbound. */
 static void test_dap_maps_are_created_inactive(void)
 {
 	static const char *const names[]
@@ -613,12 +620,15 @@ static void test_dap_maps_are_created_inactive(void)
 	usage = keymap_test_usage();
 	CHECKF(usage.maps == 3, "dap_init() created %d maps, expected 3",
 	    usage.maps);
-	CHECKF(usage.entries == 0, "dap_init() bound %d keys, expected none",
+	CHECKF(usage.entries == 22, "dap_init() bound %d keys, expected 22",
 	    usage.entries);
-	/* "dap-breakpoint", "dap" and "dap-info" with their terminators. */
-	CHECKF(usage.name_bytes == 28,
-	    "the debugger map names cost %d bytes, expected 28",
+	/* The three map names plus every command name they interned. */
+	CHECKF(usage.name_bytes == 364,
+	    "the debugger's maps cost %d name bytes, expected 364",
 	    usage.name_bytes);
+	CHECKF(keymap_unresolved_count() == 0,
+	    "%d debugger bindings name a command that does not exist",
+	    keymap_unresolved_count());
 	for (i = 0; i < sizeof(names) / sizeof(*names); i++) {
 		struct keymap *map = keymap_find(names[i]);
 

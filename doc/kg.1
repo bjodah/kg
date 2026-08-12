@@ -2307,12 +2307,49 @@ and a second
 asks which to jump to.
 See
 .Sx DEBUGGER .
+.It dap-info-delete-breakpoint
+Delete the breakpoint named by the line point is on, in one of the
+debugger's panes.
+Bound to
+.Ic d
+there.
+See
+.Sx DEBUGGER .
+.It dap-info-select
+Act on the debugger line point is on, dispatching on what that line is: a
+frame is selected and its source visited, a thread is selected, a
+breakpoint is visited, and a variable is expanded or collapsed.
+Bound to
+.Ic RET
+in the debugger's panes.
+See
+.Sx DEBUGGER .
+.It dap-info-toggle-breakpoint
+Enable or disable the breakpoint named by the line point is on.
+A disabled breakpoint is one kg keeps and the adapter is never told
+about.
+Bound to
+.Ic D
+in the debugger's panes.
+See
+.Sx DEBUGGER .
+.It dap-info-toggle-breakpoints-threads
+Swap the breakpoints and threads panes, which share one slot of the
+debugger's layout.
+Bound to
+.Ic t
+in the debugger's panes.
+See
+.Sx DEBUGGER .
 .It dap-many-windows
-Toggle the debugger's window layout: the source, the stack and the
-breakpoints in one column, the locals, the program's output and the REPL
-in another.
+Toggle the debugger's window layout: the REPL and the locals across the
+top, the source and the program's output in the middle, the stack and the
+breakpoints below.
 The window arrangement in force when it is turned on is restored when it
 is turned off, and when the session ends.
+Bound to
+.Ic F12
+while a session is running.
 See
 .Sx DEBUGGER .
 .It dap-next
@@ -2324,9 +2361,15 @@ Ask a running program to stop.
 See
 .Sx DEBUGGER .
 .It dap-repl
-Show the
+Evaluate an expression in the debugger's REPL.
+Shows
 .Pa *dap-repl*
-buffer in another window.
+in another window, prompts with
+.Ql "DAP> " ,
+echoes the expression into the transcript and appends the answer beside
+it when the adapter replies \(em replies can finish out of order, so each
+one names the expression it answers.
+The input is the minibuffer because the transcript is read-only.
 See
 .Sx DEBUGGER .
 .It dap-restart
@@ -3945,38 +3988,154 @@ keystrokes, or draws its own screen \(em is not something this version
 can run under the debugger.
 Attaching to it as it runs elsewhere is the way to debug such a program.
 .Pp
-The commands, none of which is bound to a key yet:
-.Ic M-x dap-debug ,
-.Ic M-x dap-continue ,
-.Ic M-x dap-next ,
-.Ic M-x dap-step-in ,
-.Ic M-x dap-step-instruction ,
-.Ic M-x dap-step-out ,
-.Ic M-x dap-until ,
-.Ic M-x dap-goto ,
-.Ic M-x dap-pause ,
-.Ic M-x dap-breakpoint-toggle ,
-.Ic M-x dap-breakpoint-temporary ,
-.Ic M-x dap-evaluate ,
-.Ic M-x dap-frame-up ,
-.Ic M-x dap-frame-down ,
-.Ic M-x dap-repl ,
-.Ic M-x dap-many-windows ,
-.Ic M-x dap-restart ,
-.Ic M-x dap-disconnect
+.Ss Keys
+The default table is gud's, so that an Emacs user's fingers already know
+it.
+.Bl -tag -width "PageUp / PageDown" -compact
+.It Ic F9 No / Ic C-F9
+.Ic dap-breakpoint-toggle
 and
-.Ic M-x dap-terminate .
-Every one of them is callable from Lisp as
-.Ql (command-execute "dap-continue")
-and the like; the three that prompt \(em
-.Ic dap-debug ,
+.Ic dap-breakpoint-temporary
+.It Ic F4
 .Ic dap-evaluate
+.It Ic F5 No / Ic C-F5
+.Ic dap-step-in
+and
+.Ic dap-step-instruction
+.It Ic F6 No / Ic F7
+.Ic dap-next
+and
+.Ic dap-step-out
+.It Ic F8
+.Ic dap-continue
+.It Ic F10 No / Ic M-F10
+.Ic dap-until
 and
 .Ic dap-goto
+.It Ic F11 No / Ic M-F11
+.Ic dap-restart
+and
+.Ic dap-terminate
+.It Ic F12
+.Ic dap-many-windows
+.It Ic M-up No / Ic M-down
+.Ic dap-frame-up
+and
+.Ic dap-frame-down
+.It Ic PageUp No / Ic PageDown
+the same two, while a session is running
+.El
+.Pp
+They live in two keymaps rather than one, because the two halves of a
+debugger become available at different times.
+.Ic dap-breakpoint
+holds
+.Ic F9
+and
+.Ic C-F9
+and is live in any buffer that visits a file, with nothing running \(em
+setting a breakpoint before starting is the milestone's own first step.
+.Ic dap
+holds everything else and is live exactly while a session exists, so
+outside one those keys are still the user's own.
+.Ic M-x dap-debug
+is reachable whatever the keys say.
+.Pp
+Both are ordinary native keymaps, so an init file may rebind them:
+.Bd -literal -offset indent
+(define-key 'dap-mode-map "<f5>" 'dap-continue)
+(define-key 'dap-breakpoint-mode-map "<f9>" 'dap-breakpoint-toggle)
+.Ed
+.Pp
+.Ic global-set-key
+stays
+.Ic C-c Ns -only by design; F-keys are reachable through
+.Ic define-key
+precisely because these are real native maps.
+.Pp
+Every command is callable from Lisp as
+.Ql (command-execute "dap-continue")
+and the like; the four that prompt \(em
+.Ic dap-debug ,
+.Ic dap-evaluate ,
+.Ic dap-goto
+and
+.Ic dap-repl
 \(em are refused from a Lisp activation that has no terminal to prompt
 on, rather than reading from a descriptor that is not there.
 None of them edits buffer text, so all of them work in a read-only
 buffer: debugging somebody else's source is the ordinary case.
+.Ss The panes
+.Ic F12
+arranges six windows:
+.Pa *dap-repl*
+and
+.Pa *dap-locals*
+across the top,
+the source and
+.Pa *dap-output*
+in the middle, and
+.Pa *dap-stack*
+and
+.Pa *dap-breakpoints*
+below.
+A second
+.Ic F12
+puts the previous window arrangement back and forgets it, so a later one
+saves the arrangement in force then rather than resurrecting the first.
+The end of a session puts it back too, but only while the layout is on
+screen.
+A terminal too small for six windows refuses cleanly and keeps the
+arrangement it has.
+Windows split or deleted by hand while the layout is up are discarded
+with it.
+.Pp
+.Pa *dap-breakpoints*
+and
+.Pa *dap-threads*
+share the lower-right slot, as
+.Xr gdb 1 Ns 's
+do;
+.Ic dap-info-toggle-breakpoints-threads Pq Ic t No in a pane
+swaps them.
+.Pp
+In any of the six,
+.Ic RET
+acts on what the line IS: a frame is selected and its source visited, a
+thread is selected, a breakpoint is visited, and a variable is expanded
+or collapsed.
+.Ic d
+deletes the breakpoint on the line,
+.Ic D
+enables or disables it \(em a disabled breakpoint is one kg keeps and the
+adapter is never told about, since
+.Ic setBreakpoints
+replaces a source's whole set \(em and
+.Ic q
+buries the pane.
+A line built during an earlier stop is refused rather than acted on:
+every adapter measured answers a stale frame or variable handle with
+success and silently wrong data.
+.Pp
+.Pa *dap-output*
+and
+.Pa *dap-repl*
+are transcripts rather than listings: append-only, bounded at four
+mebibytes each, with one visible marker where they cut, and draining
+continues past the cap so that an adapter can never block writing to kg.
+Killing one starts a fresh transcript that says so \(em kg keeps no second
+copy.
+The debuggee's bytes are untrusted and reach the screen only through the
+same visible spelling every other byte in kg does, so an escape sequence
+in a program's output is displayed rather than obeyed.
+Lines of
+.Ic stderr
+are marked with a leading
+.Ql "! " ,
+and no ANSI is ever inserted.
+.Pp
+The other four panes are rebuilt from the tables on every change, about a
+tenth of a second after it, and only while they are on screen.
 .Ss Breakpoints
 A breakpoint is a place in a file, and it belongs to the editor.
 It exists with no adapter running, it survives the session that verified

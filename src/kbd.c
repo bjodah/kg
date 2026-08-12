@@ -14,6 +14,7 @@
 #include "bufhandle.h"
 #include "cmd.h"
 #include "cmdstate.h"
+#include "dap.h"
 #include "def.h"
 #include "edit.h"
 #include "kbd.h"
@@ -722,10 +723,15 @@ static void key_update_mode_maps(void)
 	int listing = syntax_is_dired();
 	int special = buffer_is_generated_special();
 	bool own_listing_map = key_update_name_keyed_maps();
+	/* The debugger's three, through the facade so that this file carries
+	 * no KG_USE_DAP conditional.  A `*dap-*` pane is a listing buffer
+	 * for the rule below's purposes: it is read-only and its own map
+	 * binds RET. */
+	bool dap_pane = dap_update_mode_maps();
 
 	keymap_set_active(mode_maps[MODE_MAP_DIRED], listing);
 	keymap_set_active(mode_maps[MODE_MAP_BUFFER_LIST],
-	    bcur()->readonly && !listing && !own_listing_map);
+	    bcur()->readonly && !listing && !own_listing_map && !dap_pane);
 	keymap_set_active(mode_maps[MODE_MAP_SPECIAL], special && !listing);
 	keymap_set_active(
 	    mode_maps[MODE_MAP_GIT_COMMIT], syntax_is_git_commit());

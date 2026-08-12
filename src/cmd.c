@@ -146,6 +146,19 @@ static void cmd_dap_breakpoint_temporary(int fd)
 }
 static void cmd_dap_until(int fd) { editor_dap_until(fd); }
 static void cmd_dap_goto(int fd) { editor_dap_goto(fd); }
+static void cmd_dap_info_select(int fd) { editor_dap_info_select(fd); }
+static void cmd_dap_info_delete_breakpoint(int fd)
+{
+	editor_dap_info_delete_breakpoint(fd);
+}
+static void cmd_dap_info_toggle_breakpoint(int fd)
+{
+	editor_dap_info_toggle_breakpoint(fd);
+}
+static void cmd_dap_info_toggle_breakpoints_threads(int fd)
+{
+	editor_dap_info_toggle_breakpoints_threads(fd);
+}
 static void cmd_dap_restart(int fd) { editor_dap_restart(fd); }
 static void cmd_dap_evaluate(int fd) { editor_dap_evaluate(fd); }
 static void cmd_dap_repl(int fd) { editor_dap_repl(fd); }
@@ -1636,13 +1649,27 @@ static const struct named_cmd cmdtable[] = {
 	    "Select the caller of the selected frame" },
 	{ "dap-goto", cmd_dap_goto, READS_TERM | LISP_OK,
 	    "Jump execution to this line without running it" },
+	/* The four the debugger's own panes bind, and the reason there are
+	 * four rather than one per pane: they dispatch on what the LINE is
+	 * (src/dap_ui.h), so the same RET selects a frame, a thread, a
+	 * breakpoint or a variable. */
+	{ "dap-info-delete-breakpoint", cmd_dap_info_delete_breakpoint, LISP_OK,
+	    "Delete the breakpoint on this line" },
+	{ "dap-info-select", cmd_dap_info_select, LISP_OK,
+	    "Act on the debugger line point is on" },
+	{ "dap-info-toggle-breakpoint", cmd_dap_info_toggle_breakpoint, LISP_OK,
+	    "Enable or disable the breakpoint on this line" },
+	{ "dap-info-toggle-breakpoints-threads",
+	    cmd_dap_info_toggle_breakpoints_threads, LISP_OK,
+	    "Swap the breakpoints and threads panes" },
 	{ "dap-many-windows", cmd_dap_many_windows, LISP_OK,
 	    "Toggle the debugger's window layout" },
 	{ "dap-next", cmd_dap_next, LISP_OK,
 	    "Step over the call on this line" },
 	{ "dap-pause", cmd_dap_pause, LISP_OK,
 	    "Ask the running program to stop" },
-	{ "dap-repl", cmd_dap_repl, LISP_OK, "Show the debugger's REPL" },
+	{ "dap-repl", cmd_dap_repl, READS_TERM | LISP_OK,
+	    "Evaluate an expression in the debugger's REPL" },
 	{ "dap-restart", cmd_dap_restart, LISP_OK,
 	    "Restart the program under the same configuration" },
 	{ "dap-step-in", cmd_dap_step_in, LISP_OK,

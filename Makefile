@@ -399,6 +399,15 @@ endif
 # and arranges windows, so a test binary linking it would link the whole
 # editor -- and its WITH_DAP=0 half is what keeps the cmdtable rows honest.
 DAP_EDITOR_SRCS = dap_keymap.c dap_commands.c
+# The panes, the layout and the row metadata join them, and for the same
+# reason: dap_ui.c writes special buffers through the edit gateway and
+# arranges windows.  WITH_DAP=1 only, unlike its two neighbours, because it
+# has no disabled half to compile -- a build whose `kg -V` says `-dap`
+# answers every command in dap_commands.c's own `#else` half and never
+# reaches a pane.
+ifeq ($(WITH_DAP),1)
+DAP_EDITOR_SRCS += dap_ui.c
+endif
 DAP_OBJS = $(addprefix $(OBJDIR)/,$(DAP_SRCS:.c=.o))
 # What `make clean` must remove because THIS configuration did not build
 # it, LSP_ALL's reason exactly: without it a `make; make WITH_DAP=0 clean`
@@ -409,7 +418,8 @@ DAP_ALL = $(OBJDIR)/dap_transport.o $(TESTDIR)/test_dap_transport \
           $(OBJDIR)/dap_session.o $(TESTDIR)/test_dap_session \
           $(OBJDIR)/dap_breakpoint.o $(TESTDIR)/test_dap_breakpoint \
           $(OBJDIR)/dap_exec.o $(TESTDIR)/test_dap_exec \
-          $(OBJDIR)/dap_decor.o $(TESTDIR)/test_dap_commands
+          $(OBJDIR)/dap_decor.o $(TESTDIR)/test_dap_commands \
+          $(OBJDIR)/dap_ui.o $(TESTDIR)/test_dap_ui
 
 # Source files
 SRCS = main.c tty.c async.c syntax.c $(SYNTAX_BACKEND_SRCS) autocomplete.c buffer.c fileio.c \
@@ -508,7 +518,7 @@ ifeq ($(WITH_DAP),1)
 TESTBINS += $(TESTDIR)/test_dap_transport $(TESTDIR)/test_dap_client \
             $(TESTDIR)/test_dap_config $(TESTDIR)/test_dap_session \
             $(TESTDIR)/test_dap_breakpoint $(TESTDIR)/test_dap_exec \
-            $(TESTDIR)/test_dap_commands
+            $(TESTDIR)/test_dap_commands $(TESTDIR)/test_dap_ui
 endif
 # test_perf is not built like the other unit tests: it needs the whole
 # editor compiled with -DKG_PERF_COUNTERS=1 (src/perf.h), which must not
@@ -706,7 +716,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 10048
+SCC_COMPLEXITY_MAX ?= 10295
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -1529,6 +1539,10 @@ EXTRA_dap_exec := $(EXTRA_dap_session) $(OBJDIR)/dap_exec.o \
 # so their suite links the same everything-but-main.c set EXTRA_cmd does --
 # which is also the only link in which src/dap_commands.o exists at all.
 EXTRA_dap_commands := $(EXTRA_cmd)
+# The panes are the other file in that link and are reachable only from it:
+# they write special buffers, arrange windows and are bound to keys, so this
+# suite is the everything-but-main.c set too.
+EXTRA_dap_ui := $(EXTRA_cmd)
 # The JSON layer depends on the C library and nothing else -- not even
 # process.h -- so its own object would link on its own; the baseline is
 # here because test.o's harness reaches the editor globals stubs.o and

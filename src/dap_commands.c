@@ -17,6 +17,7 @@
 #include "dap_decor.h"
 #include "dap_exec.h"
 #include "dap_session.h"
+#include "dap_ui.h"
 #include "def.h"
 #include "json.h"
 #include "localvars.h"
@@ -32,14 +33,6 @@ struct dap_session; /* src/dap_session.h */
 
 #define DAP_WHO "dap-debug"
 
-/* The debuggee's transcript, bounded.  The UI subplan owns the real one --
- * append-only, CRLF normalisation as streaming state, a visible truncation
- * marker, killing the buffer starting a fresh one -- and this is the honest
- * minimum under it: the bytes arrive, they are bounded, and past the bound
- * kg says so once and keeps draining, because an adapter must never block
- * on its pipe. */
-#define DAP_OUTPUT_MAX_BYTES (256u * 1024u)
-
 /* What the user last chose, so `dap-debug` can be repeated and
  * `dap-restart` can relaunch the same thing without asking again. */
 static struct {
@@ -50,18 +43,11 @@ static struct {
 	bool valid;
 } choice;
 
-/* The gdb-many-windows layout.  `wanted` is the user's toggle and survives
- * a session; `active` is whether the grid is on screen right now. */
-static struct {
-	struct kg_window_configuration saved;
-	bool wanted;
-	bool active;
-} layout;
-
-static struct {
-	size_t bytes;
-	bool truncated;
-} transcript;
+/* The REPL's own history, so that walking it does not walk somebody else's
+ * shell commands, and `dap-evaluate`'s, which is a different question asked
+ * in a different context [M-14]. */
+static struct minibuf_history repl_history;
+static struct minibuf_history evaluate_history;
 
 static unsigned build_generation;
 static bool build_running;
@@ -93,141 +79,40 @@ static void report(bool error, const char *text)
 
 /* ------------------------------ the panes ----------------------------- */
 
-/* The six panes the layout arranges.  Their CONTENTS are subplan 02's --
- * the row metadata, the model-derived replacements, the RET dispatch -- and
- * what stage 6 owns is that they exist, that they are read-only, and that
- * the layout can put them somewhere.  Creating one is therefore
- * find-or-create and never re-prepare: `buf_prepare_special_text()` clears
- * what it finds, and clearing the output transcript every time the layout
- * is toggled would be a debugger that forgets what the program printed. */
-static const char *const pane_names[] = {
-	"*dap-stack*",
-	"*dap-breakpoints*",
-	"*dap-locals*",
-	"*dap-output*",
-	"*dap-repl*",
-};
+/* Everything about a pane -- the six buffers, the row metadata, the two
+ * transcripts, the layout and the info map's commands -- is src/dap_ui.c's.
+ * What is left here is the command layer: the rows cmd.c reaches, the
+ * prompts (this is the one debugger file that prompts) and the hooks that
+ * turn the session's and the stop model's news into dap_ui_changed(). */
 
-#define DAP_PANE_COUNT (sizeof(pane_names) / sizeof(*pane_names))
-
-static int pane_slot(const char *name)
-{
-	int slot = buf_find_open(name);
-
-	if (slot >= 0) {
-		return slot;
-	}
-	slot = buf_prepare_special_text(name, &text_syntax, 1);
-	if (slot >= 0) {
-		(void)buf_append_special_text(slot,
-		    "(the debugger fills this pane)\n",
-		    strlen("(the debugger fills this pane)\n"));
-	}
-	return slot;
-}
-
-/* stdout/stderr/console, appended as BYTES: debugpy splits one print across
- * two events mid-line, so an event is not a line [M-12].  Telemetry never
- * reaches here -- the client drops it. */
 static void on_output(
     void *ctx, const char *category, const char *text, size_t len)
 {
-	int slot;
-
 	(void)ctx;
-	(void)category;
-	if (transcript.bytes >= DAP_OUTPUT_MAX_BYTES) {
-		return;
-	}
-	slot = pane_slot("*dap-output*");
-	if (slot < 0) {
-		return;
-	}
-	if (transcript.bytes + len > DAP_OUTPUT_MAX_BYTES) {
-		len = DAP_OUTPUT_MAX_BYTES - transcript.bytes;
-		transcript.truncated = true;
-	}
-	transcript.bytes += len;
-	(void)buf_append_special_text(slot, text, len);
-	if (transcript.truncated) {
-		(void)buf_append_special_text(slot, "\n[output truncated]\n",
-		    strlen("\n[output truncated]\n"));
-		transcript.bytes = DAP_OUTPUT_MAX_BYTES;
-	}
-}
-
-/* -------------------------------- layout ------------------------------ */
-
-/* Two columns of three: the source, the stack and the breakpoints on the
- * left; locals, output and the REPL on the right.  Six windows of the
- * eight a frame can hold, which is gdb-many-windows' shape with kg's own
- * equal-width reflow. */
-static void layout_apply(void)
-{
-	struct kg_buffer_handle buffers[1 + DAP_PANE_COUNT];
-	int rows_per_column[2] = { 3, 3 };
-	size_t i;
-	int slot;
-
-	if (layout.active) {
-		return;
-	}
-	buffers[0] = buf_handle(buf_current);
-	for (i = 0; i < DAP_PANE_COUNT; i++) {
-		slot = pane_slot(pane_names[i]);
-		if (slot < 0) {
-			editor_set_status_message(
-			    "dap-many-windows: no room for the panes");
-			return;
-		}
-		buffers[i + 1] = buf_handle(slot);
-	}
-	/* Saved BEFORE the grid, and restored on toggle-off or on session
-	 * end: a debugger that leaves a user's windows rearranged is one
-	 * they stop using. */
-	win_configuration_save(&layout.saved);
-	if (win_arrange_grid(
-		2, rows_per_column, buffers, (int)(1 + DAP_PANE_COUNT), 0)
-	    != KG_WINDOW_LAYOUT_OK) {
-		win_configuration_clear(&layout.saved);
-		editor_set_status_message(
-		    "dap-many-windows: the debug layout does not fit");
-		return;
-	}
-	layout.active = true;
-}
-
-static void layout_restore(void)
-{
-	if (!layout.active) {
-		return;
-	}
-	layout.active = false;
-	(void)win_configuration_restore(&layout.saved);
-	win_configuration_clear(&layout.saved);
+	dap_ui_output(category, text, len);
 }
 
 void editor_dap_many_windows(int fd)
 {
 	(void)fd;
-	layout.wanted = !layout.active;
-	if (layout.wanted) {
-		layout_apply();
-		layout.wanted = layout.active;
-	} else {
-		layout_restore();
-	}
-	editor_set_status_message(
-	    "Debug layout %s", layout.active ? "on" : "off");
+	dap_ui_layout_toggle();
 }
 
 /* ------------------------------ session news -------------------------- */
+
+/* THE ONE NOTIFICATION POINT, from this side: everything that can change
+ * what a pane or a mark says arrives here and calls exactly these two. */
+static void ui_changed(void)
+{
+	dap_decor_refresh();
+	dap_ui_changed();
+}
 
 static void on_session_changed(void *ctx, struct dap_session *session)
 {
 	(void)ctx;
 	(void)session;
-	dap_decor_refresh();
+	ui_changed();
 }
 
 static void on_session_report(void *ctx, bool error, const char *text)
@@ -237,25 +122,50 @@ static void on_session_report(void *ctx, bool error, const char *text)
 }
 
 /* Where the program stopped.  `focus` is false when the stop carried
- * `preserveFocusHint`: the decoration moves, the user's window does not. */
+ * `preserveFocusHint`: the panes and the decoration move, the user's window
+ * does not -- and neither does it when the user is reading a `*dap-*` pane,
+ * because taking the window they are in to show them a source line is the
+ * one thing a pane is there to prevent.  The column is a 1-BASED BYTE
+ * column (doc/coordinates.md) and a DAP column is not one, so kg passes 1.
+ */
 static void on_location(void *ctx, const char *path, int line, bool focus)
 {
 	struct kg_buffer_handle none = { 0 };
 
 	(void)ctx;
-	if (focus) {
+	if (focus && !dap_ui_current_buffer_is_pane()) {
 		(void)editor_visit_file_position("dap", path, line, 1, none);
 	}
-	dap_decor_refresh();
+	ui_changed();
 }
 
 static void on_exec_changed(void *ctx)
 {
 	(void)ctx;
-	if (!dap_session_current() && layout.active) {
-		layout_restore();
+	if (!dap_session_current()) {
+		dap_ui_layout_session_ended();
 	}
-	dap_decor_refresh();
+	ui_changed();
+}
+
+/* An `evaluate` answer.  The REPL's goes into its transcript, tagged with
+ * what was asked; everything else is one line of echo area.  A reply whose
+ * epoch or selection has moved on is dropped without a word: the model has
+ * already refused it once, and a transcript is append-only, so a stale line
+ * in it is a line a user cannot tell from a fresh one. */
+static void on_evaluated(void *ctx, const struct dap_exec_answer *answer)
+{
+	(void)ctx;
+	if (answer->epoch != dap_exec_epoch()
+	    || answer->selection != dap_exec_selection()) {
+		return;
+	}
+	if (strcmp(answer->context, "repl") == 0) {
+		dap_ui_repl_answer(
+		    answer->expression, answer->error, answer->text);
+		return;
+	}
+	editor_set_status_message("%s", answer->text);
 }
 
 static void on_relaunch(void *ctx)
@@ -266,9 +176,7 @@ static void on_relaunch(void *ctx)
 	 * -- a restart restarts the program, and rebuilding it is what
 	 * `dap-debug` is for. */
 	dap_launch(false);
-	if (layout.wanted) {
-		layout_apply();
-	}
+	dap_ui_layout_session_started();
 }
 
 /* ------------------------------- starting ----------------------------- */
@@ -348,9 +256,8 @@ static bool start_session(const struct dap_launch_config *cfg,
 		return false;
 	}
 	dap_exec_session_started();
-	transcript.bytes = 0;
-	transcript.truncated = false;
-	dap_decor_refresh();
+	dap_ui_layout_session_started();
+	ui_changed();
 	editor_set_status_message("Debugging: %s", cfg->name);
 	return true;
 }
@@ -643,7 +550,7 @@ static void breakpoint_report(
     enum dap_breakpoint_result result, int line, const char *what)
 {
 	if (result == DAP_BREAKPOINT_OK) {
-		dap_decor_refresh();
+		ui_changed();
 		editor_set_status_message("%s on line %d", what, line);
 	} else {
 		editor_set_status_message(
@@ -686,7 +593,7 @@ static void on_armed(void *ctx, bool verified, const char *text)
 		editor_set_status_message("dap-until: %s", text);
 		return;
 	}
-	dap_decor_refresh();
+	ui_changed();
 	(void)dap_exec_resume(DAP_EXEC_CONTINUE);
 }
 
@@ -759,9 +666,10 @@ void editor_dap_goto(int fd)
 
 void editor_dap_evaluate(int fd)
 {
-	char expression[256] = "";
+	char expression[DAP_EXEC_TEXT_MAX] = "";
 
-	if (editor_read_line(fd, "Evaluate: ", expression, sizeof(expression))
+	if (editor_read_line_with_history(fd, "Evaluate: ", expression,
+		sizeof(expression), &evaluate_history)
 		!= MINIBUF_ACCEPTED
 	    || expression[0] == '\0') {
 		return;
@@ -772,16 +680,61 @@ void editor_dap_evaluate(int fd)
 	(void)dap_exec_evaluate(expression, "hover");
 }
 
+/* The REPL, whose input is the MINIBUFFER.  A prompt line inside the buffer
+ * would need an editable-tail mode kg does not have -- cursor confinement,
+ * an undo policy, insertion arriving above the prompt while it is being
+ * typed -- so `*dap-repl*` is a read-only transcript and this is where the
+ * typing happens.  Nothing selects a window or touches a source buffer
+ * while the prompt is open; the answer arrives later, through
+ * on_evaluated(). */
 void editor_dap_repl(int fd)
 {
-	int slot = pane_slot("*dap-repl*");
+	char expression[DAP_EXEC_TEXT_MAX] = "";
 
-	(void)fd;
-	if (slot < 0) {
+	if (!dap_ui_show(DAP_UI_PANE_REPL)) {
 		editor_set_status_message("dap-repl: no room for the buffer");
 		return;
 	}
-	win_display_buffer_other_window(slot);
+	if (editor_read_line_with_history(
+		fd, "DAP> ", expression, sizeof(expression), &repl_history)
+		!= MINIBUF_ACCEPTED
+	    || expression[0] == '\0') {
+		return;
+	}
+	dap_ui_repl_echo(expression);
+	/* `repl` context here and nowhere else [M-14]: this is the one place
+	 * an adapter's own REPL formatting, side effects included, is what
+	 * the user asked for. */
+	(void)dap_exec_evaluate(expression, "repl");
+}
+
+/* ------------------------- the debugger's panes ----------------------- */
+
+/* The `dap-info` map's commands.  One map for all six panes and one
+ * dispatch on what the LINE is (src/dap_ui.h), rather than one map per
+ * pane: the panes differ in what they list, not in what RET means. */
+void editor_dap_info_select(int fd)
+{
+	(void)fd;
+	dap_ui_info_ret();
+}
+
+void editor_dap_info_delete_breakpoint(int fd)
+{
+	(void)fd;
+	dap_ui_info_delete();
+}
+
+void editor_dap_info_toggle_breakpoint(int fd)
+{
+	(void)fd;
+	dap_ui_info_toggle_enable();
+}
+
+void editor_dap_info_toggle_breakpoints_threads(int fd)
+{
+	(void)fd;
+	dap_ui_info_toggle_breakpoints_threads();
 }
 
 /* ------------------------------- lifecycle ---------------------------- */
@@ -793,11 +746,14 @@ void dap_commands_init(void)
 		.report = on_session_report,
 		.changed = on_exec_changed,
 		.relaunch = on_relaunch,
+		.evaluated = on_evaluated,
 	};
 
 	dap_exec_set_hooks(&hooks);
 	dap_breakpoint_set_report_hook(on_session_report, NULL);
 	dap_decor_init();
+	dap_ui_init();
+	dap_set_ui_poll(dap_ui_poll);
 }
 
 void dap_commands_shutdown(void)
@@ -809,9 +765,11 @@ void dap_commands_shutdown(void)
 	dap_exec_set_hooks(NULL);
 	dap_breakpoint_set_report_hook(NULL, NULL);
 	dap_decor_reset();
+	dap_set_ui_poll(NULL);
+	dap_ui_reset();
 	memset(&choice, 0, sizeof(choice));
-	memset(&layout, 0, sizeof(layout));
-	memset(&transcript, 0, sizeof(transcript));
+	minibuf_history_init(&repl_history);
+	minibuf_history_init(&evaluate_history);
 }
 
 #else /* !KG_USE_DAP */
@@ -935,6 +893,30 @@ void editor_dap_frame_down(int fd)
 }
 
 void editor_dap_many_windows(int fd)
+{
+	(void)fd;
+	dap_absent();
+}
+
+void editor_dap_info_select(int fd)
+{
+	(void)fd;
+	dap_absent();
+}
+
+void editor_dap_info_delete_breakpoint(int fd)
+{
+	(void)fd;
+	dap_absent();
+}
+
+void editor_dap_info_toggle_breakpoint(int fd)
+{
+	(void)fd;
+	dap_absent();
+}
+
+void editor_dap_info_toggle_breakpoints_threads(int fd)
 {
 	(void)fd;
 	dap_absent();

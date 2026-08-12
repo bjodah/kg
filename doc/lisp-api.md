@@ -654,6 +654,35 @@ key — while `define-key` takes any sequence the built-in maps could
 hold, so it *can* shadow a built-in binding; `C-g` and `C-x C-c` are the
 keys to leave alone.
 
+### Rebinding the debugger's keys
+
+The debugger's three maps — `dap-breakpoint` (`F9`, `C-F9`, live in any
+buffer visiting a file), `dap` (everything else, live only while a session
+exists) and `dap-info` (the six `*dap-*` panes) — are created in C before
+`init.el` runs, so `define-key` finds them rather than creating a new map
+of its own in the wrong layer:
+
+```elisp
+;; VS Code habits.
+(define-key 'dap-mode-map "<f5>" 'dap-continue)
+(define-key 'dap-mode-map "<f11>" 'dap-step-in)
+(define-key 'dap-mode-map "S-<f11>" 'dap-step-out)
+;; Or somewhere entirely your own.
+(define-key 'dap-breakpoint-mode-map "C-c b" 'dap-breakpoint-toggle)
+(define-key 'dap-info-mode-map "x" 'dap-info-delete-breakpoint)
+```
+
+The `-mode-map` suffix is `keymap-find`'s ordinary aliasing, so
+`'dap-mode-map` and `'dap` name the same map. `global-set-key` cannot bind
+an F-key by design; that these are real native maps is exactly what makes
+`define-key` able to. A binding is a command *name*, so it may be a Lisp
+command you defined yourself — a `defun` marked as a command is bindable
+here like any built-in one.
+
+Which map to put a binding in is the question worth a moment: a key in
+`dap` is dead outside a session and cannot shadow anything you use while
+editing, while a key in `dap-breakpoint` is live in every file buffer.
+
 ## Variables the editor reads
 
 Most of what kg does is reached by calling a command, not by setting a

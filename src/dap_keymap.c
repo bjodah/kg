@@ -21,6 +21,9 @@
 
 #include "dap_breakpoint.h"
 #include "dap_commands.h"
+#include "dap_session.h"
+#include "dap_ui.h"
+#include "def.h"
 #include "keymap.h"
 
 #include <stddef.h>
@@ -57,8 +60,87 @@ static const struct {
 	{ "dap-info", KEYMAP_LAYER_MAJOR },
 };
 
+/* The default table, gud-style (doc/plans/2026-08-11-dap.md, decision 1) --
+ * the layout the user's own Emacs has, so that the muscle memory of
+ * F5-step-in and F8-continue keeps working.
+ *
+ * WHICH MAP a key goes in is the whole reason there are two: F9 has to work
+ * BEFORE `dap-debug`, in an ordinary file buffer with no adapter anywhere,
+ * while F4-F8 and F10-F12 must not shadow a user's own F-keys outside a
+ * session.  Nothing here is bound in the global map: these are minor maps,
+ * they are activated per keystroke by the predicates below, and both are
+ * fully rebindable from init.el -- `(define-key 'dap-mode-map "<f5>"
+ * 'dap-step-in)` reaches this very map, because keymap_find()'s `-mode-map`
+ * aliasing resolves the name and the map already exists.
+ *
+ * PageUp/PageDown join M-up/M-down on the stack walk: a user whose hands
+ * are on the arrow cluster should not have to reach for Meta, and outside a
+ * session the keys are the editor's own again because the map is not
+ * live. */
+static const struct {
+	int map;
+	const char *sequence;
+	const char *command;
+} dap_keys[] = {
+	{ 0, "<f9>", "dap-breakpoint-toggle" },
+	{ 0, "C-<f9>", "dap-breakpoint-temporary" },
+	{ 1, "<f4>", "dap-evaluate" },
+	{ 1, "<f5>", "dap-step-in" },
+	{ 1, "C-<f5>", "dap-step-instruction" },
+	{ 1, "<f6>", "dap-next" },
+	{ 1, "<f7>", "dap-step-out" },
+	{ 1, "<f8>", "dap-continue" },
+	{ 1, "<f10>", "dap-until" },
+	{ 1, "M-<f10>", "dap-goto" },
+	{ 1, "<f11>", "dap-restart" },
+	{ 1, "M-<f11>", "dap-terminate" },
+	{ 1, "<f12>", "dap-many-windows" },
+	{ 1, "M-<up>", "dap-frame-up" },
+	{ 1, "M-<down>", "dap-frame-down" },
+	{ 1, "<prior>", "dap-frame-up" },
+	{ 1, "<next>", "dap-frame-down" },
+	{ 2, "RET", "dap-info-select" },
+	{ 2, "d", "dap-info-delete-breakpoint" },
+	{ 2, "D", "dap-info-toggle-breakpoint" },
+	{ 2, "t", "dap-info-toggle-breakpoints-threads" },
+	/* `q` is the editor's own bury, and is bound here as well as in the
+	 * special-buffer map on purpose: both maps are live in a pane, both
+	 * are in the major layer, and two maps naming ONE command is a
+	 * question recency answers with the same behaviour either way. */
+	{ 2, "q", "quit-window" },
+};
+
+/* Whether the current buffer visits a file on disk, which is what the
+ * breakpoint keys need and all they need: a breakpoint is set on a source
+ * line, and neither a scratch buffer nor a debugger pane has one.
+ * buf_visits_file() is the editor's own answer to that question (def.h), so
+ * the keys are live in exactly the buffers a save would write.  The
+ * handlers refuse such a buffer again with a sentence -- this only decides
+ * whether the KEY is live. */
+static bool buffer_visits_a_file(void) { return buf_visits_file(bcur()) != 0; }
+
+/* Asked once per keystroke from kbd.c's name-keyed rule, and the ONE place
+ * the debugger's maps are made live.  A bare keymap_set_active() at pane
+ * creation would leave the info map live in whatever buffer the user
+ * switched to next, which is the bug this shape cannot have.
+ *
+ * The answer is also the buffer-list map's cue to stand down: a pane is
+ * read-only, that map is live in any read-only buffer, and both bind RET in
+ * the major layer -- the predicate leak the LSP plan already fixed once. */
+bool dap_update_mode_maps(void)
+{
+	bool pane = dap_ui_current_buffer_is_pane();
+
+	keymap_set_active(
+	    keymap_find("dap-breakpoint"), buffer_visits_a_file());
+	keymap_set_active(keymap_find("dap"), dap_session_current() != NULL);
+	keymap_set_active(keymap_find("dap-info"), pane);
+	return pane;
+}
+
 void dap_init(void)
 {
+	struct keymap *maps[3] = { 0 };
 	size_t i;
 
 	/* Before the init file for the maps' sake, and before any command
@@ -73,15 +155,25 @@ void dap_init(void)
 	 * windows and the command table. */
 	dap_commands_init();
 	for (i = 0; i < sizeof(dap_maps) / sizeof(*dap_maps); i++) {
-		struct keymap *map
-		    = keymap_create(dap_maps[i].name, dap_maps[i].layer);
-
-		keymap_set_active(map, 0);
+		maps[i] = keymap_create(dap_maps[i].name, dap_maps[i].layer);
+		keymap_set_active(maps[i], 0);
+	}
+	for (i = 0; i < sizeof(dap_keys) / sizeof(*dap_keys); i++) {
+		/* A map the table was full for is a nullptr keymap_bind()
+		 * declines, which is what exhausting any keymap bound looks
+		 * like everywhere else in kg: the keys do not work and
+		 * nothing else is damaged. */
+		(void)keymap_bind(maps[dap_keys[i].map], dap_keys[i].sequence,
+		    dap_keys[i].command);
 	}
 }
 
 #else /* !KG_USE_DAP */
 
 void dap_init(void) { }
+
+/* No maps were created, so there is nothing to make live -- and no pane, so
+ * no other map has to stand down for one. */
+bool dap_update_mode_maps(void) { return false; }
 
 #endif /* KG_USE_DAP */

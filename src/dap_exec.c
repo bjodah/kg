@@ -59,6 +59,11 @@ struct exec_req {
 	 * the waterfall. */
 	int levels;
 	enum dap_exec_step step;
+	/* `evaluate` only: what was asked, and in which context.  Carried in
+	 * the request rather than remembered in one global, because two
+	 * evaluates may be in flight and the second may answer first. */
+	char expression[DAP_EXEC_TEXT_MAX];
+	char context[16];
 };
 
 static struct {
@@ -1217,6 +1222,27 @@ bool dap_exec_restart(void)
 
 /* ------------------------------- evaluate ----------------------------- */
 
+/* An answer, to whoever asked for one.  A failed evaluate renders in place
+ * and is not a session error [M-14], which is why the failure takes the
+ * same road as the value rather than the error road every other request
+ * takes. */
+static void deliver_evaluate(
+    const struct exec_req *req, bool error, const char *text)
+{
+	struct dap_exec_answer answer = { .context = req->context,
+		.expression = req->expression,
+		.text = text,
+		.error = error,
+		.epoch = req->epoch,
+		.selection = req->selection };
+
+	if (g.hooks.evaluated) {
+		g.hooks.evaluated(g.hooks.ctx, &answer);
+	} else {
+		exec_report(error, "%s", text);
+	}
+}
+
 static void on_evaluate(
     struct dap_client *c, const struct dap_response *r, void *ctx)
 {
@@ -1229,25 +1255,31 @@ static void on_evaluate(
 		return;
 	}
 	if (!r->success) {
-		/* A failed evaluate renders in place; it is not a session
-		 * error [M-14]. */
-		exec_report(true, "%s", exec_error_text(r));
+		deliver_evaluate(req, true, exec_error_text(r));
 		free(req);
 		return;
 	}
 	exec_copy_line(text, sizeof(text),
 	    kg_json_str(kg_json_get(r->body, "result"), NULL));
-	exec_report(false, "%s", text);
+	deliver_evaluate(req, false, text);
 	free(req);
 }
 
 bool dap_exec_evaluate(const char *expression, const char *context)
 {
+	struct exec_req *req;
 	struct kg_jsonw w;
 
 	if (!exec_client()) {
 		exec_report(true, "No debug session");
 		return false;
+	}
+	req = exec_req_new();
+	if (req) {
+		exec_copy_line(
+		    req->expression, sizeof(req->expression), expression);
+		snprintf(req->context, sizeof(req->context), "%s",
+		    context ? context : "hover");
 	}
 	kg_jsonw_init(&w);
 	kg_jsonw_begin_object(&w);
@@ -1260,7 +1292,7 @@ bool dap_exec_evaluate(const char *expression, const char *context)
 		kg_jsonw_int(&w, g.frames[g.selected_frame].id);
 	}
 	kg_jsonw_end_object(&w);
-	return exec_send("evaluate", &w, on_evaluate, exec_req_new());
+	return exec_send("evaluate", &w, on_evaluate, req);
 }
 
 /* ----------------------------- walking frames ------------------------- */
@@ -1291,6 +1323,22 @@ bool dap_exec_frame_select(int delta)
 		return false;
 	}
 	select_frame(want, true);
+	return true;
+}
+
+bool dap_exec_frame_select_at(size_t index)
+{
+	int thread_id;
+
+	if (!dap_exec_stopped_thread(&thread_id)) {
+		exec_report(true, "%s", dap_exec_no_thread_text());
+		return false;
+	}
+	if (index >= g.frame_count) {
+		exec_report(false, "No such frame");
+		return false;
+	}
+	select_frame(index, true);
 	return true;
 }
 

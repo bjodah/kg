@@ -45,9 +45,13 @@ static const char *const source_text = "int main(void)\n{\n\treturn 0;\n}\n";
 /* Every row of the audit, and the policy it carries.  Stage 6 decided all
  * three columns at once (doc/plans/dap/01-protocol.md): a debugger is
  * exactly the kind of thing a Lisp layer scripts, so every row is
- * Lisp-callable; the three that PROMPT say so, so cmd_invoke() refuses them
+ * Lisp-callable; the four that PROMPT say so, so cmd_invoke() refuses them
  * from an activation with no descriptor rather than reading fd -1; and none
- * of them edits buffer text, so none is refused by a read-only buffer. */
+ * of them edits buffer text, so none is refused by a read-only buffer.
+ *
+ * Subplan 02 added the four `dap-info-*` rows the panes bind, and moved
+ * `dap-repl` into the prompting column: its input is the minibuffer,
+ * because the transcript it writes to is read-only. */
 static const struct {
 	const char *name;
 	bool prompts;
@@ -61,10 +65,14 @@ static const struct {
 	{ "dap-frame-down", false },
 	{ "dap-frame-up", false },
 	{ "dap-goto", true },
+	{ "dap-info-delete-breakpoint", false },
+	{ "dap-info-select", false },
+	{ "dap-info-toggle-breakpoint", false },
+	{ "dap-info-toggle-breakpoints-threads", false },
 	{ "dap-many-windows", false },
 	{ "dap-next", false },
 	{ "dap-pause", false },
-	{ "dap-repl", false },
+	{ "dap-repl", true },
 	{ "dap-restart", false },
 	{ "dap-step-in", false },
 	{ "dap-step-instruction", false },
@@ -77,7 +85,7 @@ static void test_every_row_is_present_and_audited(void)
 {
 	size_t i;
 
-	CHECK(sizeof(dap_rows) / sizeof(*dap_rows) == 19);
+	CHECK(sizeof(dap_rows) / sizeof(*dap_rows) == 23);
 	for (i = 0; i < sizeof(dap_rows) / sizeof(*dap_rows); i++) {
 		const struct named_cmd *cmd = cmd_lookup(dap_rows[i].name);
 
@@ -330,15 +338,20 @@ static void test_many_windows_toggles_and_restores(void)
 	session_teardown();
 }
 
-/* The REPL pane is reachable without a session, and showing it twice does
- * not make a second one. */
-static void test_repl_shows_one_buffer(void)
+/* The REPL reads its input from the minibuffer, so a Lisp activation with
+ * no descriptor is refused BY THE TABLE rather than by reading fd -1 --
+ * which is what CMD_READS_TERMINAL is for, and what this pins.  The pane
+ * itself is subplan 02's and is tested in test_dap_ui.c. */
+static void test_the_repl_needs_a_terminal(void)
 {
+	struct command_context ctx = { 0 };
+
 	open_one_source("repl.c");
-	CHECK(invoke("dap-repl") == CMD_RAN);
-	CHECK(buf_find_open("*dap-repl*") >= 0);
-	CHECK(invoke("dap-repl") == CMD_RAN);
-	CHECK(buf_count <= 3);
+	ctx.fd = -1;
+	ctx.origin = CMD_ORIGIN_LISP;
+	ctx.prefix.value = 1;
+	CHECKF(cmd_invoke("dap-repl", &ctx) == CMD_NO_TERMINAL,
+	    "dap-repl ran without a descriptor to prompt on");
 	session_teardown();
 }
 
@@ -358,6 +371,6 @@ int main(void)
 	RUN(test_decorations_are_a_projection_of_the_table);
 	RUN(test_execution_commands_without_a_session);
 	RUN(test_many_windows_toggles_and_restores);
-	RUN(test_repl_shows_one_buffer);
+	RUN(test_the_repl_needs_a_terminal);
 	return test_summary();
 }

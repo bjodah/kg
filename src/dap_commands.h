@@ -40,6 +40,14 @@ void editor_dap_repl(int fd);
 void editor_dap_frame_up(int fd);
 void editor_dap_frame_down(int fd);
 void editor_dap_many_windows(int fd);
+/* The four the `dap-info` map binds inside the debugger's own panes.  They
+ * dispatch on the row metadata (src/dap_ui.h) rather than on which pane
+ * they were pressed in, which is why there are four of them and not
+ * twenty-four. */
+void editor_dap_info_select(int fd);
+void editor_dap_info_delete_breakpoint(int fd);
+void editor_dap_info_toggle_breakpoint(int fd);
+void editor_dap_info_toggle_breakpoints_threads(int fd);
 
 /* Wire the command layer's hooks into the session, the stop model and the
  * decoration projection.  Called from dap_init(), before the init file is

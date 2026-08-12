@@ -17,12 +17,21 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Priorities within one row.  A breakpoint outranks the stopped line so
- * that column one still says "there is a breakpoint here" while the rest of
- * the row says "and this is where you are". */
-#define DAP_DECOR_PRIORITY_CURRENT 1
-#define DAP_DECOR_PRIORITY_PENDING 2
-#define DAP_DECOR_PRIORITY_BREAKPOINT 3
+/* Priorities within one row, defined rather than incidental (subplan 02).
+ * The renderer takes the HIGHEST number where two decorations overlap
+ * (src/display.c's row_decor_face_at()), so these read as they are ordered:
+ *
+ *   current > breakpoint > pending
+ *
+ * The stopped line beats a breakpoint on the same row because "where am I"
+ * is the question a debugger exists to answer, and the two overlap in
+ * exactly one column -- a breakpoint marks column one only, so on every
+ * other row it is the only thing there.  A verified breakpoint beats an
+ * unverified one for the same reason in miniature: the adapter's verdict is
+ * newer news than kg's intention. */
+#define DAP_DECOR_PRIORITY_PENDING 1
+#define DAP_DECOR_PRIORITY_BREAKPOINT 2
+#define DAP_DECOR_PRIORITY_CURRENT 3
 
 static struct kg_decor_handle painted[DAP_DECOR_MAX];
 static size_t painted_count;
@@ -61,6 +70,14 @@ static void paint(struct editor_buffer *b, int row, int end_col,
 	}
 	start = buffer_row_col_to_position(b, row, 0);
 	end = buffer_row_col_to_position(b, row, end_col);
+	/* An empty line still gets a defined NONEMPTY range: it covers the
+	 * newline that ends it.  A zero-length decoration is a mark with no
+	 * extent -- nothing a query can report a span for, and nothing a
+	 * later edit can grow -- and "the program is stopped on a blank
+	 * line" has to be answerable too. */
+	if (end == start && start < buffer_byte_length(b)) {
+		end = start + 1;
+	}
 	/* LEFT gravity at the start and RIGHT at the end, the opposite of a
 	 * search match: text typed at either edge of the marked line is part
 	 * of that line, and the mark should grow with it. */

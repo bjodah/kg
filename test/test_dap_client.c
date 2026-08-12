@@ -813,6 +813,68 @@ static void test_a_deadline_expires_but_launch_has_none(void)
 	CHECK(launch.calls == 1);
 }
 
+/* An adapter that is merely SLOW, which is the ordinary shape of a missed
+ * deadline: the answer does arrive, after kg has already failed the
+ * request.  The slot was copied out and cleared before that first callback
+ * ran, so the late answer correlates to nothing and is not a second one. */
+static void test_a_response_after_its_deadline_is_not_a_second_callback(void)
+{
+	const char *extra[] = { "--delay", "kg/echo:0.15", NULL };
+	struct dap_client *c = start_protocol(extra);
+	struct answer a = { 0 };
+
+	CHECK(c != NULL);
+	if (!c) {
+		return;
+	}
+	dap_client_set_timeouts(c, 20, 20);
+	CHECK(echo_request(c, "slow", &a) == 1);
+	CHECK(pump_until(c, &a.calls, 1));
+	CHECK(!a.answered);
+	CHECK(dap_client_pending_count(c) == 0);
+	/* Longer than the adapter's own delay, so the answer really does
+	 * land inside this window rather than after the case. */
+	pump_quietly(c);
+	CHECKF(a.calls == 1, "the late answer ran the callback again");
+	CHECK(dap_client_alive(c));
+	dap_client_close(c);
+	CHECK(a.calls == 1);
+}
+
+/* A flood that goes ON.  The per-poll budget has to hold for every poll of
+ * it, not just the first, and a request made while it is arriving still
+ * gets through -- an adapter cannot monopolise the editor by talking. */
+static void test_a_sustained_flood_stays_inside_the_bounds(void)
+{
+	const char *extra[] = { "--flood", "2000", NULL };
+	struct dap_client *c = start_protocol(extra);
+	struct answer a = { 0 };
+	struct answer during = { 0 };
+	double deadline = monotonic_seconds() + PUMP_DEADLINE_SECONDS;
+	int worst = 0;
+
+	CHECK(c != NULL);
+	if (!c) {
+		return;
+	}
+	CHECK(dap_client_initialize(c, "kg-test", record, &a) > 0);
+	while (heard.events < 2000 && monotonic_seconds() < deadline) {
+		int before = heard.events;
+
+		(void)dap_client_poll(c);
+		if (heard.events - before > worst) {
+			worst = heard.events - before;
+		}
+	}
+	CHECKF(heard.events >= 2000, "%d of 2000 events arrived", heard.events);
+	CHECKF(worst <= DAP_CLIENT_MAX_MESSAGES_PER_POLL,
+	    "one poll delivered %d messages", worst);
+	CHECK(echo_request(c, "during", &during) > 0);
+	CHECK(pump_until(c, &during.calls, 1));
+	CHECK(during.success);
+	dap_client_close(c);
+}
+
 /* An adapter that dies with questions outstanding: every callback runs, and
  * runs once, with the death rather than an answer. */
 static void test_death_flushes_every_pending_callback_exactly_once(void)
@@ -1066,6 +1128,8 @@ int main(int argc, char **argv)
 	RUN(test_an_error_in_message_reaches_the_caller);
 	RUN(test_an_error_in_body_error_format_reaches_the_caller);
 	RUN(test_a_deadline_expires_but_launch_has_none);
+	RUN(test_a_response_after_its_deadline_is_not_a_second_callback);
+	RUN(test_a_sustained_flood_stays_inside_the_bounds);
 	RUN(test_death_flushes_every_pending_callback_exactly_once);
 	RUN(test_a_full_pending_table_fails_the_callback_locally);
 	RUN(test_events_before_the_initialize_response);

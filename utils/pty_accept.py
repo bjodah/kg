@@ -73,6 +73,11 @@ DEFAULT_JOBS = 8
 # check.
 TOOL_PROBE_ARGS = {"rust-analyzer": ("--version",)}
 TOOL_PROBE_TIMEOUT = 2.0
+# The interpreter `requires_python_module:` asks.  It is a literal rather
+# than $PYTHON because the predicate answers one question only -- can the
+# interpreter kg itself spawns import this module -- and kg's Python debug
+# adapter is spelled `python3 -m debugpy.adapter` in src/dap_config.c.
+PYTHON_MODULE_INTERPRETER = "python3"
 # kg's mode line: "----  name  All (1,0)  (Fundamental)" ("-**-" when dirty).
 KG_READY_PATTERN = r"(?:----|-\*\*-)  "
 KG_READY = re.compile(KG_READY_PATTERN)
@@ -107,6 +112,7 @@ class Case:
 	keys: list[str]
 	requires_feature: str | None
 	requires_tool: str | None
+	requires_python_module: str | None
 	config_files: dict[str, str]
 	workspace_files: dict[str, str]
 	env: dict[str, str]
@@ -153,6 +159,31 @@ def resolve_emacs(explicit: str | None) -> str | None:
 	return None
 
 
+def python_module_unavailable(module: str) -> str | None:
+	"""Return a skip reason when `python3` cannot import `module`.
+
+	The interpreter is spelled `python3` on purpose, and is not $PYTHON:
+	the only thing this predicate exists for is an adapter or server kg
+	spawns as `python3 -m something` (debugpy is the one), and a probe run
+	by a different interpreter would answer a question nobody asked.  The
+	harness's own interpreter may well be another one.
+	"""
+	try:
+		probe = subprocess.run(
+			[PYTHON_MODULE_INTERPRETER, "-c", f"import {module}"],
+			stdin=subprocess.DEVNULL,
+			stdout=subprocess.DEVNULL,
+			stderr=subprocess.DEVNULL,
+			timeout=TOOL_PROBE_TIMEOUT,
+			check=False,
+		)
+	except (OSError, subprocess.TimeoutExpired):
+		return f"{PYTHON_MODULE_INTERPRETER} cannot import {module}"
+	if probe.returncode != 0:
+		return f"{PYTHON_MODULE_INTERPRETER} cannot import {module}"
+	return None
+
+
 def case_missing_tool(case: "Case") -> str | None:
 	"""The executable this case needs and this box has not got, or None.
 
@@ -165,6 +196,15 @@ def case_missing_tool(case: "Case") -> str | None:
 	`rust-analyzer` proxy, which can be present on PATH while its component is
 	missing.
 	"""
+	if case.requires_python_module is not None:
+		# A module is not an executable and cannot be spelled as one:
+		# kg's Python adapter is `python3 -m debugpy.adapter`, so there
+		# is nothing on PATH called debugpy for `requires_tool:` to
+		# find.  Asked first, since it is the cheaper failure to
+		# explain.
+		missing = python_module_unavailable(case.requires_python_module)
+		if missing:
+			return missing
 	if case.requires_tool is None:
 		return None
 	return tool_unavailable(case.requires_tool)
@@ -191,6 +231,23 @@ def tool_unavailable(tool: str) -> str | None:
 	if probe.returncode != 0:
 		return f"{tool} not runnable"
 	return None
+
+
+def feature_mismatch(case: "Case", features: set[str]) -> bool:
+	"""Whether this build is the wrong one for this case.
+
+	`requires_feature: dap` needs the feature; `requires_feature: -dap`
+	needs its ABSENCE, which is the only way to write a case about what a
+	build without an optional subsystem does.  Such a case runs in the
+	lane that makes that build (.ci/ci-16 for DAP) and skips in every
+	other, which is the same bargain the positive form already makes.
+	"""
+	want = case.requires_feature
+	if want is None:
+		return False
+	if want.startswith("-"):
+		return want[1:] in features
+	return want not in features
 
 
 def case_needs_tmux(case: "Case") -> bool:
@@ -327,6 +384,68 @@ def drain_pexpect(child: pexpect.spawn) -> None:
 		pass
 
 
+def settle_token(token: str) -> tuple[float, str] | None:
+	"""`SETTLE=<seconds>` or `SETTLE=<seconds>:<text>`: not a key, but one
+	bounded wait.
+
+	A key_delay is paid by every key of a case, so buying the time a real
+	debug adapter takes to reach its first stop that way costs the case
+	its own length times its number of keys -- and the measured figure is
+	6.8 s to the first stop for a real Python program.  This spends it
+	once, where it is owed: after the key that started the session.
+
+	The budget is a MAXIMUM, never a sleep.  Without `<text>` the wait
+	ends when the editor has painted something and gone quiet again; with
+	it, when the pane SAYS the thing the case is waiting for -- a mode
+	line reading the line the program stopped on -- which is what keeps a
+	case that also has a slow step in it from paying its whole budget
+	twice.  An expired wait is not itself a failure: what fails is the
+	assertion the case then makes, and it says what was on screen.
+	"""
+	if not token.startswith("SETTLE="):
+		return None
+	budget, _, text = token.split("=", 1)[1].partition(":")
+	return (float(budget), text)
+
+
+def wait_change_pexpect(child: pexpect.spawn, budget: float) -> None:
+	"""Wait for kg to write something and then stop, within `budget`."""
+	deadline = time.monotonic() + budget
+	painted = False
+	while time.monotonic() < deadline:
+		try:
+			data = child.read_nonblocking(size=1 << 20,
+						      timeout=READY_SETTLE)
+		except Exception:
+			data = b""
+		if data:
+			painted = True
+		elif painted:
+			return
+		time.sleep(READY_POLL)
+
+
+def wait_change_tmux(sock: str, pane: str, budget: float, text: str = "") -> None:
+	"""tmux counterpart: wait for the pane to change -- or to say `text` --
+	and then settle."""
+	deadline = time.monotonic() + budget
+	start = run_tmux_cmd(sock, "capture-pane", "-t", pane, "-p",
+			     check=False).stdout
+	prev = start
+	quiet_since = time.monotonic()
+	while time.monotonic() < deadline:
+		now = run_tmux_cmd(sock, "capture-pane", "-t", pane, "-p",
+				   check=False).stdout
+		moment = time.monotonic()
+		if now != prev:
+			prev = now
+			quiet_since = moment
+		happened = (text in now) if text else (now != start)
+		if happened and moment - quiet_since >= READY_SETTLE:
+			return
+		time.sleep(READY_POLL)
+
+
 def send_token_pexpect(child: pexpect.spawn, token: str) -> None:
 	if token.startswith("RESIZE="):
 		r, c = map(int, token.split("=")[1].split(","))
@@ -422,9 +541,16 @@ def load_case(path: Path) -> Case:
 	editor_args = data.get("args", [])
 	if not isinstance(editor_args, list) or not all(isinstance(v, str) for v in editor_args):
 		raise ValueError(f"{path}: args must be a list of strings")
+	# The word `kg -V` prints, and in `kg -V`'s own vocabulary: `dap` is
+	# "this build has it", `-dap` is "this build has NOT got it".  The
+	# second is what an absence case needs -- the one asserting that a
+	# WITH_DAP=0 editor still answers every dap-* command with a sentence
+	# -- and it can only run in a build the ordinary lanes do not make, so
+	# it skips everywhere else exactly as a feature case does.
 	requires_feature = data.get("requires_feature")
 	if requires_feature is not None and (
-		not isinstance(requires_feature, str) or not requires_feature
+		not isinstance(requires_feature, str) or
+		not requires_feature.lstrip("-")
 	):
 		raise ValueError(f"{path}: requires_feature must be a non-empty string")
 	requires_tool = data.get("requires_tool")
@@ -434,6 +560,19 @@ def load_case(path: Path) -> Case:
 	):
 		raise ValueError(
 			f"{path}: requires_tool must be a bare executable name")
+	# A module the interpreter kg spawns must be able to import.  Distinct
+	# from `requires_tool:` because it is not an executable: kg's Python
+	# debug adapter is `python3 -m debugpy.adapter`, and no file called
+	# debugpy is on PATH to look for.
+	requires_python_module = data.get("requires_python_module")
+	if requires_python_module is not None and (
+		not isinstance(requires_python_module, str) or
+		not requires_python_module or
+		not all(part.isidentifier()
+			for part in requires_python_module.split("."))
+	):
+		raise ValueError(
+			f"{path}: requires_python_module must be a module name")
 	# `config_files:` plants files under the case's throwaway HOME (an
 	# init.el, a package); `workspace_files:` plants them beside the file
 	# under test, which is the case's working directory, for the fixtures a
@@ -449,8 +588,13 @@ def load_case(path: Path) -> Case:
 	#
 	# `{REPO}` in a value expands to this checkout's root, because a case
 	# runs with its working directory in a fresh temporary directory and
-	# has no other way to name a file in the repository.  It is the only
-	# substitution: anything more is a template language nobody asked for.
+	# has no other way to name a file in the repository.  `{CWD}` expands
+	# to that directory once the run starts (see expand_case_env), as it
+	# does in `workspace_files:` and for the same reason: a debug
+	# adapter's canned answers name the source file they stopped in, in
+	# absolute terms, and the directory is a fresh mkdtemp nobody could
+	# have written into the YAML.  Those two, and nothing else: more would
+	# be a template language nobody asked for.
 	#
 	# The Emacs oracle deliberately does not get it.  A case that sets
 	# KG_LSP_SERVER_C is a case about kg's own client, and handing Emacs a
@@ -482,6 +626,17 @@ def load_case(path: Path) -> Case:
 	if expected_exit_code is not None and backend == "tmux":
 		raise ValueError(f"{path}: expected_exit_code is not supported with backend: tmux "
 				 "(the tmux runner hardcodes exit code 0 since the process runs detached)")
+	# `SETTLE=<seconds>:<text>` reads the screen, and only the tmux backend
+	# has one to read: a pexpect transcript is raw output with escape
+	# sequences in it, where "contains" would answer a different question.
+	# Refused at load time rather than silently degraded.
+	if backend != "tmux":
+		for token in [*data["keys"], *data.get("trailer_keys", [])]:
+			settle = settle_token(token)
+			if settle is not None and settle[1]:
+				raise ValueError(
+					f"{path}: {token} needs backend: tmux "
+					"(the text form reads the screen)")
 	oracle_backend = data.get("oracle_backend")
 	if oracle_backend is not None and oracle_backend not in ("pexpect", "tmux"):
 		raise ValueError(f"{path}: oracle_backend must be pexpect or tmux")
@@ -512,6 +667,7 @@ def load_case(path: Path) -> Case:
 		keys=data["keys"],
 		requires_feature=requires_feature,
 		requires_tool=requires_tool,
+		requires_python_module=requires_python_module,
 		config_files=config_files,
 		workspace_files=workspace_files,
 		env=env,
@@ -550,6 +706,15 @@ def write_config_files(home: Path, config_files: dict[str, str]) -> None:
 		target = home / relpath
 		target.parent.mkdir(parents=True, exist_ok=True)
 		target.write_text(content)
+
+
+def expand_case_env(case_env: dict[str, str], cwd: Path) -> dict[str, str]:
+	"""`{CWD}` in an `env:` value, once the directory exists.
+
+	`{REPO}` was expanded at load time; this one cannot be, for the same
+	reason `workspace_files:` expands its own at write time.
+	"""
+	return {k: v.replace("{CWD}", str(cwd)) for k, v in case_env.items()}
 
 
 def write_workspace_files(cwd: Path, workspace_files: dict[str, str]) -> None:
@@ -616,7 +781,7 @@ def run_editor_pexpect(argv: list[str], filename: str, initial: str, keys: list[
 		env.pop("XDG_CONFIG_HOME", None)
 		env["TERM"] = env.get("TERM", "xterm-256color")
 		env.setdefault("LC_ALL", "C.UTF-8")
-		env.update(case_env)
+		env.update(expand_case_env(case_env, Path(td)))
 
 		log = io.BytesIO()
 		child = pexpect.spawn(
@@ -635,6 +800,10 @@ def run_editor_pexpect(argv: list[str], filename: str, initial: str, keys: list[
 		try:
 			wait_ready_pexpect(child, ready, startup_delay)
 			for token in [*keys, *trailer_keys]:
+				settle = settle_token(token)
+				if settle is not None:
+					wait_change_pexpect(child, settle[0])
+					continue
 				send_token_pexpect(child, token)
 				time.sleep(key_delay)
 				drain_pexpect(child)
@@ -754,7 +923,8 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 		cmd = "env -u XDG_CONFIG_HOME " + \
 		      f"HOME={shlex.quote(str(home))} " + \
 		      "TERM=xterm-256color LC_ALL=C.UTF-8 " + \
-		      "".join(f"{k}={shlex.quote(v)} " for k, v in case_env.items()) + \
+		      "".join(f"{k}={shlex.quote(v)} " for k, v in
+			      expand_case_env(case_env, Path(td)).items()) + \
 		      " ".join(shlex.quote(a) for a in argv + [str(file_path)])
 		transcript = io.StringIO()
 
@@ -768,6 +938,10 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 					run_tmux_cmd(sock, "resize-window", "-t", session, "-x", str(c), "-y", str(r))
 					time.sleep(key_delay)
 					continue
+				settle = settle_token(token)
+				if settle is not None:
+					wait_change_tmux(sock, pane, *settle)
+					continue
 				send_token_tmux(sock, pane, token)
 				time.sleep(key_delay)
 			settle_tmux(sock, pane, startup_delay, settle_floor)
@@ -779,6 +953,10 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 					r, c = map(int, token.split("=")[1].split(","))
 					run_tmux_cmd(sock, "resize-window", "-t", session, "-x", str(c), "-y", str(r))
 					time.sleep(key_delay)
+					continue
+				settle = settle_token(token)
+				if settle is not None:
+					wait_change_tmux(sock, pane, *settle)
 					continue
 				send_token_tmux(sock, pane, token)
 				time.sleep(key_delay)
@@ -839,7 +1017,7 @@ def evaluate_case_status(case: Case, kg_argv: list[str], features: set[str],
 			 key_delay_add: float, emacs: str | None,
 			 have_tmux: bool,
 			 settle_floor: float = 0.0) -> tuple[str, str | None]:
-	if case.requires_feature is not None and case.requires_feature not in features:
+	if feature_mismatch(case, features):
 		return ("SKIP", None)
 	# A missing tool is a skip here and a hard failure in main() under
 	# --require-tools; either way it is counted and named, never silent.
@@ -966,7 +1144,8 @@ def main() -> int:
 	parser.add_argument("--require-tools", action="store_true",
 	                    help="Fail instead of skipping when a tool some case "
 	                         "needs (tmux, the Emacs oracle, a case's "
-	                         "requires_tool) is missing")
+	                         "requires_tool or requires_python_module) is "
+	                         "missing")
 	parser.add_argument("--json", dest="json_path", default="",
 	                    help="Write per-case results (status, wall time, "
 	                         "backend, oracle) to this file")
@@ -1003,6 +1182,16 @@ def main() -> int:
 		unavailable = tool_unavailable(tool)
 		if unavailable:
 			missing.append(f"{unavailable} ({tool_cases[tool]} case(s) need it)")
+	module_cases: dict[str, int] = {}
+	for case in cases:
+		if case.requires_python_module:
+			module_cases[case.requires_python_module] = \
+				module_cases.get(case.requires_python_module, 0) + 1
+	for module in sorted(module_cases):
+		unavailable = python_module_unavailable(module)
+		if unavailable:
+			missing.append(
+				f"{unavailable} ({module_cases[module]} case(s) need it)")
 	for item in missing:
 		print(f"{'FAIL' if args.require_tools else 'warning'}: missing tool: {item}",
 		      file=sys.stderr)
@@ -1037,6 +1226,7 @@ def main() -> int:
 				"oracle": case.oracle,
 				"requires_feature": case.requires_feature,
 				"requires_tool": case.requires_tool,
+				"requires_python_module": case.requires_python_module,
 				"xfail": case.xfail,
 			})
 

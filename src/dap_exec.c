@@ -334,7 +334,17 @@ static void request_threads(int levels)
 	struct kg_jsonw w;
 
 	if (req) {
-		req->serial = ++g.threads_serial;
+		/* Only a STOP moves the serial.  A plain refresh is not a new
+		 * view of the world -- it is the same one, asked again
+		 * because a `thread` event said the list had changed -- and
+		 * letting it supersede the stop's own request would strand
+		 * the waterfall: debugpy sends `thread` immediately after
+		 * `stopped`, so the debounced re-request lands while the
+		 * stop's `threads` is still in flight, and the answer that
+		 * was to have led to `stackTrace` would be dropped as stale
+		 * [M-10]. */
+		req->serial
+		    = levels > 0 ? ++g.threads_serial : g.threads_serial;
 		req->levels = levels;
 	}
 	kg_jsonw_init(&w);

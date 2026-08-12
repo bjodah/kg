@@ -57,6 +57,7 @@ static struct heard {
 	int asked_threads;
 	int asked_stack;
 	int asked_next;
+	int asked_variables;
 	int stack_thread_id;
 	int stack_levels;
 	char next_granularity[32];
@@ -115,6 +116,8 @@ static void note_arguments(const struct kg_json_value *body)
 		    = (int)kg_json_int(kg_json_get(args, "threadId"), -1);
 		heard.stack_levels
 		    = (int)kg_json_int(kg_json_get(args, "levels"), -1);
+	} else if (strcmp(command, "variables") == 0) {
+		heard.asked_variables++;
 	} else if (strcmp(command, "next") == 0) {
 		heard.asked_next++;
 		text = kg_json_str(kg_json_get(args, "granularity"), NULL);
@@ -301,6 +304,32 @@ static void test_all_threads_stopped_absent_marks_one(void)
 	CHECK(thread_stopped(1, &one) && !one);
 	CHECK(thread_stopped(2, &two) && two);
 	CHECK(dap_exec_selected_thread() == 2);
+	finish(s);
+}
+
+/* The other half of the asymmetry, and from the ADAPTER rather than from
+ * kg's own synthesis: an absent `allThreadsContinued` means EVERY thread
+ * continued, where the absent `allThreadsStopped` above meant only the
+ * named one stopped [M-10].  Two flags, two defaults, deliberately. */
+static void test_absent_all_threads_continued_moves_all(void)
+{
+	struct dap_session *s = start_session(
+	    "--capabilities '" CAPS_PLAIN "'"
+	    " --stopped-after configurationDone"
+	    " --stopped-body '{\"reason\":\"breakpoint\",\"threadId\":1,"
+	    "\"allThreadsStopped\":true}'"
+	    " --body 'threads:{\"threads\":[{\"id\":1,\"name\":\"a\"},"
+	    "{\"id\":2,\"name\":\"b\"}]}'"
+	    " --event-after 'stackTrace:continued:{\"threadId\":1}'");
+	bool one = true, two = true;
+
+	CHECK(pump_until(s, is_stopped));
+	CHECK(pump_until(s, is_running));
+	pump_quietly(s);
+	CHECK(dap_exec_thread_count() == 2);
+	CHECK(thread_stopped(1, &one) && !one);
+	CHECKF(thread_stopped(2, &two) && !two,
+	    "the thread the event did not name is still stopped");
 	finish(s);
 }
 
@@ -677,6 +706,42 @@ static void test_thread_events_are_debounced(void)
 
 /* `dap-goto` is gated on `supportsGotoTargetsRequest` in both halves: an
  * adapter without it (lldb-dap, measured) is not asked. */
+/* The other half of the debounce, and the one a real adapter found:
+ * debugpy sends `thread` IMMEDIATELY after `stopped`, so the debounced
+ * re-request goes out while the stop's own `threads` is still in flight.  A
+ * refresh is not a second stop -- it is the same world asked about again --
+ * and it must not supersede the request whose answer leads to `stackTrace`,
+ * or the program stops and the debugger never says where [M-10]. */
+static void test_a_thread_event_never_strands_the_stop(void)
+{
+	char extra[1400];
+	struct dap_session *s;
+
+	snprintf(extra, sizeof(extra),
+	    "--capabilities '" CAPS_PLAIN "'"
+	    " --stopped-after configurationDone"
+	    " --stopped-body '{\"reason\":\"breakpoint\",\"threadId\":1,"
+	    "\"allThreadsStopped\":true}'"
+	    " --event-after 'configurationDone:thread:{\"reason\":\"started\","
+	    "\"threadId\":1}'"
+	    " --delay 'threads:0.25'"
+	    " --body 'threads:{\"threads\":[{\"id\":1,\"name\":\"main\"}]}'"
+	    " --body 'stackTrace:{\"stackFrames\":[{\"id\":11,"
+	    "\"name\":\"main\",\"line\":3,\"source\":{\"path\":\"%s\"}}]}'"
+	    " --report-arguments threads --report-arguments stackTrace",
+	    script_path);
+	s = start_session(extra);
+	CHECK(pump_until(s, is_stopped));
+	pump_ticking(s, 1.5);
+	CHECKF(heard.asked_threads >= 2,
+	    "the debounced refresh never raced the stop (%d requests)",
+	    heard.asked_threads);
+	CHECKF(heard.asked_stack == 1,
+	    "the waterfall stalled: %d stackTrace requests", heard.asked_stack);
+	CHECK(dap_exec_frame_count() == 1);
+	finish(s);
+}
+
 static void test_goto_refused_without_the_capability(void)
 {
 	struct dap_session *s = start_session(
@@ -761,6 +826,85 @@ static void test_variable_expansion_refuses_a_cycle(void)
 	finish(s);
 }
 
+/* A tree, answered by the HANDLE each request carried rather than by the
+ * order the requests happened to arrive in: expanding a node asks for its
+ * own reference and gets its own children, and the parent link and the
+ * depth are what the pane will indent by. */
+static void test_nested_variables_expand_by_reference(void)
+{
+	struct dap_session *s = start_session(
+	    "--capabilities '" CAPS_PLAIN "'"
+	    " --stopped-after configurationDone"
+	    " --stopped-body '{\"reason\":\"breakpoint\",\"threadId\":1,"
+	    "\"allThreadsStopped\":true}'"
+	    " --body 'threads:{\"threads\":[{\"id\":1,\"name\":\"main\"}]}'"
+	    " --body 'stackTrace:{\"stackFrames\":[{\"id\":11,"
+	    "\"name\":\"main\",\"line\":3}]}'"
+	    " --body 'scopes:{\"scopes\":[{\"name\":\"Locals\","
+	    "\"variablesReference\":21}]}'"
+	    " --variables '{\"21\":[{\"name\":\"node\",\"value\":\"{...}\","
+	    "\"type\":\"struct node\",\"variablesReference\":22}],"
+	    "\"22\":[{\"name\":\"next\",\"value\":\"0x0\","
+	    "\"variablesReference\":0}]}'");
+	struct dap_exec_variable v;
+
+	CHECK(pump_until(s, is_stopped));
+	pump_quietly(s);
+	CHECKF(dap_exec_variable_count() == 1, "%zu variables",
+	    dap_exec_variable_count());
+	CHECK(dap_exec_variable(0, &v));
+	CHECK(strcmp(v.name, "node") == 0 && v.parent == -1 && v.depth == 0);
+	CHECK(dap_exec_expand_variable(0));
+	pump_quietly(s);
+	CHECKF(dap_exec_variable_count() == 2, "%zu variables after expanding",
+	    dap_exec_variable_count());
+	CHECK(dap_exec_variable(1, &v));
+	CHECKF(strcmp(v.name, "next") == 0, "expanded into %s", v.name);
+	CHECK(v.parent == 0 && v.depth == 1);
+	/* A leaf: nothing to ask for, and kg does not ask. */
+	CHECK(!dap_exec_expand_variable(1));
+	finish(s);
+}
+
+/* [M-4], the reason the epoch is mandatory rather than defensive.  Both
+ * measured adapters answer a `variablesReference` from a suspension that is
+ * over with `success:true` and data that is plausible and WRONG -- no error
+ * ever says "stale".  So this asserts what kg did with the answer, not what
+ * the adapter did with the question: the nonsense arrives, and none of it
+ * is ever in the model. */
+static void test_a_stale_reference_answered_success_is_dropped(void)
+{
+	struct dap_session *s = start_session(
+	    "--capabilities '" CAPS_PLAIN "'"
+	    " --stopped-after configurationDone"
+	    " --stopped-body '{\"reason\":\"breakpoint\",\"threadId\":1,"
+	    "\"allThreadsStopped\":true}'"
+	    " --body 'threads:{\"threads\":[{\"id\":1,\"name\":\"main\"}]}'"
+	    " --body 'stackTrace:{\"stackFrames\":[{\"id\":11,"
+	    "\"name\":\"main\",\"line\":3}]}'"
+	    " --body 'scopes:{\"scopes\":[{\"name\":\"Locals\","
+	    "\"variablesReference\":21}]}'"
+	    " --stale-variables --report-arguments variables"
+	    " --event-during 'variables:continued:{\"threadId\":1}'");
+	size_t i;
+	struct dap_exec_variable v;
+
+	CHECK(pump_until(s, is_stopped));
+	CHECK(pump_until(s, is_running));
+	pump_quietly(s);
+	CHECKF(heard.asked_variables == 1, "%d variables requests",
+	    heard.asked_variables);
+	for (i = 0; i < dap_exec_variable_count(); i++) {
+		CHECK(dap_exec_variable(i, &v));
+		CHECKF(strcmp(v.name, "stale") != 0,
+		    "the adapter's wrong answer painted: %s = %s", v.name,
+		    v.value);
+	}
+	CHECKF(dap_exec_variable_count() == 0, "%zu variables survived",
+	    dap_exec_variable_count());
+	finish(s);
+}
+
 /* --------------------------------- main ------------------------------- */
 
 int main(void)
@@ -775,6 +919,7 @@ int main(void)
 	memcpy(script_path, resolved, strlen(resolved) + 1);
 	RUN(test_stop_without_thread_id);
 	RUN(test_all_threads_stopped_absent_marks_one);
+	RUN(test_absent_all_threads_continued_moves_all);
 	RUN(test_late_threads_reply_is_dropped);
 	RUN(test_late_variables_reply_is_dropped);
 	RUN(test_stale_scopes_for_the_old_frame);
@@ -787,8 +932,11 @@ int main(void)
 	RUN(test_failed_step_returns_to_stopped);
 	RUN(test_granularity_only_when_capable);
 	RUN(test_thread_events_are_debounced);
+	RUN(test_a_thread_event_never_strands_the_stop);
 	RUN(test_goto_refused_without_the_capability);
 	RUN(test_goto_with_several_targets_waits_for_a_choice);
 	RUN(test_variable_expansion_refuses_a_cycle);
+	RUN(test_nested_variables_expand_by_reference);
+	RUN(test_a_stale_reference_answered_success_is_dropped);
 	return test_summary();
 }

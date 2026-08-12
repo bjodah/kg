@@ -359,8 +359,9 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   rather than from a file — `KG_LSP_SERVER_C`, which is how an LSP case
   injects `test/fake_lsp_server.py` in place of clangd. `{REPO}` in a
   value expands to the checkout root, since a case runs with its working
-  directory in a fresh temporary directory. The Emacs oracle deliberately
-  does not get it.
+  directory in a fresh temporary directory, and `{CWD}` expands to that
+  directory (a canned debug adapter's answers name the source file they
+  stopped in, absolutely). The Emacs oracle deliberately does not get it.
 - `workspace_files:` maps relative paths to contents planted *beside the
   file under test* (`config_files:` plants under the case's HOME): a
   `compile_commands.json`, a `pyproject.toml`, the second file of a
@@ -378,8 +379,19 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
 - `requires_tool: <name>` SKIPs the case with a printed reason when that
   bare executable is not on PATH, and `--require-tools` turns it into an
   upfront failure, exactly as for tmux and the Emacs oracle. It is how the
-  real-server LSP cases (`clangd`, `ty`) stay in the suite on boxes
-  without them; `requires_feature:` only covers kg's own `-V` features.
+  real-server LSP cases (`clangd`, `ty`) and the real-adapter DAP case
+  (`lldb-dap`) stay in the suite on boxes without them;
+  `requires_feature:` only covers kg's own `-V` features.
+- `requires_python_module: <name>` is the same rule for a module rather
+  than an executable: it SKIPs when `python3` (the literal interpreter kg
+  spawns, not `$PYTHON`) cannot import it. debugpy is why — kg's Python
+  adapter is `python3 -m debugpy.adapter`, so there is no file on PATH
+  for `requires_tool:` to look for.
+- `requires_feature:` takes `kg -V`'s own vocabulary, and a leading `-`
+  is the ABSENCE form: `requires_feature: -dap` runs only in a build
+  whose `-V` says `-dap`, which is how the case asserting that a
+  `WITH_DAP=0` editor still answers every `dap-*` command with a sentence
+  runs in `.ci/ci-16` and skips everywhere else.
 - tmux-backed cases can assert visible screen content with `expected_screen_contains` and `expected_screen_not_contains`.
 - Known discrepancies can be checked in as `xfail: true`; `XPASS` fails `make check` so expectations get cleaned up once behavior changes.
 - Key tokens in PTY YAML are literal unless named. Use `SPC` for an
@@ -388,6 +400,14 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   `C-?` for Backspace, `M-SPC` for Meta-Space, `M-TAB` (also spelled
   `C-M-i`: the same two bytes, ESC and TAB) for completion-at-point, and
   `C-q` followed by the next token for quoted input.
+  `SETTLE=<seconds>` and `SETTLE=<seconds>:<text>` are not keys at all but
+  one bounded wait: the harness waits for the editor to paint something
+  and go quiet — or, with `<text>`, for the pane to say it (tmux only,
+  refused at load time on `pexpect`) — and never longer than the budget.
+  It is what buys the time a real debug adapter takes to reach its first
+  stop (~6.8 s measured for debugpy) without raising `key_delay` for
+  every key in the case; an expired wait is not itself a failure, the
+  assertion that follows it is.
   `Home`, `End`, `C-Home`, `C-End`,
   `S-Home`, `S-End`, `Up`, `Down`, `PageUp`, `PageDown`, and `F1`
   through `F12` are named tokens (sent as xterm SS3 / tilde / cursor

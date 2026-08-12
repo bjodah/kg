@@ -73,6 +73,11 @@ static struct heard {
 	/* The sources the provider hands over. */
 	struct dap_session_source sources[4];
 	size_t source_count;
+	/* The debuggee's own output, appended as BYTES: an event is not a
+	 * line [M-12], so what a case reads is the concatenation. */
+	int outputs;
+	size_t output_bytes;
+	char output_text[1024];
 } heard;
 
 static double monotonic_seconds(void)
@@ -182,6 +187,37 @@ static void on_event(
 	}
 }
 
+static void on_output(
+    void *ctx, const char *category, const char *text, size_t len)
+{
+	size_t used = strlen(heard.output_text);
+
+	(void)ctx;
+	(void)category;
+	heard.outputs++;
+	heard.output_bytes += len;
+	if (used + len + 1 < sizeof(heard.output_text)) {
+		memcpy(heard.output_text + used, text, len);
+		heard.output_text[used + len] = '\0';
+	}
+}
+
+/* One request of a case's own, for the cases whose question is whether the
+ * adapter is still answering at all. */
+static struct {
+	int calls;
+	bool success;
+} probe;
+
+static void on_probe(
+    struct dap_client *c, const struct dap_response *r, void *ctx)
+{
+	(void)c;
+	(void)ctx;
+	probe.calls++;
+	probe.success = r->success;
+}
+
 static size_t on_sources(void *ctx, struct dap_session_source *out, size_t max)
 {
 	size_t n = heard.source_count < max ? heard.source_count : max;
@@ -225,6 +261,7 @@ static struct dap_session *start_session(
 		.changed = on_changed,
 		.report = on_report,
 		.event = on_event,
+		.output = on_output,
 		.sources = on_sources,
 	};
 	struct dap_adapter_spec spec = { 0 };
@@ -551,6 +588,102 @@ static void test_exited_records_a_code_without_ending_the_session(void)
 	finish(s);
 }
 
+/* The same fact stretched out, which is the shape it really has: whole
+ * round trips separate the debuggee's exit from the adapter's ending, and
+ * the adapter answers all of them.  Only the `terminated` that comes much
+ * later ends anything, and the exit code survives the wait [M-8]. */
+static void test_exited_long_before_terminated(void)
+{
+	struct dap_session *s;
+	struct dap_session_state st;
+
+	memset(&heard, 0, sizeof(heard));
+	memset(&probe, 0, sizeof(probe));
+	s = start_session(DAP_REQUEST_LAUNCH,
+	    "--exited-after configurationDone --exit-code 3 "
+	    "--terminated-after kg/probe --capabilities '" CAPS_FULL "'");
+	CHECK(pump_until(s, has_exited));
+	pump_quietly(s);
+	CHECK(state_of(s).phase != DAP_PHASE_DEAD);
+	CHECK(dap_client_request(
+		  dap_session_client(s), "kg/probe", NULL, 0, on_probe, NULL)
+	    > 0);
+	CHECK(pump_until(s, is_dead));
+	CHECKF(probe.calls == 1 && probe.success,
+	    "the adapter stopped answering after the exit (%d calls)",
+	    probe.calls);
+	st = state_of(s);
+	CHECK(st.exited && st.exit_code == 3 && st.terminated_seen);
+	finish(s);
+}
+
+/* `exited` and no `terminated` ever: the debuggee is gone and the adapter
+ * is not, which is a session nothing has ended.  What ends it is the user
+ * asking and then the grace deadline at the bottom of the ladder -- this
+ * adapter never answers `disconnect` and outlives the half-close, so
+ * neither a response nor end of stream is available to do it [M-8]. */
+static void test_exited_without_terminated_ends_by_the_grace_path(void)
+{
+	struct dap_session *s;
+
+	memset(&heard, 0, sizeof(heard));
+	s = start_session(DAP_REQUEST_LAUNCH,
+	    "--exited-after configurationDone --exit-code 5 "
+	    "--no-reply disconnect --linger-after-eof --linger-seconds 5 "
+	    "--capabilities '" CAPS_FULL "'");
+	CHECK(pump_until(s, has_exited));
+	pump_quietly(s);
+	CHECK(state_of(s).phase != DAP_PHASE_DEAD);
+	dap_session_set_timeouts(s, 20000, 150);
+	dap_session_set_shutdown_deadlines(s, 100, 100);
+	dap_session_end(s, DAP_END_DISCONNECT);
+	CHECK(pump_until(s, is_dead));
+	CHECK(state_of(s).exit_code == 5);
+	finish(s);
+}
+
+/* An adapter that dies during the handshake.  Nothing has been negotiated,
+ * so end of stream is the only edge there is, and the session ends on it
+ * rather than waiting for a response that cannot come. */
+static void test_a_crash_during_initialize_ends_the_session(void)
+{
+	struct dap_session *s;
+	struct dap_session_state st;
+
+	memset(&heard, 0, sizeof(heard));
+	s = start_session(DAP_REQUEST_LAUNCH, "--die-before initialize");
+	CHECK(pump_until(s, is_dead));
+	st = state_of(s);
+	/* The handshake is SETTLED -- its callback ran once, with the death
+	 * rather than an answer -- and nothing was sent after it: a launch
+	 * goes out from the initialize response and there was none. */
+	CHECK(st.initialize_done && !st.launch_sent);
+	CHECKF(heard.errors > 0, "the session died without saying why");
+	finish(s);
+}
+
+/* [M-12].  debugpy splits one `print` across two `output` events mid-line,
+ * so an event is not a line and what the transcript gets is the
+ * concatenation of the bytes.  A flood of them in one burst is delivered
+ * whole -- bounded per poll by the client, never dropped. */
+static void test_output_is_bytes_and_a_flood_is_all_delivered(void)
+{
+	struct dap_session *s;
+
+	memset(&heard, 0, sizeof(heard));
+	s = start_session(DAP_REQUEST_LAUNCH,
+	    "--output-flood 64 --output-split 'configurationDone:hello, world'"
+	    " --capabilities '" CAPS_FULL "'");
+	CHECK(pump_until(s, is_configured));
+	pump_quietly(s);
+	CHECKF(heard.outputs == 66, "%d output events", heard.outputs);
+	CHECK(strstr(heard.output_text, "flood 0\n") != NULL);
+	CHECK(strstr(heard.output_text, "flood 63\n") != NULL);
+	CHECKF(strstr(heard.output_text, "hello, world") != NULL,
+	    "the split line did not join up: %s", heard.output_text);
+	finish(s);
+}
+
 /* `terminated` ends it, and its `restart` value is retained for the
  * restart policy that reads it later. */
 static void test_terminated_ends_the_session_and_keeps_restart(void)
@@ -829,6 +962,10 @@ int main(void)
 	RUN(test_without_the_capability_no_configuration_done_is_sent);
 	RUN(test_a_stop_during_configuration_survives_the_response);
 	RUN(test_exited_records_a_code_without_ending_the_session);
+	RUN(test_exited_long_before_terminated);
+	RUN(test_exited_without_terminated_ends_by_the_grace_path);
+	RUN(test_a_crash_during_initialize_ends_the_session);
+	RUN(test_output_is_bytes_and_a_flood_is_all_delivered);
 	RUN(test_terminated_ends_the_session_and_keeps_restart);
 	RUN(test_a_duplicate_terminated_is_tolerated);
 	RUN(test_a_failed_launch_is_reported_and_torn_down);

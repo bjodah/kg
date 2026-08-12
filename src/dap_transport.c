@@ -114,6 +114,13 @@ struct dap_transport *dap_transport_start_stdio(
 	}
 	child = *req;
 	child.stderr_to_output = false;
+	/* The adapter, and every program it starts for us, gets no
+	 * controlling terminal: a debuggee that inherited kg's would be
+	 * handed the terminal's foreground process group by debugpy's
+	 * launcher, and kg -- background on its own terminal, then reading
+	 * EIO once the program finished -- would exit at the end of every
+	 * debug run (measured; src/process.h has the mechanism). */
+	child.detach_terminal = true;
 	t = transport_new(DAP_TRANSPORT_STDIO);
 	if (!t) {
 		errno = ENOMEM;

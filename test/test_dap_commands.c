@@ -169,6 +169,10 @@ static void session_teardown(void)
 		free(b->row);
 		free(b->filename);
 		kg_marker_store_free(b);
+		/* Everywhere the marker store is freed, so is the
+		 * decoration store (src/decor.h): this fixture tears its
+		 * buffers down by hand and owes both. */
+		kg_decor_store_free(b);
 		for (op = b->undostack.head; op;) {
 			struct undo_op *next = op->next;
 

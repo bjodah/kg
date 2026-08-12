@@ -1,0 +1,133 @@
+# The v1 milestone script, end to end through the real editor: a breakpoint
+# set in the source, a session started from `.kg-dap.json`, a stop that
+# moves the point to the line the program is on, a step that moves it to the
+# next, a stack walk that moves it to the caller's, an expression evaluated
+# in the selected frame, the debuggee's own output, and the debug layout
+# (doc/plans/dap/01-protocol.md stage 7).
+#
+# WHERE THE POINT ENDED UP IS THE SAVED FILE'S BUSINESS, not the screen's:
+# a screen assertion reads the LAST frame only, so the three navigations are
+# asserted by typing a marker at the end of the line each one landed on --
+# a stop that moved the point nowhere leaves the marker in the wrong place
+# and the diff says exactly where.  What the final screen is for is the
+# things that are only ever on it: the grid, the transcript pane and the
+# echoed value.
+#
+# The `build` step is here rather than only in the real-adapter cases
+# because it is the one that runs on every box: it copies a file that only
+# exists in `${workspaceRoot}`, so a build directory kg failed to expand
+# fails the build, and a failed build never launches -- which the markers
+# below then say out loud.
+#
+# The adapter is test/fake_dap_adapter.py through `KG_DAP_ADAPTER_LLDB`,
+# which is the environment override kg documents for exactly this
+# (src/dap_config.c).  Its answers are canned, so this case is about kg's
+# behaviour and never about an adapter's timing; the real-adapter cases
+# beside it are the honest timing test.
+name: dap-milestone
+filename: main.c
+requires_feature: dap
+backend: tmux
+dimensions: [30, 100]
+initial: |
+  #include <stdio.h>
+
+  int main(void)
+  {
+  	int answer = 21 + 21;
+  	printf("%d\n", answer);
+  	return 0;
+  }
+workspace_files:
+  .kg-dap.json: |
+    { "version": 1,
+      "configurations": [
+        { "name": "fake",
+          "adapter": "lldb-dap",
+          "request": "launch",
+          "build": { "command": "cp main.c built.c",
+                     "cwd": "${workspaceRoot}" },
+          "arguments": { "program": "${file}" } } ] }
+env:
+  KG_DAP_ADAPTER_LLDB: >-
+    python3 {REPO}/test/fake_dap_adapter.py --mode protocol
+    --capabilities '{"supportsConfigurationDoneRequest":true}'
+    --stopped-after configurationDone --stopped-after next
+    --stopped-body '{"reason":"breakpoint","threadId":1,"allThreadsStopped":true}'
+    --stopped-body '{"reason":"step","threadId":1,"allThreadsStopped":true}'
+    --body 'threads:{"threads":[{"id":1,"name":"main"}]}'
+    --body 'stackTrace:{"stackFrames":[{"id":11,"name":"main","line":5,"source":{"path":"{CWD}/main.c"}}]}'
+    --body 'stackTrace:{"stackFrames":[{"id":12,"name":"main","line":6,"source":{"path":"{CWD}/main.c"}}]}'
+    --body 'stackTrace:{"stackFrames":[{"id":12,"name":"main","line":6,"source":{"path":"{CWD}/main.c"}},{"id":13,"name":"caller","line":3,"source":{"path":"{CWD}/main.c"}}]}'
+    --body 'scopes:{"scopes":[{"name":"Locals","variablesReference":21}]}'
+    --body 'evaluate:{"result":"42","variablesReference":0}'
+    --variables '{"21":[{"name":"answer","value":"42","variablesReference":0}]}'
+    --output-split 'configurationDone:hello from the debuggee'
+keys:
+  # A breakpoint on the line the program will stop at.
+  - C-n
+  - C-n
+  - C-n
+  - C-n
+  - M-x
+  - dap-breakpoint-toggle
+  - RET
+  # Away from that line, so every navigation below is a change on screen
+  # and not a coincidence.
+  - M-<
+  # Start the session: one configuration file plus the built-ins, so the
+  # chooser asks and its default is the nearest file's own row.
+  - M-x
+  - dap-debug
+  - RET
+  - RET
+  # Each wait is for the state it is about -- the mode line reading the
+  # line the program is on -- so a loaded lane costs what it costs and a
+  # quiet one costs a poll.
+  - SETTLE=15:(5,
+  # Where the stop put the point.
+  - C-e
+  - //A
+  - M-x
+  - dap-next
+  - RET
+  - SETTLE=15:(6,
+  - C-e
+  - //B
+  # The stack walk: the stop fetched one frame, so this pages the stack in
+  # and then selects the caller.
+  - M-x
+  - dap-frame-up
+  - RET
+  - SETTLE=15:(3,
+  - C-e
+  - //C
+  - M-x
+  - dap-many-windows
+  - RET
+  - M-x
+  - dap-evaluate
+  - RET
+  - answer
+  - RET
+  - SETTLE=15:42
+expected_saved: |
+  #include <stdio.h>
+
+  int main(void)//C
+  {
+  	int answer = 21 + 21;//A
+  	printf("%d\n", answer);//B
+  	return 0;
+  }
+expected_screen_contains:
+  # The grid, by the mode lines of the panes it arranged.
+  - "*dap-stack*"
+  - "*dap-output*"
+  # One `print` split across two `output` events, joined back into the line
+  # the program actually printed [M-12].
+  - hello from the debuggee
+  # The evaluated value, in the echo area, from the frame the walk selected
+  # -- and a value no line of the source says, so that finding it on screen
+  # means the adapter answered.
+  - "42"

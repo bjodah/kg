@@ -735,6 +735,13 @@ Adapters are found on `PATH` at run time; nothing is downloaded or
 installed, the same rule the LSP client follows. Two ship built in:
 `lldb-dap` for C and C++, and `python3 -m debugpy.adapter` for Python.
 
+An adapter kg starts, and the program it runs, get no controlling
+terminal — kg's own belongs to kg. The program's output arrives as
+protocol output events and shows up in `*dap-output*`; a program that
+wants a terminal of its own is not one this version can launch under the
+debugger, and attaching to it while it runs elsewhere is the way to debug
+one.
+
 The commands, none of them bound to a key yet (the keys arrive with the
 debugger UI):
 

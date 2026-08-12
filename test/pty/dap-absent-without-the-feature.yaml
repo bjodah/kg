@@ -1,0 +1,37 @@
+# The other build.  `make WITH_DAP=0` keeps every `dap-*` row in the command
+# table -- a row that vanished with the build would leave `M-x dap-continue`
+# reporting a command nobody has heard of, which tells a user nothing about
+# why -- and each of them answers the one sentence that does
+# (src/dap_commands.c, doc/plans/dap/01-protocol.md stage 1).  Nothing is
+# spawned, no breakpoint is taken, and the buffer is untouched.
+#
+# `requires_feature: -dap` is the absence form: this case runs only in a
+# build whose `kg -V` says `-dap`, which is .ci/ci-16's, and skips in every
+# other lane exactly as `requires_feature: dap` does in that one.
+name: dap-absent-without-the-feature
+filename: dap-absent.c
+requires_feature: -dap
+backend: tmux
+initial: |
+  int main(void)
+  {
+  	return 0;
+  }
+keys:
+  - C-n
+  - C-n
+  - M-x
+  - dap-breakpoint-toggle
+  - RET
+  - M-x
+  - dap-continue
+  - RET
+expected_saved: |
+  int main(void)
+  {
+  	return 0;
+  }
+expected_screen_contains:
+  - kg was built without DAP support
+expected_screen_not_contains:
+  - Breakpoint on line

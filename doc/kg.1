@@ -3935,6 +3935,16 @@ and
 which is what routes the program's output through the protocol rather
 than through a terminal kg does not have.
 .Pp
+An adapter kg starts, and the program that adapter runs, get no
+controlling terminal: kg's own belongs to kg.
+The program's output therefore arrives as protocol output events and is
+shown in
+.Pa *dap-output* ,
+and a program that wants a terminal of its own \(em one that reads
+keystrokes, or draws its own screen \(em is not something this version
+can run under the debugger.
+Attaching to it as it runs elsewhere is the way to debug such a program.
+.Pp
 The commands, none of which is bound to a key yet:
 .Ic M-x dap-debug ,
 .Ic M-x dap-continue ,

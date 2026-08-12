@@ -219,6 +219,41 @@ not move [M-9].
     end, which is debugpy's adapter after ``disconnect`` and what the
     grace/kill rungs of the shutdown ladder are for.
 
+Acceptance choreography (stage 7).  The last measured behaviours that had
+no switch, each one a thing a real adapter does that a client must survive:
+
+``--die-before CMD``
+    Exit with ``--exit-code`` BEFORE answering CMD, after any events that
+    command was to be preceded by.  ``--die-before initialize`` is an
+    adapter that crashed during the handshake -- which ``--die-after``
+    cannot express, since the handshake's answer is what it waits for.
+``--delay CMD:SECONDS``
+    Sleep before handling CMD.  The adapter is single-threaded on purpose,
+    so this delays everything behind it too: it is an adapter that is slow,
+    not one that reorders.  A response that lands after kg's own deadline
+    has already failed the request is what it is for.
+``--variables JSON``
+    A map from ``variablesReference`` (as a decimal STRING key) to that
+    reference's ``variables`` array, so a nested tree is one option rather
+    than one scripted body per level and the answer depends on the handle
+    kg actually sent.  ``--body variables:...`` still wins where a case
+    wants a fixed sequence.
+``--stale-variables``
+    A reference the map does not name is answered ``success:true`` with
+    data that is plausible and WRONG, which is what both measured adapters
+    do with a handle from a suspension that is over [M-4].  No adapter ever
+    says "stale", so the assertion a case makes is that kg DROPPED the
+    answer -- never that the adapter refused it.
+``--output-flood N``, ``--output-flood-on CMD``
+    N ``output`` events after answering CMD (default ``configurationDone``):
+    a debuggee that prints in a loop, against the per-poll work budget and
+    the transcript's own bound.
+``--output-split CMD:TEXT`` (repeatable)
+    TEXT as TWO ``output`` events split in the middle, after answering CMD.
+    debugpy really does split one ``print`` mid-line [M-12], so an event is
+    not a line and a client that treats it as one prints a broken
+    transcript.
+
 Options:
 
 ``--listen``
@@ -230,6 +265,12 @@ Options:
 ``--stderr LINE`` (repeatable)
     Written to standard error before the mode runs.  The adapter's standard
     error is a channel of its own, never joined to the frame stream.
+``--report-tty``
+    Report ``tty: yes`` or ``tty: no`` on standard error, by trying to open
+    ``/dev/tty``.  It is how a test sees whether the client handed this
+    adapter its own controlling terminal -- which it must not: a debuggee
+    started from here would inherit it, and debugpy's launcher gives such a
+    debuggee the terminal's foreground process group.
 ``--chunk N``, ``--count N``, ``--length N``, ``--linger-seconds S``,
 ``--exit-code N``
     Mode-specific, described with their modes above.
@@ -410,6 +451,13 @@ class Protocol:
         self.event_before = pairs(args.event_before)
         self.error_message = pairs(args.error_message)
         self.error_format = pairs(args.error_format)
+        self.delays = pairs(args.delay)
+        self.variables = json.loads(args.variables) if args.variables else {}
+        # One-shot, like the event triggers and for the same reason: a
+        # split that fired on every `threads` would be a stream rather than
+        # the two events the case is about.
+        self.output_splits = [(spec.partition(":")[0], spec.partition(":")[2])
+                              for spec in args.output_split]
         self.bodies = {}
         for name, text in ((spec.partition(":")[0], spec.partition(":")[2])
                            for spec in args.body):
@@ -512,6 +560,9 @@ class Protocol:
             # Once, and only once: an adapter that already sent it early
             # (``--pre-init initialized``) does not send it again.
             self.event("initialized")
+        # The handshake is a command like any other where the triggers are
+        # concerned, so `--die-after initialize` and the rest name it too.
+        self.after("initialize")
 
     def send_capabilities_event(self):
         self.event("capabilities", {
@@ -557,6 +608,21 @@ class Protocol:
             self.breakpoint_id += 1
         return {"breakpoints": out}
 
+    def variables_body(self, message):
+        """`variables` answered by the handle it was asked with.  A known
+        reference gets its children -- which is how a nested tree is one
+        option -- and an unknown one is either empty or, with
+        `--stale-variables`, a successful answer full of nonsense [M-4]."""
+        arguments = message.get("arguments") or {}
+        reference = str(arguments.get("variablesReference"))
+        if reference in self.variables:
+            return {"variables": self.variables[reference]}
+        if self.args.stale_variables:
+            return {"variables": [{"name": "stale", "value": "0xdeadbeef",
+                                   "type": "void *",
+                                   "variablesReference": 0}]}
+        return {"variables": []}
+
     def emit(self, message):
         command = message.get("command", "")
         if command == "setBreakpoints" and self.source_refused(message):
@@ -582,6 +648,9 @@ class Protocol:
                               else scripted[0])
         elif command == "setBreakpoints":
             body = self.breakpoints_body(message)
+        elif command == "variables" and (self.variables
+                                         or self.args.stale_variables):
+            body = self.variables_body(message)
         else:
             body = {"echo": message.get("arguments"),
                     "clientResponses": self.client_responses}
@@ -657,6 +726,7 @@ class Protocol:
             if self.stopped_bodies:
                 body = json.loads(self.stopped_bodies.pop(0))
             self.event("stopped", body)
+        self.output_after(command)
         self.events_after = self.fire_events(self.events_after, command)
         if command in self.args.exited_after:
             self.event("exited", {"exitCode": self.args.exit_code})
@@ -665,8 +735,36 @@ class Protocol:
         if command in self.args.die_after:
             raise SystemExit(self.args.exit_code)
 
+    def output_after(self, command):
+        """What the debuggee printed.  A flood is one event per line and a
+        split is one line per two events: the first is a work budget, the
+        second is why an event may not be treated as a line [M-12]."""
+        if command == self.args.output_flood_on:
+            for n in range(self.args.output_flood):
+                self.event("output", {"category": "stdout",
+                                      "output": "flood %d\n" % n})
+        keep = []
+        for trigger, text in self.output_splits:
+            if trigger != command:
+                keep.append((trigger, text))
+                continue
+            half = len(text) // 2
+            self.event("output", {"category": "stdout",
+                                  "output": text[:half]})
+            self.event("output", {"category": "stdout",
+                                  "output": text[half:]})
+        self.output_splits = keep
+
     def on_request(self, message):
-        if message.get("command") == "initialize":
+        command = message.get("command", "")
+        # Both before anything this command was to do, initialize included:
+        # a crash during the handshake and a slow answer are properties of
+        # the request rather than of the reply.
+        if command in self.delays:
+            time.sleep(float(self.delays[command]))
+        if command in self.args.die_before:
+            raise SystemExit(self.args.exit_code)
+        if command == "initialize":
             self.initialize(message)
             return
         self.answer(message)
@@ -754,6 +852,8 @@ def main(argv):
                         help="speak the protocol on an accepted TCP socket")
     parser.add_argument("--stderr", dest="stderr_line", action="append",
                         default=[], help="a line to log before the mode runs")
+    parser.add_argument("--report-tty", action="store_true",
+                        help="log whether /dev/tty can be opened at all")
     parser.add_argument("--capabilities", default="{}",
                         help="protocol: the initialize response body")
     parser.add_argument("--capabilities-event", default="",
@@ -843,9 +943,29 @@ def main(argv):
                         help="protocol: CMD:EVENT:JSON once, before CMD's reply")
     parser.add_argument("--linger-after-eof", action="store_true",
                         help="protocol: outlive the client's half-close")
+    parser.add_argument("--die-before", action="append", default=[],
+                        help="protocol: exit before answering CMD")
+    parser.add_argument("--delay", action="append", default=[],
+                        help="protocol: CMD:SECONDS to sleep before CMD")
+    parser.add_argument("--variables", default="",
+                        help="protocol: reference -> children, as JSON")
+    parser.add_argument("--stale-variables", action="store_true",
+                        help="protocol: answer unknown references wrongly")
+    parser.add_argument("--output-flood", type=int, default=0,
+                        help="protocol: output events after a command")
+    parser.add_argument("--output-flood-on", default="configurationDone",
+                        help="protocol: the command the flood follows")
+    parser.add_argument("--output-split", action="append", default=[],
+                        help="protocol: CMD:TEXT as two mid-line events")
     args = parser.parse_args(argv[1:])
     for line in args.stderr_line:
         note(line)
+    if args.report_tty:
+        try:
+            with open("/dev/tty", "rb"):
+                note("tty: yes")
+        except OSError:
+            note("tty: no")
     if args.listen:
         stdin, stdout = listen_for_client()
     else:

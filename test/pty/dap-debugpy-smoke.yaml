@@ -1,0 +1,87 @@
+# The other real adapter, and the one whose ORDERING is the opposite of
+# lldb-dap's: debugpy answers `launch` only after the `configurationDone`
+# response, so a client that waited on the launch response before
+# configuring deadlocks here and nowhere else [M-1].  It is also the slow
+# one -- ~160 ms to initialize, ~41 ms a round trip, and the review measured
+# ~6.8 s to a first stop for a real Python program -- which is what the
+# budget below is sized for (doc/plans/dap/01-protocol.md stage 7).
+#
+# `requires_python_module: debugpy` and not `requires_tool:`: the adapter is
+# `python3 -m debugpy.adapter`, so there is no executable of that name for a
+# PATH lookup to find, and the honest predicate is whether the interpreter
+# kg spawns can import it.  A box without it SKIPs with that reason, and
+# `--require-tools` turns it into an upfront failure naming it.
+#
+# The configuration spells `console`/`subProcess`/`justMyCode` itself
+# because a configuration read from a file is the user's, not kg's: only the
+# built-in Python row carries kg's defaults, and debugpy's own default
+# console asks for a terminal through a reverse request kg does not
+# advertise -- which hangs the launch [M-2].
+name: dap-debugpy-smoke
+filename: script.py
+requires_feature: dap
+requires_python_module: debugpy
+backend: tmux
+dimensions: [30, 100]
+initial: |
+  def main():
+      answer = 21 + 21
+      print(answer)
+
+
+  main()
+workspace_files:
+  .kg-dap.json: |
+    { "version": 1,
+      "configurations": [
+        { "name": "py",
+          "adapter": "debugpy",
+          "request": "launch",
+          "arguments": { "program": "${file}",
+                         "cwd": "${workspaceRoot}",
+                         "console": "internalConsole",
+                         "subProcess": false,
+                         "justMyCode": false } } ] }
+keys:
+  # Line 3, the print.
+  - C-n
+  - C-n
+  - M-x
+  - dap-breakpoint-toggle
+  - RET
+  # Away from it, so the stop's navigation is a change and not a
+  # coincidence.
+  - M-<
+  - M-x
+  - dap-debug
+  - RET
+  - RET
+  # The whole launch, once: an interpreter starting under a debugger is
+  # seconds, not milliseconds, and the mode line reading line 3 is the stop.
+  - SETTLE=30:(3,
+  - C-e
+  - "  # stopped"
+  - M-x
+  - dap-evaluate
+  - RET
+  - answer
+  - RET
+  - SETTLE=10:42
+trailer_keys:
+  - M-x
+  - dap-terminate
+  - RET
+  - C-x
+  - C-s
+  - C-x
+  - C-c
+expected_saved: |
+  def main():
+      answer = 21 + 21
+      print(answer)  # stopped
+
+
+  main()
+expected_screen_contains:
+  # The value the program computed, which no line of it spells.
+  - "42"

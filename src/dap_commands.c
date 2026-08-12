@@ -399,9 +399,34 @@ static void on_build_done(const struct compilation_result *result, void *ctx)
 	dap_launch(false);
 }
 
-static bool start_build(const struct dap_launch_config *cfg)
+/* The build step's own substitutions.  They are stored unexpanded, like
+ * every other string in a configuration, and expanding them is this
+ * caller's job: an unexpanded `${workspaceRoot}` is a compiler run in a
+ * directory named after the placeholder, which fails in a way that reads
+ * like a broken toolchain rather than like a configuration kg did not
+ * finish reading. */
+static bool start_build(
+    const struct dap_config_set *set, const struct dap_launch_config *cfg)
 {
-	if (compilation_start_programmatic(cfg->build_command, cfg->build_cwd,
+	struct dap_config_context_store store;
+	struct dap_config_context ctx;
+	struct dap_config_error err = { "", "", DAP_CONFIG_NO_OFFSET };
+	char message[DAP_CONFIG_MESSAGE_MAX];
+	char command[KG_COMPILE_COMMAND_MAX];
+	char directory[PATH_MAX];
+
+	dap_config_context_for(choice.filename, set, &store, &ctx);
+	if (dap_config_expand_string(
+		cfg->build_command, &ctx, command, sizeof(command), &err)
+		!= 0
+	    || dap_config_expand_string(
+		   cfg->build_cwd, &ctx, directory, sizeof(directory), &err)
+		!= 0) {
+		dap_config_error_format(&err, message, sizeof(message));
+		editor_set_status_message(DAP_WHO ": %s", message);
+		return false;
+	}
+	if (compilation_start_programmatic(command, directory,
 		buf_handle(buf_current), on_build_done, NULL, &build_generation)
 	    != COMPILATION_ACCEPTED) {
 		editor_set_status_message(
@@ -409,7 +434,7 @@ static bool start_build(const struct dap_launch_config *cfg)
 		return false;
 	}
 	build_running = true;
-	editor_set_status_message("Building: %s", cfg->build_command);
+	editor_set_status_message("Building: %s", command);
 	return true;
 }
 
@@ -439,7 +464,7 @@ static void dap_launch(bool run_build)
 		editor_set_status_message(
 		    DAP_WHO ": no configuration named %s", choice.config_name);
 	} else if (run_build && cfg->has_build) {
-		(void)start_build(cfg);
+		(void)start_build(set, cfg);
 	} else {
 		launch_resolved(set, cfg);
 	}

@@ -202,7 +202,11 @@ static void fake_argv(const char **argv, size_t max, const char *mode,
 	}
 	if (opt) {
 		argv[n++] = opt;
-		argv[n++] = value;
+		/* A flag with no value of its own is spelled with a NULL
+		 * value rather than by a second helper. */
+		if (value) {
+			argv[n++] = value;
+		}
 	}
 	argv[n] = NULL;
 	CHECK(n < max);
@@ -416,6 +420,31 @@ static void test_every_kind_answers_the_ownership_table(void)
 	CHECK(!dap_transport_kind_owns_child(DAP_TRANSPORT_LSP_SIBLING));
 	CHECK(!dap_transport_kind_owns_child(
 	    (enum dap_transport_kind)(DAP_TRANSPORT_LSP_SIBLING + 1)));
+}
+
+/* A spawned adapter is handed NO controlling terminal.  The difference only
+ * shows up through a program the adapter starts: debugpy's launcher hands
+ * the terminal's foreground process group to the debuggee, and a debuggee
+ * that inherited kg's terminal takes kg's own keyboard with it -- kg reads
+ * EIO the moment the program finishes and exits, at the end of every
+ * completed debug run (measured).  The adapter answers for it, since
+ * whether `/dev/tty` opens is a fact about the child and not about the
+ * parent's intentions. */
+static void test_a_spawned_adapter_gets_no_controlling_terminal(void)
+{
+	struct dap_transport *t = start_fake("linger", "--report-tty", NULL);
+
+	CHECK(t != NULL);
+	if (!t) {
+		return;
+	}
+	/* And still leads its own process group, which is what every signal
+	 * path in this module takes. */
+	CHECKF(getpgid(dap_transport_pid(t)) == dap_transport_pid(t),
+	    "the adapter leads no process group of its own");
+	CHECKF(pump_until_log_line(t, "tty: no"),
+	    "the adapter was handed kg's controlling terminal");
+	dap_transport_close(t);
 }
 
 /* process.h:68-78: this function makes the child's stdin itself, so a
@@ -810,6 +839,7 @@ int main(int argc, char **argv)
 	RUN(test_huge_content_length_is_refused);
 	RUN(test_truncated_frame_is_reported_as_truncation);
 	RUN(test_every_kind_answers_the_ownership_table);
+	RUN(test_a_spawned_adapter_gets_no_controlling_terminal);
 	RUN(test_stdio_refuses_a_caller_supplied_stdin);
 	RUN(test_stderr_is_a_channel_of_its_own);
 	RUN(test_close_reaps_a_child_that_ignores_term);

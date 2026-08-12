@@ -1019,7 +1019,7 @@
   "src/dap_ui.c:source_buffer": 8,
   "src/dap_ui.c:transcript_append": 6,
   "src/dap_ui.c:transcript_slot": 5,
-  "src/dap_ui.c:transcript_write": 6,
+  "src/dap_ui.c:transcript_write": 7,
   "src/dap_ui.c:variable_is_expanded": 2,
   "src/dap_ui.c:variable_key": 8,
   "src/dap_ui.c:variable_visible": 5,

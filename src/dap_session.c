@@ -22,7 +22,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <time.h>
+
+#define ARRAY_LEN(a) (sizeof(a) / sizeof((a)[0]))
 
 struct dap_client; /* src/dap_client.h */
 struct kg_json_value; /* src/json.h */
@@ -71,9 +74,33 @@ struct dap_session {
 	struct dap_session *parent;
 	struct dap_session *children[DAP_SESSION_MAX_SESSIONS];
 	size_t child_count;
+	/* Where the ADAPTER runs, kept because the diagnostics a failed
+	 * launch produces are relative to it and are read long after the
+	 * spec that said so has gone out of scope. */
+	char adapter_cwd[PATH_MAX];
+	/* Everything the adapter wrote to the `stderr` category before it
+	 * answered launch/attach.  For an adapter that BUILDS the program it
+	 * is about to debug, that is the compiler's diagnostics, and the
+	 * launch response itself carries only "check the debug console"
+	 * (measured against delve, doc/plans/dap/04-go.md) -- so the useful
+	 * text arrives before the failure it explains and has to be held
+	 * until kg knows whether it mattered.
+	 *
+	 * Bounded, because "hold it until we know" without a bound is a
+	 * chatty adapter's memory leak; the bound and the truncation notice
+	 * are compilation's own policy, since this text ends up in the same
+	 * buffer. */
+	char *launch_output;
+	size_t launch_output_len;
+	size_t launch_output_cap;
+	bool launch_output_truncated;
 };
 
 static struct dap_session *g_sessions[DAP_SESSION_MAX_SESSIONS];
+
+/* Defined with the output hook that fills the buffer, used by the launch
+ * response that empties it. */
+static void launch_output_release(struct dap_session *s);
 
 /* ------------------------------ the matrix ---------------------------- */
 
@@ -425,10 +452,18 @@ static void on_launch(
 	(void)c;
 	s->st.launch_done = true;
 	if (r->success) {
+		/* Nothing to explain, so nothing to keep. */
+		launch_output_release(s);
 		become_active(s);
 		session_changed(s);
 		return;
 	}
+	if (s->launch_output_len > 0 && s->hooks.build_failed) {
+		s->hooks.build_failed(s->hooks.ctx, s->config_name,
+		    s->adapter_cwd, s->launch_output, s->launch_output_len,
+		    s->launch_output_truncated);
+	}
+	launch_output_release(s);
 	/* Retained and reported, and the configuration traffic the adapter
 	 * is still emitting keeps running (measured): the sequence finishes,
 	 * configurationDone fails, and the session tears down rather than
@@ -592,11 +627,58 @@ static void on_event(
 	}
 }
 
+/* Retain launch-phase diagnostics, growing to the bound and then recording
+ * that the rest was dropped.  The bytes are kept exactly as they arrived:
+ * one `output` event is not one line [M-12], and re-joining them is the
+ * consumer's job. */
+static void launch_output_append(
+    struct dap_session *s, const char *text, size_t len)
+{
+	size_t room = DAP_SESSION_MAX_LAUNCH_OUTPUT - s->launch_output_len;
+	size_t want;
+	char *grown;
+
+	if (len > room) {
+		len = room;
+		s->launch_output_truncated = true;
+	}
+	if (len == 0) {
+		return;
+	}
+	if (s->launch_output_len + len > s->launch_output_cap) {
+		want = s->launch_output_cap ? s->launch_output_cap * 2 : 4096;
+		while (want < s->launch_output_len + len) {
+			want *= 2;
+		}
+		grown = realloc(s->launch_output, want);
+		if (!grown) {
+			s->launch_output_truncated = true;
+			return;
+		}
+		s->launch_output = grown;
+		s->launch_output_cap = want;
+	}
+	memcpy(s->launch_output + s->launch_output_len, text, len);
+	s->launch_output_len += len;
+}
+
+static void launch_output_release(struct dap_session *s)
+{
+	free(s->launch_output);
+	s->launch_output = NULL;
+	s->launch_output_len = 0;
+	s->launch_output_cap = 0;
+	s->launch_output_truncated = false;
+}
+
 static void on_output(
     void *ctx, const char *category, const char *text, size_t len)
 {
 	struct dap_session *s = ctx;
 
+	if (!s->st.launch_done && category && strcmp(category, "stderr") == 0) {
+		launch_output_append(s, text, len);
+	}
 	if (s->hooks.output) {
 		s->hooks.output(s->hooks.ctx, category, text, len);
 	}
@@ -741,6 +823,13 @@ struct dap_session *dap_session_current(void) { return g_sessions[0]; }
 
 /* --------------------------------- start ------------------------------ */
 
+static bool directory_exists(const char *path)
+{
+	struct stat st;
+
+	return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+}
+
 static struct dap_transport *start_transport(
     const struct dap_adapter_spec *spec, const unsigned char *secret,
     size_t secret_len, char *error, size_t error_size)
@@ -773,13 +862,6 @@ static struct dap_transport *start_transport(
 		}
 		return t;
 	}
-	if (spec->transport != DAP_TRANSPORT_STDIO) {
-		snprintf(error, error_size,
-		    "this kg cannot start the adapter `%s` (transport not "
-		    "implemented)",
-		    spec->name);
-		return NULL;
-	}
 	if (spec->command[0]) {
 		req.command = spec->command;
 	} else if (dap_adapter_spec_argv(
@@ -792,14 +874,54 @@ static struct dap_transport *start_transport(
 		return NULL;
 	}
 	if (spec->cwd[0]) {
+		/* Resolved BEFORE the spawn, and required to exist.  It is the
+		 * directory the adapter itself runs in, which for delve is
+		 * what `program` and its build artefact are relative to
+		 * (measured, doc/plans/dap/04-go.md) -- so a missing one is a
+		 * debugger that would build and debug the wrong thing rather
+		 * than an inconvenience to report later. */
+		if (!directory_exists(spec->cwd)) {
+			snprintf(error, error_size,
+			    "the adapter `%s` needs to run in `%s`, which is "
+			    "not a directory",
+			    spec->name, spec->cwd);
+			return NULL;
+		}
 		req.directory = spec->cwd;
 	}
-	t = dap_transport_start_stdio(&req);
+	t = spec->transport == DAP_TRANSPORT_SPAWN_PORT
+	    ? dap_transport_start_spawn_port(&req, spec->announce_prefix)
+	    : dap_transport_start_stdio(&req);
 	if (!t) {
 		snprintf(error, error_size, "could not start `%s`: %s",
 		    spec->name, strerror(errno));
 	}
 	return t;
+}
+
+/* The adapter's command line as one string, for the failure that has to
+ * name it.  Bounded and lossy on purpose: it is a message, not an argv. */
+static void spec_command_text(
+    const struct dap_adapter_spec *spec, char *out, size_t out_size)
+{
+	const char *argv[DAP_CONFIG_MAX_ARGV + 1];
+	size_t count = dap_adapter_spec_argv(spec, argv, ARRAY_LEN(argv));
+	size_t used = 0;
+	size_t i;
+
+	if (spec->command[0]) {
+		/* Deliberately lossy, and told to the compiler as such: an
+		 * adapter command line is up to a page and this is a
+		 * sentence. */
+		snprintf(
+		    out, out_size, "%.*s", (int)out_size - 1, spec->command);
+		return;
+	}
+	out[0] = '\0';
+	for (i = 0; i < count && used + 1 < out_size; i++) {
+		used += (size_t)snprintf(
+		    out + used, out_size - used, "%s%s", i ? " " : "", argv[i]);
+	}
 }
 
 static struct dap_session *session_start(
@@ -846,6 +968,8 @@ static struct dap_session *session_start(
 	    request->adapter->adapter_id);
 	snprintf(s->config_name, sizeof(s->config_name), "%s",
 	    request->config_name ? request->config_name : "");
+	snprintf(s->adapter_cwd, sizeof(s->adapter_cwd), "%s",
+	    request->adapter->cwd);
 	s->client = dap_client_new(t);
 	if (!s->client) {
 		free(s->arguments);
@@ -855,6 +979,14 @@ static struct dap_session *session_start(
 	}
 	client_hooks.ctx = s;
 	dap_client_set_hooks(s->client, &client_hooks);
+	{
+		char command[DAP_SESSION_TEXT_MAX];
+
+		spec_command_text(request->adapter, command, sizeof(command));
+		dap_client_set_adapter_command(s->client, command);
+	}
+	dap_client_set_adapter_stderr_to_output(
+	    s->client, request->adapter->route_stderr_to_output);
 	/* Registered BEFORE the handshake: initialize can fail synchronously,
 	 * and a session that ended inside its own start must still have been
 	 * the current one while it did. */
@@ -1001,6 +1133,7 @@ void dap_session_close(struct dap_session *s)
 	}
 	become_dead(s, "the debug session ended");
 	registry_remove(s);
+	launch_output_release(s);
 	free(s->arguments);
 	free(s->sources);
 	free(s->slots);
@@ -1030,6 +1163,19 @@ void dap_session_set_timeouts(
 {
 	if (s && s->client) {
 		dap_client_set_timeouts(s->client, initialize_ms, request_ms);
+	}
+}
+
+void dap_session_set_spawn_deadline(struct dap_session *s, unsigned spawn_ms)
+{
+	struct dap_transport_deadlines limits
+	    = { spawn_ms, DAP_TRANSPORT_CONNECT_TIMEOUT_MS,
+		      DAP_TRANSPORT_SHUTDOWN_TIMEOUT_MS,
+		      DAP_TRANSPORT_KILL_TIMEOUT_MS };
+
+	if (s && s->client) {
+		dap_transport_set_deadlines(
+		    dap_client_transport(s->client), &limits);
 	}
 }
 

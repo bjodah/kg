@@ -111,7 +111,7 @@ class Case:
 	file_mode: int | None
 	keys: list[str]
 	requires_feature: tuple[str, ...]
-	requires_tool: str | None
+	requires_tool: tuple[str, ...]
 	requires_python_module: str | None
 	config_files: dict[str, str]
 	workspace_files: dict[str, str]
@@ -188,6 +188,10 @@ def case_missing_tool(case: "Case") -> str | None:
 	"""The executable this case needs and this box has not got, or None.
 
 	`requires_tool:` is the general form of the tmux and Emacs rules below:
+	one bare name, or a LIST of them for a case that needs more than one --
+	kg's Go cases need both `dlv` and `go`, since `mode:"debug"` has delve
+	build the package before it debugs it, and a box with only one of the
+	two skips naming the one it lacks.
 	a case that drives a real language server names the binary, and a box
 	without a usable one skips with a reason rather than failing.  The normal
 	case is still a plain PATH lookup -- the case says `clangd`, kg spawns
@@ -205,9 +209,11 @@ def case_missing_tool(case: "Case") -> str | None:
 		missing = python_module_unavailable(case.requires_python_module)
 		if missing:
 			return missing
-	if case.requires_tool is None:
-		return None
-	return tool_unavailable(case.requires_tool)
+	for tool in case.requires_tool:
+		missing = tool_unavailable(tool)
+		if missing:
+			return missing
+	return None
 
 
 def tool_unavailable(tool: str) -> str | None:
@@ -569,12 +575,21 @@ def load_case(path: Path) -> Case:
 	):
 		raise ValueError(f"{path}: requires_feature must be non-empty strings")
 	requires_tool = data.get("requires_tool")
-	if requires_tool is not None and (
-		not isinstance(requires_tool, str) or not requires_tool or
-		"/" in requires_tool
+	if requires_tool is None:
+		requires_tool = ()
+	elif isinstance(requires_tool, str):
+		requires_tool = (requires_tool,)
+	elif isinstance(requires_tool, list):
+		requires_tool = tuple(requires_tool)
+	else:
+		raise ValueError(
+			f"{path}: requires_tool must be a name or a list of them")
+	if not all(
+		isinstance(tool, str) and tool and "/" not in tool
+		for tool in requires_tool
 	):
 		raise ValueError(
-			f"{path}: requires_tool must be a bare executable name")
+			f"{path}: requires_tool must be bare executable names")
 	# A module the interpreter kg spawns must be able to import.  Distinct
 	# from `requires_tool:` because it is not an executable: kg's Python
 	# debug adapter is `python3 -m debugpy.adapter`, and no file called
@@ -1191,8 +1206,8 @@ def main() -> int:
 		missing.append(f"tmux ({tmux_cases} case(s) need it)")
 	tool_cases: dict[str, int] = {}
 	for case in cases:
-		if case.requires_tool:
-			tool_cases[case.requires_tool] = tool_cases.get(case.requires_tool, 0) + 1
+		for tool in case.requires_tool:
+			tool_cases[tool] = tool_cases.get(tool, 0) + 1
 	for tool in sorted(tool_cases):
 		unavailable = tool_unavailable(tool)
 		if unavailable:
@@ -1240,7 +1255,7 @@ def main() -> int:
 				"backend": case.backend,
 				"oracle": case.oracle,
 				"requires_feature": list(case.requires_feature),
-				"requires_tool": case.requires_tool,
+				"requires_tool": list(case.requires_tool),
 				"requires_python_module": case.requires_python_module,
 				"xfail": case.xfail,
 			})

@@ -874,8 +874,8 @@ as a `file:` URI, for the one adapter that parses that argument as a URI
 rather than as a path; a relative buffer name is made absolute against kg's
 working directory first, since a URI cannot be relative.
 
-Three adapters are built in: `lldb-dap` and `debugpy`, both found on `PATH`
-at run time, and `nbcode-java`, which is not a command at all.
+Four adapters are built in: `lldb-dap`, `debugpy` and `delve`, all found on
+`PATH` at run time, and `nbcode-java`, which is not a command at all.
 
 ### Java
 
@@ -918,6 +918,59 @@ a stop cancels that inference.
 If `KG_LSP_SERVER_JAVA` points at a server that is not nbcode — jdt.ls, say
 — there is no debug adapter to reach, and `dap-debug` says so rather than
 starting something.
+
+### Go
+
+`M-x dap-debug` in a `.go` buffer offers `Go (delve)`, which debugs the
+package the file is in:
+
+```json
+{ "name": "Go (delve)",
+  "adapter": "delve",
+  "request": "launch",
+  "arguments": { "mode": "debug", "program": "${fileDir}",
+                 "cwd": "${fileDir}", "stopOnEntry": false } }
+```
+
+`mode: "debug"` is delve building the package itself and debugging what it
+built, which is why `program` is a directory rather than a binary — and why
+you get readable locals for free, since delve passes
+`-gcflags="all=-N -l"` on that path. Nothing is installed for you: `dlv`
+and the Go toolchain have to be on `PATH`, and `KG_DAP_ADAPTER_DELVE`
+replaces the command line for a delve somewhere else.
+
+`mode: "exec"` debugs a binary you built, and `program` is then that
+binary. Build it with
+
+```bash
+go build -gcflags="all=-N -l" -o prog .
+```
+
+or the locals will be missing or wrong and the only thing that says so is
+the scope's own name, which kg shows verbatim:
+`Locals (warning: optimized function)`. `mode` also takes `test`,
+`replay` and `core`.
+
+Three things are worth knowing about Go sessions.
+
+**Your program's output arrives on delve's own standard error**, not as
+protocol output events, so kg routes that channel into `*dap-output*` as
+raw bytes — no newline is invented at a read boundary, and a program that
+printed CRLF or stopped mid-line looks like it did.
+
+**A failed build lands in `*compilation*`.** The launch response says only
+"Check the debug console for details"; the real `./main.go:8:14: undefined:
+...` came earlier, so kg keeps launch-phase output and, when the launch is
+refused, feeds it through the ordinary compilation machinery — `M-g n`
+walks the errors like any compiler's. A compilation of your own that is
+already running keeps the buffer, and the output stays in `*dap-output*`.
+
+**delve runs where kg's configuration says, not where kg is.** It resolves
+`program` and writes its `__debug_bin` artefact relative to its own working
+directory, so the built-in `delve` adapter runs in `${workspaceRoot}`. An
+inline adapter's `cwd` overrides that; it is the ADAPTER's directory and
+has nothing to do with `arguments.cwd`, which is the program's. kg never
+deletes delve's build artefacts — they are delve's to clean up.
 
 **`.kg-dap.json` is trusted code.** It names a command to spawn and
 arguments handed to a debugger that will run a program; there is nothing to

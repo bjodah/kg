@@ -142,7 +142,7 @@ static void test_builtin_adapters_and_their_defaults(void)
 	const struct dap_adapter_spec *debugpy = dap_config_builtin("debugpy");
 	const char *argv[DAP_CONFIG_MAX_ARGV + 1];
 
-	CHECK(dap_config_builtin_count() == 3);
+	CHECK(dap_config_builtin_count() == 4);
 	CHECK(lldb != NULL && debugpy != NULL);
 	CHECK(dap_config_builtin("nosuchadapter") == NULL);
 	if (!lldb || !debugpy) {
@@ -182,7 +182,7 @@ static void test_builtin_configs_when_no_file_exists(void)
 	}
 	CHECK(set->path[0] == '\0');
 	CHECK(strstr(set->root, template + 5) != NULL);
-	CHECK(set->count == 3);
+	CHECK(set->count == 4);
 	for (i = 0; i < set->count; i++) {
 		CHECK(set->configs[i].builtin);
 		if (strcmp(set->configs[i].adapter, "debugpy") == 0) {
@@ -270,14 +270,15 @@ static void test_the_schema_refuses_what_it_says_it_does(void)
 		"{\"name\":\"a\",\"request\":\"launch\",\"adapter\":"
 		"{\"command\":\"x\",\"transport\":\"carrier-pigeon\"}}]}",
 	    "unknown transport");
-	/* The one kind the enum carries and this version cannot build.
-	 * `lsp-sibling` used to be the second; it ships now, and what it
-	 * refuses instead is an adapter that names no language server
-	 * (test_dap_java.c has that case and the accepting one). */
+	/* Every kind the enum carries now ships, so what each of the two
+	 * unusual ones refuses is a MISSING field rather than itself:
+	 * `lsp-sibling` an adapter that names no language server
+	 * (test_dap_java.c has that case and the accepting one), and
+	 * `spawn-port` one with nothing to scrape the port out of. */
 	refused("{\"version\":1,\"configurations\":["
 		"{\"name\":\"a\",\"request\":\"launch\",\"adapter\":"
 		"{\"command\":\"x\",\"transport\":\"spawn-port\"}}]}",
-	    "not implemented");
+	    "announcePrefix");
 	refused(
 	    "{\"version\":1,\"configurations\":["
 	    "{\"name\":\"a\",\"adapter\":\"debugpy\",\"request\":\"launch\","
@@ -551,7 +552,7 @@ static void test_load_appends_builtins_without_duplicating_names(void)
 	if (!set) {
 		return;
 	}
-	CHECK(set->count == 3);
+	CHECK(set->count == 4);
 	CHECK(strstr(set->path, DAP_CONFIG_FILE_NAME) != NULL);
 	for (i = 0; i < set->count; i++) {
 		if (strcmp(set->configs[i].name, "Python (debugpy)") == 0) {
@@ -689,6 +690,116 @@ static void test_substitution_reaches_nested_values_but_not_keys(void)
 	free(bytes);
 }
 
+/* delve, whose row needs three columns nothing before it did: a transport
+ * that spawns AND connects, an announce prefix strict enough to parse, and
+ * an adapter working directory that is load-bearing rather than cosmetic.
+ * Every one of them is asserted as a value the table chose, not a shape. */
+static void test_the_delve_builtin_carries_its_three_columns(void)
+{
+	const struct dap_adapter_spec *delve = dap_config_builtin("delve");
+	const char *argv[DAP_CONFIG_MAX_ARGV + 1];
+
+	CHECK(delve != NULL);
+	if (!delve) {
+		return;
+	}
+	CHECK(delve->transport == DAP_TRANSPORT_SPAWN_PORT);
+	CHECK(strcmp(
+		  delve->announce_prefix, "DAP server listening at: 127.0.0.1:")
+	    == 0);
+	CHECK(delve->route_stderr_to_output);
+	CHECK(strcmp(delve->cwd, "${workspaceRoot}") == 0);
+	CHECK(strcmp(delve->env_override, "KG_DAP_ADAPTER_DELVE") == 0);
+	CHECK(dap_adapter_spec_argv(delve, argv, DAP_CONFIG_MAX_ARGV + 1) == 4);
+	CHECK(strcmp(argv[0], "dlv") == 0);
+	CHECK(strcmp(argv[1], "dap") == 0);
+	CHECK(strcmp(argv[2], "--listen") == 0);
+	CHECK(strcmp(argv[3], "127.0.0.1:0") == 0);
+	/* And nothing anywhere near it passes --log-dest, which moves the
+	 * announcement off stdout and silently defeats the scraper. */
+	CHECK(strstr(delve->argv_bytes, "log-dest") == NULL);
+}
+
+/* The Go configuration is `mode:"debug"`, which is what makes `program` a
+ * package directory rather than a binary -- and what gets `-N -l` passed
+ * for free, so the locals are readable. */
+static void test_the_go_builtin_configuration(void)
+{
+	char template[] = "/tmp/kg-dapgo-XXXXXX";
+	char source[PATH_MAX];
+	struct dap_config_set *set;
+	size_t i;
+	size_t go = DAP_CONFIG_MAX_CONFIGURATIONS;
+
+	CHECK(mkdtemp(template) != NULL);
+	snprintf(source, sizeof(source), "%s/main.go", template);
+	CHECK(write_file(source, "package main\n"));
+	set = dap_config_load(source, &last_error);
+	CHECK(set != NULL);
+	if (!set) {
+		return;
+	}
+	for (i = 0; i < set->count; i++) {
+		if (strcmp(set->configs[i].adapter, "delve") == 0) {
+			go = i;
+		}
+	}
+	CHECK(go < set->count);
+	if (go < set->count) {
+		const char *args = set->configs[go].arguments;
+
+		CHECK(strstr(args, "\"mode\":\"debug\"") != NULL);
+		CHECK(strstr(args, "\"program\":\"${fileDir}\"") != NULL);
+		CHECK(!set->configs[go].needs_program);
+	}
+	dap_config_free(set);
+	remove(source);
+	rmdir(template);
+}
+
+/* The adapter cwd is expanded before it is used, which for the built-in
+ * means `${workspaceRoot}` becomes the directory the configuration file
+ * governs -- the value delve resolves `program` against. */
+static void test_the_delve_cwd_is_expanded(void)
+{
+	struct dap_config_context ctx = test_ctx();
+	struct dap_launch_config cfg = { 0 };
+	struct dap_adapter_spec spec;
+
+	snprintf(cfg.adapter, sizeof(cfg.adapter), "delve");
+	CHECK(unsetenv("KG_DAP_ADAPTER_DELVE") == 0);
+	CHECK(dap_config_resolve_adapter(&cfg, &ctx, &spec, &last_error) == 0);
+	CHECK(strcmp(spec.cwd, "/proj") == 0);
+	CHECK(spec.transport == DAP_TRANSPORT_SPAWN_PORT);
+}
+
+/* A user pointing kg at their own delve build spells the whole thing out,
+ * announce prefix included: the built-in owns the prefix, an inline adapter
+ * is the escape hatch, and neither is allowed to leave it blank. */
+static void test_an_inline_spawn_port_adapter(void)
+{
+	struct dap_config_set *set
+	    = parse("{\"version\":1,\"configurations\":[{\"name\":\"a\","
+		    "\"request\":\"launch\",\"adapter\":{\"name\":\"mydlv\","
+		    "\"transport\":\"spawn-port\",\"command\":\"/opt/dlv\","
+		    "\"args\":[\"dap\",\"--listen\",\"127.0.0.1:0\"],"
+		    "\"announcePrefix\":\"listening on 127.0.0.1:\","
+		    "\"stderrToOutput\":true}}]}");
+	struct dap_adapter_spec spec;
+
+	CHECK(set != NULL);
+	if (!set) {
+		return;
+	}
+	CHECK(dap_config_resolve_adapter(
+		  &set->configs[0], NULL, &spec, &last_error)
+	    == 0);
+	CHECK(spec.transport == DAP_TRANSPORT_SPAWN_PORT);
+	CHECK(strcmp(spec.announce_prefix, "listening on 127.0.0.1:") == 0);
+	CHECK(spec.route_stderr_to_output);
+	dap_config_free(set);
+}
+
 /* ---------------------------- resolving adapters ---------------------- */
 
 static void test_the_environment_override_replaces_the_command(void)
@@ -791,6 +902,10 @@ static void test_the_build_step_is_read_and_expanded(void)
 int main(void)
 {
 	RUN(test_builtin_adapters_and_their_defaults);
+	RUN(test_the_delve_builtin_carries_its_three_columns);
+	RUN(test_the_go_builtin_configuration);
+	RUN(test_the_delve_cwd_is_expanded);
+	RUN(test_an_inline_spawn_port_adapter);
 	RUN(test_builtin_configs_when_no_file_exists);
 	RUN(test_a_minimal_configuration_is_accepted);
 	RUN(test_the_schema_refuses_what_it_says_it_does);

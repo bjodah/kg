@@ -201,4 +201,34 @@ void compilation_cancel_programmatic(unsigned generation);
  * compilation_start_pending_restart(), and from nowhere else. */
 void compilation_deliver_completion(void);
 
+/* ----------------------------- the output feed ------------------------ */
+
+/* Bytes somebody else collected, turned into a compilation.
+ *
+ * Everything above this line owns a CHILD as well as its output.  This
+ * seam is the output half alone: the *compilation* buffer, the header, the
+ * CR/ANSI normalisation, the retained-output budget, the line commits and
+ * the diagnostic hooks -- driven by a caller that already has the bytes and
+ * never had a process for this module to start.
+ *
+ * It exists because a debug adapter that BUILDS the program it is about to
+ * debug reports the build's failure as protocol output events, and the
+ * useful text -- `./main.go:14:16: syntax error: ...` -- arrives before the
+ * refusal it explains (doc/plans/dap/04-go.md).  Those are ordinary
+ * compiler diagnostics and belong where every other one goes: in
+ * *compilation*, with C-x ` walking them.  Nothing here names debugging,
+ * and any later caller with bytes and no child gets the same three calls.
+ *
+ * begin() refuses (returns false) while a real compilation is running: the
+ * user's build owns that buffer, and a debugger is not entitled to take it.
+ * `directory` is what the diagnostics are relative to, and for an adapter
+ * that is the ADAPTER's working directory rather than the debuggee's.
+ * bytes() is a stream, not lines.  finish() commits an unterminated final
+ * line, writes the truncation notice if the budget bit, and adds `note`.
+ * A second begin(), and a compilation started by anybody, abandon an open
+ * feed rather than interleaving with it. */
+bool compilation_feed_begin(const char *label, const char *directory);
+void compilation_feed_bytes(const char *bytes, size_t len);
+void compilation_feed_finish(const char *note);
+
 #endif

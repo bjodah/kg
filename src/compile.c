@@ -173,6 +173,8 @@ static void compilation_report_diag_line(
  * compilation buffer, no child -- already told the user in the echo area;
  * the return exists for the programmatic seam, which owes its caller a
  * completion even when nothing ever ran. */
+static void feed_release(void);
+
 static bool compilation_start(const char *command, const char *directory,
     struct kg_buffer_handle source_buffer, bool from_user)
 {
@@ -184,6 +186,11 @@ static bool compilation_start(const char *command, const char *directory,
 		    "Failed to prepare compilation buffer");
 		return false;
 	}
+
+	/* A real compilation takes the buffer back from any feed that was
+	 * still open: the user's build wins, and interleaving two writers
+	 * into one buffer would produce a transcript belonging to neither. */
+	feed_release();
 
 	g_compilation.have_last_command = true;
 	strncpy(g_compilation.last_command, command,
@@ -859,8 +866,91 @@ void editor_kill_compilation(int fd)
 				  "group (repeat to SIGKILL)");
 }
 
+/* ----------------------------- the output feed ------------------------ */
+
+/* One feed at a time, and never beside a real compilation: both write the
+ * same buffer, and compile.h says which one wins. */
+static struct compilation_state g_feed;
+static bool g_feed_open;
+
+static void feed_release(void)
+{
+	free(g_feed.pending_line);
+	memset(&g_feed, 0, sizeof(g_feed));
+	g_feed_open = false;
+}
+
+bool compilation_feed_begin(const char *label, const char *directory)
+{
+	char header[PATH_MAX + KG_COMPILE_COMMAND_MAX + 128];
+	int header_len;
+	int cidx;
+
+	if (compilation_is_running()) {
+		return false;
+	}
+	feed_release();
+	cidx
+	    = buf_prepare_special_text("*compilation*", &compilation_syntax, 1);
+	if (cidx < 0) {
+		return false;
+	}
+	compilation_stream_reset(&g_feed, g_default_maximum_output);
+	g_feed.compilation_buffer = buf_handle(cidx);
+	/* The same header an ordinary compilation writes, because what
+	 * follows is read the same way and the directory line is what makes
+	 * a relative diagnostic resolvable. */
+	header_len = snprintf(header, sizeof(header),
+	    "Compilation started in %s\n\n$ %s\n\n", directory, label);
+	buf_append_special_text(cidx, header, header_len);
+	g_feed.committed_len += (size_t)header_len;
+	compilation_report_diag_reset(g_feed.compilation_buffer, directory);
+	win_display_buffer_other_window(cidx);
+	win_position_at_end(cidx);
+	g_feed_open = true;
+	return true;
+}
+
+void compilation_feed_bytes(const char *bytes, size_t len)
+{
+	if (g_feed_open) {
+		compilation_process_bytes(&g_feed, bytes, len);
+	}
+}
+
+void compilation_feed_finish(const char *note)
+{
+	char msg[192];
+	int msg_len;
+	int slot;
+
+	if (!g_feed_open) {
+		return;
+	}
+	slot = buf_handle_slot(g_feed.compilation_buffer);
+	/* The mirrored copy of the pending line goes before it is committed
+	 * for real, or the last unterminated line appears twice -- the same
+	 * ordering compilation_poll()'s finalize block keeps. */
+	buf_truncate_last_row(slot, g_feed.displayed_pending_length);
+	g_feed.displayed_pending_length = 0;
+	if (g_feed.pending_line_length > 0) {
+		compilation_commit_line(&g_feed);
+	}
+	if (g_feed.truncated && !g_feed.truncation_marker_written) {
+		msg_len = snprintf(msg, sizeof(msg),
+		    "[kg: compilation output truncated after %zu bytes]\n",
+		    g_feed.maximum_output);
+		buf_append_special_text(slot, msg, msg_len);
+		g_feed.truncation_marker_written = true;
+	}
+	msg_len = snprintf(msg, sizeof(msg), "\n%s\n", note ? note : "");
+	buf_append_special_text(slot, msg, msg_len);
+	feed_release();
+}
+
 void compilation_shutdown(void)
 {
+	feed_release();
 	if (g_compilation.phase != COMPILATION_IDLE) {
 		kg_close_fd(&g_compilation.output_fd);
 		if (g_compilation.process_group > 0) {

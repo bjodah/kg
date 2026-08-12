@@ -631,6 +631,121 @@ static void test_programmatic_shutdown_delivers_a_cancellation(void)
 	CHECK(g_done.calls == 1);
 }
 
+/* ----------------------------- the output feed ------------------------ */
+
+/* What the diagnostic hooks saw, which is the half of the feed that makes
+ * C-x ` work rather than the half a reader sees. */
+static struct feed_seen {
+	int resets;
+	char directory[PATH_MAX];
+	int lines;
+	char last_line[256];
+	size_t last_start;
+} feed_seen;
+
+static void feed_reset_hook(struct kg_buffer_handle buffer,
+    const char *initial_cwd, size_t initial_cwd_len)
+{
+	(void)buffer;
+	feed_seen.resets++;
+	snprintf(feed_seen.directory, sizeof(feed_seen.directory), "%.*s",
+	    (int)initial_cwd_len, initial_cwd);
+}
+
+static void feed_line_hook(const char *line, size_t len, size_t line_start_pos)
+{
+	feed_seen.lines++;
+	snprintf(feed_seen.last_line, sizeof(feed_seen.last_line), "%.*s",
+	    (int)len, line);
+	feed_seen.last_start = line_start_pos;
+}
+
+static const struct compile_diag_hooks feed_hooks
+    = { feed_reset_hook, feed_line_hook };
+
+/* Bytes somebody else collected, arriving in the shape they really arrive
+ * in: a diagnostic split across two deliveries, and a last line with no
+ * newline on it because the producer stopped there.  Both are what a
+ * protocol `output` event does, and a feed that treated one delivery as one
+ * line would print a transcript neither the compiler nor the user wrote. */
+static void test_the_feed_turns_bytes_into_a_compilation(void)
+{
+	memset(&feed_seen, 0, sizeof(feed_seen));
+	compilation_set_diag_hooks(&feed_hooks);
+	CHECK(compilation_feed_begin("Go (delve)", "/w/example"));
+	CHECK(strstr(g_model, "Compilation started in /w/example") != NULL);
+	CHECK(strstr(g_model, "$ Go (delve)") != NULL);
+	CHECK(feed_seen.resets == 1);
+	CHECK(strcmp(feed_seen.directory, "/w/example") == 0);
+	compilation_feed_bytes("# example/m\n./main.go:6:2: syntax ", 34);
+	compilation_feed_bytes("error: unexpected }", 19);
+	CHECK(feed_seen.lines == 1);
+	compilation_feed_finish("Launch failed: Go (delve)");
+	/* The unterminated last line was committed, exactly once. */
+	CHECK(feed_seen.lines == 2);
+	CHECK(strcmp(feed_seen.last_line,
+		  "./main.go:6:2: syntax error: unexpected }")
+	    == 0);
+	CHECK(strstr(g_model, "./main.go:6:2: syntax error: unexpected }\n")
+	    != NULL);
+	CHECK(strstr(g_model, "Launch failed: Go (delve)") != NULL);
+	compilation_set_diag_hooks(NULL);
+}
+
+/* The relative forms a compiler really emits, with and without the leading
+ * `./`: both are committed verbatim, because resolving them against the
+ * directory is the parser's job and rewriting them here would break it. */
+static void test_the_feed_keeps_relative_paths_verbatim(void)
+{
+	memset(&feed_seen, 0, sizeof(feed_seen));
+	compilation_set_diag_hooks(&feed_hooks);
+	CHECK(compilation_feed_begin("build", "/w"));
+	compilation_feed_bytes("./a.go:1:1: bad\nb/c.go:2:3: worse\n", 34);
+	CHECK(feed_seen.lines == 2);
+	CHECK(strcmp(feed_seen.last_line, "b/c.go:2:3: worse") == 0);
+	CHECK(strstr(g_model, "./a.go:1:1: bad\n") != NULL);
+	CHECK(strstr(g_model, "b/c.go:2:3: worse\n") != NULL);
+	compilation_feed_finish("done");
+	compilation_set_diag_hooks(NULL);
+}
+
+/* "Hold it until we know" with no bound is a chatty adapter's memory leak,
+ * so the feed is charged against the same retained-output budget an
+ * ordinary compilation is -- and says so in the buffer when it bites. */
+static void test_the_feed_respects_the_output_budget(void)
+{
+	char noise[512];
+
+	memset(noise, 'x', sizeof(noise));
+	compilation_set_maximum_output(64);
+	CHECK(compilation_feed_begin("build", "/w"));
+	compilation_feed_bytes(noise, sizeof(noise));
+	compilation_feed_bytes("\n", 1);
+	compilation_feed_finish("done");
+	CHECK(strstr(g_model, "output truncated after 64 bytes") != NULL);
+	compilation_set_maximum_output(8 * 1024 * 1024);
+}
+
+/* The user's own build owns *compilation*.  A debugger that took it would
+ * destroy a running compilation's transcript, so the feed is refused and
+ * the caller keeps its bytes. */
+static void test_a_running_compilation_refuses_the_feed(void)
+{
+	start_programmatic("sleep 5");
+	for (int i = 0; i < 200 && !compilation_is_running(); i++) {
+		compilation_poll();
+		usleep(1000);
+	}
+	CHECK(compilation_is_running());
+	CHECK(!compilation_feed_begin("build", "/w"));
+	editor_kill_compilation(0);
+	pump_compilation(5000);
+	CHECK(!compilation_is_running());
+	/* And once it is over the feed is available again. */
+	CHECK(compilation_feed_begin("build", "/w"));
+	compilation_feed_finish("done");
+}
+
 int main(void)
 {
 	RUN(test_stream_seam_drives_parser);
@@ -651,5 +766,9 @@ int main(void)
 	RUN(test_programmatic_cancellation_drops_only_the_callback);
 	RUN(test_programmatic_spawn_failure_is_a_completion);
 	RUN(test_programmatic_shutdown_delivers_a_cancellation);
+	RUN(test_the_feed_turns_bytes_into_a_compilation);
+	RUN(test_the_feed_keeps_relative_paths_verbatim);
+	RUN(test_the_feed_respects_the_output_budget);
+	RUN(test_a_running_compilation_refuses_the_feed);
 	return test_summary();
 }

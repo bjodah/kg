@@ -126,6 +126,22 @@ struct dap_adapter_spec {
 	 * derived from `name` -- a display name may contain a hyphen, and
 	 * KG_DAP_ADAPTER_LLDB-DAP is not a variable anybody can set. */
 	char env_override[64];
+	/* The spawn-port kind's, and required there: the exact byte string
+	 * the port follows on the child's own standard output, INCLUDING the
+	 * host -- `"DAP server listening at: 127.0.0.1:"`.  The reasons it
+	 * carries the host are in src/dap_transport.h beside the parse; the
+	 * reason it is a field rather than a constant is that a user pointing
+	 * kg at a custom delve build gets to say so, and the reason it is not
+	 * something they normally write is that the built-in row already
+	 * has it. */
+	char announce_prefix[DAP_CONFIG_NAME_MAX];
+	/* Whether this adapter's own standard error carries the DEBUGGEE's
+	 * output rather than the adapter's diagnostics.  delve is the one
+	 * measured adapter where it does (doc/plans/dap/04-go.md), and the
+	 * flag is named for what it does to the channel rather than for what
+	 * is on it, because the same descriptor also carries delve's own
+	 * chatter and kg cannot tell the two apart. */
+	bool route_stderr_to_output;
 };
 
 /* The spec's argv as a spawnable list: `out[0..n)` point into `spec`, and

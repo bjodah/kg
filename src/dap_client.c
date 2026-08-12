@@ -88,7 +88,15 @@ struct dap_client {
 	struct dap_held_output held[DAP_CLIENT_HELD_OUTPUT_CHUNKS];
 	size_t held_count;
 	size_t held_dropped;
-	char death[DAP_CLIENT_TEXT_MAX];
+	bool stderr_to_output;
+	/* Wider than one message on purpose: the announce failure below
+	 * names both a line and a command line, and the two together are
+	 * longer than any other verdict this client produces. */
+	char death[2 * DAP_CLIENT_TEXT_MAX];
+	/* What kg ran to get this adapter, for the one message that has to
+	 * name it, and the buffer that message is built in. */
+	char command[DAP_CLIENT_TEXT_MAX];
+	char death_detail[2 * DAP_CLIENT_TEXT_MAX];
 };
 
 /* ------------------------------- text --------------------------------- */
@@ -383,6 +391,25 @@ static int pending_expire(struct dap_client *c)
  * lives on. */
 static const char *transport_death_text(struct dap_client *c)
 {
+	const char *prefix = dap_transport_announce_prefix(c->t);
+
+	/* An adapter kg spawned that never announced its port failed at a
+	 * step none of the framing verdicts below describes: there was never
+	 * a connection for the framing to be wrong about.  So this message
+	 * names the line kg was waiting for and the command it waited on,
+	 * because the usual cause is an adapter configured to log somewhere
+	 * other than its standard output -- delve's `--log-dest` does exactly
+	 * that -- and a generic timeout sends the reader hunting in the
+	 * wrong place. */
+	if (prefix && dap_transport_awaiting_announce(c->t)) {
+		/* The line first and the command last: if anything has to be
+		 * lost to the bound it should be the argv, not the thing the
+		 * reader is meant to go looking for. */
+		snprintf(c->death_detail, sizeof(c->death_detail),
+		    "no `%s<port>` on the standard output of `%s`", prefix,
+		    c->command[0] ? c->command : "the debug adapter");
+		return c->death_detail;
+	}
 	switch (dap_transport_error(c->t)) {
 	case FRAMED_IO_ERR_EOF:
 		return "the debug adapter exited";
@@ -888,6 +915,25 @@ static void dispatch_message(struct dap_client *c, const char *body, size_t len)
 	kg_json_free(doc);
 }
 
+/* An adapter whose standard error carries the DEBUGGEE's output rather than
+ * its own diagnostics.  The bytes go to the output hook as bytes, on the
+ * `stderr` category, and are never cut into lines: the program printed what
+ * it printed, and a newline invented at a chunk boundary would be kg
+ * rewriting it.  Which adapters are like this is the SPEC's answer
+ * (dap_adapter_spec::route_stderr_to_output), so nothing here knows a
+ * language. */
+static void drain_stderr_bytes(struct dap_client *c)
+{
+	const char *data = NULL;
+	size_t len = 0;
+
+	while (dap_transport_next_stderr_bytes(c->t, &data, &len) == 1) {
+		if (c->hooks.output) {
+			c->hooks.output(c->hooks.ctx, "stderr", data, len);
+		}
+	}
+}
+
 /* Whatever the adapter has written to its standard error, a line at a time.
  * Read even with nobody listening: a pipe kg never reads is one a chatty
  * adapter eventually blocks writing to, and an adapter blocked on its
@@ -944,11 +990,23 @@ void dap_client_close(struct dap_client *c)
 	}
 	/* The last chance anybody has to read what this adapter said: the
 	 * descriptors go a few lines below. */
+	drain_stderr_bytes(c);
 	drain_log(c);
 	pending_fail_all(c, "the debug session ended");
 	c->dead = true;
 	dap_transport_close(c->t);
 	free(c);
+}
+
+void dap_client_set_adapter_stderr_to_output(struct dap_client *c, bool on)
+{
+	c->stderr_to_output = on;
+	dap_transport_set_stderr_bytes(c->t, on);
+}
+
+void dap_client_set_adapter_command(struct dap_client *c, const char *command)
+{
+	snprintf(c->command, sizeof(c->command), "%s", command ? command : "");
 }
 
 void dap_client_set_hooks(
@@ -1079,6 +1137,7 @@ int dap_client_poll(struct dap_client *c)
 		c->poll_again = true;
 		return 0;
 	}
+	drain_stderr_bytes(c);
 	drain_log(c);
 	if (c->dead) {
 		return 0;

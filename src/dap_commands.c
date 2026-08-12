@@ -92,6 +92,40 @@ static void on_output(
 	dap_ui_output(category, text, len);
 }
 
+/* The launch was refused and the adapter had already explained why.  For an
+ * adapter that builds what it debugs that explanation is compiler
+ * diagnostics, so it goes where every other compiler's does -- *compilation*
+ * and the next-error store -- rather than only into the debugger's own
+ * transcript, where C-x ` cannot reach it.
+ *
+ * A compilation the user started owns that buffer: if one is running the
+ * feed is refused, the output stays in *dap-output*, and the echo area says
+ * so rather than silently losing the diagnostics. */
+static void on_build_failed(void *ctx, const char *label, const char *directory,
+    const char *bytes, size_t len, bool truncated)
+{
+	char where[PATH_MAX];
+	char note[160];
+
+	(void)ctx;
+	if (directory && directory[0]) {
+		snprintf(where, sizeof(where), "%s", directory);
+	} else if (compilation_resolve_directory(NULL, where, sizeof(where))
+	    != 0) {
+		return;
+	}
+	if (!compilation_feed_begin(label, where)) {
+		editor_set_status_message(DAP_WHO
+		    ": a compilation is running; the launch output is in "
+		    "*dap-output*");
+		return;
+	}
+	compilation_feed_bytes(bytes, len);
+	snprintf(note, sizeof(note), "Launch failed: %s%s", label,
+	    truncated ? " (output truncated)" : "");
+	compilation_feed_finish(note);
+}
+
 void editor_dap_many_windows(int fd)
 {
 	(void)fd;
@@ -250,6 +284,7 @@ static bool start_session(const struct dap_launch_config *cfg,
 		.event = dap_java_owns(spec) ? dap_java_event : dap_exec_event,
 		.sources = dap_breakpoint_session_sources,
 		.breakpoints_answered = dap_breakpoint_session_answered,
+		.build_failed = on_build_failed,
 	};
 	struct dap_session_request request
 	    = { spec, cfg->request, arguments, len, cfg->name, &hooks };

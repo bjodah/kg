@@ -3992,11 +3992,14 @@ Three are built in:
 .Ic lldb-dap
 for C and C++,
 .Ic python3 -m debugpy.adapter
-for Python, and
+for Python,
+.Ic dlv dap
+for Go \(em see
+.Sx GO DEBUGGING
+below \(em and
 .Ic nbcode-java
-for Java \(em which is not a command at all, see
-.Sx JAVA DEBUGGING
-below.
+for Java, which is not a command at all, see
+.Sx JAVA DEBUGGING .
 kg's shipped debugpy configuration sets
 .Li "console": "internalConsole"
 and
@@ -4324,6 +4327,112 @@ pointing at a server that is not
 there is no debug adapter to reach and
 .Ic dap-debug
 says so rather than starting something.
+.Ss GO DEBUGGING
+.Ic M-x dap-debug
+in a
+.Pa .go
+buffer offers the built-in
+.Li "Go (delve)"
+configuration, which debugs the package the file is in:
+.Bd -literal -offset indent
+{ "name": "Go (delve)",
+  "adapter": "delve",
+  "request": "launch",
+  "arguments": { "mode": "debug", "program": "${fileDir}",
+                 "cwd": "${fileDir}", "stopOnEntry": false } }
+.Ed
+.Pp
+.Li "mode": "debug"
+has delve build the package itself and debug what it built, which is why
+.Li program
+is a directory rather than a binary; delve passes
+.Li -gcflags="all=-N -l"
+on that path, so the locals are readable without anybody asking.
+.Ic dlv
+and the Go toolchain must be on
+.Ev PATH ;
+.Ev KG_DAP_ADAPTER_DELVE
+replaces the command line for a delve installed somewhere else.
+.Pp
+.Li "mode": "exec"
+debugs a binary that is already built, and
+.Li program
+is then that binary.
+Build it with
+.Bd -literal -offset indent
+go build -gcflags="all=-N -l" -o prog .
+.Ed
+.Pp
+or its locals will be missing or unreadable, and the only thing that says
+so is the scope's own name, which
+.Nm
+shows verbatim:
+.Li "Locals (warning: optimized function)" .
+.Li mode
+also takes
+.Li test ,
+.Li replay
+and
+.Li core .
+.Pp
+Three things about a Go session differ from the other adapters.
+.Pp
+The program's own output arrives on delve's
+.Em standard error
+rather than as protocol output events, so
+.Nm
+routes that channel into
+.Pa *dap-output*
+as raw bytes: no newline is invented at a read boundary, and a program
+that printed CRLF or stopped mid-line looks like it did.
+.Pp
+A failed build lands in
+.Pa *compilation* .
+The launch response says only that the debug console has the details; the
+real
+.Li ./main.go:8:14: undefined: ...
+arrived earlier, so
+.Nm
+keeps launch-phase output and, when the launch is refused, feeds it
+through the ordinary compilation machinery \(em
+.Ic M-g n
+walks the errors as it does any compiler's.
+A compilation of the user's own that is already running keeps that buffer,
+and the output stays in
+.Pa *dap-output* .
+.Pp
+delve runs where the configuration says, not where
+.Nm
+does.
+It resolves
+.Li program
+and writes its
+.Pa __debug_bin
+artefact relative to its own working directory, so the built-in
+.Li delve
+adapter runs in
+.Li ${workspaceRoot} .
+An inline adapter's
+.Li cwd
+overrides that; it is the
+.Em adapter's
+directory and is unrelated to
+.Li arguments.cwd ,
+which is the program's.
+.Nm
+never deletes delve's build artefacts \(em they are delve's to clean up.
+.Pp
+An inline adapter asks for the same wire with
+.Li "transport": "spawn-port"
+and an
+.Li announcePrefix ,
+the exact text the port follows on the adapter's standard output.
+It must include the host
+.Pq Li "DAP server listening at: 127.0.0.1:" ,
+because a port is read only after it and
+.Nm
+connects only to loopback: a log line must never be able to redirect the
+editor to another address.
 .Ss THE CONFIGURATION FILE IS TRUSTED
 .Sy This file is trusted code .
 A launch configuration names a command to spawn and arguments handed to a

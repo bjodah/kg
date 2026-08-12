@@ -23,13 +23,16 @@
 #include "../src/dap_client.h"
 #include "../src/dap_config.h"
 #include "../src/dap_session.h"
+#include "../src/dap_transport.h"
 #include "../src/json.h"
 #include "test.h"
 
+#include <errno.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -719,6 +722,285 @@ static void test_a_duplicate_terminated_is_tolerated(void)
 	finish(s);
 }
 
+/* --------------------- the spawn-port kind, end to end ---------------- */
+
+/* delve's announcement, byte for byte: what the built-in row carries, and
+ * what a case must use for the parse to be the real one. */
+#define DELVE_PREFIX "DAP server listening at: 127.0.0.1:"
+
+/* What the build-failure hook saw.  Kept out of `heard` because it is not
+ * something the session says -- it is something it hands somebody else. */
+static struct built {
+	int calls;
+	char label[128];
+	char directory[PATH_MAX];
+	char bytes[4096];
+	size_t len;
+	bool truncated;
+} built;
+
+static void on_build_failed(void *ctx, const char *label, const char *directory,
+    const char *bytes, size_t len, bool truncated)
+{
+	(void)ctx;
+	built.calls++;
+	snprintf(built.label, sizeof(built.label), "%s", label);
+	snprintf(built.directory, sizeof(built.directory), "%s", directory);
+	built.len
+	    = len < sizeof(built.bytes) - 1 ? len : sizeof(built.bytes) - 1;
+	memcpy(built.bytes, bytes, built.len);
+	built.bytes[built.len] = '\0';
+	built.truncated = truncated;
+}
+
+/* A session over an adapter kg spawned and then connected to.  `cwd` is set
+ * because it is what delve's row sets, and the working directory has to
+ * exist before anything is spawned. */
+static struct dap_session *start_spawn_port_session(const char *cwd,
+    const char *prefix, const char *extra, char *error, size_t error_size)
+{
+	static struct dap_session_hooks hooks = {
+		.changed = on_changed,
+		.report = on_report,
+		.event = on_event,
+		.output = on_output,
+		.sources = on_sources,
+		.build_failed = on_build_failed,
+	};
+	struct dap_adapter_spec spec = { 0 };
+	struct dap_session_request request
+	    = { &spec, DAP_REQUEST_LAUNCH, "{}", 2, "Go (delve)", &hooks };
+
+	snprintf(spec.name, sizeof(spec.name), "fake-delve");
+	snprintf(spec.adapter_id, sizeof(spec.adapter_id), "kg-test");
+	spec.transport = DAP_TRANSPORT_SPAWN_PORT;
+	spec.route_stderr_to_output = true;
+	snprintf(
+	    spec.announce_prefix, sizeof(spec.announce_prefix), "%s", prefix);
+	snprintf(spec.cwd, sizeof(spec.cwd), "%s", cwd ? cwd : "");
+	snprintf(spec.command, sizeof(spec.command),
+	    "python3 '%s' --mode protocol --announce '%s' %s", script_path,
+	    DELVE_PREFIX, extra ? extra : "");
+	error[0] = '\0';
+	return dap_session_start(&request, error, error_size);
+}
+
+static pid_t session_child(struct dap_session *s)
+{
+	struct dap_client *c = dap_session_client(s);
+
+	return c ? dap_transport_pid(dap_client_transport(c)) : -1;
+}
+
+static bool child_was_reaped(pid_t pid)
+{
+	int status;
+
+	errno = 0;
+	return waitpid(pid, &status, WNOHANG) == -1 && errno == ECHILD;
+}
+
+/* The whole road: spawn, scrape, connect, handshake, configure -- and then
+ * end, leaving no child.  There is only ever one dlv per session (it has no
+ * `--accept-multiclient` in dap mode), so a session that ended without
+ * collecting its own is a process leak per debug run. */
+static void test_a_spawn_port_session_runs_and_leaves_no_child(void)
+{
+	char error[256];
+	struct dap_session *s;
+	pid_t pid;
+
+	memset(&heard, 0, sizeof(heard));
+	plant_sources(0);
+	s = start_spawn_port_session("/tmp", DELVE_PREFIX,
+	    "--capabilities '" CAPS_FULL "'", error, sizeof(error));
+	CHECKF(s != NULL, "could not start the fake adapter: %s", error);
+	if (!s) {
+		return;
+	}
+	pid = session_child(s);
+	CHECK(pid > 0);
+	CHECK(pump_until(s, is_configured));
+	dap_session_end(s, DAP_END_TERMINATE);
+	CHECK(pump_until(s, is_dead));
+	finish(s);
+	CHECK(child_was_reaped(pid));
+}
+
+/* The adapter's working directory is resolved BEFORE the spawn and is
+ * required to exist: for delve it is what `program` and the build artefact
+ * are relative to, so a missing one is a debugger that would build the
+ * wrong thing rather than an error to discover later. */
+static void test_a_missing_adapter_directory_is_refused_before_the_spawn(void)
+{
+	char error[256];
+	struct dap_session *s;
+
+	memset(&heard, 0, sizeof(heard));
+	s = start_spawn_port_session("/tmp/kg-dap-no-such-directory",
+	    DELVE_PREFIX, "", error, sizeof(error));
+	CHECK(s == NULL);
+	CHECK(strstr(error, "kg-dap-no-such-directory") != NULL);
+	CHECK(dap_session_current() == NULL);
+	if (s) {
+		finish(s);
+	}
+}
+
+/* A spawned adapter that never announces cannot be told from one that is
+ * slow by any descriptor, so the deadline is what ends it -- and the
+ * message names the line kg was waiting for and the command it ran, since
+ * the usual cause is an adapter logging somewhere else. */
+static void test_an_adapter_that_never_announces_says_what_it_wanted(void)
+{
+	char error[256];
+	struct dap_session *s;
+	pid_t pid;
+
+	memset(&heard, 0, sizeof(heard));
+	s = start_spawn_port_session(
+	    "/tmp", DELVE_PREFIX, "--announce-on-stderr", error, sizeof(error));
+	CHECKF(s != NULL, "could not start the fake adapter: %s", error);
+	if (!s) {
+		return;
+	}
+	pid = session_child(s);
+	dap_session_set_spawn_deadline(s, 0);
+	CHECK(pump_until(s, is_dead));
+	CHECK(strstr(heard.reports_text, DELVE_PREFIX) != NULL);
+	CHECK(strstr(heard.reports_text, "--mode protocol") != NULL);
+	finish(s);
+	CHECK(child_was_reaped(pid));
+}
+
+/* The measured Go shape: the build failed, the diagnostics arrived as
+ * `output` events BEFORE the launch was refused, and the refusal itself
+ * says only "check the debug console".  So the buffered text -- not the
+ * refusal -- is what reaches compilation navigation, and it arrives as the
+ * stream it was, two events joined and a final line with no newline on it.
+ */
+static void test_a_failed_launch_hands_over_the_output_it_buffered(void)
+{
+	char error[256];
+	struct dap_session *s;
+
+	memset(&heard, 0, sizeof(heard));
+	memset(&built, 0, sizeof(built));
+	plant_sources(0);
+	s = start_spawn_port_session("/tmp", DELVE_PREFIX,
+	    "--capabilities '" CAPS_FULL "' "
+	    "--event-during 'launch:output:{\"category\":\"stderr\","
+	    "\"output\":\"# example/m\\n./main.go:6:2: syntax \"}' "
+	    "--event-during 'launch:output:{\"category\":\"stderr\","
+	    "\"output\":\"error: unexpected }\"}' "
+	    "--error-message 'launch:Check the debug console for details'",
+	    error, sizeof(error));
+	CHECKF(s != NULL, "could not start the fake adapter: %s", error);
+	if (!s) {
+		return;
+	}
+	CHECK(pump_until(s, is_dead));
+	CHECK(built.calls == 1);
+	CHECK(strcmp(built.label, "Go (delve)") == 0);
+	CHECK(strcmp(built.directory, "/tmp") == 0);
+	CHECK(!built.truncated);
+	CHECK(strcmp(built.bytes,
+		  "# example/m\n./main.go:6:2: syntax error: unexpected }")
+	    == 0);
+	finish(s);
+}
+
+/* A launch that SUCCEEDS hands nothing over and keeps nothing: the buffer
+ * exists to explain a failure, and an adapter that chatters on its way up
+ * must not leave kg holding megabytes for the rest of the session. */
+static void test_a_successful_launch_hands_nothing_over(void)
+{
+	char error[256];
+	struct dap_session *s;
+
+	memset(&heard, 0, sizeof(heard));
+	memset(&built, 0, sizeof(built));
+	plant_sources(0);
+	s = start_spawn_port_session("/tmp", DELVE_PREFIX,
+	    "--capabilities '" CAPS_FULL "' "
+	    "--event-during 'launch:output:{\"category\":\"stderr\","
+	    "\"output\":\"Building example/m\\n\"}'",
+	    error, sizeof(error));
+	CHECKF(s != NULL, "could not start the fake adapter: %s", error);
+	if (!s) {
+		return;
+	}
+	CHECK(pump_until(s, is_configured));
+	CHECK(built.calls == 0);
+	/* The bytes still reached the transcript, which is the other
+	 * destination and the unconditional one. */
+	CHECK(strstr(heard.output_text, "Building example/m") != NULL);
+	dap_session_end(s, DAP_END_TERMINATE);
+	CHECK(pump_until(s, is_dead));
+	finish(s);
+}
+
+/* A launch refused with nothing buffered hands nothing over: an empty
+ * compilation whose only content is "Launch failed" would be a window
+ * stolen from the user to show them nothing. */
+static void test_a_failed_launch_with_no_output_hands_nothing_over(void)
+{
+	char error[256];
+	struct dap_session *s;
+
+	memset(&heard, 0, sizeof(heard));
+	memset(&built, 0, sizeof(built));
+	plant_sources(0);
+	s = start_spawn_port_session("/tmp", DELVE_PREFIX,
+	    "--capabilities '" CAPS_FULL "' "
+	    "--error-message 'launch:no such program'",
+	    error, sizeof(error));
+	CHECKF(s != NULL, "could not start the fake adapter: %s", error);
+	if (!s) {
+		return;
+	}
+	CHECK(pump_until(s, is_dead));
+	CHECK(built.calls == 0);
+	CHECK(strstr(heard.reports_text, "no such program") != NULL);
+	finish(s);
+}
+
+/* The debuggee's own output arrives on the ADAPTER's standard error, not as
+ * protocol events (measured against delve).  It must reach the transcript
+ * as the byte stream it is: a CRLF kept, and a last line with no newline
+ * still without one, because the alternative is kg editing a program's
+ * output. */
+static void test_the_debuggee_output_on_the_adapters_stderr(void)
+{
+	static const char want[] = "one\r\ntwo\nthree";
+	char error[256];
+	struct dap_session *s;
+	double deadline;
+
+	memset(&heard, 0, sizeof(heard));
+	plant_sources(0);
+	s = start_spawn_port_session("/tmp", DELVE_PREFIX,
+	    "--capabilities '" CAPS_FULL
+	    "' --stderr-bytes 'one\\r\\ntwo\\nthree'",
+	    error, sizeof(error));
+	CHECKF(s != NULL, "could not start the fake adapter: %s", error);
+	if (!s) {
+		return;
+	}
+	CHECK(pump_until(s, is_configured));
+	deadline = monotonic_seconds() + PUMP_DEADLINE_SECONDS;
+	while (strstr(heard.output_text, want) == NULL
+	    && monotonic_seconds() < deadline) {
+		(void)dap_session_poll(s);
+		nap_a_millisecond();
+	}
+	CHECKF(strstr(heard.output_text, want) != NULL, "transcript was `%s`",
+	    heard.output_text);
+	dap_session_end(s, DAP_END_TERMINATE);
+	CHECK(pump_until(s, is_dead));
+	finish(s);
+}
+
 /* ------------------------------ launch failure ------------------------ */
 
 /* The measured shape: the launch is refused, the adapter keeps emitting
@@ -969,6 +1251,13 @@ int main(void)
 	RUN(test_terminated_ends_the_session_and_keeps_restart);
 	RUN(test_a_duplicate_terminated_is_tolerated);
 	RUN(test_a_failed_launch_is_reported_and_torn_down);
+	RUN(test_a_spawn_port_session_runs_and_leaves_no_child);
+	RUN(test_a_missing_adapter_directory_is_refused_before_the_spawn);
+	RUN(test_an_adapter_that_never_announces_says_what_it_wanted);
+	RUN(test_a_failed_launch_hands_over_the_output_it_buffered);
+	RUN(test_a_successful_launch_hands_nothing_over);
+	RUN(test_a_failed_launch_with_no_output_hands_nothing_over);
+	RUN(test_the_debuggee_output_on_the_adapters_stderr);
 	RUN(test_a_refused_initialize_ends_the_session);
 	RUN(test_the_teardown_matrix);
 	RUN(test_disconnect_ends_on_its_response);

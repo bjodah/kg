@@ -87,14 +87,39 @@ static const struct {
 	const char *env;
 	const char *lsp_language;
 	enum dap_transport_kind transport;
-	const char *argv[4];
+	const char *cwd;
+	const char *announce_prefix;
+	bool route_stderr_to_output;
+	const char *argv[6];
 } builtin_adapter_table[] = {
 	{ "lldb-dap", "lldb-dap", "KG_DAP_ADAPTER_LLDB", "",
-	    DAP_TRANSPORT_STDIO, { "lldb-dap", NULL } },
+	    DAP_TRANSPORT_STDIO, "", "", false, { "lldb-dap", NULL } },
 	{ "debugpy", "debugpy", "KG_DAP_ADAPTER_DEBUGPY", "",
-	    DAP_TRANSPORT_STDIO, { "python3", "-m", "debugpy.adapter", NULL } },
+	    DAP_TRANSPORT_STDIO, "", "", false,
+	    { "python3", "-m", "debugpy.adapter", NULL } },
 	{ "nbcode-java", "nbcode-java", "", "java", DAP_TRANSPORT_LSP_SIBLING,
-	    { NULL } },
+	    "", "", false, { NULL } },
+	/* delve, and the three columns nothing before it needed.
+	 *
+	 * `dlv dap` is TCP-only, so kg picks the port (`127.0.0.1:0`) and
+	 * scrapes the one it got -- and never passes `--log-dest`, which
+	 * moves the announcement off stdout and silently defeats the scraper
+	 * (measured: the first probe run timed out on exactly that).
+	 *
+	 * The adapter's own working directory is LOAD-BEARING here and
+	 * nowhere else: delve resolves `program` and writes its `__debug_bin`
+	 * artefact relative to it, and with kg's directory inherited it built
+	 * the wrong module (measured).  `${workspaceRoot}` is the least
+	 * surprising default in a multi-package module, where `program`
+	 * selects the package; a configuration can override it.
+	 *
+	 * And the debuggee's stdout and stderr arrive on delve's own
+	 * standard error rather than as `output` events, which is what the
+	 * last column routes. */
+	{ "delve", "delve", "KG_DAP_ADAPTER_DELVE", "",
+	    DAP_TRANSPORT_SPAWN_PORT, "${workspaceRoot}",
+	    "DAP server listening at: 127.0.0.1:", true,
+	    { "dlv", "dap", "--listen", "127.0.0.1:0", NULL } },
 };
 
 /* The launch configurations that exist with no file at all.
@@ -133,6 +158,22 @@ static const struct {
 	{ "Java (nbcode)", "nbcode-java",
 	    "{\"type\":\"jdk\",\"request\":\"launch\",\"file\":\"${fileUri}\","
 	    "\"classPaths\":[\"any\"],\"console\":\"internalConsole\"}",
+	    false },
+	/* Go, and `mode` is the whole of it: `debug` asks delve to BUILD the
+	 * package and debug what it built, which is what makes `program` a
+	 * directory rather than a binary and why `${fileDir}` is the right
+	 * default -- the package the file under the cursor is in.  It also
+	 * passes `-gcflags="all=-N -l"` itself, which is the difference
+	 * between locals you can read and a scope called
+	 * `"Locals (warning: optimized function)"`; `mode:"exec"` against a
+	 * plain `go build` binary is the trap, and doc/kg.1 documents the
+	 * flags to build one with.
+	 *
+	 * `cwd` here is the DEBUGGEE's, and is deliberately not the
+	 * adapter's: that one is the `delve` spec's `cwd` above. */
+	{ "Go (delve)", "delve",
+	    "{\"mode\":\"debug\",\"program\":\"${fileDir}\","
+	    "\"cwd\":\"${fileDir}\",\"stopOnEntry\":false}",
 	    false },
 };
 
@@ -195,6 +236,12 @@ static void builtins_init(void)
 		    builtin_adapter_table[i].env);
 		snprintf(spec->lsp_language, sizeof(spec->lsp_language), "%s",
 		    builtin_adapter_table[i].lsp_language);
+		snprintf(spec->cwd, sizeof(spec->cwd), "%s",
+		    builtin_adapter_table[i].cwd);
+		snprintf(spec->announce_prefix, sizeof(spec->announce_prefix),
+		    "%s", builtin_adapter_table[i].announce_prefix);
+		spec->route_stderr_to_output
+		    = builtin_adapter_table[i].route_stderr_to_output;
 		spec->transport = builtin_adapter_table[i].transport;
 		for (j = 0; builtin_adapter_table[i].argv[j]; j++) {
 			(void)spec_push_arg(spec,
@@ -400,9 +447,9 @@ static bool field_string(struct schema *s, const struct kg_json_value *obj,
 
 /* The four transport kinds, and which of them have a constructor.  The
  * table is the contract; shipping status is a column in it rather than a
- * reason to leave two rows out, so a configuration naming `spawn-port`
- * hears that this version cannot do it yet rather than that it does not
- * exist. */
+ * reason to leave a row out, so a configuration naming a kind this version
+ * cannot do hears that rather than that it does not exist.  All four are
+ * shipped today. */
 static const struct {
 	const char *name;
 	enum dap_transport_kind kind;
@@ -410,7 +457,7 @@ static const struct {
 } transport_table[] = {
 	{ "stdio", DAP_TRANSPORT_STDIO, true },
 	{ "tcp", DAP_TRANSPORT_TCP_ATTACH, true },
-	{ "spawn-port", DAP_TRANSPORT_SPAWN_PORT, false },
+	{ "spawn-port", DAP_TRANSPORT_SPAWN_PORT, true },
 	{ "lsp-sibling", DAP_TRANSPORT_LSP_SIBLING, true },
 };
 
@@ -522,6 +569,13 @@ static bool parse_inline_adapter(struct schema *s,
 		}
 		return true;
 	}
+	if (spec->transport == DAP_TRANSPORT_SPAWN_PORT
+	    && !field_string(s, obj, "announcePrefix", true,
+		spec->announce_prefix, sizeof(spec->announce_prefix))) {
+		return false;
+	}
+	spec->route_stderr_to_output
+	    = kg_json_bool(kg_json_get(obj, "stderrToOutput"), false);
 	if (!field_string(s, obj, "command", true, command, sizeof(command))) {
 		return false;
 	}

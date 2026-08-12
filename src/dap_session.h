@@ -64,6 +64,13 @@
  * way the client's errors are. */
 #define DAP_SESSION_TEXT_MAX 256
 
+/* How much launch-phase `stderr` output a session holds while it does not
+ * yet know whether the launch will fail (see `build_failed` below).  Four
+ * mebibytes, which is compilation's own retained-output policy rather than
+ * a second number invented here: the text ends up in the same buffer, so
+ * holding more of it than that buffer would keep is pointless. */
+#define DAP_SESSION_MAX_LAUNCH_OUTPUT (4u * 1024u * 1024u)
+
 /* What the user can do, coarsely.  The milestones below say what has
  * happened; this says what the session IS.
  *
@@ -169,6 +176,24 @@ struct dap_session_hooks {
 	 * borrowed for the call. */
 	void (*breakpoints_answered)(void *ctx, const char *path, bool success,
 	    const struct kg_json_value *body);
+	/* A launch or attach was REFUSED, and the adapter had already said
+	 * why on the `stderr` category before answering.
+	 *
+	 * That ordering is the whole reason this hook exists.  An adapter
+	 * that builds the program it is about to debug reports the build's
+	 * failure as `output` events and then answers launch with a sentence
+	 * pointing at them -- delve's is literally "Check the debug console
+	 * for details" (measured, doc/plans/dap/04-go.md).  The text is
+	 * `file:line:col:` diagnostics relative to `directory`, which is the
+	 * ADAPTER's working directory and not the debuggee's, so it is
+	 * exactly what compilation navigation eats.
+	 *
+	 * `bytes` is borrowed for the call and is the raw stream, unsplit;
+	 * `truncated` says the bound cut it short.  Nothing below this hook
+	 * knows what a compilation buffer is, which is why it is a hook. */
+	void (*build_failed)(void *ctx, const char *label,
+	    const char *directory, const char *bytes, size_t len,
+	    bool truncated);
 };
 
 /* What to start, and how.  `arguments` are the expanded bytes
@@ -318,5 +343,11 @@ void dap_session_set_timeouts(
     struct dap_session *session, unsigned initialize_ms, unsigned request_ms);
 void dap_session_set_shutdown_deadlines(
     struct dap_session *session, unsigned shutdown_ms, unsigned kill_ms);
+
+/* The announce deadline of a spawned adapter that scrapes its own port,
+ * which is ten seconds and which a case proving "this one will never
+ * announce" would otherwise wait out.  Zero means "already expired". */
+void dap_session_set_spawn_deadline(
+    struct dap_session *session, unsigned spawn_ms);
 
 #endif /* KG_DAP_SESSION_H */

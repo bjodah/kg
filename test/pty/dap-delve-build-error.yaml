@@ -1,0 +1,83 @@
+# The Go build that fails, which is a different road through kg entirely.
+#
+# With `mode:"debug"` delve BUILDS the package before it debugs it, and when
+# that build fails the launch response says only "Check the debug console for
+# details" -- the actual `./main.go:8:9: undefined: ...` arrived EARLIER, as
+# `output` events on the stderr category (measured, doc/plans/dap/04-go.md).
+# So kg buffers launch-phase output, and on a refused launch feeds it into
+# the ordinary compilation machinery: *compilation* gets the diagnostics with
+# the adapter's own working directory as their base, and C-x ` walks them
+# like any compiler's.
+#
+# The assertion is that navigation, not the text: `next-error` jumping to
+# line 8 of main.go could not happen unless the bytes went through the
+# compilation parser with the right directory under them.  The saved file
+# proves where point landed.
+#
+# It SKIPS where either `dlv` or `go` is missing, exactly as the smoke case
+# does.  The wait is the same bounded one: a failing `go build` is faster
+# than a succeeding one, but a cold toolchain still has to start.
+name: dap-delve-build-error
+filename: main.go
+requires_feature: dap
+requires_tool: [dlv, go]
+backend: tmux
+dimensions: [30, 100]
+initial: |
+  package main
+
+  import "fmt"
+
+  func main() {
+  	answer := 21 + 21
+  	fmt.Println(answer)
+  	fmt.Println(nosuchthing)
+  }
+workspace_files:
+  go.mod: |
+    module example/m
+
+    go 1.21
+  .kg-dap.json: |
+    { "version": 1,
+      "configurations": [
+        { "name": "Go package",
+          "adapter": "delve",
+          "request": "launch",
+          "arguments": { "mode": "debug",
+                         "program": "${workspaceRoot}",
+                         "cwd": "${workspaceRoot}" } } ] }
+keys:
+  - M-x
+  - dap-debug
+  - RET
+  - RET
+  # The build fails, the launch is refused, and the diagnostics land in
+  # *compilation* -- which is what this waits for.
+  - SETTLE=25:undefined
+  # `M-g n` from anywhere: the first error takes point to the line the Go
+  # compiler named, in the file it named, resolved against the adapter's
+  # own working directory.  The mode line says `./main.go` because that is
+  # the path the compiler printed and kg visits what it was given.
+  - M-g
+  - n
+  - SETTLE=5:(8,
+  - C-e
+  - "//here"
+trailer_keys:
+  - C-x
+  - C-s
+  - C-x
+  - C-c
+expected_saved: |
+  package main
+
+  import "fmt"
+
+  func main() {
+  	answer := 21 + 21
+  	fmt.Println(answer)
+  	fmt.Println(nosuchthing)//here
+  }
+expected_screen_contains:
+  - "undefined"

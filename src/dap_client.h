@@ -231,6 +231,24 @@ void dap_client_close(struct dap_client *c);
 void dap_client_set_hooks(
     struct dap_client *c, const struct dap_client_hooks *hooks);
 
+/* Whether this adapter's own standard error carries the DEBUGGEE's output.
+ * Off by default, which is every adapter but one: for the others that
+ * channel is the adapter complaining about itself and belongs in the log.
+ * When on, the bytes reach the output hook on the `stderr` category
+ * UNSPLIT -- never cut into lines, since a newline invented at a chunk
+ * boundary is kg rewriting what the program printed -- and the log hook
+ * stops seeing them, so nothing is delivered twice.
+ *
+ * The client does not decide this and does not know which adapter it is
+ * talking to: it is a column of the adapter spec, and delve is the one row
+ * that sets it (doc/plans/dap/04-go.md, measured). */
+void dap_client_set_adapter_stderr_to_output(struct dap_client *c, bool on);
+
+/* What kg ran to get this adapter, for the one failure that has to name it:
+ * a spawned adapter that never announced the port it was listening on.  The
+ * text is copied and bounded, and nothing else ever reads it. */
+void dap_client_set_adapter_command(struct dap_client *c, const char *command);
+
 /* Replace the two deadlines the client enforces (milliseconds), for a test
  * that would otherwise wait one out.  Zero switches a deadline off.  It
  * cannot switch one ON for launch or attach, which are exempt by protocol

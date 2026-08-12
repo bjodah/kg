@@ -896,17 +896,15 @@ forecast-check:
 # 15's definition of done requires it to LOAD CLEAN, so it is run rather
 # than read.  `-b' gives the process a buffer, since the file's commands
 # are defined (not called) at load time but `with-current-buffer' resolves
-# a buffer either way.  Ordered after lisp-gc-stress-check for that
-# target's own reason: three `check' prerequisites build test/kgbatch
-# through a sub-make, and a run that links it while another is exec'ing it
-# dies with EACCES.
-forecast-init-check: lisp-gc-stress-check
+# a buffer either way.  kgbatch is a prerequisite, not a sub-make: the one
+# parent instance builds it exactly once, however many of these checks run.
 ifeq ($(WITH_LISP),1)
-	@$(MAKE) --no-print-directory $(TESTDIR)/kgbatch
+forecast-init-check: $(TESTDIR)/kgbatch
 	@$(TESTDIR)/kgbatch -b utils/forecast/target-init.el >/dev/null \
 		&& echo "forecast-init-check: utils/forecast/target-init.el" \
 			"loads clean"
 else
+forecast-init-check:
 	@echo "# forecast-init-check: WITH_LISP=0, no evaluator to load it"
 endif
 
@@ -922,12 +920,12 @@ endif
 # snapshot says 4 where kg answers 3, and requires the run to fail.
 # WITH_LISP=0 has no evaluator to compare, so the whole target reports
 # that and does nothing, exactly as the lisp-gated PTY cases skip.
-lisp-oracle-check:
 ifeq ($(WITH_LISP),1)
-	@$(MAKE) --no-print-directory $(TESTDIR)/kgbatch
+lisp-oracle-check: $(TESTDIR)/kgbatch
 	@$(PYTHON) utils/check_lisp_oracle.py --self-test
 	@$(PYTHON) utils/check_lisp_oracle.py $(LISP_ORACLE_ARGS)
 else
+lisp-oracle-check:
 	@echo "# lisp-oracle-check: WITH_LISP=0, no evaluator to compare"
 endif
 
@@ -998,19 +996,16 @@ $(GC_STRESS_KGBATCH): test/kgbatch.c $(TESTDIR)/stubs_main.o \
 		$(GC_STRESS_FE_OBJ) $(OBJDIR)/fe_eval.o $(OBJDIR)/fe_run.o \
 		$(OBJDIR)/fe_unwind.o $(REGEX_OBJS) $(LDLIBS)
 
-# Ordered after lisp-oracle-check rather than beside it: `check`'s
-# prerequisites run in parallel under -j, both targets build
-# $(TESTDIR)/kgbatch through a sub-make, and a run that links it while the
-# other is exec'ing it dies with EACCES on the half-written binary.
-# Measured: .ci/ci-03 failed exactly that way.  The dependency is
-# scheduling, not meaning -- neither check needs the other's result.
-lisp-gc-stress-check: lisp-oracle-check
+# Both binaries are prerequisites, so the parent make links each exactly
+# once before any recipe execs it -- there is no recipe-time build left to
+# race another check's exec or the parent's own object builds.
 ifeq ($(WITH_LISP),1)
-	@$(MAKE) --no-print-directory $(TESTDIR)/kgbatch $(GC_STRESS_KGBATCH)
+lisp-gc-stress-check: $(TESTDIR)/kgbatch $(GC_STRESS_KGBATCH)
 	@$(PYTHON) utils/check_lisp_gc_stress.py \
 		--kgbatch $(TESTDIR)/kgbatch \
 		--stress-kgbatch $(GC_STRESS_KGBATCH)
 else
+lisp-gc-stress-check:
 	@echo "# lisp-gc-stress-check: WITH_LISP=0, no evaluator to stress"
 endif
 

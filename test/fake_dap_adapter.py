@@ -256,6 +256,11 @@ no switch, each one a thing a real adapter does that a client must survive:
 
 Options:
 
+``--listen-secret BYTES``
+    Listen as ``--listen`` does, but require exactly BYTES first, with no
+    newline and nothing framing them: the lsp-sibling wire, byte for byte
+    what nbcode's debug adapter socket wants.  A client that gets it wrong
+    has its socket closed without a word, as the real one does.
 ``--listen``
     Instead of stdin/stdout, bind 127.0.0.1 on an ephemeral port, print
     ``PORT <n>`` on standard output, accept one connection and run the mode
@@ -821,10 +826,16 @@ MODES = {
 }
 
 
-def listen_for_client():
+def listen_for_client(secret=None):
     """The attach shape: announce a port on this process's own output, take
     one connection, and speak the protocol on it.  Nothing about this
-    process is the client's to reap."""
+    process is the client's to reap.
+
+    With `secret`, it is the lsp-sibling shape instead: exactly those bytes
+    must arrive first, with no newline and nothing framing them, before the
+    first Content-Length header.  A client that sends the wrong bytes, or
+    sends its `initialize` in front of them, gets the socket closed the way
+    nbcode closes it -- within a millisecond and without a word."""
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.bind(("127.0.0.1", 0))
     listener.listen(1)
@@ -832,6 +843,20 @@ def listen_for_client():
     sys.stdout.flush()
     connection, _ = listener.accept()
     listener.close()
+    if secret:
+        want = secret.encode()
+        got = b""
+        while len(got) < len(want):
+            chunk = connection.recv(len(want) - len(got))
+            if not chunk:
+                connection.close()
+                raise SystemExit("client closed before sending the secret")
+            got += chunk
+        if got != want:
+            connection.close()
+            raise SystemExit("wrong secret")
+        sys.stdout.write("SECRET OK\n")
+        sys.stdout.flush()
     return connection.makefile("rb"), connection.makefile("wb")
 
 
@@ -848,6 +873,9 @@ def main(argv):
                         help="linger/ignore-term: seconds to outlive input")
     parser.add_argument("--exit-code", type=int, default=1,
                         help="crash: the status to exit with")
+    parser.add_argument("--listen-secret", default=None,
+                        help="listen, and require exactly these bytes before "
+                             "the first frame (the lsp-sibling wire)")
     parser.add_argument("--listen", action="store_true",
                         help="speak the protocol on an accepted TCP socket")
     parser.add_argument("--stderr", dest="stderr_line", action="append",
@@ -966,8 +994,8 @@ def main(argv):
                 note("tty: yes")
         except OSError:
             note("tty: no")
-    if args.listen:
-        stdin, stdout = listen_for_client()
+    if args.listen or args.listen_secret:
+        stdin, stdout = listen_for_client(args.listen_secret)
     else:
         stdin, stdout = sys.stdin.buffer, sys.stdout.buffer
     MODES[args.mode](stdin, stdout, args)

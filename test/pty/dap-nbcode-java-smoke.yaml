@@ -1,0 +1,180 @@
+# Java debugged through the language server kg already talks to: the only
+# evidence for the whole lsp-sibling road, end to end, against a real
+# nbcode (doc/plans/dap/03-java.md).
+#
+# What is under test that nothing else can be:
+#
+#   - ONE process, two servers.  kg starts nbcode with both listen-hash
+#     options for the LSP session; the debug adapter is the SECOND port
+#     that same process announces on that same standard output, and this
+#     case is the only place kg connects to it.
+#   - The ordering rule.  The DAP socket is opened only after the language
+#     session is `initialized`, because the debug connection captures the
+#     language session's state when it is constructed.  A kg that connected
+#     early gets an NPE out of the adapter's launch delegate instead of a
+#     program.
+#   - The handshake.  128 hash bytes, no newline, then Content-Length
+#     frames, with the `initialize` queued behind them.
+#   - nbcode's own choreography, which no fake can be evidence for: the
+#     `launch` response after `initialized` and before `configurationDone`,
+#     a `setBreakpoints` answered `verified:false` and verified ~600 ms
+#     later by a `breakpoint` event, and a `stopped` body with nothing in
+#     it but a reason and a thread.
+#
+# `requires_tool: nbcode` SKIPs with a printed reason on a box without one,
+# exactly as lsp-nbcode-definition.yaml does, and `--require-tools` turns
+# that into an upfront failure naming it.  utils/install-nbcode.sh is the
+# installer.
+#
+# THE USERDIR IS PER PROCESS, not per session.  The `nbcode` wrapper
+# install-nbcode.sh writes makes one when the process starts, because
+# NetBeans' single-instance handler is keyed on it; every DAP session
+# against that process shares it, and this case says nothing about it
+# because it inherits it.
+#
+# There is no `env:` and that is the case as much as the keys are: nbcode
+# is the built-in Java row since this subplan's LSP stage, so `dap-debug`
+# in a .java buffer reaches the built-in `Java (nbcode)` configuration,
+# which reaches the built-in `nbcode-java` adapter, which asks the LSP
+# layer for a port.  Nothing here names a command, a port or a hash --
+# they are the built-in spec's business and not a user's to repeat.
+#
+# The pom.xml is lsp-nbcode-definition.yaml's, for its reasons: it is the
+# marker both kg's root walk and nbcode's project support look for, and
+# <sourceDirectory> points at the project root because the file under test
+# lives beside the pom rather than in Maven's src/main/java layout.
+#
+# TIMING.  Two bounded waits rather than a key delay, and they are sized
+# against measurements on this box: the announces are ~1.4-2.1 s from
+# spawn, the LSP handshake ~0.2 s after that, the DAP initialize ~0.04 s
+# and the launch ~0.35 s, so the whole sequence to the stop is ~10 s cold
+# and idle.  The first wait covers a cold JVM starting, a project importing
+# and the language handshake the DAP connect waits on; the second covers
+# the evaluate.
+#
+# 150 s and 60 s is roughly 15x that idle measurement, the margin the
+# nbcode LSP case beside this one carries and for its reason: it records
+# 3.2-3.5 s idle against 8.0-10.8 s with eight instances starting at once,
+# and a sanitizer lane is slower again.  A case only ever fails in the lane
+# nobody measured, and the cost of being too generous is nothing, since a
+# wait that is satisfied ends.
+#
+# ONE THING THIS CASE CANNOT RUN UNDER, and it is worth writing down
+# because it looks exactly like a timing failure: a virtual-memory rlimit.
+# `ulimit -v 8000000` and this case fails at any budget -- measured, alone
+# and idle -- because `launch` starts a SECOND JVM, the debuggee, and a JVM
+# reserves address space rather than using it.  Nothing in this tree sets
+# such a limit; an agent or a wrapper that does will see this case fail and
+# every other one pass.
+#
+# The assertion is the SCREEN, and the saved file is the untouched one.
+# That is the split dap-panes-and-layout.yaml uses and it is deliberate
+# here: a Java stop rearranges the windows, so a case that proved the stop
+# by typing a marker into the buffer would be asserting which window had
+# focus at one instant as much as it asserted the stop.  What is actually
+# under test is that the program stopped on the breakpoint's line and that
+# `evaluate` read a value out of the frame it stopped in, and both of those
+# are on screen.  The file being byte for byte its initial contents is the
+# other half: a debug session must not edit the program it is debugging.
+name: dap-nbcode-java-smoke
+filename: Fixture.java
+requires_feature: [dap, lsp]
+requires_tool: nbcode
+backend: tmux
+dimensions: [30, 100]
+initial: |
+  public class Fixture {
+      static int twice(int v) {
+          return v * 2;
+      }
+
+      public static void main(String[] args) {
+          int answer = twice(21);
+          System.out.println(answer);
+      }
+  }
+workspace_files:
+  pom.xml: |
+    <project xmlns="http://maven.apache.org/POM/4.0.0">
+      <modelVersion>4.0.0</modelVersion>
+      <groupId>fixture</groupId>
+      <artifactId>fixture</artifactId>
+      <version>0.1.0</version>
+      <build>
+        <sourceDirectory>${project.basedir}</sourceDirectory>
+      </build>
+    </project>
+keys:
+  # Line 8, the println: `answer` is assigned on line 7 and live on 8.
+  - C-n
+  - C-n
+  - C-n
+  - C-n
+  - C-n
+  - C-n
+  - C-n
+  - M-x
+  - dap-breakpoint-toggle
+  - RET
+  # Away from the breakpoint's line, so the stop's navigation is a change
+  # on screen rather than a coincidence.
+  - M-<
+  - M-x
+  - dap-debug
+  - RET
+  # The configuration by NAME.  kg's chooser offers every built-in row in
+  # table order whatever the buffer's mode is, and it arrives with the
+  # first row already in the minibuffer as editable text -- so the default
+  # is the C one, a bare RET would debug the wrong thing, and typing
+  # without clearing it first would submit the two names concatenated.
+  # The space is QUOTED because SPC in the minibuffer is a completion key
+  # and is swallowed, so a bare one would submit `Java(nbcode)`.
+  - C-a
+  - C-k
+  - Java
+  - C-q
+  - SPC
+  - "(nbcode)"
+  - RET
+  # The JVM starting, the project importing, the language handshake, the
+  # socket, the launch and the program reaching line 8 -- once, and no
+  # longer than they take.  The mode line reading line 8 is the stop.
+  - SETTLE=150:(8,
+  - M-x
+  - dap-evaluate
+  - RET
+  - answer
+  - RET
+  - SETTLE=60:42
+trailer_keys:
+  # `dap-disconnect`, NOT `dap-terminate`: the adapter lives inside the
+  # user's Java language server, and ending a debug session must close one
+  # socket and leave that server running.  A terminate here would be asking
+  # kg to kill a process it does not own.
+  - M-x
+  - dap-disconnect
+  - RET
+  - C-x
+  - C-s
+  - C-x
+  - C-c
+expected_saved: |
+  public class Fixture {
+      static int twice(int v) {
+          return v * 2;
+      }
+
+      public static void main(String[] args) {
+          int answer = twice(21);
+          System.out.println(answer);
+      }
+  }
+expected_screen_contains:
+  # WHERE it stopped: the mode line reading line 8 is the stop having
+  # landed on the breakpoint's line, which is four windows and two
+  # processes away from where `M-<` left point.
+  - "(8,"
+  # And WHAT the adapter computed.  The source never spells 42 -- it says
+  # `twice(21)` -- so the number on screen is the debuggee's own state read
+  # back through `evaluate` in the frame it stopped in.
+  - "42"

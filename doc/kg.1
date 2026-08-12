@@ -3988,11 +3988,15 @@ Adapters are found on
 .Ev PATH
 at run time and nothing is downloaded or installed, the same rule the
 language-server client follows.
-Two are built in:
+Three are built in:
 .Ic lldb-dap
-for C and C++, and
+for C and C++,
 .Ic python3 -m debugpy.adapter
-for Python.
+for Python, and
+.Ic nbcode-java
+for Java \(em which is not a command at all, see
+.Sx JAVA DEBUGGING
+below.
 kg's shipped debugpy configuration sets
 .Li "console": "internalConsole"
 and
@@ -4225,14 +4229,23 @@ buffer, the same diagnostics, the same
 is passed to the adapter untouched: the members kg does not know are the
 point, since an adapter's launch arguments are its own vocabulary.
 .Pp
-Four substitutions are made inside
+Five substitutions are made inside
 .Li arguments
 strings:
 .Li ${file} ,
 .Li ${fileDir} ,
+.Li ${fileUri} ,
 .Li ${workspaceRoot}
 and
 .Li ${env:NAME} .
+.Li ${fileUri}
+is
+.Li ${file}
+as a
+.Li file:
+URI, percent-encoded, for the one adapter that parses that argument as a
+URI rather than as a path; a relative buffer name is made absolute against
+kg's working directory first, since a URI cannot be relative.
 The set is closed, and an unknown one is an error rather than an empty
 string \(em
 .Li ${workspaecRoot}/prog
@@ -4243,6 +4256,75 @@ Substitution happens inside decoded string values and is never a textual
 splice into the JSON, so a path containing a quote or a backslash arrives
 as that path.
 .Pp
+.Ss JAVA DEBUGGING
+.Nm
+debugs Java through the language server it is already talking to.
+One
+.Ic nbcode
+process announces a Java language server and a Java debug adapter on one
+standard output, and the built-in
+.Ic nbcode-java
+adapter is the second of those, so
+.Ic M-x dap-debug
+in a
+.Pa .java
+buffer starts, or reuses, the same
+.Ic nbcode
+that
+.Ic M-.
+uses.
+There is no command to spawn and no port to configure: the address and its
+handshake come from the language server.
+.Pp
+The ordering is a requirement rather than a preference.
+The debug connection captures the language session's state when it is
+made, so
+.Nm
+will not connect before that session has finished initializing; a slow
+start names the step it is on in the echo area, and
+.Ic M-x dap-disconnect
+stops waiting.
+.Pp
+The built-in
+.Li "Java (nbcode)"
+configuration debugs the file under the cursor with no project setup:
+.Bd -literal -offset indent
+{ "name": "Java (nbcode)",
+  "adapter": "nbcode-java",
+  "request": "launch",
+  "arguments": { "type": "jdk", "file": "${fileUri}",
+                 "classPaths": ["any"],
+                 "console": "internalConsole" } }
+.Ed
+.Pp
+An inline adapter asks for the same wire with
+.Li "transport": "lsp-sibling"
+and an
+.Li lspLanguage .
+.Pp
+Ending a Java session leaves
+.Ic nbcode
+running: it is the user's language server, and
+.Ic dap-disconnect
+closes one socket and nothing else, so sequential debug sessions share the
+one process.
+.Ic nbcode
+also never sends the protocol's
+.Li terminated
+event, so
+.Nm
+infers the end of a run from the debuggee's threads going away and
+disconnects after a short grace period during which late output is still
+collected; a new thread or a stop cancels the inference.
+.Pp
+With
+.Ev KG_LSP_SERVER_JAVA
+pointing at a server that is not
+.Ic nbcode ,
+there is no debug adapter to reach and
+.Ic dap-debug
+says so rather than starting something.
+.Ss THE CONFIGURATION FILE IS TRUSTED
 .Sy This file is trusted code .
 A launch configuration names a command to spawn and arguments handed to a
 debugger that will run a program; there is nothing to sandbox and no

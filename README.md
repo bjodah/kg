@@ -865,11 +865,59 @@ apply.
 `transport`, `cwd`). The optional `build` step runs through kg's ordinary
 compilation machinery — same `*compilation*` buffer, same diagnostics, same
 `C-c C-k` — and the launch happens only if it exited zero. `arguments` is
-passed to the adapter untouched, with four substitutions made inside its
-strings: `${file}`, `${fileDir}`, `${workspaceRoot}` and `${env:NAME}`. The
-set is closed and an unknown one is an error rather than an empty string —
-`${workspaecRoot}/prog` expanding to `/prog` is a debugger that silently
-debugs the wrong program.
+passed to the adapter untouched, with five substitutions made inside its
+strings: `${file}`, `${fileDir}`, `${fileUri}`, `${workspaceRoot}` and
+`${env:NAME}`. The set is closed and an unknown one is an error rather than
+an empty string — `${workspaecRoot}/prog` expanding to `/prog` is a
+debugger that silently debugs the wrong program. `${fileUri}` is `${file}`
+as a `file:` URI, for the one adapter that parses that argument as a URI
+rather than as a path; a relative buffer name is made absolute against kg's
+working directory first, since a URI cannot be relative.
+
+Three adapters are built in: `lldb-dap` and `debugpy`, both found on `PATH`
+at run time, and `nbcode-java`, which is not a command at all.
+
+### Java
+
+kg debugs Java through the language server it is already talking to. One
+`nbcode` process announces a Java language server and a Java debug adapter
+on one standard output (see *Java setup* above), and kg's `nbcode-java`
+adapter is the second of those — so `M-x dap-debug` in a `.java` buffer
+starts, or reuses, the same nbcode your `M-.` uses, waits for its language
+session to finish initializing, and then opens a second socket to it.
+
+That ordering is not a preference. The debug connection captures the
+language session's state when it is made, so kg will not connect before the
+language server is up; a slow start says which step it is on in the echo
+area, and `M-x dap-disconnect` stops waiting.
+
+The built-in `Java (nbcode)` configuration debugs the file under the cursor
+with no project setup at all:
+
+```json
+{ "name": "Java (nbcode)",
+  "adapter": "nbcode-java",
+  "request": "launch",
+  "arguments": { "type": "jdk", "file": "${fileUri}",
+                 "classPaths": ["any"], "console": "internalConsole" } }
+```
+
+`transport: "lsp-sibling"` with an `lspLanguage` is how an inline adapter
+asks for the same wire. The port and the handshake are not a user's to
+repeat: they are the built-in spec's, and kg gets them from the language
+server.
+
+Two consequences worth knowing. **Ending a Java debug session leaves nbcode
+running** — it is your language server, and `dap-disconnect` closes one
+socket and nothing else; sequential debug sessions share the one process.
+And nbcode never sends the protocol's `terminated` event, so kg infers the
+end of a run from the debuggee's threads going away and disconnects after a
+short grace period in which late output is still collected. A new thread or
+a stop cancels that inference.
+
+If `KG_LSP_SERVER_JAVA` points at a server that is not nbcode — jdt.ls, say
+— there is no debug adapter to reach, and `dap-debug` says so rather than
+starting something.
 
 **`.kg-dap.json` is trusted code.** It names a command to spawn and
 arguments handed to a debugger that will run a program; there is nothing to

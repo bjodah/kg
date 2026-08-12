@@ -16,6 +16,7 @@
 #include "dap_config.h"
 #include "dap_decor.h"
 #include "dap_exec.h"
+#include "dap_java.h"
 #include "dap_session.h"
 #include "dap_ui.h"
 #include "def.h"
@@ -242,7 +243,11 @@ static bool start_session(const struct dap_launch_config *cfg,
 		.changed = on_session_changed,
 		.report = on_session_report,
 		.output = on_output,
-		.event = dap_exec_event,
+		/* The Java adapter's events go through its own layer FIRST,
+		 * which forwards every one of them to the model unchanged and
+		 * then forms nbcode's opinion about them (src/dap_java.h).
+		 * Nothing else installs anything but the model itself. */
+		.event = dap_java_owns(spec) ? dap_java_event : dap_exec_event,
 		.sources = dap_breakpoint_session_sources,
 		.breakpoints_answered = dap_breakpoint_session_answered,
 	};
@@ -250,6 +255,20 @@ static bool start_session(const struct dap_launch_config *cfg,
 	    = { spec, cfg->request, arguments, len, cfg->name, &hooks };
 	char error[DAP_CONFIG_MESSAGE_MAX] = "";
 
+	/* A Java session does not exist yet when this returns: its adapter
+	 * is an endpoint the language server has to be asked for, which
+	 * takes as long as starting a JVM.  What starts here is the WAIT,
+	 * and the panes are opened once there is a session to show. */
+	if (dap_java_owns(spec)) {
+		if (dap_java_start(
+			&request, choice.filename, error, sizeof(error))
+		    != 0) {
+			editor_set_status_message(DAP_WHO ": %s", error);
+			return false;
+		}
+		ui_changed();
+		return true;
+	}
 	if (!dap_session_start(&request, error, sizeof(error))) {
 		editor_set_status_message(DAP_WHO ": %s", error);
 		return false;
@@ -525,6 +544,14 @@ void editor_dap_frame_down(int fd)
 void editor_dap_disconnect(int fd)
 {
 	(void)fd;
+	/* A Java session that has not connected yet is a WAIT rather than a
+	 * session, and this is what ends one: the language server it is
+	 * waiting for may be importing a large project, and a user has to be
+	 * able to stop waiting for it (src/dap_java.h). */
+	if (dap_java_step() == DAP_JAVA_RESOLVING) {
+		dap_java_cancel();
+		return;
+	}
 	if (!dap_session_current()) {
 		editor_set_status_message("No debug session");
 		return;
@@ -750,6 +777,7 @@ void dap_commands_init(void)
 
 	dap_exec_set_hooks(&hooks);
 	dap_breakpoint_set_report_hook(on_session_report, NULL);
+	dap_java_set_session_hook(dap_ui_layout_session_started);
 	dap_decor_init();
 	dap_ui_init();
 	dap_set_ui_poll(dap_ui_poll);
@@ -763,6 +791,8 @@ void dap_commands_shutdown(void)
 	}
 	dap_exec_set_hooks(NULL);
 	dap_breakpoint_set_report_hook(NULL, NULL);
+	dap_java_set_session_hook(NULL);
+	dap_java_cancel();
 	dap_decor_reset();
 	dap_set_ui_poll(NULL);
 	dap_ui_reset();

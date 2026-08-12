@@ -1280,6 +1280,12 @@ const struct lsp_capabilities *lsp_client_caps(const struct lsp_client *c)
 
 const char *lsp_client_root(const struct lsp_client *c) { return c->root; }
 
+bool lsp_client_announced_endpoint(struct lsp_client *c,
+    enum lsp_transport_endpoint_tag tag, struct kg_announced_endpoint *endpoint)
+{
+	return lsp_transport_announced_endpoint(c->t, tag, endpoint);
+}
+
 void lsp_client_set_name(struct lsp_client *c, const char *name)
 {
 	if (name && name[0]) {

@@ -232,6 +232,24 @@ struct dap_session_state {
 struct dap_session *dap_session_start(
     const struct dap_session_request *request, char *error, size_t error_size);
 
+/* The same, on an endpoint somebody else discovered: `request->adapter`
+ * names the lsp-sibling transport and carries the host and port, and
+ * `secret` is the handshake the adapter wants before its first frame.
+ *
+ * The split is what keeps this module protocol-neutral.  WHERE the endpoint
+ * came from is somebody else's business entirely -- src/dap_java.c asks the
+ * language server -- and nothing here learns an LSP method name, holds a
+ * language-server handle, or owns the process on the other end of the
+ * socket.  What this layer knows is that the socket needs `secret` bytes
+ * written before the first frame, and it hands them to the transport, which
+ * queues them ahead of the `initialize` for it.
+ *
+ * `secret` is borrowed for the call and copied.  Nothing here formats or
+ * logs it. */
+struct dap_session *dap_session_start_sibling(
+    const struct dap_session_request *request, const unsigned char *secret,
+    size_t secret_len, char *error, size_t error_size);
+
 /* The one session, or NULL.  Every command asks this rather than holding a
  * pointer, which is the seam multi-session support will widen. */
 struct dap_session *dap_session_current(void);

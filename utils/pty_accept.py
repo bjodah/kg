@@ -110,7 +110,7 @@ class Case:
 	initial: str
 	file_mode: int | None
 	keys: list[str]
-	requires_feature: str | None
+	requires_feature: tuple[str, ...]
 	requires_tool: str | None
 	requires_python_module: str | None
 	config_files: dict[str, str]
@@ -241,13 +241,19 @@ def feature_mismatch(case: "Case", features: set[str]) -> bool:
 	build without an optional subsystem does.  Such a case runs in the
 	lane that makes that build (.ci/ci-16 for DAP) and skips in every
 	other, which is the same bargain the positive form already makes.
+
+	A LIST needs all of them, which is not a convenience: the Java
+	debugger's adapter is a socket the LANGUAGE server announces, so its
+	case is about a build that has both subsystems and must skip rather
+	than fail in the lane that drops either one.
 	"""
-	want = case.requires_feature
-	if want is None:
-		return False
-	if want.startswith("-"):
-		return want[1:] in features
-	return want not in features
+	for want in case.requires_feature:
+		if want.startswith("-"):
+			if want[1:] in features:
+				return True
+		elif want not in features:
+			return True
+	return False
 
 
 def case_needs_tmux(case: "Case") -> bool:
@@ -548,11 +554,20 @@ def load_case(path: Path) -> Case:
 	# -- and it can only run in a build the ordinary lanes do not make, so
 	# it skips everywhere else exactly as a feature case does.
 	requires_feature = data.get("requires_feature")
-	if requires_feature is not None and (
-		not isinstance(requires_feature, str) or
-		not requires_feature.lstrip("-")
+	if requires_feature is None:
+		requires_feature = ()
+	elif isinstance(requires_feature, str):
+		requires_feature = (requires_feature,)
+	elif isinstance(requires_feature, list):
+		requires_feature = tuple(requires_feature)
+	else:
+		raise ValueError(
+			f"{path}: requires_feature must be a string or a list of them"
+		)
+	if not all(
+		isinstance(want, str) and want.lstrip("-") for want in requires_feature
 	):
-		raise ValueError(f"{path}: requires_feature must be a non-empty string")
+		raise ValueError(f"{path}: requires_feature must be non-empty strings")
 	requires_tool = data.get("requires_tool")
 	if requires_tool is not None and (
 		not isinstance(requires_tool, str) or not requires_tool or
@@ -1224,7 +1239,7 @@ def main() -> int:
 				"seconds": seconds,
 				"backend": case.backend,
 				"oracle": case.oracle,
-				"requires_feature": case.requires_feature,
+				"requires_feature": list(case.requires_feature),
 				"requires_tool": case.requires_tool,
 				"requires_python_module": case.requires_python_module,
 				"xfail": case.xfail,

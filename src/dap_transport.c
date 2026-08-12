@@ -168,6 +168,56 @@ struct dap_transport *dap_transport_attach_tcp(
 	return t;
 }
 
+struct dap_transport *dap_transport_attach_socket(int fd)
+{
+	struct dap_transport *t = transport_new(DAP_TRANSPORT_LSP_SIBLING);
+
+	if (!t) {
+		kg_close_fd(&fd);
+		errno = ENOMEM;
+		return NULL;
+	}
+	/* framed_io owns the descriptor from here, including on its own
+	 * failure, and it is what makes it O_NONBLOCK and FD_CLOEXEC -- the
+	 * guarantee dap_transport.h states, kept in the one place that has
+	 * always kept it for every other descriptor in this module. */
+	(void)framed_io_adopt_fds(t->frames, fd, fd);
+	/* No child to reap, ever: the language server owns the process this
+	 * socket belongs to, and a debug session ending must leave it
+	 * running.  `reaped` says so, so no close path can even ask. */
+	t->reaped = true;
+	return t;
+}
+
+struct dap_transport *dap_transport_connect_secret(const char *host,
+    unsigned short port, const unsigned char *secret, size_t secret_len)
+{
+	struct dap_transport *t = transport_new(DAP_TRANSPORT_LSP_SIBLING);
+	int rc;
+
+	if (!t) {
+		errno = ENOMEM;
+		return NULL;
+	}
+	t->reaped = true;
+	t->connect_started_ms = monotonic_ms();
+	rc = framed_io_connect_start(t->frames, host, port);
+	if (rc < 0) {
+		(void)framed_io_fail(t->frames, FRAMED_IO_ERR_IO, false);
+		return t;
+	}
+	t->phase = rc == 1 ? DAP_PHASE_OPEN : DAP_PHASE_CONNECTING;
+	/* Queued BEFORE any caller can send: prepend puts it at the head of
+	 * the outbox, and everything framed afterwards is behind it whether
+	 * or not the connect has completed. */
+	if (secret_len > 0
+	    && framed_io_prepend(t->frames, (const char *)secret, secret_len)
+		!= 0) {
+		return t;
+	}
+	return t;
+}
+
 void dap_transport_close(struct dap_transport *t)
 {
 	struct kg_process_status status;

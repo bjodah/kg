@@ -742,12 +742,28 @@ struct dap_session *dap_session_current(void) { return g_sessions[0]; }
 /* --------------------------------- start ------------------------------ */
 
 static struct dap_transport *start_transport(
-    const struct dap_adapter_spec *spec, char *error, size_t error_size)
+    const struct dap_adapter_spec *spec, const unsigned char *secret,
+    size_t secret_len, char *error, size_t error_size)
 {
 	const char *argv[DAP_CONFIG_MAX_ARGV + 1];
 	struct kg_spawn_request req = { .stdin_fd = -1 };
 	struct dap_transport *t;
 
+	if (spec->transport == DAP_TRANSPORT_LSP_SIBLING) {
+		/* No command, and no child: the adapter is a socket some
+		 * other process is listening on, and the secret in front of
+		 * the first frame is what it wants instead of a handshake of
+		 * its own.  Both the address and the secret were resolved by
+		 * whoever called dap_session_start_sibling(). */
+		t = dap_transport_connect_secret(
+		    spec->host, spec->port, secret, secret_len);
+		if (!t) {
+			snprintf(error, error_size,
+			    "could not reach the adapter at %s:%u", spec->host,
+			    (unsigned)spec->port);
+		}
+		return t;
+	}
 	if (spec->transport == DAP_TRANSPORT_TCP_ATTACH) {
 		t = dap_transport_attach_tcp(spec->host, spec->port);
 		if (!t) {
@@ -786,8 +802,9 @@ static struct dap_transport *start_transport(
 	return t;
 }
 
-struct dap_session *dap_session_start(
-    const struct dap_session_request *request, char *error, size_t error_size)
+static struct dap_session *session_start(
+    const struct dap_session_request *request, const unsigned char *secret,
+    size_t secret_len, char *error, size_t error_size)
 {
 	struct dap_client_hooks client_hooks
 	    = { NULL, on_event, on_output, on_log };
@@ -802,7 +819,8 @@ struct dap_session *dap_session_start(
 		    error, error_size, "a debug session is already running");
 		return NULL;
 	}
-	t = start_transport(request->adapter, error, error_size);
+	t = start_transport(
+	    request->adapter, secret, secret_len, error, error_size);
 	if (!t) {
 		return NULL;
 	}
@@ -843,6 +861,19 @@ struct dap_session *dap_session_start(
 	(void)registry_add(s);
 	(void)dap_client_initialize(s->client, s->adapter_id, on_initialize, s);
 	return s;
+}
+
+struct dap_session *dap_session_start(
+    const struct dap_session_request *request, char *error, size_t error_size)
+{
+	return session_start(request, NULL, 0, error, error_size);
+}
+
+struct dap_session *dap_session_start_sibling(
+    const struct dap_session_request *request, const unsigned char *secret,
+    size_t secret_len, char *error, size_t error_size)
+{
+	return session_start(request, secret, secret_len, error, error_size);
 }
 
 /* --------------------------------- polling ---------------------------- */

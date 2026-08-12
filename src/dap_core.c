@@ -33,6 +33,7 @@ void dap_set_ui_poll(int (*fn)(void)) { ui_poll = fn; }
 #include "dap_breakpoint.h"
 #include "dap_decor.h"
 #include "dap_exec.h"
+#include "dap_java.h"
 #include "dap_session.h"
 
 /* The whole budget for ending every running session, split between them by
@@ -46,6 +47,11 @@ void dap_set_ui_poll(int (*fn)(void)) { ui_poll = fn; }
 
 void dap_shutdown(void)
 {
+	/* Before the sessions, because a Java one that has not connected yet
+	 * has no session for the line below to end -- and because a session
+	 * that HAS connected must not have its owner checked again after it
+	 * is gone (src/dap_java.h). */
+	dap_java_session_ended();
 	dap_session_shutdown_all(DAP_SHUTDOWN_GRACE_MS);
 	/* The marks come off before the table they are a projection of goes
 	 * away, since a decoration never outlives what it describes. */
@@ -64,6 +70,10 @@ int dap_poll(void)
 	int changed = dap_session_poll_all();
 
 	changed |= dap_exec_poll();
+	/* Fourth leg, and it is a leg rather than a hook because it can
+	 * START a session: a Java one spends its first seconds waiting for
+	 * a language server, and that wait advances here (src/dap_java.h). */
+	changed |= dap_java_poll();
 	if (changed) {
 		dap_decor_refresh();
 	}

@@ -142,7 +142,7 @@ static void test_builtin_adapters_and_their_defaults(void)
 	const struct dap_adapter_spec *debugpy = dap_config_builtin("debugpy");
 	const char *argv[DAP_CONFIG_MAX_ARGV + 1];
 
-	CHECK(dap_config_builtin_count() == 2);
+	CHECK(dap_config_builtin_count() == 3);
 	CHECK(lldb != NULL && debugpy != NULL);
 	CHECK(dap_config_builtin("nosuchadapter") == NULL);
 	if (!lldb || !debugpy) {
@@ -182,7 +182,7 @@ static void test_builtin_configs_when_no_file_exists(void)
 	}
 	CHECK(set->path[0] == '\0');
 	CHECK(strstr(set->root, template + 5) != NULL);
-	CHECK(set->count == 2);
+	CHECK(set->count == 3);
 	for (i = 0; i < set->count; i++) {
 		CHECK(set->configs[i].builtin);
 		if (strcmp(set->configs[i].adapter, "debugpy") == 0) {
@@ -270,14 +270,13 @@ static void test_the_schema_refuses_what_it_says_it_does(void)
 		"{\"name\":\"a\",\"request\":\"launch\",\"adapter\":"
 		"{\"command\":\"x\",\"transport\":\"carrier-pigeon\"}}]}",
 	    "unknown transport");
-	/* The two kinds the enum carries and this version cannot build. */
+	/* The one kind the enum carries and this version cannot build.
+	 * `lsp-sibling` used to be the second; it ships now, and what it
+	 * refuses instead is an adapter that names no language server
+	 * (test_dap_java.c has that case and the accepting one). */
 	refused("{\"version\":1,\"configurations\":["
 		"{\"name\":\"a\",\"request\":\"launch\",\"adapter\":"
 		"{\"command\":\"x\",\"transport\":\"spawn-port\"}}]}",
-	    "not implemented");
-	refused("{\"version\":1,\"configurations\":["
-		"{\"name\":\"a\",\"request\":\"launch\",\"adapter\":"
-		"{\"command\":\"x\",\"transport\":\"lsp-sibling\"}}]}",
 	    "not implemented");
 	refused(
 	    "{\"version\":1,\"configurations\":["
@@ -552,7 +551,7 @@ static void test_load_appends_builtins_without_duplicating_names(void)
 	if (!set) {
 		return;
 	}
-	CHECK(set->count == 2);
+	CHECK(set->count == 3);
 	CHECK(strstr(set->path, DAP_CONFIG_FILE_NAME) != NULL);
 	for (i = 0; i < set->count; i++) {
 		if (strcmp(set->configs[i].name, "Python (debugpy)") == 0) {

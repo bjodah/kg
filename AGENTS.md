@@ -391,7 +391,9 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   is the ABSENCE form: `requires_feature: -dap` runs only in a build
   whose `-V` says `-dap`, which is how the case asserting that a
   `WITH_DAP=0` editor still answers every `dap-*` command with a sentence
-  runs in `.ci/ci-16` and skips everywhere else.
+  runs in `.ci/ci-16` and skips everywhere else. A list
+  (`requires_feature: [dap, -lsp]`) needs ALL of its entries, which is
+  how a case pins one configuration of two interacting subsystems.
 - tmux-backed cases can assert visible screen content with `expected_screen_contains` and `expected_screen_not_contains`.
 - Known discrepancies can be checked in as `xfail: true`; `XPASS` fails `make check` so expectations get cleaned up once behavior changes.
 - Key tokens in PTY YAML are literal unless named. Use `SPC` for an

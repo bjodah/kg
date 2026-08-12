@@ -392,7 +392,7 @@ LSP_ALL = $(TESTDIR)/test_xref $(TESTDIR)/test_lsp_log \
 DAP_SRCS = dap_core.c
 ifeq ($(WITH_DAP),1)
 DAP_SRCS += dap_transport.c dap_client.c dap_config.c dap_session.c \
-            dap_breakpoint.c dap_exec.c dap_decor.c
+            dap_breakpoint.c dap_exec.c dap_decor.c dap_java.c
 endif
 # dap_commands.c joins dap_keymap.c for the same reason and in both
 # configurations: it is the one debugger file that prompts, opens buffers
@@ -418,6 +418,7 @@ DAP_ALL = $(OBJDIR)/dap_transport.o $(TESTDIR)/test_dap_transport \
           $(OBJDIR)/dap_session.o $(TESTDIR)/test_dap_session \
           $(OBJDIR)/dap_breakpoint.o $(TESTDIR)/test_dap_breakpoint \
           $(OBJDIR)/dap_exec.o $(TESTDIR)/test_dap_exec \
+          $(OBJDIR)/dap_java.o $(TESTDIR)/test_dap_java \
           $(OBJDIR)/dap_decor.o $(TESTDIR)/test_dap_commands \
           $(OBJDIR)/dap_ui.o $(TESTDIR)/test_dap_ui
 
@@ -518,6 +519,7 @@ ifeq ($(WITH_DAP),1)
 TESTBINS += $(TESTDIR)/test_dap_transport $(TESTDIR)/test_dap_client \
             $(TESTDIR)/test_dap_config $(TESTDIR)/test_dap_session \
             $(TESTDIR)/test_dap_breakpoint $(TESTDIR)/test_dap_exec \
+            $(TESTDIR)/test_dap_java \
             $(TESTDIR)/test_dap_commands $(TESTDIR)/test_dap_ui
 endif
 # test_perf is not built like the other unit tests: it needs the whole
@@ -716,7 +718,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 10304
+SCC_COMPLEXITY_MAX ?= 10434
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -1535,6 +1537,12 @@ EXTRA_dap_breakpoint := $(EXTRA_winmgr) $(OBJDIR)/dap_breakpoint.o
 # as every suite above does.
 EXTRA_dap_exec := $(EXTRA_dap_session) $(OBJDIR)/dap_exec.o \
                   $(OBJDIR)/dap_breakpoint.o
+# nbcode's layer above the stop model: the same link plus dap_java.o and the
+# LSP facade it asks for an endpoint.  lsp_core.o is in $(LSP_OBJS) and so
+# already in TEST_SRCS_OBJS -- in BOTH configurations, which is the point:
+# this suite links, and this module compiles, in the WITH_LSP=0 tree too,
+# where the facade answers "not built" and the Java adapter says so.
+EXTRA_dap_java := $(EXTRA_dap_exec) $(OBJDIR)/dap_java.o
 # The commands are the one debugger file that reaches the command table,
 # so their suite links the same everything-but-main.c set EXTRA_cmd does --
 # which is also the only link in which src/dap_commands.o exists at all.

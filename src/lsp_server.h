@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 
+#include "lsp.h" /* enum kg_lsp_sibling_status */
 #include "syntax.h" /* enum kg_mode_id */
 
 /* Which server a buffer's mode wants, where its workspace starts, and which
@@ -170,5 +171,25 @@ size_t lsp_server_instance_count(void);
  * beside its language server, so a Java session on any other server says
  * so rather than starting something (doc/plans/dap/03-java.md). */
 #define LSP_SERVER_ENV_PREFIX "KG_LSP_SERVER_"
+
+/* The debug endpoint a language server announced beside itself: src/lsp.h's
+ * lsp_sibling_endpoint(), implemented here because this is the module that
+ * knows which language is which server and which servers are running.
+ *
+ * `language` is a row's own name ("java"), not a mode id, because a
+ * `.kg-dap.json` names it (src/dap_config.h) and a configuration file
+ * cannot spell an enum.  The server is STARTED if one is configured for
+ * that language and nothing is running for `abs_path`'s workspace root,
+ * because a debugger that waited for a server the user had not opened a
+ * file with yet would never begin.  It never blocks: a server still
+ * initializing answers KG_LSP_SIBLING_STARTING and the caller asks again.
+ *
+ * Whether a row HAS a sibling is decided from the wire the instance was
+ * actually started on, not from its name -- an override that did not ask
+ * for the socket wire is not an nbcode whatever it is called, and gets
+ * KG_LSP_SIBLING_UNSUPPORTED rather than being waited on. */
+enum kg_lsp_sibling_status lsp_server_sibling_endpoint(const char *language,
+    const char *abs_path, enum kg_lsp_sibling_intent intent,
+    struct kg_lsp_sibling_endpoint *out);
 
 #endif /* KG_LSP_SERVER_H */

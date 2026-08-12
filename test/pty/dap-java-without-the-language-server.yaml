@@ -1,0 +1,67 @@
+# A debugger without a language server under it, which is the one
+# configuration in which the Java adapter cannot work and every other
+# adapter still must (doc/plans/dap/03-java.md).
+#
+# `make WITH_LSP=0 WITH_DAP=1` is a real build and .ci/ci-14 makes it.  In
+# it, kg's Java debug adapter has nowhere to get its endpoint from -- the
+# adapter IS a socket the Java language server announces, and there is no
+# language server -- so `dap-debug` in a .java buffer has to say so.
+#
+# The two halves of the assertion are the case:
+#
+#   - the Java configuration reports that this kg was built without the
+#     language server, in those words, rather than hanging on an endpoint
+#     nobody will ever announce or reporting a generic failure;
+#   - `dap-breakpoint-toggle` still takes the breakpoint, because the
+#     breakpoint TABLE is the editor's and has nothing to do with which
+#     adapter will read it -- a build that cannot debug Java can still be
+#     debugging Python in the next buffer.
+#
+# `requires_feature: -lsp` is the absence form, so this case runs in
+# .ci/ci-14's lane and skips in every other, exactly as
+# dap-absent-without-the-feature.yaml does for -dap.
+name: dap-java-without-the-language-server
+filename: Fixture.java
+requires_feature: [dap, -lsp]
+backend: tmux
+dimensions: [30, 100]
+initial: |
+  public class Fixture {
+      public static void main(String[] args) {
+          System.out.println("x");
+      }
+  }
+keys:
+  - C-n
+  - C-n
+  - M-x
+  - dap-breakpoint-toggle
+  - RET
+  - M-x
+  - dap-debug
+  - RET
+  # The configuration by NAME.  kg's chooser arrives with its first row
+  # already in the minibuffer as editable text and offers every built-in
+  # whatever the buffer's mode is, so the default is the C one; the space
+  # is quoted because SPC in the minibuffer is a completion key.
+  - C-a
+  - C-k
+  - Java
+  - C-q
+  - SPC
+  - "(nbcode)"
+  - RET
+  - SETTLE=10:without the language server
+trailer_keys:
+  - C-x
+  - C-s
+  - C-x
+  - C-c
+expected_saved: |
+  public class Fixture {
+      public static void main(String[] args) {
+          System.out.println("x");
+      }
+  }
+expected_screen_contains:
+  - without the language server

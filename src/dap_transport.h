@@ -186,6 +186,42 @@ struct dap_transport *dap_transport_start_stdio(
 struct dap_transport *dap_transport_attach_tcp(
     const char *host, unsigned short port);
 
+/* Wrap a socket somebody else already connected: no child, no connect, no
+ * handshake, phase OPEN from the first call.  `fd` is OWNED from here on
+ * and is closed by dap_transport_close() -- and on an allocation failure
+ * too, so a caller never has to decide whether a NULL return kept it.
+ *
+ * It makes the descriptor non-blocking ITSELF rather than requiring a
+ * caller to have done so, and that is the whole reason this constructor
+ * says so out loud: a blocking socket here does not fail, it HANGS -- the
+ * probe this design came from sat in one read() for eight minutes because
+ * its caller forgot (doc/plans/dap/03-java.md, work item 1).  Every other
+ * descriptor in this module arrives through framed_io, which has always
+ * owned that; the one that arrives from outside must not be the exception.
+ *
+ * Returns NULL only on allocation failure. */
+struct dap_transport *dap_transport_attach_socket(int fd);
+
+/* Connect to a listening adapter that wants a SECRET before the first
+ * frame, and queue that secret ahead of everything else.
+ *
+ * This is the lsp-sibling wire (doc/plans/dap/03-java.md): a language
+ * server announced a second server on a loopback port, and a client
+ * connects there and writes the announced bytes -- no newline, no framing
+ * around them -- before its first `initialize`.  The bytes go through
+ * framed_io's prepend hook, so a partial write of the secret is resumed on
+ * the next flush and the initialize behind it can never overtake it; a
+ * caller that wrote the secret itself would have to solve both, in a
+ * callback, synchronously.
+ *
+ * `secret` is borrowed for the call and copied; nothing here logs, formats
+ * or otherwise reveals it.  The connect is nonblocking and completes on a
+ * later flush or receive, exactly as dap_transport_attach_tcp()'s does, so
+ * a rejected host or a refused connection is a live transport that has
+ * failed rather than a NULL. */
+struct dap_transport *dap_transport_connect_secret(const char *host,
+    unsigned short port, const unsigned char *secret, size_t secret_len);
+
 /* Close the protocol descriptors, make sure an owned child is gone, and
  * free everything.  NULL is accepted and ignored.
  *

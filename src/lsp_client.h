@@ -40,6 +40,7 @@
 struct kg_spawn_request; /* process.h; only ever pointed at here */
 struct lsp_client;
 struct kg_json_value;
+struct kg_announced_endpoint; /* announce.h; only ever pointed at here */
 
 /* An answer, or the failure that replaced it.  Exactly one of `result` and
  * `error` is non-NULL for a reply that arrived -- `result` even when it is
@@ -373,6 +374,17 @@ const struct lsp_capabilities *lsp_client_caps(const struct lsp_client *c);
  * without one.  The registry keys on it and Stage 4 will resolve relative
  * paths against it. */
 const char *lsp_client_root(const struct lsp_client *c);
+
+/* A cached endpoint the server announced beside itself, copied out, or
+ * false when there is none -- including when the child that announced it
+ * has died, which the query reaps for itself rather than waiting for the
+ * ordinary poll to notice.  One line of passthrough to the transport that
+ * owns the announce scanner (src/lsp_transport.h), so that the registry
+ * above can answer the debugger's question without reaching through a
+ * client into its wire. */
+bool lsp_client_announced_endpoint(struct lsp_client *c,
+    enum lsp_transport_endpoint_tag tag,
+    struct kg_announced_endpoint *endpoint);
 
 /* How many requests are outstanding.  For tests and for a caller deciding
  * whether a server is busy; not part of any protocol decision. */

@@ -94,7 +94,15 @@ enum dap_request_kind {
  * without this module parsing anything.
  *
  * `host`/`port` are the tcp-attach kind's, and mean nothing for the
- * others. */
+ * others.
+ *
+ * `lsp_language` is the lsp-sibling kind's, and is the only field a
+ * configuration file can set that names something outside the debugger: the
+ * language server whose process announces this adapter beside itself
+ * ("java" -> nbcode, doc/plans/dap/03-java.md).  The announce prefix and
+ * the hash handshake are NOT here and are not a user's to repeat -- they
+ * are the built-in spec's implementation detail, resolved through
+ * src/lsp.h's endpoint query. */
 struct dap_adapter_spec {
 	char name[DAP_CONFIG_NAME_MAX];
 	/* The `adapterID` the initialize request carries.  Adapters do
@@ -109,6 +117,10 @@ struct dap_adapter_spec {
 	char cwd[PATH_MAX];
 	char host[64];
 	unsigned short port;
+	/* The language server this adapter is a sibling of, or "" for every
+	 * other kind.  A name (src/lsp_server.h's own row names), never a
+	 * mode id: a configuration file cannot spell an enum. */
+	char lsp_language[DAP_CONFIG_NAME_MAX];
 	/* The environment variable that replaces this adapter's command
 	 * line, or "" for one that has none.  A fixed shell-safe name, never
 	 * derived from `name` -- a display name may contain a hyphen, and
@@ -251,9 +263,17 @@ int dap_config_resolve_adapter(const struct dap_launch_config *cfg,
     struct dap_config_error *err);
 
 /* Expand one string.  The closed set is `${file}`, `${fileDir}`,
- * `${workspaceRoot}` and `${env:NAME}`, matched longest key first; a `$`
- * that does not begin `${` is an ordinary byte; an unterminated `${`, an
- * unknown key and an unset environment variable are all errors.
+ * `${fileUri}`, `${workspaceRoot}` and `${env:NAME}`, matched longest key
+ * first; a `$` that does not begin `${` is an ordinary byte; an
+ * unterminated `${`, an unknown key and an unset environment variable are
+ * all errors.
+ *
+ * `${fileUri}` is `${file}` as a `file:` URI, percent-encoded per RFC 3986
+ * and refused for a path that is not absolute.  It exists because one
+ * adapter parses its launch argument as a URI rather than as a path
+ * (nbcode's `file`), and it is encoded inside src/dap_config.c rather than
+ * through src/lsp_uri.c because that module is WITH_LSP=1 only and the
+ * debugger must link without it.
  *
  * Expansion is ONE PASS: what a substitution expands TO is data and is
  * never scanned again, so an environment variable holding `${file}` is a

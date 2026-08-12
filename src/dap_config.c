@@ -66,21 +66,35 @@ void dap_config_error_format(
 
 /* ------------------------------- built-ins ---------------------------- */
 
-/* The two adapters v1 ships, found on PATH at run time like every language
+/* The adapters kg ships, found on PATH at run time like every language
  * server: kg installs nothing and downloads nothing.
  *
- * debugpy runs over stdio, which is what the prototype drove end to end;
- * TCP with an automatic port only becomes necessary with child sessions,
- * which v1 refuses [M-3]. */
+ * debugpy and lldb-dap run over stdio, which is what the prototype drove
+ * end to end; TCP with an automatic port only becomes necessary with child
+ * sessions, which v1 refuses [M-3].
+ *
+ * `nbcode-java` is the third and has no command of its own at all.  Its
+ * adapter is a socket the Java LANGUAGE SERVER's process announces beside
+ * itself, so what its row carries is the language whose server that is,
+ * and starting a session means asking src/lsp.h for the endpoint rather
+ * than spawning anything (doc/plans/dap/03-java.md).  It has no
+ * environment override for the same reason: there is no command line to
+ * replace, and the way to point kg at another nbcode is
+ * KG_LSP_SERVER_JAVA. */
 static const struct {
 	const char *name;
 	const char *adapter_id;
 	const char *env;
+	const char *lsp_language;
+	enum dap_transport_kind transport;
 	const char *argv[4];
 } builtin_adapter_table[] = {
-	{ "lldb-dap", "lldb-dap", "KG_DAP_ADAPTER_LLDB", { "lldb-dap", NULL } },
-	{ "debugpy", "debugpy", "KG_DAP_ADAPTER_DEBUGPY",
-	    { "python3", "-m", "debugpy.adapter", NULL } },
+	{ "lldb-dap", "lldb-dap", "KG_DAP_ADAPTER_LLDB", "",
+	    DAP_TRANSPORT_STDIO, { "lldb-dap", NULL } },
+	{ "debugpy", "debugpy", "KG_DAP_ADAPTER_DEBUGPY", "",
+	    DAP_TRANSPORT_STDIO, { "python3", "-m", "debugpy.adapter", NULL } },
+	{ "nbcode-java", "nbcode-java", "", "java", DAP_TRANSPORT_LSP_SIBLING,
+	    { NULL } },
 };
 
 /* The launch configurations that exist with no file at all.
@@ -108,6 +122,17 @@ static const struct {
 	    "{\"program\":\"${file}\",\"cwd\":\"${workspaceRoot}\","
 	    "\"console\":\"internalConsole\",\"subProcess\":false,"
 	    "\"justMyCode\":false}",
+	    false },
+	/* Java, and the shape is Oracle's own (debugger.ts:199-224,
+	 * doc/plans/dap/03-java.md): `type` is `jdk` because nbcode's launch
+	 * delegate dispatches on it, `file` is a URI and not a path because
+	 * it is parsed as one, and `classPaths:["any"]` is what asks
+	 * NetBeans' single-file launcher to work the classpath out.
+	 * `internalConsole` is here for the reason it is on the Python row:
+	 * kg does not advertise the reverse request a terminal would need. */
+	{ "Java (nbcode)", "nbcode-java",
+	    "{\"type\":\"jdk\",\"request\":\"launch\",\"file\":\"${fileUri}\","
+	    "\"classPaths\":[\"any\"],\"console\":\"internalConsole\"}",
 	    false },
 };
 
@@ -168,7 +193,9 @@ static void builtins_init(void)
 		    builtin_adapter_table[i].adapter_id);
 		snprintf(spec->env_override, sizeof(spec->env_override), "%s",
 		    builtin_adapter_table[i].env);
-		spec->transport = DAP_TRANSPORT_STDIO;
+		snprintf(spec->lsp_language, sizeof(spec->lsp_language), "%s",
+		    builtin_adapter_table[i].lsp_language);
+		spec->transport = builtin_adapter_table[i].transport;
 		for (j = 0; builtin_adapter_table[i].argv[j]; j++) {
 			(void)spec_push_arg(spec,
 			    builtin_adapter_table[i].argv[j],
@@ -384,7 +411,7 @@ static const struct {
 	{ "stdio", DAP_TRANSPORT_STDIO, true },
 	{ "tcp", DAP_TRANSPORT_TCP_ATTACH, true },
 	{ "spawn-port", DAP_TRANSPORT_SPAWN_PORT, false },
-	{ "lsp-sibling", DAP_TRANSPORT_LSP_SIBLING, false },
+	{ "lsp-sibling", DAP_TRANSPORT_LSP_SIBLING, true },
 };
 
 static bool parse_transport(
@@ -469,6 +496,16 @@ static bool parse_inline_adapter(struct schema *s,
 		snprintf(spec->name, sizeof(spec->name), "inline");
 	}
 	snprintf(spec->adapter_id, sizeof(spec->adapter_id), "%s", spec->name);
+	if (spec->transport == DAP_TRANSPORT_LSP_SIBLING) {
+		/* No command and no address: the address is the language
+		 * server's to announce, and the only thing a file has to say
+		 * is WHICH language server (src/dap_config.h). */
+		if (!field_string(s, obj, "lspLanguage", true,
+			spec->lsp_language, sizeof(spec->lsp_language))) {
+			return false;
+		}
+		return true;
+	}
 	if (spec->transport == DAP_TRANSPORT_TCP_ATTACH) {
 		port = kg_json_int(kg_json_get(obj, "port"), 0);
 		if (port <= 0 || port > 65535) {
@@ -946,6 +983,91 @@ static const char *resolve_env(const char *name, size_t len, char *scratch,
 	return value;
 }
 
+/* `${fileUri}`: the file under the cursor as a `file:` URI, because one
+ * adapter parses its launch argument as a URI rather than as a path
+ * (nbcode's `file`, debugger.ts:199-224 -- `new URI(s)`, doc/plans/dap/
+ * 03-java.md).
+ *
+ * Encoded HERE rather than through src/lsp_uri.c, and that is deliberate
+ * rather than lazy.  lsp_uri.c is compiled only in a WITH_LSP=1 build, and
+ * a debugger that linked it would stop linking in the configuration
+ * .ci/ci-14 builds -- the one where the Java adapter's whole job is to say
+ * it is not available.  The rule the two share is RFC 3986's unreserved
+ * set plus `/`, so this is that rule written twice, in two modules that
+ * must not depend on each other, with a test each.
+ *
+ * A buffer that has not been saved has no file for an adapter to open and
+ * is refused.  A path that is merely RELATIVE is made absolute first,
+ * against kg's own working directory, which is exactly what such a path
+ * means: `kg Fixture.java` visits a real saved file, and a URI is not
+ * allowed to be relative -- leaving it so would hand the adapter something
+ * it resolves against ITS directory, which is not where the user is. */
+static bool uri_unreserved(unsigned char c)
+{
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+	    || (c >= '0' && c <= '9') || c == '-' || c == '.' || c == '_'
+	    || c == '~' || c == '/';
+}
+
+/* `path`, made absolute against kg's own working directory when it is not
+ * already, which is exactly what a relative buffer filename means. */
+static bool file_uri_absolute(const char *path, char *out, size_t out_size)
+{
+	char cwd[PATH_MAX];
+	int wrote;
+
+	if (path[0] == '/') {
+		return (size_t)snprintf(out, out_size, "%s", path) < out_size;
+	}
+	if (!getcwd(cwd, sizeof(cwd))) {
+		return false;
+	}
+	wrote = snprintf(out, out_size, "%s/%s", cwd, path);
+	return wrote >= 0 && (size_t)wrote < out_size;
+}
+
+static const char *resolve_file_uri(
+    const char *path, char *scratch, size_t scratch_size, const char **why)
+{
+	static const char hex[] = "0123456789ABCDEF";
+	char absolute[PATH_MAX];
+	size_t n = 7;
+	size_t i;
+
+	if (!path || !path[0]) {
+		*why = "has no value here (the buffer visits no file)";
+		return NULL;
+	}
+	if (!file_uri_absolute(path, absolute, sizeof(absolute))) {
+		*why = "cannot be made into an absolute path";
+		return NULL;
+	}
+	path = absolute;
+	if (scratch_size < 9) {
+		*why = "does not fit";
+		return NULL;
+	}
+	memcpy(scratch, "file://", 7);
+	for (i = 0; path[i]; i++) {
+		unsigned char c = (unsigned char)path[i];
+		bool plain = uri_unreserved(c);
+
+		if (n + (plain ? 1u : 3u) >= scratch_size) {
+			*why = "does not fit";
+			return NULL;
+		}
+		if (plain) {
+			scratch[n++] = (char)c;
+			continue;
+		}
+		scratch[n++] = '%';
+		scratch[n++] = hex[c >> 4];
+		scratch[n++] = hex[c & 0x0f];
+	}
+	scratch[n] = '\0';
+	return scratch;
+}
+
 static const char *resolve_key(const struct dap_config_context *ctx,
     const char *key, size_t key_len, char *scratch, size_t scratch_size,
     const char **why)
@@ -965,11 +1087,17 @@ static const char *resolve_key(const struct dap_config_context *ctx,
 		value = ctx->workspace_root;
 	} else if (key_len == 7 && memcmp(key, "fileDir", 7) == 0) {
 		value = ctx->file_dir;
+	} else if (key_len == 7 && memcmp(key, "fileUri", 7) == 0) {
+		if (!ctx->file || !ctx->file[0]) {
+			*why = "has no value here (the buffer visits no file)";
+			return NULL;
+		}
+		return resolve_file_uri(ctx->file, scratch, scratch_size, why);
 	} else if (key_len == 4 && memcmp(key, "file", 4) == 0) {
 		value = ctx->file;
 	} else {
-		*why = "is not one of ${file}, ${fileDir}, ${workspaceRoot} or "
-		       "${env:NAME}";
+		*why = "is not one of ${file}, ${fileDir}, ${fileUri}, "
+		       "${workspaceRoot} or ${env:NAME}";
 		return NULL;
 	}
 	if (!value || !value[0]) {

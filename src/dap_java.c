@@ -198,6 +198,45 @@ static int session_begin(const struct kg_lsp_sibling_endpoint *endpoint)
 	return 0;
 }
 
+/* An endpoint that did not come from a language server.  See
+ * dap_java_set_endpoint_for_test(): the ONE thing a suite with no nbcode,
+ * no JVM and no Java project cannot otherwise reach is this module's
+ * RUNNING step, and everything the teardown inference does lives there. */
+static bool g_test_endpoint_set;
+static struct kg_lsp_sibling_endpoint g_test_endpoint;
+
+void dap_java_set_endpoint_for_test(
+    const char *host, unsigned short port, const char *secret)
+{
+	memset(&g_test_endpoint, 0, sizeof(g_test_endpoint));
+	g_test_endpoint_set = host != NULL;
+	if (!g_test_endpoint_set) {
+		return;
+	}
+	snprintf(
+	    g_test_endpoint.host, sizeof(g_test_endpoint.host), "%s", host);
+	g_test_endpoint.port = port;
+	g_test_endpoint.secret_len
+	    = strnlen(secret, sizeof(g_test_endpoint.secret));
+	memcpy(g_test_endpoint.secret, secret, g_test_endpoint.secret_len);
+	/* One generation, unchanging, so the owner check below says the
+	 * server that announced this endpoint is still the one running. */
+	g_test_endpoint.generation = 1;
+}
+
+/* Where the endpoint comes from, asked in one place because two ask: the
+ * resolve step and the owner check, with different intents. */
+static enum kg_lsp_sibling_status ask_endpoint(
+    enum kg_lsp_sibling_intent intent, struct kg_lsp_sibling_endpoint *out)
+{
+	if (g_test_endpoint_set) {
+		*out = g_test_endpoint;
+		return KG_LSP_SIBLING_OK;
+	}
+	return lsp_sibling_endpoint(
+	    g_java.spec.lsp_language, g_java.filename, intent, out);
+}
+
 /* One turn of the resolve step.  Every status but OK either keeps waiting
  * or ends the attempt, and the two are told apart by whether asking again
  * can change the answer. */
@@ -205,8 +244,7 @@ static int resolve_advance(void)
 {
 	struct kg_lsp_sibling_endpoint endpoint;
 	enum kg_lsp_sibling_status status
-	    = lsp_sibling_endpoint(g_java.spec.lsp_language, g_java.filename,
-		KG_LSP_SIBLING_START, &endpoint);
+	    = ask_endpoint(KG_LSP_SIBLING_START, &endpoint);
 
 	switch (status) {
 	case KG_LSP_SIBLING_OK:
@@ -367,8 +405,7 @@ static bool owner_still_ours(void)
 {
 	struct kg_lsp_sibling_endpoint endpoint;
 	enum kg_lsp_sibling_status status
-	    = lsp_sibling_endpoint(g_java.spec.lsp_language, g_java.filename,
-		KG_LSP_SIBLING_EXISTING, &endpoint);
+	    = ask_endpoint(KG_LSP_SIBLING_EXISTING, &endpoint);
 
 	if (status == KG_LSP_SIBLING_DEAD
 	    || status == KG_LSP_SIBLING_NOT_RUNNING) {

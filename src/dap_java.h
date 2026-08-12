@@ -132,6 +132,21 @@ enum dap_java_step dap_java_step(void);
  * means "already expired", which is what the tests use. */
 void dap_java_set_grace_ms(unsigned grace_ms);
 
+/* The sibling endpoint, from the caller rather than from the language
+ * server: `host` and `port` something is listening on and the handshake
+ * `secret` it wants, or a NULL `host` to go back to asking src/lsp.h.
+ * `secret` is a string, and is only read when `host` is not NULL.
+ *
+ * TEST ONLY, and it exists for one reason: the teardown inference lives in
+ * the RUNNING step, and the only other road to that step is a real nbcode
+ * with a real JVM under it.  A fixture that set this points the ordinary
+ * start sequence -- the same session, the same secret, the same socket --
+ * at a fake adapter instead.  Every ask is answered OK with one unchanging
+ * generation, so the owner check in dap_java_poll() finds the owner still
+ * there and the case is about the inference and nothing else. */
+void dap_java_set_endpoint_for_test(
+    const char *host, unsigned short port, const char *secret);
+
 /* Told when the wait finally produced a session, because the two things
  * that have to happen then -- the panes opening and the layout being
  * arranged -- are the editor's and this module links without one.  It is a

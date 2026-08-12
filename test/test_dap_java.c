@@ -20,9 +20,16 @@
  * of the secret and an `initialize` queued behind it are not reachable with
  * one process.  The inference cases drive the state machine directly: what
  * they assert is a POLICY about events, and manufacturing a JVM to produce
- * them would test the JVM.
+ * them would test the JVM.  The ones that need a RUNNING session put the
+ * same fake behind the same wire and hand the start sequence its address
+ * (dap_java_set_endpoint_for_test), so what is faked is where the endpoint
+ * came from and nothing else -- the session, the socket, the handshake and
+ * the thread list are all real.
  *
- * Nothing sleeps blind: every wait is a bounded pump loop over a predicate.
+ * Nothing sleeps blind: every wait for something to HAPPEN is a bounded pump
+ * loop over a predicate.  The only fixed sleeps are in the inference cases,
+ * where what has to pass is a window rather than an event -- and the window
+ * is the thing under test, shortened to a fifth of a second for the purpose.
  */
 
 #include "../src/dap_breakpoint.h"
@@ -79,16 +86,17 @@ static void nap_a_millisecond(void)
  * announces on its own standard output.  Returns 0 on failure, which every
  * caller CHECKs before using -- gcc's -fanalyzer runs on the tests, and a
  * CHECK() records and carries on rather than stopping. */
-static unsigned short listen_fake(FILE **child, const char *secret)
+static unsigned short listen_fake(
+    FILE **child, const char *secret, const char *extra)
 {
-	char command[1024];
+	char command[2048];
 	char line[128];
 	unsigned port = 0;
 
 	snprintf(command, sizeof(command),
 	    "python3 '%s' --mode protocol --listen-secret '%s' "
-	    "--capabilities '{\"supportsConfigurationDoneRequest\":true}'",
-	    script_path, secret);
+	    "--capabilities '{\"supportsConfigurationDoneRequest\":true}' %s",
+	    script_path, secret, extra ? extra : "");
 	*child = popen(command, "r");
 	if (!*child) {
 		return 0;
@@ -111,7 +119,7 @@ static void test_sibling_connect_writes_the_secret_first(void)
 {
 	struct dap_transport *t;
 	FILE *child = NULL;
-	unsigned short port = listen_fake(&child, SIBLING_SECRET);
+	unsigned short port = listen_fake(&child, SIBLING_SECRET, NULL);
 	const char *body = NULL;
 	size_t len = 0;
 	double deadline;
@@ -166,7 +174,7 @@ static void test_sibling_connect_with_the_wrong_secret_dies(void)
 {
 	struct dap_transport *t;
 	FILE *child = NULL;
-	unsigned short port = listen_fake(&child, SIBLING_SECRET);
+	unsigned short port = listen_fake(&child, SIBLING_SECRET, NULL);
 	const char *body = NULL;
 	size_t len = 0;
 	double deadline;
@@ -312,7 +320,11 @@ static void on_report(void *ctx, bool error, const char *text)
 	snprintf(heard.last, sizeof(heard.last), "%s", text);
 }
 
-static struct dap_session_hooks java_hooks = { .report = on_report };
+/* The editor's own wiring (src/dap_commands.c): a Java session's events go
+ * through this module first, which forwards every one of them to the model
+ * and then forms nbcode's opinion about them. */
+static struct dap_session_hooks java_hooks
+    = { .report = on_report, .event = dap_java_event };
 
 static int begin(
     const char *language, const char *filename, char *error, size_t error_size)
@@ -467,6 +479,298 @@ static void test_events_outside_a_session_are_ignored(void)
 	stopped_event();
 	CHECK(dap_java_step() == DAP_JAVA_IDLE);
 	CHECK(dap_java_poll() == 0);
+}
+
+/* ------------------ the teardown inference, both ways ----------------- */
+
+/* The grace these cases wait out.  Short enough that four of them cost a
+ * fraction of a second, long enough that the poll following an event is
+ * inside the window on any box this suite runs on -- three orders of
+ * magnitude of margin, since that poll does no I/O. */
+#define GRACE_MS 200u
+
+/* The five threads nbcode was MEASURED to answer `threads` with from the
+ * moment the program's own thread exits, and forever afterwards, plus the
+ * two kg lists for the same reason src/dap_java.c gives.  All seven are
+ * ordinary-looking names -- `Finalizer` is not spelled differently from a
+ * thread a program might start -- which is the point: what keeps a thread
+ * from counting as proof of life is membership of jvm_system_threads[],
+ * and nothing else about it. */
+#define JVM_THREADS                                                            \
+	"{\"id\":11,\"name\":\"Signal Dispatcher\"},"                          \
+	"{\"id\":12,\"name\":\"Reference Handler\"},"                          \
+	"{\"id\":13,\"name\":\"Finalizer\"},"                                  \
+	"{\"id\":14,\"name\":\"Notification Thread\"},"                        \
+	"{\"id\":15,\"name\":\"Common-Cleaner\"},"                             \
+	"{\"id\":16,\"name\":\"Attach Listener\"},"                            \
+	"{\"id\":17,\"name\":\"process reaper\"}"
+#define JVM_THREAD_COUNT 7
+
+/* The two answers a case scripts `threads` with: the program running, and
+ * the program gone.  The fake pops them as they are asked for and the last
+ * is sticky, so every re-request after the second gets the drained list --
+ * which is what a real nbcode does, having no further answer to give. */
+#define THREADS_RUNNING                                                        \
+	" --body "                                                             \
+	"'threads:{\"threads\":[{\"id\":1,\"name\":\"main\"}," JVM_THREADS     \
+	"]}'"
+#define THREADS_DRAINED " --body 'threads:{\"threads\":[" JVM_THREADS "]}'"
+
+static void nap_ms(unsigned ms)
+{
+	struct timespec nap = { ms / 1000, (long)(ms % 1000) * 1000000L };
+
+	nanosleep(&nap, NULL);
+}
+
+/* Service the session and the model, but NOT the inference: a case that
+ * wants time to pass without dap_java_poll() seeing it uses this. */
+static void pump_session(struct dap_session *s, double seconds)
+{
+	double deadline = monotonic_seconds() + seconds;
+
+	while (monotonic_seconds() < deadline) {
+		(void)dap_session_poll(s);
+		(void)dap_exec_poll();
+		nap_a_millisecond();
+	}
+}
+
+/* The editor's whole debugger poll, inference included. */
+static void pump_everything(struct dap_session *s, double seconds)
+{
+	double deadline = monotonic_seconds() + seconds;
+
+	while (monotonic_seconds() < deadline) {
+		(void)dap_session_poll(s);
+		(void)dap_exec_poll();
+		(void)dap_java_poll();
+		nap_a_millisecond();
+	}
+}
+
+/* Wait for the model's thread list to be the one the next scripted answer
+ * describes.  A `thread` event opens dap_exec's debounce window and
+ * dap_exec_poll() is what eventually asks, so this is the bounded wait for
+ * that round trip rather than a sleep sized to the debounce. */
+static bool pump_until_threads(struct dap_session *s, size_t want)
+{
+	double deadline = monotonic_seconds() + PUMP_DEADLINE_SECONDS;
+
+	while (monotonic_seconds() < deadline) {
+		(void)dap_session_poll(s);
+		(void)dap_exec_poll();
+		if (dap_exec_thread_count() == want) {
+			return true;
+		}
+		nap_a_millisecond();
+	}
+	return false;
+}
+
+/* A RUNNING Java session on the fake, reached the way a real one is: the
+ * start sequence resolves an endpoint, connects to it with the secret in
+ * front of the first frame, and hands the result to dap_session. */
+static struct dap_session *start_java_session(FILE **child, const char *extra)
+{
+	char error[256] = "";
+	unsigned short port = listen_fake(child, SIBLING_SECRET, extra);
+
+	CHECK(port != 0);
+	if (!port) {
+		return NULL;
+	}
+	dap_java_set_grace_ms(GRACE_MS);
+	dap_java_set_endpoint_for_test("127.0.0.1", port, SIBLING_SECRET);
+	CHECK(begin("java", "/nonexistent/Fixture.java", error, sizeof(error))
+	    == 0);
+	/* One poll is the whole resolve step when the endpoint is already in
+	 * hand, which is also what a warm language server gives. */
+	(void)dap_java_poll();
+	CHECKF(
+	    dap_java_step() == DAP_JAVA_RUNNING, "the session never started");
+	CHECK(dap_session_current() != NULL);
+	return dap_session_current();
+}
+
+/* The session is asked for rather than passed in: a case whose session
+ * ended under it -- which is the failure every one of these cases is
+ * written to catch -- may have had it closed and freed by dap_exec_poll()'s
+ * own reaper already, and closing the pointer a second time would turn a
+ * reported failure into a crash. */
+static void finish_java(FILE *child)
+{
+	struct dap_session *s = dap_session_current();
+
+	if (s) {
+		dap_session_close(s);
+	}
+	dap_java_session_ended();
+	dap_exec_session_ended();
+	dap_java_set_endpoint_for_test(NULL, 0, NULL);
+	dap_java_set_grace_ms(DAP_JAVA_TEARDOWN_GRACE_MS);
+	if (child) {
+		pclose(child);
+	}
+	CHECK(dap_session_current() == NULL);
+	CHECK(dap_java_step() == DAP_JAVA_IDLE);
+}
+
+/* THE EXPIRY WAY.  A thread exits, the list drains to the JVM's own, and
+ * after the grace the session is over -- because nbcode will never say
+ * `terminated` about it (measured to 60 s past program completion).
+ *
+ * Two halves of the policy are asserted here beside the ending itself.  The
+ * list is not EMPTY when it fires: seven threads are still in it, which is
+ * exactly the shape that would leave a "wait for no threads" client hanging
+ * until the user killed it.  And the ending is a DISCONNECT: the adapter
+ * lives inside the user's language server, so the session closes one socket
+ * and terminating anything would take the server with it. */
+static void test_the_grace_ends_a_session_nbcode_never_terminates(void)
+{
+	FILE *child = NULL;
+	struct dap_session *s
+	    = start_java_session(&child, THREADS_RUNNING THREADS_DRAINED);
+	struct dap_session_state st;
+
+	if (!s) {
+		if (child) {
+			pclose(child);
+		}
+		return;
+	}
+	/* The program is running: its own thread among the JVM's. */
+	thread_event("started", 1);
+	CHECK(pump_until_threads(s, JVM_THREAD_COUNT + 1));
+	/* And it ends. */
+	thread_event("exited", 1);
+	CHECKF(pump_until_threads(s, JVM_THREAD_COUNT),
+	    "the thread list never drained");
+	CHECK(dap_java_step() == DAP_JAVA_RUNNING);
+	/* The first poll after the drain ARMS the window; it does not end
+	 * anything, which is the whole difference between a grace and a
+	 * trigger. */
+	CHECK(dap_java_poll() == 0);
+	CHECK(dap_java_step() == DAP_JAVA_RUNNING);
+	nap_ms(GRACE_MS + 100u);
+	CHECK(dap_java_poll() == 1);
+	CHECK(dap_java_step() == DAP_JAVA_IDLE);
+	CHECKF(strstr(heard.last, "finished") != NULL,
+	    "the ending was reported as: %s", heard.last);
+	CHECK(heard.errors == 0);
+	dap_session_get_state(s, &st);
+	CHECKF(st.end_request == DAP_END_DISCONNECT,
+	    "the session ended as request %d", (int)st.end_request);
+	CHECK(st.phase == DAP_PHASE_ENDING || st.phase == DAP_PHASE_DEAD);
+	finish_java(child);
+}
+
+/* THE CANCEL WAY, the durable one.  A thread of the program has exited --
+ * so the inference is armed as far as `exited_seen` goes -- but another
+ * thread of the program is still in the list, and that is proof of life for
+ * as long as it lasts.  Polled all the way through several graces, nothing
+ * is inferred.
+ *
+ * This is the case that matters most: a client that read one
+ * `thread{exited}` as "the session is over" would end every session at its
+ * first worker thread. */
+static void test_a_live_debuggee_thread_never_lets_the_grace_expire(void)
+{
+	FILE *child = NULL;
+	struct dap_session *s = start_java_session(&child, THREADS_RUNNING);
+
+	if (!s) {
+		if (child) {
+			pclose(child);
+		}
+		return;
+	}
+	thread_event("started", 1);
+	CHECK(pump_until_threads(s, JVM_THREAD_COUNT + 1));
+	/* A worker ends.  `main` is still in the list. */
+	thread_event("exited", 99);
+	pump_everything(s, (double)(GRACE_MS * 4u) / 1000.0);
+	CHECKF(dap_java_step() == DAP_JAVA_RUNNING,
+	    "the session was ended with a live thread in the list");
+	CHECK(dap_session_current() == s);
+	CHECKF(strstr(heard.last, "finished") == NULL,
+	    "reported the program finished: %s", heard.last);
+	finish_java(child);
+}
+
+/* THE CANCEL WAY, the other one: with the list already drained and the
+ * window already running, an EVENT that proves the session is alive resets
+ * it.  Both events that do so are here -- a `stopped`, which is how a
+ * session with breakpoints spends most of its time, and a thread STARTED,
+ * which is a program that was merely between threads.
+ *
+ * Each of them is asserted the same way: let more than a full window pass
+ * with nothing polling the inference, then send the event and poll.  That
+ * poll would have ended the session had the event not moved the window on,
+ * which is what makes it an assertion about the cancel rather than about
+ * the clock.  The last window is left undisturbed, so the case also says
+ * the cancels RESET the inference rather than switching it off. */
+static void test_proof_of_life_resets_a_running_grace(void)
+{
+	FILE *child = NULL;
+	struct dap_session *s
+	    = start_java_session(&child, THREADS_RUNNING THREADS_DRAINED);
+
+	if (!s) {
+		if (child) {
+			pclose(child);
+		}
+		return;
+	}
+	thread_event("started", 1);
+	CHECK(pump_until_threads(s, JVM_THREAD_COUNT + 1));
+	thread_event("exited", 1);
+	CHECKF(pump_until_threads(s, JVM_THREAD_COUNT),
+	    "the thread list never drained");
+	CHECK(dap_java_poll() == 0);
+	pump_session(s, (double)(GRACE_MS + 100u) / 1000.0);
+	stopped_event();
+	CHECK(dap_java_poll() == 0);
+	CHECKF(dap_java_step() == DAP_JAVA_RUNNING,
+	    "a stop did not cancel the inference");
+	pump_session(s, (double)(GRACE_MS + 100u) / 1000.0);
+	thread_event("started", 2);
+	CHECK(dap_java_poll() == 0);
+	CHECKF(dap_java_step() == DAP_JAVA_RUNNING,
+	    "a started thread did not cancel the inference");
+	/* Nothing proves anything for one more window, and the inference
+	 * fires after all: a cancel is a reset. */
+	nap_ms(GRACE_MS + 100u);
+	CHECK(dap_java_poll() == 1);
+	CHECK(dap_java_step() == DAP_JAVA_IDLE);
+	CHECKF(strstr(heard.last, "finished") != NULL,
+	    "the ending was reported as: %s", heard.last);
+	finish_java(child);
+}
+
+/* And the guard the whole policy rests on: with no thread having exited,
+ * there is nothing to infer however few threads the list has.  A session
+ * whose program has not started its own thread yet -- the JVM's seven and
+ * nothing else, which is what `threads` answers before a launch gets going
+ * -- is left alone. */
+static void test_without_an_exited_thread_nothing_is_inferred(void)
+{
+	FILE *child = NULL;
+	struct dap_session *s = start_java_session(&child, THREADS_DRAINED);
+
+	if (!s) {
+		if (child) {
+			pclose(child);
+		}
+		return;
+	}
+	thread_event("started", 11);
+	CHECK(pump_until_threads(s, JVM_THREAD_COUNT));
+	pump_everything(s, (double)(GRACE_MS * 4u) / 1000.0);
+	CHECKF(dap_java_step() == DAP_JAVA_RUNNING,
+	    "a session with no exited thread was ended anyway");
+	CHECK(dap_session_current() == s);
+	finish_java(child);
 }
 
 /* ------------------------------- the config --------------------------- */
@@ -672,6 +976,10 @@ int main(void)
 	RUN(test_a_waiting_sequence_can_be_cancelled);
 	RUN(test_a_second_sequence_is_refused);
 	RUN(test_events_outside_a_session_are_ignored);
+	RUN(test_the_grace_ends_a_session_nbcode_never_terminates);
+	RUN(test_a_live_debuggee_thread_never_lets_the_grace_expire);
+	RUN(test_proof_of_life_resets_a_running_grace);
+	RUN(test_without_an_exited_thread_nothing_is_inferred);
 
 	RUN(test_the_builtin_java_adapter_is_a_sibling);
 	RUN(test_the_other_builtin_adapters_are_not_siblings);

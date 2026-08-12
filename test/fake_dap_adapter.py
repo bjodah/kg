@@ -177,6 +177,35 @@ cannot be a linear state machine:
 ``--breakpoint-fail PATH`` (repeatable)
     Refuse ``setBreakpoints`` for that source alone, so a case can prove
     one failed source is reported without wedging the join.
+
+Breakpoint choreography (stage 5).  ``setBreakpoints`` is answered like an
+adapter rather than echoed: one element per requested breakpoint, verified,
+at the line it asked for, carrying a FRESH id -- both measured adapters
+re-key every id on every set, and debugpy does it even for a line that did
+not move [M-9].
+
+``--breakpoint-id-base N``
+    The first id handed out (default 1).  ``0`` is debugpy's first id,
+    which is why a client stores ``has_id`` beside it rather than treating
+    0 as "none".
+``--breakpoint-reply JSON`` (repeatable)
+    The exact ``breakpoints`` array to answer the NEXT ``setBreakpoints``
+    with, one option per round, in order; rounds past the last one get the
+    generated answer again.  Everything a real adapter does to a set is
+    spelled here rather than as an option each: a relocation
+    (``[{"id":1,"verified":true,"line":3}]`` for a request that asked for
+    line 999), an unverified breakpoint with no ``line`` at all, an array
+    with fewer elements than the request had, an element that is not an
+    object, or two rounds handing out the same id.
+``--breakpoint-event JSON`` (repeatable), ``--breakpoint-event-on CMD``
+    A ``breakpoint`` event body, emitted after answering CMD (default
+    ``setBreakpoints``), one option per occurrence, in order.  lldb-dap
+    fires ``changed`` right after every set response, which is what makes
+    "updates are idempotent" and "an event never triggers a set" testable.
+``--stopped-after CMD`` (repeatable), ``--stopped-body JSON`` (repeatable)
+    A ``stopped`` event after answering CMD, with the given body -- with
+    and without ``hitBreakpointIds``, which is the difference between
+    lldb-dap and debugpy for a temporary breakpoint.
 ``--report-arguments CMD`` (repeatable)
     Report CMD's own ``arguments`` back as a ``kgArguments`` event before
     answering it, which is how a case asserts what kg ASKED for -- the
@@ -374,6 +403,10 @@ class Protocol:
         self.reordered = []
         self.reverse_held = []
         self.held_launch = None
+        self.breakpoint_id = args.breakpoint_id_base
+        self.breakpoint_replies = list(args.breakpoint_reply)
+        self.breakpoint_events = list(args.breakpoint_event)
+        self.stopped_bodies = list(args.stopped_body)
         self.event_before = pairs(args.event_before)
         self.error_message = pairs(args.error_message)
         self.error_format = pairs(args.error_format)
@@ -477,6 +510,23 @@ class Protocol:
         source = arguments.get("source") or {}
         return source.get("path") in self.args.breakpoint_fail
 
+    def breakpoints_body(self, message):
+        """One element per requested breakpoint, each with an id nobody has
+        had before: a set is a replacement, and an id is a fact about one
+        set rather than an identity.  ``--breakpoint-reply`` replaces the
+        whole array for one round, which is how a case scripts a
+        relocation, an unverified breakpoint, a missing element or an id of
+        its own choosing."""
+        if self.breakpoint_replies:
+            return {"breakpoints": json.loads(self.breakpoint_replies.pop(0))}
+        arguments = message.get("arguments") or {}
+        out = []
+        for item in arguments.get("breakpoints") or []:
+            out.append({"id": self.breakpoint_id, "verified": True,
+                        "line": item.get("line")})
+            self.breakpoint_id += 1
+        return {"breakpoints": out}
+
     def emit(self, message):
         command = message.get("command", "")
         if command == "setBreakpoints" and self.source_refused(message):
@@ -493,8 +543,11 @@ class Protocol:
                 "showUser": True, "url": "https://example.invalid/why",
                 "urlLabel": "Why this failed"}})
             return
-        body = {"echo": message.get("arguments"),
-                "clientResponses": self.client_responses}
+        if command == "setBreakpoints":
+            body = self.breakpoints_body(message)
+        else:
+            body = {"echo": message.get("arguments"),
+                    "clientResponses": self.client_responses}
         wrong = "kgWrongCommand" if command in self.args.mismatch else None
         self.reply(message, body=body, command=wrong)
         if command in self.args.duplicate:
@@ -558,6 +611,14 @@ class Protocol:
         response for the adapter that answers it last."""
         if command == "configurationDone" and self.args.launch_order == "late":
             self.release_launch()
+        if command == self.args.breakpoint_event_on and self.breakpoint_events:
+            self.event("breakpoint",
+                       json.loads(self.breakpoint_events.pop(0)))
+        if command in self.args.stopped_after:
+            body = {"reason": "breakpoint", "threadId": 1}
+            if self.stopped_bodies:
+                body = json.loads(self.stopped_bodies.pop(0))
+            self.event("stopped", body)
         if command in self.args.exited_after:
             self.event("exited", {"exitCode": self.args.exit_code})
         if command in self.args.terminated_after:
@@ -719,6 +780,18 @@ def main(argv):
                         help="protocol: send terminated twice, as delve does")
     parser.add_argument("--breakpoint-fail", action="append", default=[],
                         help="protocol: refuse setBreakpoints for this source")
+    parser.add_argument("--breakpoint-id-base", type=int, default=1,
+                        help="protocol: the first breakpoint id handed out")
+    parser.add_argument("--breakpoint-reply", action="append", default=[],
+                        help="protocol: one round's `breakpoints` array")
+    parser.add_argument("--breakpoint-event", action="append", default=[],
+                        help="protocol: a breakpoint event body to emit")
+    parser.add_argument("--breakpoint-event-on", default="setBreakpoints",
+                        help="protocol: the command those events follow")
+    parser.add_argument("--stopped-after", action="append", default=[],
+                        help="protocol: a stopped event after answering CMD")
+    parser.add_argument("--stopped-body", action="append", default=[],
+                        help="protocol: that stopped event's body")
     parser.add_argument("--die-after", action="append", default=[],
                         help="protocol: exit once CMD has been answered")
     parser.add_argument("--report-arguments", action="append", default=[],

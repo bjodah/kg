@@ -151,10 +151,15 @@ static void become_active(struct dap_session *s)
 static void become_dead(struct dap_session *s, const char *why)
 {
 	struct dap_client *client = s->client;
+	char reason[DAP_SESSION_TEXT_MAX];
 
 	if (s->st.phase == DAP_PHASE_DEAD || s->dying) {
 		return;
 	}
+	/* Copied before the close, because one caller's `why` is
+	 * dap_client_death_text() -- storage inside the very client this is
+	 * about to free. */
+	snprintf(reason, sizeof(reason), "%s", why ? why : "");
 	/* Detached before the close, so that a callback the close runs finds
 	 * a session with nothing left to send on. */
 	s->dying = true;
@@ -166,7 +171,7 @@ static void become_dead(struct dap_session *s, const char *why)
 	dap_client_close(client);
 	s->st.phase = DAP_PHASE_DEAD;
 	s->st.thread_id = 0;
-	session_report(s, false, "%s", why);
+	session_report(s, false, "%s", reason);
 	session_changed(s);
 }
 
@@ -316,6 +321,12 @@ static void on_set_breakpoints(
 		session_report(s, true, "breakpoints in %s were refused: %s",
 		    s->sources[slot->index].path,
 		    r->error ? r->error->message : "no answer");
+	}
+	/* The provider's own answer: this response is about the snapshot IT
+	 * handed over, and its ids and verdicts are in the body. */
+	if (s->hooks.breakpoints_answered) {
+		s->hooks.breakpoints_answered(s->hooks.ctx,
+		    s->sources[slot->index].path, r->success, r->body);
 	}
 	if (s->st.sources_answered >= s->st.sources_sent) {
 		send_exception_breakpoints(s);

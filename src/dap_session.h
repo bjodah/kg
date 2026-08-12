@@ -159,6 +159,15 @@ struct dap_session_hooks {
 	dap_event_fn event;
 	size_t (*sources)(
 	    void *ctx, struct dap_session_source *out, size_t max);
+	/* One source's answer, handed back to whoever provided the snapshot.
+	 * The join counts successes and failures and needs nothing else from
+	 * a `setBreakpoints` response, but the table that PROVIDED the
+	 * source does: the ids are re-keyed by every set [M-9], and a
+	 * verified flag and a relocated line are what it renders.  `path` is
+	 * the snapshot entry's own path and `body` the response body,
+	 * borrowed for the call. */
+	void (*breakpoints_answered)(void *ctx, const char *path, bool success,
+	    const struct kg_json_value *body);
 };
 
 /* What to start, and how.  `arguments` are the expanded bytes

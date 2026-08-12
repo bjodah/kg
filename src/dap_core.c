@@ -18,6 +18,7 @@
 
 #ifdef KG_USE_DAP
 
+#include "dap_breakpoint.h"
 #include "dap_session.h"
 
 /* The whole budget for ending every running session, split between them by
@@ -29,7 +30,13 @@
  * is what collects a child kg started. */
 #define DAP_SHUTDOWN_GRACE_MS 300u
 
-void dap_shutdown(void) { dap_session_shutdown_all(DAP_SHUTDOWN_GRACE_MS); }
+void dap_shutdown(void)
+{
+	dap_session_shutdown_all(DAP_SHUTDOWN_GRACE_MS);
+	/* The table outlives every session, but not the editor: this is
+	 * where its sources and their markers go. */
+	dap_breakpoint_reset();
+}
 
 int dap_poll(void) { return dap_session_poll_all(); }
 

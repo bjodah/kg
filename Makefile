@@ -380,17 +380,19 @@ LSP_ALL = $(TESTDIR)/test_xref $(TESTDIR)/test_lsp_log \
 # the facade's entry points exist either way, so no caller grows a
 # KG_USE_DAP conditional.  Everything BEHIND the facade (transport, client,
 # session, breakpoints) is WITH_DAP=1 only: dap_transport.c (stage 2),
-# dap_client.c (stage 3) and dap_config.c/dap_session.c (stage 4) are what
-# there is of it so far, and the breakpoint file joins the same list in a
-# later stage of doc/plans/dap/01-protocol.md.  All four link against
-# process.o and $(PROTOCOL_OBJS) and against nothing else in the editor,
-# which is what keeps them inside DAP_OBJS -- and so inside every test
-# binary -- rather than out on DAP_EDITOR_SRCS.  dap_core.c reaches
-# dap_session.c for its poll and wait legs, which is why the session is on
+# dap_client.c (stage 3), dap_config.c/dap_session.c (stage 4) and
+# dap_breakpoint.c (stage 5).  The first four link against process.o and
+# $(PROTOCOL_OBJS) and against nothing else in the editor; the breakpoint
+# table reaches three more -- marker.o, event.o and the buffer table -- and
+# every one of those is in TEST_SRCS_OBJS or the stub set already, which is
+# what keeps it inside DAP_OBJS too rather than out on DAP_EDITOR_SRCS.
+# dap_core.c reaches dap_session.c for its poll and wait legs and
+# dap_breakpoint.c to drop the table at shutdown, which is why both are on
 # this list and not beside the keymap.
 DAP_SRCS = dap_core.c
 ifeq ($(WITH_DAP),1)
-DAP_SRCS += dap_transport.c dap_client.c dap_config.c dap_session.c
+DAP_SRCS += dap_transport.c dap_client.c dap_config.c dap_session.c \
+            dap_breakpoint.c
 endif
 DAP_EDITOR_SRCS = dap_keymap.c
 DAP_OBJS = $(addprefix $(OBJDIR)/,$(DAP_SRCS:.c=.o))
@@ -400,7 +402,8 @@ DAP_OBJS = $(addprefix $(OBJDIR)/,$(DAP_SRCS:.c=.o))
 DAP_ALL = $(OBJDIR)/dap_transport.o $(TESTDIR)/test_dap_transport \
           $(OBJDIR)/dap_client.o $(TESTDIR)/test_dap_client \
           $(OBJDIR)/dap_config.o $(TESTDIR)/test_dap_config \
-          $(OBJDIR)/dap_session.o $(TESTDIR)/test_dap_session
+          $(OBJDIR)/dap_session.o $(TESTDIR)/test_dap_session \
+          $(OBJDIR)/dap_breakpoint.o $(TESTDIR)/test_dap_breakpoint
 
 # Source files
 SRCS = main.c tty.c async.c syntax.c $(SYNTAX_BACKEND_SRCS) autocomplete.c buffer.c fileio.c \
@@ -497,7 +500,8 @@ endif
 # has.
 ifeq ($(WITH_DAP),1)
 TESTBINS += $(TESTDIR)/test_dap_transport $(TESTDIR)/test_dap_client \
-            $(TESTDIR)/test_dap_config $(TESTDIR)/test_dap_session
+            $(TESTDIR)/test_dap_config $(TESTDIR)/test_dap_session \
+            $(TESTDIR)/test_dap_breakpoint
 endif
 # test_perf is not built like the other unit tests: it needs the whole
 # editor compiled with -DKG_PERF_COUNTERS=1 (src/perf.h), which must not
@@ -695,7 +699,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 9481
+SCC_COMPLEXITY_MAX ?= 9717
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -1496,6 +1500,17 @@ EXTRA_dap_session := $(TESTDIR)/stubs.o $(OBJDIR)/dap_session.o \
                      $(OBJDIR)/dap_config.o $(OBJDIR)/dap_client.o \
                      $(OBJDIR)/dap_transport.o $(OBJDIR)/json.o \
                      $(TEST_SRCS_OBJS)
+# The breakpoint table is the first DAP module that IS editor state, so its
+# suite is the first that cannot use the minimal baseline above: it needs
+# real buffers with real files behind them (realpath() is the table's key),
+# real markers to anchor to, real buf_open_path()/buf_kill() so the two
+# lifecycle events are published by the editor rather than by the test, and
+# the session stack underneath so a case can drive one against the fake
+# adapter.  That is EXTRA_winmgr's link -- the one other suite that opens
+# and kills real buffers -- plus dap_breakpoint.o, which also arrives
+# through TEST_SRCS_OBJS' $(DAP_OBJS) and is named here for readability as
+# every suite above does.
+EXTRA_dap_breakpoint := $(EXTRA_winmgr) $(OBJDIR)/dap_breakpoint.o
 # The JSON layer depends on the C library and nothing else -- not even
 # process.h -- so its own object would link on its own; the baseline is
 # here because test.o's harness reaches the editor globals stubs.o and

@@ -221,8 +221,12 @@ static void plant_sources(size_t count)
 static struct dap_session *start_session(
     enum dap_request_kind kind, const char *extra)
 {
-	struct dap_session_hooks hooks
-	    = { NULL, on_changed, on_report, NULL, on_event, on_sources };
+	struct dap_session_hooks hooks = {
+		.changed = on_changed,
+		.report = on_report,
+		.event = on_event,
+		.sources = on_sources,
+	};
 	struct dap_adapter_spec spec = { 0 };
 	struct dap_session_request request
 	    = { &spec, kind, "{}", 2, "test", &hooks };

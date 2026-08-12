@@ -19,6 +19,7 @@
 
 #ifdef KG_USE_DAP
 
+#include "dap_breakpoint.h"
 #include "keymap.h"
 
 /* Two minor maps, not one, because the two halves of the debugger become
@@ -57,6 +58,11 @@ void dap_init(void)
 {
 	size_t i;
 
+	/* Before the init file for the maps' sake, and before any command
+	 * for the table's: the breakpoint table subscribes to the buffer
+	 * lifecycle here, so a file opened at startup already re-anchors
+	 * whatever a later session will be told about. */
+	dap_breakpoint_init();
 	for (i = 0; i < sizeof(dap_maps) / sizeof(*dap_maps); i++) {
 		struct keymap *map
 		    = keymap_create(dap_maps[i].name, dap_maps[i].layer);

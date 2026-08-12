@@ -1,7 +1,6 @@
 #ifndef KG_DAP_UI_H
 #define KG_DAP_UI_H
 
-#include <stdbool.h>
 #include <stddef.h>
 
 /* The debugger's six panes, the window layout they live in, and the row

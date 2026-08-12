@@ -11,7 +11,6 @@
 #include "bufhandle.h"
 #include "dap_breakpoint.h"
 #include "dap_exec.h"
-#include "dap_session.h"
 #include "def.h"
 #include "event.h"
 #include "visit.h"
@@ -267,6 +266,7 @@ static void rb_text_line(const char *fmt, ...)
 	va_list ap;
 
 	va_start(ap, fmt);
+	// NOLINTNEXTLINE(clang-analyzer-valist.Uninitialized)
 	vsnprintf(line, sizeof(line), fmt, ap);
 	va_end(ap);
 	rb_line(&meta, line);
@@ -436,10 +436,15 @@ static void transcript_append(
     enum dap_ui_pane pane, int slot, const char *text, size_t len)
 {
 	struct dap_ui_pane_state *p = &panes[pane];
+	bool ends_line;
 
 	if (len == 0) {
 		return;
 	}
+	/* Read before the clamp: a clamped run ends in the marker branch
+	 * below, which overwrites the flag, so the run's own last byte is
+	 * the right answer on every path that keeps it. */
+	ends_line = text[len - 1] == '\n';
 	if (p->bytes >= DAP_UI_TRANSCRIPT_MAX) {
 		return;
 	}
@@ -448,7 +453,7 @@ static void transcript_append(
 	}
 	p->bytes += len;
 	(void)buf_append_special_text(slot, text, len);
-	p->at_line_start = text[len - 1] == '\n';
+	p->at_line_start = ends_line;
 	if (p->bytes >= DAP_UI_TRANSCRIPT_MAX && !p->truncated) {
 		static const char marker[] = "\n[output truncated]\n";
 
@@ -489,7 +494,9 @@ static void transcript_write(
 			n = 0;
 		}
 	}
-	transcript_append(pane, slot, out, n);
+	if (n > 0) {
+		transcript_append(pane, slot, out, n);
+	}
 }
 
 void dap_ui_output(const char *category, const char *text, size_t len)

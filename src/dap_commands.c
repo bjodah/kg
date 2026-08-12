@@ -22,7 +22,6 @@
 #include "json.h"
 #include "localvars.h"
 #include "visit.h"
-#include "winmgr.h"
 
 #include <limits.h>
 #include <stdio.h>

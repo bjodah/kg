@@ -1,6 +1,7 @@
 #include "../src/bufmgr.h"
 #include "../src/cmd.h"
 #include "../src/cmdstate.h"
+#include "../src/dap.h"
 #include "../src/def.h"
 #include "../src/kbd.h"
 #include "../src/marker.h"
@@ -35,6 +36,10 @@ int win_total_rows = 24;
 int win_total_cols = 80;
 
 const struct command_prefix *cmd_active_prefix(void) { return NULL; }
+/* kbd.c asks the debugger facade per keystroke.  dap_keymap.c is not
+ * linked here -- it would drag the command layer and the panes in -- and
+ * a fuzzed editor never has a session, so the maps are never active. */
+bool dap_update_mode_maps(void) { return false; }
 int cmd_prompt_fd(void) { return -1; }
 void cmd_prompt_block(void) { }
 void cmd_prompt_unblock(void) { }

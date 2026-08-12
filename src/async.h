@@ -25,7 +25,7 @@
  * the wait itself.  Generalising the seam to carry poll events is a later
  * change, not a hidden exception here.
  */
-#define KG_ASYNC_WAIT_FDS_MAX 14
+#define KG_ASYNC_WAIT_FDS_MAX 15
 
 int editor_async_wait_fds(int *fds, int max);
 

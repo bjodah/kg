@@ -972,8 +972,9 @@ void dap_session_shutdown_all(unsigned grace_ms)
 	for (i = 0; i < DAP_SESSION_MAX_SESSIONS; i++) {
 		if (g_sessions[i]) {
 			struct dap_transport_deadlines limits
-			    = { DAP_TRANSPORT_CONNECT_TIMEOUT_MS, grace_ms / 2,
-				      grace_ms / 2 };
+			    = { DAP_TRANSPORT_SPAWN_TIMEOUT_MS,
+				      DAP_TRANSPORT_CONNECT_TIMEOUT_MS,
+				      grace_ms / 2, grace_ms / 2 };
 
 			if (g_sessions[i]->client) {
 				dap_transport_set_deadlines(
@@ -1036,7 +1037,8 @@ void dap_session_set_shutdown_deadlines(
     struct dap_session *s, unsigned shutdown_ms, unsigned kill_ms)
 {
 	struct dap_transport_deadlines limits
-	    = { DAP_TRANSPORT_CONNECT_TIMEOUT_MS, shutdown_ms, kill_ms };
+	    = { DAP_TRANSPORT_SPAWN_TIMEOUT_MS,
+		      DAP_TRANSPORT_CONNECT_TIMEOUT_MS, shutdown_ms, kill_ms };
 
 	if (s && s->client) {
 		dap_transport_set_deadlines(

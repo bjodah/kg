@@ -267,6 +267,29 @@ Options:
     over that socket.  This is the attach shape: the adapter is a process
     the client did not start and must never signal, and the caller reads
     the port off this process's own output.
+
+``--announce PREFIX``
+    The spawn-port shape, which is `dlv dap --listen 127.0.0.1:0`: bind a
+    loopback port, write ``PREFIX<port>`` and a newline on standard output,
+    accept one connection and run the mode over it.  Unlike ``--listen``,
+    the client STARTED this process, owns it and must reap it.
+    ``--announce-chunk N`` writes the announcement N bytes at a time (1 is
+    one byte per read, which is the only honest test of an incremental
+    scanner); ``--announce-noise LINE`` and ``--announce-after LINE`` put
+    ordinary log lines around it; ``--announce-crlf`` terminates it with
+    CRLF; ``--announce-port N`` announces N rather than the port really
+    bound, which is how a port of ``0`` or ``99999`` is tested;
+    ``--announce-on-stderr`` writes it where kg deliberately does not look;
+    and ``--announce-then-exit`` announces and exits without accepting,
+    which is a connect to a port nobody is listening on any more.
+
+``--stderr-bytes BYTES``
+    Raw bytes on standard error before the mode runs, with no newline
+    added and Python escapes (``\\n``, ``\\r``) honoured.  It is what a
+    debuggee's own output looks like on delve's standard error: a stream,
+    not lines, whose chunk boundaries a client must not turn into
+    newlines.  Written before the socket is accepted, so kg reads them
+    while the protocol is running on the socket.
 ``--stderr LINE`` (repeatable)
     Written to standard error before the mode runs.  The adapter's standard
     error is a channel of its own, never joined to the frame stream.
@@ -826,6 +849,53 @@ MODES = {
 }
 
 
+def announce_bytes(text, chunk, stream=None):
+    """Write `text` in `chunk`-byte pieces, flushing after each.
+
+    A chunk of 1 is the announce arriving one byte per read, which is the
+    only way a byte-at-a-time scanner is really tested: a scanner that
+    matched its prefix against whatever one read happened to contain would
+    pass every other spelling of this case."""
+    out = stream if stream is not None else sys.stdout
+    raw = text
+    step = max(1, chunk)
+    for at in range(0, len(raw), step):
+        out.write(raw[at:at + step])
+        out.flush()
+
+
+def listen_and_announce(args):
+    """The spawn-port shape: bind a loopback port, print the announcement
+    the client is scraping for, take one connection.
+
+    This is `dlv dap --listen 127.0.0.1:0`, whose announcement kg parses
+    strictly -- prefix including the host, then decimal digits to the end of
+    the line.  Every knob here is one way a real child could get that wrong
+    or make it hard to read: noise lines in front of it, the announcement
+    split across reads, a CRLF terminator, a port that is not a port, and
+    the announcement on the wrong descriptor entirely."""
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    port = (args.announce_port if args.announce_port >= 0
+            else listener.getsockname()[1])
+    for line in args.announce_noise:
+        announce_bytes(line + "\n", args.announce_chunk)
+    text = "%s%s%s" % (args.announce, port, "\r\n" if args.announce_crlf else "\n")
+    if args.announce_on_stderr:
+        announce_bytes(text, args.announce_chunk, sys.stderr)
+    else:
+        announce_bytes(text, args.announce_chunk)
+    for line in args.announce_after:
+        announce_bytes(line + "\n", args.announce_chunk)
+    if args.announce_then_exit:
+        listener.close()
+        raise SystemExit(args.exit_code)
+    connection, _ = listener.accept()
+    listener.close()
+    return connection.makefile("rb"), connection.makefile("wb")
+
+
 def listen_for_client(secret=None):
     """The attach shape: announce a port on this process's own output, take
     one connection, and speak the protocol on it.  Nothing about this
@@ -985,6 +1055,24 @@ def main(argv):
                         help="protocol: the command the flood follows")
     parser.add_argument("--output-split", action="append", default=[],
                         help="protocol: CMD:TEXT as two mid-line events")
+    parser.add_argument("--announce", default="",
+                        help="spawn-port: announce the port after this prefix")
+    parser.add_argument("--announce-chunk", type=int, default=0,
+                        help="spawn-port: bytes per write of the announcement")
+    parser.add_argument("--announce-noise", action="append", default=[],
+                        help="spawn-port: a stdout line before it")
+    parser.add_argument("--announce-after", action="append", default=[],
+                        help="spawn-port: a stdout line after it")
+    parser.add_argument("--announce-crlf", action="store_true",
+                        help="spawn-port: terminate it with CRLF")
+    parser.add_argument("--announce-port", type=int, default=-1,
+                        help="spawn-port: announce this instead of the real one")
+    parser.add_argument("--announce-on-stderr", action="store_true",
+                        help="spawn-port: announce on stderr, where kg cannot see it")
+    parser.add_argument("--announce-then-exit", action="store_true",
+                        help="spawn-port: exit without accepting a connection")
+    parser.add_argument("--stderr-bytes", default="",
+                        help="raw bytes for standard error, no newline added")
     args = parser.parse_args(argv[1:])
     for line in args.stderr_line:
         note(line)
@@ -994,7 +1082,14 @@ def main(argv):
                 note("tty: yes")
         except OSError:
             note("tty: no")
-    if args.listen or args.listen_secret:
+    if args.stderr_bytes:
+        sys.stderr.buffer.write(
+            args.stderr_bytes.encode("utf-8").decode("unicode_escape").encode(
+                "latin-1"))
+        sys.stderr.buffer.flush()
+    if args.announce:
+        stdin, stdout = listen_and_announce(args)
+    elif args.listen or args.listen_secret:
         stdin, stdout = listen_for_client(args.listen_secret)
     else:
         stdin, stdout = sys.stdin.buffer, sys.stdout.buffer

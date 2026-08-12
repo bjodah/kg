@@ -843,6 +843,34 @@ int framed_line_next(struct framed_line *line, const char **text, size_t *len)
 	}
 }
 
+int framed_line_next_bytes(
+    struct framed_line *line, const char **data, size_t *len)
+{
+	size_t limit;
+	int rc;
+
+	line_release(line);
+	if (line->fd < 0) {
+		return 0;
+	}
+	for (;;) {
+		limit = line_limit(line);
+		if (limit > 0) {
+			*data = line->buf.data;
+			*len = limit;
+			line->delivered = limit;
+			return 1;
+		}
+		if (line->held != SIZE_MAX) {
+			return 0;
+		}
+		rc = framed_line_fill(line);
+		if (rc <= 0) {
+			return 0;
+		}
+	}
+}
+
 static bool scan_line_measure(struct framed_line *line, const char *base,
     size_t avail, size_t *len, bool *newline)
 {

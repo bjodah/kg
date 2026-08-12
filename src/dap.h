@@ -79,10 +79,10 @@ int dap_poll(void);
  * silently truncated wait.
  *
  * The number is the same in both build configurations, as the LSP client's
- * is: a WITH_DAP=0 editor calls a leg that answers zero, and two unused
+ * is: a WITH_DAP=0 editor calls a leg that answers zero, and three unused
  * ints in the editor's wait buffer are cheaper than a bound that changes
  * with the build. */
-#define KG_DAP_WAIT_FDS_MAX 2
+#define KG_DAP_WAIT_FDS_MAX 3
 
 /* The descriptors the editor's idle wait should include, so that the next
  * dap_poll() happens when an adapter writes rather than when the idle tick

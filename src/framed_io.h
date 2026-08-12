@@ -142,6 +142,19 @@ void framed_line_close(struct framed_line *line);
  * this channel's outstanding borrow without reading its next line. */
 void framed_line_discard_borrow(struct framed_line *line);
 int framed_line_next(struct framed_line *line, const char **text, size_t *len);
+/* Whatever this channel has, unsplit: the buffered bytes exactly as they
+ * were read, with no line cutting, no CR removal and no newline invented at
+ * a chunk boundary.  Returns 1 with a borrowed run under next()'s rule, or 0
+ * when nothing is buffered and nothing more can be read right now.
+ *
+ * It exists because one channel carries a PROGRAM's output rather than log
+ * text: delve writes its debuggee's stdout and stderr to its own standard
+ * error (measured, doc/plans/dap/04-go.md), and a reader that delivered
+ * that as lines would append a newline the program never printed every time
+ * a read landed mid-line.  A held channel yields only what the hold has
+ * already released, so the announce scanner still runs ahead of it. */
+int framed_line_next_bytes(
+    struct framed_line *line, const char **data, size_t *len);
 bool framed_line_scan_next(
     struct framed_line *line, const char **text, size_t *len);
 /* Replace bytes in the most recently scanned physical line before ordinary

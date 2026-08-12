@@ -173,7 +173,20 @@ static bool pump_until_drained(struct dap_transport *t)
  * ladder without waiting a real grace period out. */
 static void set_zero_deadlines(struct dap_transport *t)
 {
-	struct dap_transport_deadlines limits = { 0, 0, 0 };
+	struct dap_transport_deadlines limits = { 0, 0, 0, 0 };
+
+	dap_transport_set_deadlines(t, &limits);
+}
+
+/* The announce deadline alone, so a case can prove a child that never
+ * announces is given up on without waiting the real ten seconds out and
+ * without shortening every other deadline underneath it. */
+static void set_announce_deadline(struct dap_transport *t, unsigned spawn_ms)
+{
+	struct dap_transport_deadlines limits
+	    = { spawn_ms, DAP_TRANSPORT_CONNECT_TIMEOUT_MS,
+		      DAP_TRANSPORT_SHUTDOWN_TIMEOUT_MS,
+		      DAP_TRANSPORT_KILL_TIMEOUT_MS };
 
 	dap_transport_set_deadlines(t, &limits);
 }
@@ -672,7 +685,7 @@ static void test_session_ends_on_the_response_while_the_adapter_lingers(void)
 static void test_grace_expiry_escalates_to_term(void)
 {
 	struct dap_transport *t = start_fake("linger", NULL, NULL);
-	struct dap_transport_deadlines limits = { 0, 0, 5000 };
+	struct dap_transport_deadlines limits = { 0, 0, 0, 5000 };
 	unsigned seen;
 	pid_t pid;
 
@@ -807,6 +820,368 @@ static void test_wait_fds_are_empty_once_the_transport_has_failed(void)
 	dap_transport_close(t);
 }
 
+/* --------------------- the spawn-port kind (subplan 04) ---------------- */
+
+/* delve's own announcement, byte for byte, prefix including the host.  The
+ * cases below use this rather than a made-up string because the strictness
+ * of the parse is the point: a client that scanned for digits after
+ * `listening at: ` would read the 127 out of 127.0.0.1. */
+#define DELVE_PREFIX "DAP server listening at: 127.0.0.1:"
+
+/* Build an argv for the fake adapter in its spawn-port shape.  `extra` is
+ * NULL-terminated and appended verbatim, which is how each case names the
+ * one thing it is about. */
+static struct dap_transport *start_spawn_port(
+    const char *mode, const char *prefix, const char *const *extra)
+{
+	const char *argv[24];
+	struct kg_spawn_request req = { .argv = argv, .stdin_fd = -1 };
+	size_t n = 0;
+	size_t i;
+
+	argv[n++] = "python3";
+	argv[n++] = script_path;
+	argv[n++] = "--mode";
+	argv[n++] = mode;
+	argv[n++] = "--announce";
+	argv[n++] = DELVE_PREFIX;
+	for (i = 0; extra && extra[i]; i++) {
+		argv[n++] = extra[i];
+		CHECK(n < sizeof(argv) / sizeof(argv[0]));
+	}
+	argv[n] = NULL;
+	return dap_transport_start_spawn_port(&req, prefix);
+}
+
+/* Drive the transport until it fails or the deadline passes, which is what
+ * a poll site does to a transport that is still in its announce phase. */
+static bool pump_until_failed(struct dap_transport *t)
+{
+	double deadline = monotonic_seconds() + PUMP_DEADLINE_SECONDS;
+	const char *body = NULL;
+	size_t len = 0;
+
+	while (!dap_transport_failed(t)) {
+		if (dap_transport_next_message(t, &body, &len) < 0) {
+			return true;
+		}
+		if (monotonic_seconds() >= deadline) {
+			return false;
+		}
+		nap_a_millisecond();
+	}
+	return true;
+}
+
+/* The whole state machine in one case: spawn, scrape, connect, speak.  The
+ * announcement arrives ONE BYTE PER WRITE and behind two lines of the
+ * child's own chatter, which together are the two things a scanner that
+ * matched against whatever one read contained would get wrong. */
+static void test_spawn_port_scrapes_the_announce_and_connects(void)
+{
+	const char *extra[] = { "--announce-chunk", "1", "--announce-noise",
+		"API server listening at: 127.0.0.1:38997", "--announce-noise",
+		"Type 'dlv help' for list of commands.", NULL };
+	struct dap_transport *t = start_spawn_port("echo", DELVE_PREFIX, extra);
+	const char *body = NULL;
+	size_t len = 0;
+
+	CHECK(t != NULL);
+	if (!t) {
+		return;
+	}
+	CHECK(dap_transport_kind(t) == DAP_TRANSPORT_SPAWN_PORT);
+	CHECK(dap_transport_pid(t) > 0);
+	CHECK(dap_transport_awaiting_announce(t));
+	CHECK(dap_transport_announce_prefix(t) != NULL
+	    && strcmp(dap_transport_announce_prefix(t), DELVE_PREFIX) == 0);
+	/* Queued before there is a socket to write it to: the announce phase
+	 * is in front of the connect, and the outbox carries the first frame
+	 * across both. */
+	CHECK(dap_transport_send(t, "ping", 4) == 0);
+	CHECK(pump_until_message(t, &body, &len) == 1);
+	CHECK(len == 4 && body && memcmp(body, "ping", 4) == 0);
+	CHECK(!dap_transport_awaiting_announce(t));
+	dap_transport_close(t);
+}
+
+/* A CRLF terminator is the scanner's, not this module's -- but a client
+ * that connected to a port with a stray carriage return in it would fail
+ * somewhere much less obvious, so it is asserted here too. */
+static void test_spawn_port_accepts_a_crlf_announce(void)
+{
+	const char *extra[] = { "--announce-crlf", NULL };
+	struct dap_transport *t = start_spawn_port("echo", DELVE_PREFIX, extra);
+	const char *body = NULL;
+	size_t len = 0;
+
+	CHECK(t != NULL);
+	if (!t) {
+		return;
+	}
+	CHECK(dap_transport_send(t, "ping", 4) == 0);
+	CHECK(pump_until_message(t, &body, &len) == 1);
+	dap_transport_close(t);
+}
+
+/* The announcement is the one line this transport exists to read, so a
+ * malformed one is a hard failure rather than a line to skip: a port of
+ * zero, or one past 65535, is a child whose greeting kg must not guess at. */
+static void test_spawn_port_refuses_an_invalid_port(void)
+{
+	const char *zero[] = { "--announce-port", "0", NULL };
+	const char *huge[] = { "--announce-port", "99999", NULL };
+	struct dap_transport *t = start_spawn_port("echo", DELVE_PREFIX, zero);
+
+	CHECK(t != NULL);
+	if (!t) {
+		return;
+	}
+	CHECK(pump_until_failed(t));
+	CHECK(dap_transport_error(t) == FRAMED_IO_ERR_PROTOCOL);
+	dap_transport_close(t);
+
+	t = start_spawn_port("echo", DELVE_PREFIX, huge);
+	CHECK(t != NULL);
+	if (!t) {
+		return;
+	}
+	CHECK(pump_until_failed(t));
+	CHECK(dap_transport_error(t) == FRAMED_IO_ERR_PROTOCOL);
+	dap_transport_close(t);
+}
+
+/* An adapter told to log somewhere other than its standard output -- which
+ * is exactly what `--log-dest` does to delve -- never announces where kg is
+ * looking.  Nothing about its descriptors says so: it sits in accept()
+ * forever with its stdout open and empty.  So the deadline is the only
+ * thing that can end it, and the transport must still be able to say what
+ * it was waiting for. */
+static void test_spawn_port_announce_on_stderr_fails_loudly(void)
+{
+	const char *extra[] = { "--announce-on-stderr", NULL };
+	struct dap_transport *t = start_spawn_port("echo", DELVE_PREFIX, extra);
+	pid_t pid;
+
+	CHECK(t != NULL);
+	if (!t) {
+		return;
+	}
+	pid = dap_transport_pid(t);
+	set_announce_deadline(t, 0);
+	CHECK(pump_until_failed(t));
+	CHECK(dap_transport_awaiting_announce(t));
+	CHECK(dap_transport_announce_prefix(t) != NULL
+	    && strcmp(dap_transport_announce_prefix(t), DELVE_PREFIX) == 0);
+	dap_transport_close(t);
+	CHECK(child_was_reaped(pid));
+}
+
+/* A child that exits before announcing: end of its standard output is the
+ * startup failure, and it is reported as end of stream rather than as a
+ * timeout, because kg knows at once and should not wait. */
+static void test_spawn_port_child_exit_before_the_announce(void)
+{
+	const char *argv[] = { "python3", script_path, "--mode", "die", NULL };
+	struct kg_spawn_request req = { .argv = argv, .stdin_fd = -1 };
+	struct dap_transport *t
+	    = dap_transport_start_spawn_port(&req, DELVE_PREFIX);
+	pid_t pid;
+
+	CHECK(t != NULL);
+	if (!t) {
+		return;
+	}
+	pid = dap_transport_pid(t);
+	CHECK(pump_until_failed(t));
+	CHECK(dap_transport_error(t) == FRAMED_IO_ERR_EOF);
+	CHECK(dap_transport_awaiting_announce(t));
+	dap_transport_close(t);
+	CHECK(child_was_reaped(pid));
+}
+
+/* A child that announces and then exits without accepting: the port is
+ * real, the connect is refused, and the failure belongs to the connect
+ * rather than to the announce. */
+static void test_spawn_port_child_exit_after_the_announce(void)
+{
+	const char *extra[] = { "--announce-then-exit", NULL };
+	struct dap_transport *t = start_spawn_port("echo", DELVE_PREFIX, extra);
+	pid_t pid;
+
+	CHECK(t != NULL);
+	if (!t) {
+		return;
+	}
+	pid = dap_transport_pid(t);
+	CHECK(pump_until_failed(t));
+	CHECK(!dap_transport_awaiting_announce(t));
+	dap_transport_close(t);
+	CHECK(child_was_reaped(pid));
+}
+
+/* C-g during the announce.  No ladder has run, there is no socket yet, and
+ * the child is alive and blocked in accept(): close() is the whole of
+ * cancelling, and it must leave nothing behind. */
+static void test_spawn_port_cancel_during_the_announce(void)
+{
+	const char *extra[] = { "--announce-on-stderr", NULL };
+	struct dap_transport *t = start_spawn_port("echo", DELVE_PREFIX, extra);
+	pid_t pid;
+
+	CHECK(t != NULL);
+	if (!t) {
+		return;
+	}
+	pid = dap_transport_pid(t);
+	CHECK(dap_transport_awaiting_announce(t));
+	dap_transport_close(t);
+	CHECK(child_was_reaped(pid));
+}
+
+/* C-g once the socket is open, which is the same close on a transport that
+ * got further: the ladder is not what collects the child here either. */
+static void test_spawn_port_cancel_after_the_connect(void)
+{
+	struct dap_transport *t = start_spawn_port("echo", DELVE_PREFIX, NULL);
+	const char *body = NULL;
+	size_t len = 0;
+	pid_t pid;
+
+	CHECK(t != NULL);
+	if (!t) {
+		return;
+	}
+	pid = dap_transport_pid(t);
+	CHECK(dap_transport_send(t, "ping", 4) == 0);
+	CHECK(pump_until_message(t, &body, &len) == 1);
+	dap_transport_close(t);
+	CHECK(child_was_reaped(pid));
+}
+
+/* A child that writes without ever announcing is refused rather than
+ * buffered: the scan's retained bytes are bounded, and a single line longer
+ * than that bound is the shape that would otherwise grow without limit. */
+static void test_spawn_port_refuses_an_unbounded_announce_scan(void)
+{
+	static char noise[DAP_TRANSPORT_MAX_ANNOUNCE_BYTES + 4096];
+	const char *extra[] = { "--announce-noise", noise, NULL };
+	struct dap_transport *t;
+
+	memset(noise, 'x', sizeof(noise) - 1);
+	noise[sizeof(noise) - 1] = '\0';
+	t = start_spawn_port("echo", DELVE_PREFIX, extra);
+	CHECK(t != NULL);
+	if (!t) {
+		return;
+	}
+	CHECK(pump_until_failed(t));
+	CHECK(dap_transport_error(t) == FRAMED_IO_ERR_TOO_LARGE);
+	dap_transport_close(t);
+}
+
+/* Once the port has been scraped, the child's standard output is an
+ * ordinary log channel and nothing else -- delve keeps writing to it, and
+ * none of it is protocol. */
+static void test_spawn_port_stdout_becomes_a_log_channel(void)
+{
+	const char *extra[]
+	    = { "--announce-after", "Building the debuggee", NULL };
+	struct dap_transport *t = start_spawn_port("echo", DELVE_PREFIX, extra);
+	const char *body = NULL;
+	size_t len = 0;
+
+	CHECK(t != NULL);
+	if (!t) {
+		return;
+	}
+	CHECK(dap_transport_send(t, "ping", 4) == 0);
+	CHECK(pump_until_message(t, &body, &len) == 1);
+	CHECK(pump_until_log_line(t, "Building the debuggee"));
+	dap_transport_close(t);
+}
+
+/* The debuggee's own output arrives on delve's standard error, and it is a
+ * BYTE STREAM: a reader that delivered it as lines would append a newline
+ * the program never printed at every chunk boundary, and would eat the
+ * carriage returns of a program that printed CRLF.  So this case asserts
+ * the bytes back exactly, trailing newline absent because the program did
+ * not print one. */
+static void test_spawn_port_stderr_arrives_as_bytes(void)
+{
+	static const char want[] = "first\r\nsecond\nno newline here";
+	const char *extra[]
+	    = { "--stderr-bytes", "first\\r\\nsecond\\nno newline here", NULL };
+	struct dap_transport *t = start_spawn_port("echo", DELVE_PREFIX, extra);
+	double deadline = monotonic_seconds() + PUMP_DEADLINE_SECONDS;
+	char got[64] = "";
+	size_t got_len = 0;
+	const char *data = NULL;
+	size_t len = 0;
+
+	CHECK(t != NULL);
+	if (!t) {
+		return;
+	}
+	dap_transport_set_stderr_bytes(t, true);
+	while (got_len < sizeof(want) - 1 && monotonic_seconds() < deadline) {
+		(void)dap_transport_flush(t);
+		while (dap_transport_next_stderr_bytes(t, &data, &len) == 1) {
+			CHECK(got_len + len < sizeof(got));
+			memcpy(got + got_len, data, len);
+			got_len += len;
+		}
+		nap_a_millisecond();
+	}
+	CHECK(got_len == sizeof(want) - 1);
+	CHECK(memcmp(got, want, got_len) == 0);
+	/* And nothing is delivered twice: the log channel no longer draws
+	 * from standard error once the bytes have been claimed, so what it
+	 * has is the child's stdout -- the announcement -- and nothing the
+	 * debuggee printed. */
+	while (dap_transport_next_log_line(t, &data, &len) == 1) {
+		CHECK(!line_contains(data, len, "no newline here"));
+		CHECK(!line_contains(data, len, "second"));
+	}
+	dap_transport_close(t);
+}
+
+/* Three channels, not two: the socket, the child's stderr and the child's
+ * stdout, so an adapter is heard when it writes on any of them. */
+static void test_spawn_port_wait_fds_report_three_channels(void)
+{
+	struct dap_transport *t = start_spawn_port("echo", DELVE_PREFIX, NULL);
+	int fds[DAP_TRANSPORT_WAIT_FDS_MAX];
+	const char *body = NULL;
+	size_t len = 0;
+
+	CHECK(t != NULL);
+	if (!t) {
+		return;
+	}
+	/* Two before the connect: there is no socket yet. */
+	CHECK(dap_transport_wait_fds(t, fds, DAP_TRANSPORT_WAIT_FDS_MAX) == 2);
+	CHECK(dap_transport_send(t, "ping", 4) == 0);
+	CHECK(pump_until_message(t, &body, &len) == 1);
+	CHECK(dap_transport_wait_fds(t, fds, DAP_TRANSPORT_WAIT_FDS_MAX) == 3);
+	CHECK(fds[0] >= 0 && fds[1] >= 0 && fds[2] >= 0);
+	CHECK(fds[0] != fds[1] && fds[1] != fds[2] && fds[0] != fds[2]);
+	dap_transport_close(t);
+}
+
+/* A prefix a scanner cannot take is a caller bug, refused before anything
+ * is spawned rather than turning into a transport that can never succeed. */
+static void test_spawn_port_refuses_a_prefix_it_cannot_scan(void)
+{
+	const char *argv[] = { "python3", script_path, "--mode", "die", NULL };
+	struct kg_spawn_request req = { .argv = argv, .stdin_fd = -1 };
+
+	CHECK(dap_transport_start_spawn_port(&req, NULL) == NULL);
+	CHECK(errno == EINVAL);
+	CHECK(dap_transport_start_spawn_port(&req, "") == NULL);
+	CHECK(errno == EINVAL);
+}
+
 static void resolve_script_path(const char *argv0)
 {
 	const char *slash = strrchr(argv0, '/');
@@ -854,5 +1229,18 @@ int main(int argc, char **argv)
 	RUN(test_response_is_delivered_before_the_end_of_stream);
 	RUN(test_wait_fds_report_the_stream_and_the_log);
 	RUN(test_wait_fds_are_empty_once_the_transport_has_failed);
+	RUN(test_spawn_port_scrapes_the_announce_and_connects);
+	RUN(test_spawn_port_accepts_a_crlf_announce);
+	RUN(test_spawn_port_refuses_an_invalid_port);
+	RUN(test_spawn_port_announce_on_stderr_fails_loudly);
+	RUN(test_spawn_port_child_exit_before_the_announce);
+	RUN(test_spawn_port_child_exit_after_the_announce);
+	RUN(test_spawn_port_cancel_during_the_announce);
+	RUN(test_spawn_port_cancel_after_the_connect);
+	RUN(test_spawn_port_refuses_an_unbounded_announce_scan);
+	RUN(test_spawn_port_stdout_becomes_a_log_channel);
+	RUN(test_spawn_port_stderr_arrives_as_bytes);
+	RUN(test_spawn_port_wait_fds_report_three_channels);
+	RUN(test_spawn_port_refuses_a_prefix_it_cannot_scan);
 	return test_summary();
 }

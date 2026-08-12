@@ -1,6 +1,7 @@
 #ifndef KG_DAP_TRANSPORT_H
 #define KG_DAP_TRANSPORT_H
 
+#include "announce.h"
 #include "framed_io.h"
 
 #include <stddef.h>
@@ -31,14 +32,36 @@
  *                |             |                       | the group, reap
  *   tcp attach   | none        | one socket            | shutdown/close only
  *   spawn-port   | DAP         | socket + child log    | close socket, drain
- *   (subplan 04) |             | pipes                 | logs, kill/reap
+ *                |             | pipes                 | logs, kill/reap
  *   lsp-sibling  | LSP         | one DAP socket        | close that socket
  *   (subplan 03) |             |                       | only
  *
  * `enum dap_transport_kind` carries all four rows because the table is the
- * contract, not the implementation status: the two unbuilt kinds have no
- * constructor yet, and dap_transport_kind_owns_child() answers for all four
- * so the question is asked of data rather than re-derived per call site.
+ * contract, not the implementation status, and
+ * dap_transport_kind_owns_child() answers for all four so the question is
+ * asked of data rather than re-derived per call site.
+ *
+ * THE SPAWN-PORT ROW is the one with a state machine rather than a
+ * constructor that is done when it returns.  `dlv dap` is TCP-only -- no
+ * stdio mode exists -- and it prints the port it chose on its own standard
+ * output, so kg spawns it, scrapes that one line, connects, and only then
+ * has a protocol stream:
+ *
+ *   SPAWNING -> WAIT_ANNOUNCE -> CONNECTING -> OPEN
+ *                            any failure -> the sticky error, then close
+ *
+ * Before the connect, stdout is scanned incrementally and still drained to
+ * a bounded log destination; afterwards it stays a log channel and never
+ * becomes the frame stream.  Standard error is always drained, and on this
+ * kind it is also where a debuggee's own output arrives (see
+ * dap_transport_set_stderr_bytes()).  End of the child's stdout before the
+ * announce is a startup failure; end of it after the connect is not the
+ * socket's end.  Every failure and cancel path closes the socket and the
+ * log descriptors, signals the owned process group and reaps it.
+ *
+ * kg never globs or deletes `__debug_bin*`: delve owns its build
+ * artefact's cleanup, and an editor that deleted files matching a pattern
+ * in a user's directory would be a worse bug than a stale binary.
  *
  * THE END-OF-SESSION LADDER [M-8].  A debug adapter that has answered
  * `disconnect` may exit at once (lldb-dap) or stay alive indefinitely
@@ -105,8 +128,11 @@
  * never depends on a launch response arriving. */
 #define DAP_TRANSPORT_NO_DEADLINE 0u
 /* Spawn to first byte, or to a port announce on the kinds that scrape one.
- * Enforced by the announce scan, which arrives with the spawn-port kind
- * (subplan 04); v1's two kinds have nothing to announce. */
+ * Enforced by the announce scan; the kinds with nothing to announce never
+ * start this clock.  Measured, `dlv dap` reaches "listening" in 4-10 ms, so
+ * this is three orders of magnitude of room -- it is the deadline for a
+ * child that will never announce (one told to log elsewhere, one that is
+ * not an adapter at all), not for a slow one. */
 #define DAP_TRANSPORT_SPAWN_TIMEOUT_MS 10000u
 /* connect() to a listening adapter.  Enforced here: a nonblocking connect
  * that neither completes nor is refused would otherwise wedge a session
@@ -125,10 +151,18 @@
 /* SIGTERM to exit, and then SIGKILL to be reaped.  Enforced here. */
 #define DAP_TRANSPORT_KILL_TIMEOUT_MS 1000u
 
-/* The three deadlines this module enforces, overridable per transport so a
+/* How many bytes of a child's stdout may be retained while the scan has not
+ * found the announce yet.  A bound on the scan and not on the log: the
+ * bytes the scan has passed are delivered to the log destination as usual,
+ * and this is what the scan may hold ONTO -- a child that writes megabytes
+ * of banner without ever announcing is refused rather than buffered. */
+#define DAP_TRANSPORT_MAX_ANNOUNCE_BYTES (64u * 1024u)
+
+/* The four deadlines this module enforces, overridable per transport so a
  * test can drive the ladder without waiting one out.  Zero means "already
  * expired", which is a legal policy and the one the tests use. */
 struct dap_transport_deadlines {
+	unsigned spawn_ms;
 	unsigned connect_ms;
 	unsigned shutdown_ms;
 	unsigned kill_ms;
@@ -202,6 +236,56 @@ struct dap_transport *dap_transport_attach_tcp(
  * Returns NULL only on allocation failure. */
 struct dap_transport *dap_transport_attach_socket(int fd);
 
+/* Spawn `req`'s adapter, wait for it to announce the port it is listening
+ * on, and connect there.  The one constructor whose work is not finished
+ * when it returns: what comes back is a live transport in WAIT_ANNOUNCE,
+ * and it becomes usable, or fails, on a later dap_transport_flush() or
+ * dap_transport_next_message() -- the same rule dap_transport_attach_tcp()
+ * already has for its connect, extended by one step in front of it.
+ *
+ * `announce_prefix` is the exact byte string the port follows, and it must
+ * INCLUDE THE HOST: `"DAP server listening at: 127.0.0.1:"`, never
+ * `"...listening at: "`.  Two reasons, both load-bearing.  A digits scan
+ * after the shorter prefix reads `127` out of `127.0.0.1` and connects to
+ * port 127.  And, more seriously, a client that took a host out of announce
+ * text would let any line the child prints -- including anything the child
+ * echoed from somewhere else -- redirect kg's connect to an arbitrary
+ * address; a trusted host belongs in an explicit configuration field.  So
+ * the parse is strict: the prefix, then decimal digits to the end of the
+ * line, port 1-65535, connecting only to loopback.  Safe because kg is what
+ * passes `--listen 127.0.0.1:0` in the first place.
+ *
+ * `req->stdin_fd` must be -1, as for dap_transport_start_stdio().  Returns
+ * NULL with errno from the spawn when the child could not be started, and
+ * with EINVAL when `announce_prefix` is missing or is not one a scanner
+ * accepts. */
+struct dap_transport *dap_transport_start_spawn_port(
+    const struct kg_spawn_request *req, const char *announce_prefix);
+
+/* The prefix a spawn-port transport is waiting for, or NULL on every other
+ * kind.  It exists so the failure a user reads names what kg was looking
+ * for -- an adapter told to log somewhere else never announces, and
+ * "initialize timed out" would send them hunting in the wrong place. */
+const char *dap_transport_announce_prefix(const struct dap_transport *t);
+
+/* Whether the port announcement has not arrived yet, which is what makes a
+ * failed transport an ANNOUNCE failure rather than a protocol one. */
+bool dap_transport_awaiting_announce(const struct dap_transport *t);
+
+/* Deliver the adapter's standard error as bytes rather than as log lines.
+ *
+ * The default is lines, because for every other adapter that channel is the
+ * adapter complaining about itself.  delve is the exception measured in
+ * doc/plans/dap/04-go.md: the DEBUGGEE's stdout and stderr arrive there,
+ * mixed with delve's own diagnostics, and kg cannot tell them apart -- so
+ * the flag is named for what it does to the channel rather than for what is
+ * on it.  Once set, dap_transport_next_log_line() stops drawing from
+ * standard error and dap_transport_next_stderr_bytes() is the only way to
+ * read it, so nothing is delivered twice. */
+void dap_transport_set_stderr_bytes(struct dap_transport *t, bool on);
+int dap_transport_next_stderr_bytes(
+    struct dap_transport *t, const char **data, size_t *len);
+
 /* Connect to a listening adapter that wants a SECRET before the first
  * frame, and queue that secret ahead of everything else.
  *
@@ -258,16 +342,19 @@ int dap_transport_flush(struct dap_transport *t);
 int dap_transport_next_message(
     struct dap_transport *t, const char **body, size_t *len);
 
-/* The next complete line the adapter wrote to its standard error, without
- * its newline, or 0 when there is no whole line to give.  Borrowed under
+/* The next complete line the adapter logged, without its newline, or 0 when
+ * there is no whole line to give.  Borrowed under
  * dap_transport_next_message()'s rule exactly.
  *
- * Standard error is a side channel and never fails the transport: it is a
- * separate pipe, so nothing on it can desynchronise the framing, and a
- * channel that ended, errored or never existed (every kind but stdio, in
- * v1) simply has no more lines.  The last line before end of stream is
- * delivered even unterminated, since an adapter that died mid-sentence is
- * the one whose sentence is worth reading. */
+ * Two channels can feed it: the adapter's standard error (unless
+ * dap_transport_set_stderr_bytes() took that one over) and, on the
+ * spawn-port kind, the child's standard output once the announce has been
+ * scraped off it.  Both are side channels and neither ever fails the
+ * transport: they are separate pipes, so nothing on them can desynchronise
+ * the framing, and a channel that ended, errored or never existed simply
+ * has no more lines.  The last line before end of stream is delivered even
+ * unterminated, since an adapter that died mid-sentence is the one whose
+ * sentence is worth reading. */
 int dap_transport_next_log_line(
     struct dap_transport *t, const char **line, size_t *len);
 
@@ -320,8 +407,9 @@ enum dap_transport_shutdown_state dap_transport_shutdown_state(
     const struct dap_transport *t);
 
 /* How many descriptors dap_transport_wait_fds() may write: the protocol
- * stream and the adapter's stderr. */
-#define DAP_TRANSPORT_WAIT_FDS_MAX 2
+ * stream, the adapter's stderr, and -- on the spawn-port kind -- the child's
+ * stdout, which is the announce channel before it is a log channel. */
+#define DAP_TRANSPORT_WAIT_FDS_MAX 3
 
 /* The descriptors this transport is waiting to hear from, at most `max` of
  * them, counted by the return value.  This module polls nothing itself; it

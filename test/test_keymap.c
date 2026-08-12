@@ -17,6 +17,7 @@
  * test_cmd does. */
 
 #include "../src/cmd.h"
+#include "../src/dap.h"
 #include "../src/def.h"
 #include "../src/kbd.h"
 #include "../src/keybind.h"
@@ -590,10 +591,120 @@ static void test_builtin_global_map_resolves(void)
 	keymap_reset();
 }
 
-/* The ten production maps, keybind.c's lazy global user map, a
- * session-shaped minor map and four configuration maps all coexist.  The
- * real post-DAP four-map proof belongs after the three DAP defaults exist;
- * this pre-DAP case also exercises how their minor prefixes will meet C-c.
+#ifdef KG_USE_DAP
+/* dap_init() runs before the init file is read, and what it leaves behind
+ * is three maps that do nothing yet: `define-key` creates a map it cannot
+ * find at KEYMAP_LAYER_MAJOR (src/lisp_cmd.c), so an init.el that ran first
+ * would claim `dap` and `dap-breakpoint` in the wrong layer permanently,
+ * and a map that was active from startup would shadow global keys before a
+ * session exists.  Both halves of that rule are asserted here, together
+ * with the layer each map was created in -- asked by what the layers do,
+ * since a map does not report its own. */
+static void test_dap_maps_are_created_inactive(void)
+{
+	static const char *const names[]
+	    = { "dap-breakpoint", "dap", "dap-info" };
+	struct keymap *info, *session, *breakpoints;
+	struct keymap_usage usage;
+	size_t i;
+
+	keymap_reset();
+	dap_init();
+	usage = keymap_test_usage();
+	CHECKF(usage.maps == 3, "dap_init() created %d maps, expected 3",
+	    usage.maps);
+	CHECKF(usage.entries == 0, "dap_init() bound %d keys, expected none",
+	    usage.entries);
+	/* "dap-breakpoint", "dap" and "dap-info" with their terminators. */
+	CHECKF(usage.name_bytes == 28,
+	    "the debugger map names cost %d bytes, expected 28",
+	    usage.name_bytes);
+	for (i = 0; i < sizeof(names) / sizeof(*names); i++) {
+		struct keymap *map = keymap_find(names[i]);
+
+		CHECKF(map != NULL, "%s was not created", names[i]);
+		CHECKF(!keymap_is_active(map), "%s is active before a session",
+		    names[i]);
+	}
+
+	/* dap-info is the major map of the debugger's own buffers: activate
+	 * it and it is the major map in effect. */
+	info = keymap_find("dap-info");
+	CHECK(keymap_active_major() == NULL);
+	keymap_set_active(info, 1);
+	CHECK(keymap_active_major() == info);
+	CHECK(keymap_bind(info, "M-a", "forward-word") == 0);
+
+	/* The other two are minor, which is what makes them win over the
+	 * active major's binding of the same sequence. */
+	session = keymap_find("dap");
+	breakpoints = keymap_find("dap-breakpoint");
+	keymap_set_active(session, 1);
+	CHECK(keymap_bind(session, "M-a", "forward-char") == 0);
+	CHECK(lookup("M-a").map == session);
+	keymap_set_active(session, 0);
+	keymap_set_active(breakpoints, 1);
+	CHECK(keymap_bind(breakpoints, "M-a", "backward-char") == 0);
+	CHECK(lookup("M-a").map == breakpoints);
+	keymap_reset();
+}
+#else
+/* The disabled build creates nothing: a map is a claim on key sequences and
+ * on the map table, and `kg -V` says -dap.  An init.el binding into a dap
+ * map in this build gets what define-key makes for any unknown name, a
+ * major map nothing activates. */
+static void test_dap_stub_creates_no_maps(void)
+{
+	struct keymap *fallback;
+
+	keymap_reset();
+	dap_init();
+	CHECK(keymap_test_usage().maps == 0);
+	CHECK(keymap_find("dap") == NULL);
+	CHECK(keymap_find("dap-breakpoint") == NULL);
+	CHECK(keymap_find("dap-info") == NULL);
+	/* What `(define-key "dap" ...)` falls back to here: an ordinary major
+	 * map, in the layer src/lisp_cmd.c creates unknown names in.  Nothing
+	 * else in this build claims the name or the layer, which is the whole
+	 * of why it is harmless. */
+	fallback = keymap_create("dap", KEYMAP_LAYER_MAJOR);
+	CHECK(fallback != NULL);
+	CHECK(keymap_bind(fallback, "M-a", "forward-char") == 0);
+	CHECK(keymap_active_major() == fallback);
+	CHECK(lookup("M-a").map == fallback);
+	keymap_reset();
+}
+#endif /* KG_USE_DAP */
+
+/* The minor map the headroom case exercises: the real one when the
+ * debugger is built -- `dap` is KEYMAP_LAYER_MINOR's first shipped
+ * consumer, and dap_init() leaves it switched off -- and a stand-in
+ * otherwise. */
+static struct keymap *session_minor_map(void)
+{
+#ifdef KG_USE_DAP
+	struct keymap *map = keymap_find("dap");
+
+	keymap_set_active(map, 1);
+	return map;
+#else
+	return keymap_create("session-minor", KEYMAP_LAYER_MINOR);
+#endif
+}
+
+/* Ten built-ins, the debugger's three, keybind.c's lazy global user map and
+ * four configuration maps is exactly the map table; the build without a
+ * debugger creates its own minor map instead and stops two short. */
+#ifdef KG_USE_DAP
+#define KEYMAP_HEADROOM_MAPS 18
+#else
+#define KEYMAP_HEADROOM_MAPS 16
+#endif
+
+/* The ten production maps, the debugger's three, keybind.c's lazy global
+ * user map and four configuration maps all coexist, and the four are bound
+ * in: capacity exists for user configuration, not merely for kg to start.
+ * The case also exercises how a minor prefix meets the user's C-c map.
  *
  * Run last, and deliberately: keybind.c caches its map in a static that
  * keymap_reset() cannot clear, so nothing may bind a C-c key after the
@@ -612,6 +723,7 @@ static void test_minor_prefix_and_configuration_headroom(void)
 
 	keymap_reset();
 	key_install_builtin_maps();
+	dap_init();
 	CHECKF(
 	    keymap_find("xref") != NULL, "the xref mode map was not created");
 	CHECKF(keymap_find("diagnostics") != NULL,
@@ -625,7 +737,7 @@ static void test_minor_prefix_and_configuration_headroom(void)
 
 	/* A minor prefix may shadow one C-c branch without swallowing a
 	 * different branch in the global user map. */
-	minor = keymap_create("session-minor", KEYMAP_LAYER_MINOR);
+	minor = session_minor_map();
 	CHECK(minor != NULL);
 	CHECK(keymap_bind(minor, "C-c C-k", "kill-compilation") == 0);
 	CHECK(lookup("C-c").result == KEYMAP_PREFIX);
@@ -640,9 +752,6 @@ static void test_minor_prefix_and_configuration_headroom(void)
 	CHECK(keymap_bind(minor, "C-c C-g", "forward-char") != 0);
 	CHECK(lookup("C-c C-g").result == KEYMAP_NO_MATCH);
 
-	/* This is the useful pre-DAP baseline, not the final headroom proof:
-	 * protocol Stage 1 repeats four user maps after the three real DAP
-	 * maps and their defaults have been installed. */
 	for (i = 0; i < sizeof(configured) / sizeof(*configured); i++) {
 		configured[i] = keymap_create(names[i], KEYMAP_LAYER_MAJOR);
 		CHECKF(
@@ -651,8 +760,8 @@ static void test_minor_prefix_and_configuration_headroom(void)
 		    "no room for a binding in user map %s", names[i]);
 	}
 	usage = keymap_test_usage();
-	CHECKF(usage.maps == 16,
-	    "pre-DAP built-ins, user, minor and four maps use %d maps",
+	CHECKF(usage.maps == KEYMAP_HEADROOM_MAPS,
+	    "built-ins, debugger, user, minor and four maps use %d maps",
 	    usage.maps);
 	CHECK(keybind_unbind("C-c x") == 0);
 	keymap_reset();
@@ -675,6 +784,11 @@ int main(void)
 	RUN(test_storage_is_bounded);
 	RUN(test_name_pool_full_refusals_are_atomic);
 	RUN(test_builtin_global_map_resolves);
+#ifdef KG_USE_DAP
+	RUN(test_dap_maps_are_created_inactive);
+#else
+	RUN(test_dap_stub_creates_no_maps);
+#endif
 	RUN(test_minor_prefix_and_configuration_headroom);
 	return test_summary();
 }

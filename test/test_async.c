@@ -5,6 +5,7 @@
 /* test_async.c -- the fixed editor_async_* subsystem aggregate. */
 
 #include "../src/async.h"
+#include "../src/dap.h"
 #include "../src/lsp.h"
 #include "test.h"
 
@@ -42,6 +43,23 @@ static void test_no_live_subsystem_is_a_valid_empty_wait(void)
 
 	CHECK(editor_async_wait_fds(fds, KG_ASYNC_WAIT_FDS_MAX) == 0);
 	CHECK(editor_async_poll() == 0);
+}
+
+/* The debugger joined the aggregate before it had a transport, which is the
+ * one thing worth asserting about it now: it reports no descriptor in
+ * either build configuration, and the aggregate's destination bound is the
+ * exact sum of the two subsystems' -- the property that makes a later raise
+ * a compile-time question in src/async.c rather than a wait that quietly
+ * dropped an adapter. */
+static void test_dap_contributes_no_descriptor_yet(void)
+{
+	int fds[KG_ASYNC_WAIT_FDS_MAX];
+
+	static_assert(
+	    KG_ASYNC_WAIT_FDS_MAX == KG_LSP_WAIT_FDS_MAX + KG_DAP_WAIT_FDS_MAX,
+	    "the aggregate bound is the sum of the subsystem bounds");
+	CHECK(dap_wait_fds(fds, KG_ASYNC_WAIT_FDS_MAX) == 0);
+	CHECK(dap_poll() == 0);
 }
 
 #ifdef KG_USE_LSP
@@ -154,6 +172,7 @@ int main(void)
 {
 	RUN(test_invalid_destinations_write_nothing);
 	RUN(test_no_live_subsystem_is_a_valid_empty_wait);
+	RUN(test_dap_contributes_no_descriptor_yet);
 #ifdef KG_USE_LSP
 	RUN(test_live_lsp_is_aggregated_and_wakes_the_wait);
 #endif

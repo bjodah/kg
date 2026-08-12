@@ -183,6 +183,23 @@ ifeq ($(WITH_LSP),1)
 override CFLAGS += -DKG_USE_LSP=1
 endif
 
+# DAP is the optional debugger client (doc/plans/2026-08-11-dap.md), and it
+# is ON by default for WITH_LSP's reason exactly: adapters are found at run
+# time, so there is nothing to install for it and no prefix or guard file to
+# check, only the 0/1 validation.  .ci/ci-16-with-dap-0.sh keeps the
+# disabled build honest, together with its orthogonality runs against
+# WITH_LSP=0 and WITH_LISP=0.
+WITH_DAP ?= 1
+
+ifneq ($(WITH_DAP),0)
+ifneq ($(WITH_DAP),1)
+$(error WITH_DAP must be 0 or 1)
+endif
+endif
+ifeq ($(WITH_DAP),1)
+override CFLAGS += -DKG_USE_DAP=1
+endif
+
 # One stamp for the whole feature configuration, so an object compiled
 # under one set of -D flags is never mistaken for up to date under another.
 # It replaced LISP_CONFIG when the tree-sitter axis arrived, and gained the
@@ -191,7 +208,7 @@ endif
 # WITH_TREE_SITTER=1` looks unchanged to make.  Lives in $(OBJDIR) beside
 # the objects it guards.
 FEATURE_CONFIG = \
-    $(OBJDIR)/.features-lisp-$(WITH_LISP)-ts-$(WITH_TREE_SITTER)-lsp-$(WITH_LSP)
+    $(OBJDIR)/.features-lisp-$(WITH_LISP)-ts-$(WITH_TREE_SITTER)-lsp-$(WITH_LSP)-dap-$(WITH_DAP)
 
 prefix  = /usr/local
 bindir  = $(prefix)/bin
@@ -327,10 +344,34 @@ LSP_ALL = $(TESTDIR)/test_xref $(TESTDIR)/test_lsp_log \
           $(OBJDIR)/lsp_req.o \
           $(OBJDIR)/lsp_edit.o $(TESTDIR)/test_lsp_edit
 
+# The debugger client's one editor-facing header is src/dap.h, and its
+# implementation is split across two objects by what they may drag into a
+# link, not by what they do:
+#
+#   dap_core.c   dap_shutdown/dap_poll/dap_wait_fds -- the facade legs the
+#                editor calls from editor_cleanup() and from the two poll
+#                sites.  It reaches nothing but the protocol, so it joins
+#                TEST_SRCS_OBJS below, which every test binary links.
+#   dap_keymap.c dap_init(), which creates the three debugger maps.  It
+#                reaches the keymap layer, and keymap.c resolves command
+#                names through cmd.c -- so a test binary linking it would
+#                have to link the whole command table with it.  That is
+#                lsp_req.c/lsp_edit.c's situation exactly, and the reason
+#                those are outside LSP_OBJS.
+#
+# Both are compiled in every configuration, the LISP_SRCS/LSP_SRCS shape:
+# the facade's entry points exist either way, so no caller grows a
+# KG_USE_DAP conditional.  Everything BEHIND the facade (transport, client,
+# session, breakpoints) is WITH_DAP=1 only and joins DAP_SRCS in later
+# stages of doc/plans/dap/01-protocol.md.
+DAP_SRCS = dap_core.c
+DAP_EDITOR_SRCS = dap_keymap.c
+DAP_OBJS = $(addprefix $(OBJDIR)/,$(DAP_SRCS:.c=.o))
+
 # Source files
 SRCS = main.c tty.c async.c syntax.c $(SYNTAX_BACKEND_SRCS) autocomplete.c buffer.c fileio.c \
        display.c search.c basic.c word.c kbd.c yank.c undo.c help.c describe.c bufmgr.c winmgr.c winconfig.c cmd.c cmdstate.c keyevent.c keymap.c macro.c \
-       shell.c path.c rect.c $(LISP_SRCS) $(LSP_SRCS) keybind.c mode.c vgeom.c localvars.c compile.c compile_parse.c \
+       shell.c path.c rect.c $(LISP_SRCS) $(LSP_SRCS) $(DAP_SRCS) $(DAP_EDITOR_SRCS) keybind.c mode.c vgeom.c localvars.c compile.c compile_parse.c \
        compile_nav.c next_error.c occur.c register.c visit.c fileline.c xref.c lsp_log.c \
        lsp_diag.c lsp_hover.c $(LSP_EDITOR_SRCS) lsp_rename.c lsp_complete.c \
        dabbrev.c \
@@ -439,6 +480,7 @@ FUZZ_SRCS = $(TESTDIR)/fuzz_keypress.c $(TESTDIR)/fuzz_stubs.c \
 	    $(OBJDIR)/tty.c $(OBJDIR)/async.c $(OBJDIR)/macro.c $(OBJDIR)/mouse.c \
 	    $(addprefix $(OBJDIR)/,$(LISP_SRCS)) \
 	    $(addprefix $(OBJDIR)/,$(LSP_SRCS)) \
+	    $(addprefix $(OBJDIR)/,$(DAP_SRCS)) \
 	    $(OBJDIR)/keybind.c $(OBJDIR)/width.c $(OBJDIR)/cmdstate.c $(OBJDIR)/keyevent.c \
 	    $(OBJDIR)/keymap.c $(OBJDIR)/marker.c $(OBJDIR)/decor.c \
 	    $(OBJDIR)/event.c $(OBJDIR)/process.c $(OBJDIR)/process_table.c \
@@ -514,12 +556,16 @@ PTY_TESTS = $(sort $(wildcard $(TESTDIR)/pty/*.yaml))
 # $(LSP_OBJS) is here for the same reason: the LSP facade is called from
 # tty.c's idle poll and from editor_cleanup() (src/bufmgr.c), so every test
 # binary linking either one needs it.  It is one object of no-ops today.
+# $(DAP_OBJS) is here for the same reason and with the same shape: the
+# debugger facade's poll legs are called from src/async.c and its shutdown
+# from editor_cleanup().  dap_keymap.o is deliberately NOT here (see
+# DAP_EDITOR_SRCS above).
 TEST_SRCS_OBJS = $(OBJDIR)/undo.o $(OBJDIR)/buffer.o $(OBJDIR)/syntax.o \
                  $(SYNTAX_BACKEND_OBJS) \
                  $(OBJDIR)/width.o $(OBJDIR)/marker.o $(OBJDIR)/decor.o \
                  $(OBJDIR)/cmdstate.o $(OBJDIR)/event.o \
                  $(OBJDIR)/process.o $(OBJDIR)/process_table.o \
-                 $(LSP_OBJS)
+                 $(LSP_OBJS) $(DAP_OBJS)
 # The tree-sitter backend converts a capture's chars-space columns into
 # render-byte offsets with chars_to_render_col() (src/mode.c), so in that
 # configuration every test binary that links a backend needs mode.o too.
@@ -555,6 +601,9 @@ endif
 ifeq ($(WITH_LSP),1)
 override FUZZ_CFLAGS += -DKG_USE_LSP=1
 endif
+ifeq ($(WITH_DAP),1)
+override FUZZ_CFLAGS += -DKG_USE_DAP=1
+endif
 # FUZZ_CFLAGS is a complete flag set of its own rather than CFLAGS plus
 # extras, so the feature defines have to be repeated here; the link side
 # needs nothing, the keypress target already passing $(LDLIBS).
@@ -584,7 +633,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 8852
+SCC_COMPLEXITY_MAX ?= 8856
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -1482,7 +1531,13 @@ bench-lisp-toggle:
 		--json $(BENCH_TOGGLE_OUT)
 	$(MAKE) $(TARGET)
 
-$(TESTDIR)/%.o: $(TESTDIR)/%.c $(HDRS)
+# The feature stamp guards these for $(PERF_SRC_OBJS)' reason exactly: a
+# test object is compiled with CFLAGS, feature defines and all, and the
+# suites that read them (test/test_async.c, test/test_keymap.c) assert
+# DIFFERENT things per configuration.  Without this, `make; make WITH_DAP=0
+# check-unit` links a stale test object against freshly disabled src/*.o
+# and fails in a way that is neither configuration.
+$(TESTDIR)/%.o: $(TESTDIR)/%.c $(HDRS) $(FEATURE_CONFIG)
 	$(CC) $(CFLAGS) -I$(OBJDIR) -c $< -o $@
 
 $(TESTDIR)/test_lisp.o: $(OBJDIR)/lisp.h

@@ -47,6 +47,7 @@
 #include "bufhandle.h"
 #include "compile.h"
 #include "compile_nav.h"
+#include "dap.h"
 #include "def.h"
 #include "event.h"
 #include "kbd.h"
@@ -111,6 +112,7 @@ void init_editor(void)
 	compile_nav_install();
 	kg_process_table_init();
 	lsp_init();
+	dap_init();
 	lsp_log_install();
 	lsp_diag_install();
 	atexit(editor_cleanup);
@@ -163,6 +165,15 @@ static int usage(FILE *fp, int rc)
 #define KG_FEATURE_LSP "-lsp"
 #endif
 
+/* The debugger client, for the LSP client's reason exactly: which adapters
+ * are installed is a run-time question, whether this build can drive one is
+ * not. */
+#ifdef KG_USE_DAP
+#define KG_FEATURE_DAP "+dap"
+#else
+#define KG_FEATURE_DAP "-dap"
+#endif
+
 /* Whether the user turned the startup screen off.  Emacs decides this
  * once, after the init file has had its say, and so does kg -- main()
  * calls this between loading init.el and painting the first frame, and
@@ -199,9 +210,10 @@ int main(int argc, char **argv)
 			readonly = 1;
 			break;
 		case 'V':
-			printf("kg %s %s %s %s\n", KG_VERSION,
+			printf("kg %s %s %s %s %s\n", KG_VERSION,
 			    kg_lisp_active() ? "+lisp" : "-lisp",
-			    KG_FEATURE_TREE_SITTER, KG_FEATURE_LSP);
+			    KG_FEATURE_TREE_SITTER, KG_FEATURE_LSP,
+			    KG_FEATURE_DAP);
 			return 0;
 		case 'h':
 			return usage(stdout, 0);

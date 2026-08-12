@@ -20,6 +20,7 @@
 #include "bufmgr_internal.h"
 #include "cmdstate.h"
 #include "compile.h"
+#include "dap.h"
 #include "decor.h"
 #include "def.h"
 #include "edit.h"
@@ -3085,6 +3086,11 @@ void editor_cleanup(void)
 	 *     here -- and if a later change made it run, it would find an
 	 *     empty document table and send nothing. */
 	lsp_shutdown();
+	/* And the debugger's adapters in the same window, for the reason the
+	 * order above spells out: they are kg-owned children, and a session
+	 * still running when the loop below frees the buffers would be one
+	 * pointing into storage that is gone. */
+	dap_shutdown();
 
 	/* Every window may own a visual-line geometry index (src/vgeom.h);
 	 * freeing it here is what the "session teardown" leg of its

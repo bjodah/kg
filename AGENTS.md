@@ -193,6 +193,18 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
     runner discovers its steps with a shell glob, so no `jq`.  The one
     thing the image does not carry yet is a tree-sitter prefix, which is
     why `ci-13` builds one per run there.
+- Three optional subsystems are build axes that all default to 1 and all
+  cost nothing to have on -- `WITH_LISP`, `WITH_LSP` and `WITH_DAP` (the
+  debugger; servers and adapters are found at run time, so none of them has
+  a build-time dependency). Each is validated 0/1 in the Makefile, spells
+  itself into the ONE feature stamp's name, and answers `kg -V` with a
+  `+word`/`-word` that `requires_feature:` in a PTY case reads. The
+  disabled build of each is a CI lane and nothing else covers it:
+  `.ci/ci-08-with-lisp-0.sh`, `.ci/ci-14-with-lsp-0.sh`,
+  `.ci/ci-16-with-dap-0.sh`. A facade module (`src/lisp.h`, `src/lsp.h`,
+  `src/dap.h`) is compiled in both configurations so no other module ever
+  carries a `KG_USE_*` conditional; the disabled half does nothing and says
+  so where a user would otherwise wonder.
 - To iterate on one CI gate, run its script directly, e.g.
   `.ci/ci-01-*.sh`; shared defaults come from `.ci/ci-env.sh`.
 - `CC` and `CFLAGS` are overridable on the make command line, e.g.
@@ -202,7 +214,7 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   `CC` is silently ignored.
 - Final green light comes from running `.ci/run-ci-steps.sh` (static
   analysis, sanitizers, compilation warnings as errors...). The runner
-  dispatches numbered scripts `.ci/ci-01-*.sh` through `.ci/ci-15-*.sh`;
+  dispatches numbered scripts `.ci/ci-01-*.sh` through `.ci/ci-16-*.sh`;
   run one directly when iterating on a specific phase. The step list is a
   glob, so a new `.ci/ci-NN-*.sh` joins the run with no runner change.
 - A step that costs minutes rather than seconds is *expensive*, and the

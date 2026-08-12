@@ -1,7 +1,6 @@
 #ifndef KG_DAP_TRANSPORT_H
 #define KG_DAP_TRANSPORT_H
 
-#include "announce.h"
 #include "framed_io.h"
 
 #include <stddef.h>
@@ -24,7 +23,7 @@
  *
  * OWNERSHIP.  A close path must never signal a child it did not start, and
  * every child it did start must be reaped on every exit.  The four
- * arrangements, of which v1 implements the first two:
+ * arrangements, all of which are built:
  *
  *   kind         | child owner | protocol fds          | close backstop
  *   -------------+-------------+-----------------------+---------------------
@@ -34,7 +33,7 @@
  *   spawn-port   | DAP         | socket + child log    | close socket, drain
  *                |             | pipes                 | logs, kill/reap
  *   lsp-sibling  | LSP         | one DAP socket        | close that socket
- *   (subplan 03) |             |                       | only
+ *                |             |                       | only
  *
  * `enum dap_transport_kind` carries all four rows because the table is the
  * contract, not the implementation status, and

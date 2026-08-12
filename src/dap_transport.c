@@ -4,6 +4,7 @@
 
 #include "dap_transport.h"
 
+#include "announce.h"
 #include "process.h"
 
 #include <errno.h>

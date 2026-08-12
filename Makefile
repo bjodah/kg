@@ -296,9 +296,15 @@ LISP_OBJS = $(addprefix $(OBJDIR)/,$(LISP_SRCS:.c=.o))
 # was renamed out of lsp_json.c because both protocols' bodies are JSON,
 # and src/dap_client.c (stage 3) is the second client to parse one, so a
 # WITH_LSP=0 WITH_DAP=1 build needs it as much as the default build does.
+#
+# The endpoint announce scanner joined them when the debugger grew its
+# spawn-port kind: a `dlv dap` prints the port it bound on its own stdout
+# and src/dap_transport.c parses that line with the same bounded scanner
+# nbcode's announcement goes through, so a WITH_LSP=0 WITH_DAP=1 build
+# needs it too.
 PROTOCOL_SRCS =
 ifneq ($(filter 1,$(WITH_LSP) $(WITH_DAP)),)
-PROTOCOL_SRCS += framed_io.c json.c
+PROTOCOL_SRCS += framed_io.c json.c announce.c
 endif
 PROTOCOL_OBJS = $(addprefix $(OBJDIR)/,$(PROTOCOL_SRCS:.c=.o))
 
@@ -312,7 +318,7 @@ PROTOCOL_OBJS = $(addprefix $(OBJDIR)/,$(PROTOCOL_SRCS:.c=.o))
 # it: the JSON, client and server-registry files join the same list.
 LSP_SRCS = lsp_core.c
 ifeq ($(WITH_LSP),1)
-LSP_SRCS += announce.c lsp_transport.c lsp_uri.c lsp_client.c lsp_server.c \
+LSP_SRCS += lsp_transport.c lsp_uri.c lsp_client.c lsp_server.c \
             lsp_sync.c
 endif
 # The two WITH_LSP=1 modules that reach the whole editor -- lsp_req.c takes
@@ -352,7 +358,8 @@ LSP_OBJS = $(addprefix $(OBJDIR)/,$(LSP_SRCS:.c=.o))
 LSP_ALL = $(TESTDIR)/test_xref $(TESTDIR)/test_lsp_log \
           $(TESTDIR)/test_lsp_diag \
           $(OBJDIR)/framed_io.o $(OBJDIR)/announce.o $(OBJDIR)/lsp_transport.o \
-          $(TESTDIR)/test_framed_io $(TESTDIR)/test_announce $(TESTDIR)/test_lsp_transport \
+          $(TESTDIR)/test_framed_io $(TESTDIR)/test_announce \
+          $(TESTDIR)/test_lsp_transport \
           $(OBJDIR)/json.o $(TESTDIR)/test_lsp_json \
           $(OBJDIR)/lsp_uri.o \
           $(OBJDIR)/lsp_client.o $(OBJDIR)/lsp_server.o \
@@ -500,14 +507,15 @@ endif
 # lsp_json.c; the suite is the JSON layer's, whichever client parses with
 # it.
 ifneq ($(PROTOCOL_SRCS),)
-TESTBINS += $(TESTDIR)/test_framed_io $(TESTDIR)/test_lsp_json
+TESTBINS += $(TESTDIR)/test_framed_io $(TESTDIR)/test_lsp_json \
+            $(TESTDIR)/test_announce
 endif
 # Same per-axis rule: the transport's suite links src/lsp_transport.o,
 # which only a WITH_LSP=1 build has.  A WITH_LSP=0 tree has no transport
 # to test -- the facade it does have is three no-ops that every other
 # binary already links.
 ifeq ($(WITH_LSP),1)
-TESTBINS += $(TESTDIR)/test_announce $(TESTDIR)/test_lsp_transport \
+TESTBINS += $(TESTDIR)/test_lsp_transport \
             $(TESTDIR)/test_lsp_client $(TESTDIR)/test_lsp_sync \
             $(TESTDIR)/test_lsp_log $(TESTDIR)/test_xref \
             $(TESTDIR)/test_lsp_diag $(TESTDIR)/test_lsp_edit
@@ -1763,14 +1771,17 @@ $(FUZZBIN_FRAMES): $(TESTDIR)/fuzz_frames.c $(OBJDIR)/framed_io.c \
 # The whole protocol stack under the harness, and nothing else: the client
 # holds no editor state, so this is the same four files its unit suite
 # links.
+# announce.c is linked rather than stubbed: the transport's spawn-port kind
+# composes the real scanner, and a stub would make the fuzzer's transport a
+# different object from the editor's.
 $(FUZZBIN_DAP_DISPATCH): $(TESTDIR)/fuzz_dap_dispatch.c \
                    $(OBJDIR)/dap_client.c $(OBJDIR)/dap_transport.c \
-                   $(OBJDIR)/framed_io.c $(OBJDIR)/json.c \
-                   $(OBJDIR)/process.c $(HDRS)
+                   $(OBJDIR)/announce.c $(OBJDIR)/framed_io.c \
+                   $(OBJDIR)/json.c $(OBJDIR)/process.c $(HDRS)
 	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ \
 		$(TESTDIR)/fuzz_dap_dispatch.c $(OBJDIR)/dap_client.c \
-		$(OBJDIR)/dap_transport.c $(OBJDIR)/framed_io.c \
-		$(OBJDIR)/json.c $(OBJDIR)/process.c
+		$(OBJDIR)/dap_transport.c $(OBJDIR)/announce.c \
+		$(OBJDIR)/framed_io.c $(OBJDIR)/json.c $(OBJDIR)/process.c
 
 $(TESTDIR)/fe_fuzz.o: fe/fe.c fe/fe.h fe/fe_internal.h
 	$(FUZZ_CC) $(FE_FUZZ_CFLAGS) -c $< -o $@

@@ -81,24 +81,27 @@ void dap_config_error_format(
  * environment override for the same reason: there is no command line to
  * replace, and the way to point kg at another nbcode is
  * KG_LSP_SERVER_JAVA. */
+/* The field order is the analyser's, not the reader's: every pointer
+ * first, then the enum, then the bool, which is what leaves no padding to
+ * complain about (clang-analyzer-optin.performance.Padding). */
 static const struct {
 	const char *name;
 	const char *adapter_id;
 	const char *env;
 	const char *lsp_language;
-	enum dap_transport_kind transport;
 	const char *cwd;
 	const char *announce_prefix;
-	bool route_stderr_to_output;
 	const char *argv[6];
+	enum dap_transport_kind transport;
+	bool route_stderr_to_output;
 } builtin_adapter_table[] = {
-	{ "lldb-dap", "lldb-dap", "KG_DAP_ADAPTER_LLDB", "",
-	    DAP_TRANSPORT_STDIO, "", "", false, { "lldb-dap", NULL } },
-	{ "debugpy", "debugpy", "KG_DAP_ADAPTER_DEBUGPY", "",
-	    DAP_TRANSPORT_STDIO, "", "", false,
-	    { "python3", "-m", "debugpy.adapter", NULL } },
-	{ "nbcode-java", "nbcode-java", "", "java", DAP_TRANSPORT_LSP_SIBLING,
-	    "", "", false, { NULL } },
+	{ "lldb-dap", "lldb-dap", "KG_DAP_ADAPTER_LLDB", "", "", "",
+	    { "lldb-dap", NULL }, DAP_TRANSPORT_STDIO, false },
+	{ "debugpy", "debugpy", "KG_DAP_ADAPTER_DEBUGPY", "", "", "",
+	    { "python3", "-m", "debugpy.adapter", NULL }, DAP_TRANSPORT_STDIO,
+	    false },
+	{ "nbcode-java", "nbcode-java", "", "java", "", "", { NULL },
+	    DAP_TRANSPORT_LSP_SIBLING, false },
 	/* delve, and the three columns nothing before it needed.
 	 *
 	 * `dlv dap` is TCP-only, so kg picks the port (`127.0.0.1:0`) and
@@ -116,10 +119,10 @@ static const struct {
 	 * And the debuggee's stdout and stderr arrive on delve's own
 	 * standard error rather than as `output` events, which is what the
 	 * last column routes. */
-	{ "delve", "delve", "KG_DAP_ADAPTER_DELVE", "",
-	    DAP_TRANSPORT_SPAWN_PORT, "${workspaceRoot}",
-	    "DAP server listening at: 127.0.0.1:", true,
-	    { "dlv", "dap", "--listen", "127.0.0.1:0", NULL } },
+	{ "delve", "delve", "KG_DAP_ADAPTER_DELVE", "", "${workspaceRoot}",
+	    "DAP server listening at: 127.0.0.1:",
+	    { "dlv", "dap", "--listen", "127.0.0.1:0", NULL },
+	    DAP_TRANSPORT_SPAWN_PORT, true },
 };
 
 /* The launch configurations that exist with no file at all.

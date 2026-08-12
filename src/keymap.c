@@ -11,7 +11,14 @@
  * bind that would not fit fails and leaves the map as it was.
  *
  * Eighteen maps hold the editor's ten built-ins, three optional debugger
- * maps, the global user map and four maps owned by configuration. */
+ * maps, the global user map and four maps owned by configuration.
+ *
+ * Exhaustion of any of the three is SILENT, which is why they are sized
+ * with room rather than to fit: a full map table makes keymap_create()
+ * answer nullptr, so a user's `(define-key "my-mode-map" ...)` does not
+ * create its map at all, and a full entry table or name pool makes
+ * keymap_bind() refuse, which leaves that key to the dispatch switch.
+ * Either way the binding simply does not work and nobody is told. */
 static constexpr int keymap_max_maps = 18;
 static constexpr int keymap_max_entries = 256;
 /* The name pool holds every map name AND every command name a binding

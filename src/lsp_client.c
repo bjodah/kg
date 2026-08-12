@@ -511,6 +511,14 @@ static struct kg_json *error_doc(int code, const char *message)
  * died in its own startup.  Neither guesses which of those it was, because
  * kg cannot know: it reports what it saw.
  *
+ * ERR_PROTOCOL has two arms for the same kind of reason.  Bytes that are
+ * not framing are the server's protocol being wrong, and saying so sends
+ * somebody to look at a process that is still running.  A stream that
+ * ended part-way through a frame is a server that died mid-reply -- a
+ * clangd the OOM killer took while it was writing -- and calling that
+ * malformed framing blames the wrong thing entirely; the transport already
+ * knows which it was.
+ *
  * LSP_TRANSPORT_OK is the child dying with the stream still healthy, which
  * is what "server exited" has always meant. */
 static const char *transport_death_text(struct lsp_client *c)
@@ -523,7 +531,9 @@ static const char *transport_death_text(struct lsp_client *c)
 	case LSP_TRANSPORT_ERR_IO:
 		return "the connection to the server failed";
 	case LSP_TRANSPORT_ERR_PROTOCOL:
-		return "the server sent a malformed frame";
+		return lsp_transport_error_truncated(c->t)
+		    ? "the server stopped in the middle of a reply"
+		    : "the server sent a malformed frame";
 	case LSP_TRANSPORT_ERR_TOO_LARGE:
 		return lsp_transport_error_outbound(c->t)
 		    ? "kg could not keep up with the server"

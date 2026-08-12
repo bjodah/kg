@@ -87,7 +87,11 @@ void kg_announce_invalidate(struct kg_announce_scanner *scanner);
 /* Locate the secret suffix a configured rule would redact, even when the
  * rest of the endpoint is malformed.  `tag` may be NULL; the two span
  * outputs are relative to `line`.  The bytes themselves are never copied
- * or formatted by this helper. */
+ * or formatted by this helper.
+ *
+ * A NULL scanner is a wire with no announce rules on it and answers false,
+ * which is also how kg_announce_redact_line() below copies such a line out
+ * whole: no rule means nothing in the line is a secret. */
 bool kg_announce_secret_span(const struct kg_announce_scanner *scanner,
     const char *line, size_t len, unsigned *tag, size_t *start,
     size_t *span_len);

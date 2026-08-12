@@ -161,14 +161,38 @@ static int announce_redact_scanned(
 	return 0;
 }
 
+/* Hand one physical line and its terminator to the bounded scanner, so it
+ * is either wholly scanned or wholly refused.  The rendered line is
+ * discarded: this path exists to update the scanner's verdict and cache,
+ * and what the user reads is the redaction applied to the log channel's own
+ * copy.  Returns 0, or -1 when the scanner would not take every byte. */
+static int announce_feed_line(
+    struct lsp_transport *t, const char *at, size_t len)
+{
+	const char *rendered = NULL;
+	size_t rendered_len = 0;
+	size_t used = 0;
+
+	if (kg_announce_feed(
+		t->announces, at, len, &used, &rendered, &rendered_len)
+		!= 0
+	    || used != len) {
+		return -1;
+	}
+	if (kg_announce_feed(
+		t->announces, "\n", 1, &used, &rendered, &rendered_len)
+		!= 1
+	    || used != 1) {
+		return -1;
+	}
+	return 0;
+}
+
 static int announce_parse_line(
     struct lsp_transport *t, const char *line, size_t len)
 {
-	const char *rendered = NULL;
 	enum kg_announce_line_status status;
-	size_t rendered_len = 0;
 	size_t candidate_at;
-	size_t used = 0;
 	unsigned candidate_tag = 0;
 	unsigned status_tag;
 	int rc;
@@ -185,14 +209,15 @@ static int announce_parse_line(
 		}
 		return transport_fail(t, LSP_TRANSPORT_ERR_TOO_LARGE, false);
 	}
-	rc = kg_announce_feed(t->announces, line + candidate_at,
-	    len - candidate_at, &used, &rendered, &rendered_len);
-	if (rc != 0 || used != len - candidate_at) {
-		return transport_fail(t, LSP_TRANSPORT_ERR_TOO_LARGE, false);
-	}
-	rc = kg_announce_feed(
-	    t->announces, "\n", 1, &used, &rendered, &rendered_len);
-	if (rc != 1 || used != 1) {
+	/* Redaction comes before the failure on every exit from here, not
+	 * only the ones the transport survives: the scanner has already run
+	 * past the secret, and the log channel's copy of this line is
+	 * deliverable to *lsp-log* whether or not the transport lives. */
+	if (announce_feed_line(t, line + candidate_at, len - candidate_at)
+	    < 0) {
+		if (announce_redact_scanned(t, line, len) < 0) {
+			return -1;
+		}
 		return transport_fail(t, LSP_TRANSPORT_ERR_TOO_LARGE, false);
 	}
 	status = kg_announce_last_status(t->announces);
@@ -547,6 +572,11 @@ enum lsp_transport_error lsp_transport_error(const struct lsp_transport *t)
 bool lsp_transport_error_outbound(const struct lsp_transport *t)
 {
 	return framed_io_error_outbound(t->frames);
+}
+
+bool lsp_transport_error_truncated(const struct lsp_transport *t)
+{
+	return framed_io_error_truncated(t->frames);
 }
 
 pid_t lsp_transport_pid(const struct lsp_transport *t) { return t->pid; }

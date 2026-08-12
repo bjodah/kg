@@ -297,7 +297,40 @@ static void test_eof_with_partial_header_is_protocol_error(void)
 	close(fds[1]);
 	CHECK(framed_io_next_message(io, &body, &len) == -1);
 	CHECK(framed_io_error(io) == FRAMED_IO_ERR_PROTOCOL);
+	/* The framing broke because the stream stopped inside a frame, not
+	 * because the bytes were not framing: a caller wording this for a
+	 * user must be able to tell those apart. */
+	CHECK(framed_io_error_truncated(io));
 	CHECK(body == NULL && len == 0);
+	framed_io_close(io);
+}
+
+/* The other arm: a complete header block that is not framing at all, with
+ * the stream still open.  Same error, and truncated says it is not the
+ * same event. */
+static void test_bad_header_is_a_protocol_error_that_is_not_truncation(void)
+{
+	static const char wire[] = "Content-Type: text/plain\r\n\r\n";
+	struct framed_io *io;
+	const char *body = NULL;
+	size_t len = 0;
+	int fds[2];
+
+	if (pipe(fds) != 0) {
+		CHECK(false);
+		return;
+	}
+	io = framed_io_attach_fds(fds[0], -1);
+	CHECK(io != NULL);
+	if (!io) {
+		close(fds[1]);
+		return;
+	}
+	CHECK(write_exact(fds[1], wire, sizeof(wire) - 1));
+	CHECK(framed_io_next_message(io, &body, &len) == -1);
+	CHECK(framed_io_error(io) == FRAMED_IO_ERR_PROTOCOL);
+	CHECK(!framed_io_error_truncated(io));
+	close(fds[1]);
 	framed_io_close(io);
 }
 
@@ -691,6 +724,7 @@ int main(void)
 	RUN(test_prepend_is_before_already_framed_bytes);
 	RUN(test_prepend_obeys_the_four_mib_outbox_bound);
 	RUN(test_eof_with_partial_header_is_protocol_error);
+	RUN(test_bad_header_is_a_protocol_error_that_is_not_truncation);
 	RUN(test_complete_frame_precedes_partial_body_error);
 	RUN(test_complete_buffered_frame_precedes_quiet_eof);
 	RUN(test_pipe_half_close_waits_for_outbox_and_keeps_input);

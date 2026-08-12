@@ -75,6 +75,31 @@ class TokenBytesTest(unittest.TestCase):
 			"35", "7e"
 		)
 
+	def test_unknown_named_modifier_tokens_are_refused(self) -> None:
+		# Without the table entry these used to be typed as their own
+		# letters -- M-F12 as ESC then "F12" -- so a case asserted on a
+		# key it never sent.  Refusing is the only honest answer.
+		for token in ("M-F12", "S-Up", "C-PageDown", "M-Home", "S-F5"):
+			with self.subTest(token=token):
+				with self.assertRaisesRegex(ValueError, "NAMED_KEY_BYTES"):
+					pty_accept.token_to_bytes(token)
+
+	def test_single_character_and_escape_payloads_still_pass(self) -> None:
+		# One character after the modifier keeps its old meaning, and an
+		# SGR mouse report is parametrised by button and cell, so it can
+		# never be a table entry and must stay spellable as ESC + body.
+		expected = {
+			"M-x": b"\x1bx",
+			"M-\\": b"\x1b\\",
+			"M-[": b"\x1b[",
+			"C-x": b"\x18",
+			"M-SPC": b"\x1b ",
+			"M-[<0;14;2M": b"\x1b[<0;14;2M",
+		}
+		for token, wire in expected.items():
+			with self.subTest(token=token):
+				self.assertEqual(pty_accept.token_to_bytes(token), wire)
+
 	def test_raw_byte_stays_pexpect_only(self) -> None:
 		self.assertEqual(pty_accept.token_to_bytes("BYTE=e2"), b"\xe2")
 		with self.assertRaisesRegex(ValueError, "backend: pexpect"):

@@ -2,6 +2,7 @@
 
 #include "async.h"
 
+#include <assert.h>
 #include <string.h>
 
 #include "lsp.h"
@@ -34,11 +35,20 @@ int editor_async_wait_fds(int *fds, int max)
 	if (!fds || max < KG_ASYNC_WAIT_FDS_MAX) {
 		return -1;
 	}
+	/* Past this point a -1 would not be a rejected argument but a
+	 * subsystem breaking its own contract -- a count past the bound it
+	 * declares, or a descriptor it never opened -- and the caller's
+	 * answer to a -1 is a wait with no subsystem descriptor in it at
+	 * all, which is silent: the editor drops back to its 100 ms tick
+	 * and nothing says why.  So these are assertions rather than
+	 * results, and the returns behind them are unreachable. */
 	count = lsp_wait_fds(staged, KG_LSP_WAIT_FDS_MAX);
+	assert(count >= 0 && count <= KG_LSP_WAIT_FDS_MAX);
 	if (count < 0 || count > KG_LSP_WAIT_FDS_MAX) {
 		return -1;
 	}
 	for (i = 0; i < count; i++) {
+		assert(staged[i] >= 0);
 		if (staged[i] < 0) {
 			return -1;
 		}

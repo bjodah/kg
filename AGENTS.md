@@ -373,14 +373,20 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
 - Key tokens in PTY YAML are literal unless named. Use `SPC` for an
   actual space key, `RET` for Enter, `M-RET` for Meta-Enter (sent as
   one ESC+CR token so the pair lands inside kg's escape window),
-  `C-?` for Backspace, `M-TAB` (also spelled `C-M-i`: the same two
-  bytes, ESC and TAB) for completion-at-point, and `C-q` followed by
-  the next token for quoted input. `Home`, `End`, `C-Home`, `C-End`,
+  `C-?` for Backspace, `M-SPC` for Meta-Space, `M-TAB` (also spelled
+  `C-M-i`: the same two bytes, ESC and TAB) for completion-at-point, and
+  `C-q` followed by the next token for quoted input.
+  `Home`, `End`, `C-Home`, `C-End`,
   `S-Home`, `S-End`, `Up`, `Down`, `PageUp`, `PageDown`, and `F1`
   through `F12` are named tokens (sent as xterm SS3 / tilde / cursor
   sequences). The debugger spellings `C-F5`, `C-F9`, `M-F10`, `M-F11`,
   `M-Up`, and `M-Down` are named too. Named sequences use one exact byte
   table for both backends, so do not reconstruct them from `M-[` pieces.
+  A `C-`/`M-`/`S-` token whose payload names a key (two or more letters
+  and digits: `M-F12`, `S-Up`) and is not in that table is a hard error
+  rather than the token's own letters typed after ESC — add its exact
+  bytes to `NAMED_KEY_BYTES`. A single-character payload, and an escape
+  body such as an SGR mouse report's `M-[<0;14;2M`, are unaffected.
   `BYTE=e2` sends one raw byte named in hex. Every other token is UTF-8
   encoded on the way out, so this is the only way to send a byte that is
   not valid UTF-8; it needs `backend: pexpect`.

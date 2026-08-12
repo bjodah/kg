@@ -1,5 +1,6 @@
 /* tty.c - Low level terminal handling */
 
+#include <assert.h>
 #include <errno.h>
 #include <limits.h>
 #ifdef _WIN32
@@ -842,6 +843,13 @@ static enum kg_idle_wake idle_wait(int fd)
 
 	if (now < next_tick) {
 		count = editor_async_wait_fds(fds, KG_ASYNC_WAIT_FDS_MAX);
+		/* The destination is exactly the seam's bound, so the only
+		 * -1 left would be a subsystem breaking its contract, and
+		 * kg_idle_wait() would answer a negative count by waiting on
+		 * the keyboard alone -- every asynchronous descriptor gone
+		 * from the wait, no error anywhere, just an editor that has
+		 * become slow.  It is asserted rather than tolerated. */
+		assert(count >= 0);
 		wake = kg_idle_wait(fd, fds, count, (int)(next_tick - now));
 		if (wake != KG_IDLE_TICK) {
 			return wake;

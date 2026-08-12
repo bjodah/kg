@@ -885,6 +885,9 @@ static void test_listen_hash_announce_without_port(void)
 	}
 	CHECK(pump_until_message(t, &body, &len) == -1);
 	CHECK(lsp_transport_error(t) == LSP_TRANSPORT_ERR_PROTOCOL);
+	/* A rejected announce is the transport's own verdict on bytes it
+	 * received whole; nothing was cut off. */
+	CHECK(!lsp_transport_error_truncated(t));
 	lsp_transport_close(t);
 }
 
@@ -1106,6 +1109,10 @@ static void test_listen_hash_socket_eof_mid_frame(void)
 	}
 	CHECK(pump_until_message(t, &body, &len) == -1);
 	CHECK(lsp_transport_error(t) == LSP_TRANSPORT_ERR_PROTOCOL);
+	/* Which kind of protocol failure: the stream stopped mid-frame, so
+	 * this is a server that died rather than one that framed wrongly,
+	 * and the client words it accordingly. */
+	CHECK(lsp_transport_error_truncated(t));
 	CHECK(body == NULL && len == 0);
 	lsp_transport_close(t);
 }

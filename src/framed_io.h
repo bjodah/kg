@@ -103,6 +103,12 @@ int framed_io_fail(
 bool framed_io_failed(const struct framed_io *io);
 enum framed_io_error framed_io_error(const struct framed_io *io);
 bool framed_io_error_outbound(const struct framed_io *io);
+/* Which kind of FRAMED_IO_ERR_PROTOCOL this is: true when the framing broke
+ * because the stream ended part-way through a frame, false when the bytes
+ * themselves were not framing.  A server killed while writing a reply is
+ * the first; a server that writes a header block with no Content-Length in
+ * it is the second, and the two are not the same news for a user. */
+bool framed_io_error_truncated(const struct framed_io *io);
 size_t framed_io_pending_bytes(const struct framed_io *io);
 
 /* The readable descriptor for a caller's wait set, or -1 while absent and

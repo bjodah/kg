@@ -574,7 +574,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # The whole-tree complexity ceiling.  `make complexity-check` sums scc's
 # per-file complexity over $(SCC_COMPLEXITY_PATHS) and fails above
 # SCC_COMPLEXITY_MAX; a single file above SCC_FILE_COMPLEXITY_MAX fails
-# it too (the worst today is src/bufmgr.c at 509).
+# it too (the worst today is src/bufmgr.c at 517).
 #
 # The ceiling equals the measured actual, with no slack: it is a ratchet,
 # not an allowance, so new complexity has to be paid for rather than
@@ -584,7 +584,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 8845
+SCC_COMPLEXITY_MAX ?= 8852
 SCC_FILE_COMPLEXITY_MAX ?= 520
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

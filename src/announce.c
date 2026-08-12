@@ -43,10 +43,24 @@ static size_t bytes_find(
 	return len;
 }
 
+/* Every string a rule carries is bounded here, whatever the arm that will
+ * read it: rule_copy() copies each one it is given into a fixed field, so a
+ * length checked only on the arm that uses the string is no check at all --
+ * an over-long host on a HOST_PORT rule, or a leftover separator on a
+ * SECRET_ABSENT rule, would still be copied. */
 static bool rule_valid(const struct kg_announce_rule *rule)
 {
 	if (!rule->tag || !rule->prefix || rule->prefix[0] == '\0'
 	    || strlen(rule->prefix) > KG_ANNOUNCE_MAX_PREFIX_BYTES) {
+		return false;
+	}
+	if (rule->implicit_host
+	    && strlen(rule->implicit_host) >= KG_ANNOUNCE_MAX_HOST_BYTES) {
+		return false;
+	}
+	if (rule->secret_separator
+	    && strlen(rule->secret_separator)
+		> KG_ANNOUNCE_MAX_SEPARATOR_BYTES) {
 		return false;
 	}
 	if (rule->address == KG_ANNOUNCE_PORT_ONLY
@@ -60,9 +74,7 @@ static bool rule_valid(const struct kg_announce_rule *rule)
 	}
 	return rule->secret == KG_ANNOUNCE_SECRET_ABSENT
 	    || (rule->secret == KG_ANNOUNCE_SECRET_REQUIRED
-		&& rule->secret_separator && rule->secret_separator[0] != '\0'
-		&& strlen(rule->secret_separator)
-		    <= KG_ANNOUNCE_MAX_SEPARATOR_BYTES);
+		&& rule->secret_separator && rule->secret_separator[0] != '\0');
 }
 
 static bool tag_unique(const struct kg_announce_rule *rules, size_t at)
@@ -277,6 +289,9 @@ bool kg_announce_secret_span(const struct kg_announce_scanner *scanner,
 {
 	size_t i;
 
+	if (!scanner) {
+		return false;
+	}
 	for (i = 0; i < scanner->rule_count; i++) {
 		if (!secret_span(&scanner->rules[i], line, len, start)) {
 			continue;

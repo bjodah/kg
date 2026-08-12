@@ -14,7 +14,10 @@
  * a live subsystem disappear from the wait, so it is a programmer error:
  * editor_async_wait_fds() returns -1 without writing anything when `fds`
  * is NULL or `max` is smaller than this bound (including a negative max).
- * A valid full-sized destination and no live subsystem returns zero.
+ * A valid full-sized destination and no live subsystem returns zero, and a
+ * valid full-sized destination never returns -1: a subsystem that broke
+ * its own bound is an assertion inside, because the alternative is a wait
+ * with no subsystem descriptor in it and nothing said about why.
  *
  * Wait descriptors are readable only.  A protocol connection waiting for
  * writability -- a nonblocking connect in progress or a backed-up outbox --

@@ -229,6 +229,8 @@ NAMED_KEY_BYTES = {
 	"M-BACKSPACE": b"\x1b\x7f",
 	"SPC": b" ",
 	"SPACE": b" ",
+	"M-SPC": b"\x1b ",
+	"M-SPACE": b"\x1b ",
 	"C-SPC": b"\x00",
 	"C-SPACE": b"\x00",
 	"C-@": b"\x00",
@@ -265,6 +267,11 @@ NAMED_KEY_BYTES = {
 }
 
 
+# What a modifier token's payload looks like when it names a key rather
+# than typing one: two or more characters, all letters and digits.
+NAMED_KEY_SHAPE = re.compile(r"^[A-Za-z][A-Za-z0-9]+$")
+
+
 def token_to_bytes(token: str) -> bytes:
 	if not isinstance(token, str) or not token:
 		raise ValueError(f"invalid key token: {token!r}")
@@ -284,9 +291,25 @@ def token_to_bytes(token: str) -> bytes:
 	if upper in NAMED_KEY_BYTES:
 		return NAMED_KEY_BYTES[upper]
 
+	# A modifier spelling whose payload NAMES a key rather than typing one
+	# -- M-F12, S-Up, C-PageDown -- has no byte sequence unless the table
+	# above holds it, and the fallthrough below would type the token's own
+	# letters: ESC then "F12".  A case that asserts on a key it never sent
+	# is worse than one that fails, so this is refused; the fix is the
+	# key's exact bytes in NAMED_KEY_BYTES.
+	#
+	# The rule is deliberately "looks like a name": a multi-character
+	# payload of letters and digits.  M-[<0;14;2M is not one, and must
+	# keep working, because an SGR mouse report is parametrised by button
+	# and cell and so cannot be a fixed table entry.
 	if len(token) >= 3 and token[1] == "-":
 		prefix = token[0].upper()
 		payload = token[2:]
+		if prefix in ("C", "M", "S") and NAMED_KEY_SHAPE.match(payload):
+			raise ValueError(
+				f"unknown named key token: {token!r} "
+				f"(add it to NAMED_KEY_BYTES with its exact bytes)"
+			)
 		if prefix == "C":
 			return ctrl_byte(payload)
 		if prefix == "M":

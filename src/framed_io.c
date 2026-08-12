@@ -38,6 +38,7 @@ struct framed_io {
 	size_t delivered;
 	enum framed_io_error error;
 	bool error_outbound;
+	bool error_truncated;
 	bool eof;
 	bool fds_adopted;
 	bool connecting;
@@ -632,9 +633,15 @@ int framed_io_prepend(struct framed_io *io, const char *data, size_t len)
 	return 0;
 }
 
-static enum framed_io_error eof_reason(const struct framed_io *io)
+/* Why the stream stopped, as an error.  Bytes still in the inbox at end of
+ * stream are the start of a frame that never finished, which is a framing
+ * failure and is classified as one -- but it is a failure of a stream that
+ * stopped, not of a server that framed wrongly, and `error_truncated`
+ * keeps the two apart for whoever has to put the reason into words. */
+static enum framed_io_error eof_reason(struct framed_io *io)
 {
 	if (io->stop_reason == FRAMED_IO_ERR_EOF && io->inbox.len > 0) {
+		io->error_truncated = true;
 		return FRAMED_IO_ERR_PROTOCOL;
 	}
 	return io->stop_reason;
@@ -686,6 +693,11 @@ enum framed_io_error framed_io_error(const struct framed_io *io)
 bool framed_io_error_outbound(const struct framed_io *io)
 {
 	return io->error_outbound;
+}
+
+bool framed_io_error_truncated(const struct framed_io *io)
+{
+	return io->error_truncated;
 }
 
 size_t framed_io_pending_bytes(const struct framed_io *io)

@@ -1673,6 +1673,34 @@ static void test_a_malformed_frame_is_reported_as_one(void)
 	log_capture_end();
 }
 
+/* The other half of that sentence.  A frame stream that stops part-way
+ * through a frame -- a header claiming ten bytes, three of them, and then
+ * the server is gone, which is what an OOM-killed clangd leaves behind --
+ * is the same ERR_PROTOCOL, and calling it malformed framing blames a
+ * server's protocol for its death.  The words have to say the server
+ * stopped. */
+static void test_a_truncated_reply_is_not_blamed_on_framing(void)
+{
+	const char *argv[5]
+	    = { "python3", script_path, "--mode", "truncated", NULL };
+	struct kg_spawn_request req = { .argv = argv, .stdin_fd = -1 };
+	struct lsp_client *c;
+
+	log_capture_begin();
+	c = lsp_client_start(&req, "/tmp");
+	CHECK(c != NULL);
+	if (!c) {
+		log_capture_end();
+		return;
+	}
+	CHECK(pump_until_state(c, LSP_CLIENT_DEAD) == LSP_CLIENT_DEAD);
+	CHECK(strstr(log_seen, "the server stopped in the middle of a reply")
+	    != NULL);
+	CHECK(strstr(log_seen, "malformed frame") == NULL);
+	lsp_client_dispose(c, 50);
+	log_capture_end();
+}
+
 /* kg's own bounds, and the words a caller is given for them.
  *
  * The pending table is sixteen wide, and the seventeenth question is
@@ -1904,6 +1932,7 @@ int main(int argc, char **argv)
 	RUN(test_a_reply_with_no_members_is_not_a_death);
 	RUN(test_an_error_reply_reaches_the_caller);
 	RUN(test_a_malformed_frame_is_reported_as_one);
+	RUN(test_a_truncated_reply_is_not_blamed_on_framing);
 	RUN(test_a_full_pending_table_says_so);
 	RUN(test_a_dead_client_refuses_everything);
 

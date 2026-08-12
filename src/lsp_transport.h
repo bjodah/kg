@@ -168,7 +168,9 @@ enum lsp_transport_error {
 	/* The bytes are not base-protocol framing: a header line with no
 	 * colon, a header block with no Content-Length, or a length that is
 	 * not a number.  On the listen-hash wire, an announce line with no
-	 * usable port or hash in it is this too. */
+	 * usable port or hash in it is this too.  A stream that ended
+	 * part-way through a frame is this as well, and
+	 * lsp_transport_error_truncated() is which of the two it was. */
 	LSP_TRANSPORT_ERR_PROTOCOL = FRAMED_IO_ERR_PROTOCOL,
 	/* One of the bounds above was exceeded. */
 	LSP_TRANSPORT_ERR_TOO_LARGE = FRAMED_IO_ERR_TOO_LARGE,
@@ -285,10 +287,16 @@ int lsp_transport_next_stderr_line(
  * the server sending too much, and an outbox past
  * LSP_TRANSPORT_MAX_OUTBOX_BYTES is kg queueing faster than the server
  * reads.  Nothing else here can tell them apart, and a client that reports
- * both as the server's doing blames it for kg's own queue. */
+ * both as the server's doing blames it for kg's own queue.
+ *
+ * lsp_transport_error_truncated() splits LSP_TRANSPORT_ERR_PROTOCOL the
+ * same way, for the same reason: a server killed while writing a reply
+ * leaves half a frame behind, and reporting that as malformed framing
+ * blames the server's protocol for its death. */
 bool lsp_transport_failed(const struct lsp_transport *t);
 enum lsp_transport_error lsp_transport_error(const struct lsp_transport *t);
 bool lsp_transport_error_outbound(const struct lsp_transport *t);
+bool lsp_transport_error_truncated(const struct lsp_transport *t);
 
 /* The child, for a caller that owns policy: its pid, and whether a
  * WNOHANG reap says it is still there.  lsp_transport_child_alive() is the

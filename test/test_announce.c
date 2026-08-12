@@ -231,6 +231,41 @@ static void test_line_and_secret_bounds(void)
 	kg_announce_close(scanner);
 }
 
+/* Every string a rule carries is copied into a fixed field, so the length
+ * of each is refused up front whatever the arm that reads it.  Both of
+ * these are strings the rule's own address/secret mode never consults: a
+ * HOST_PORT rule ignores implicit_host and a SECRET_ABSENT rule ignores
+ * secret_separator, and rule_copy() copies both regardless. */
+static void test_oversized_unused_rule_strings_are_refused(void)
+{
+	char host[KG_ANNOUNCE_MAX_HOST_BYTES + 8];
+	char separator[KG_ANNOUNCE_MAX_SEPARATOR_BYTES + 8];
+	struct kg_announce_rule rule
+	    = { TAG_DELVE, "DAP server listening at: ", KG_ANNOUNCE_HOST_PORT,
+		      NULL, KG_ANNOUNCE_SECRET_ABSENT, NULL };
+	struct kg_announce_scanner *scanner;
+
+	memset(host, 'h', sizeof(host));
+	host[KG_ANNOUNCE_MAX_HOST_BYTES] = '\0';
+	memset(separator, 's', sizeof(separator));
+	separator[KG_ANNOUNCE_MAX_SEPARATOR_BYTES + 1] = '\0';
+
+	rule.implicit_host = host;
+	CHECK(kg_announce_new(&rule, 1, 1) == NULL);
+	host[KG_ANNOUNCE_MAX_HOST_BYTES - 1] = '\0';
+	scanner = kg_announce_new(&rule, 1, 1);
+	CHECK(scanner != NULL);
+	kg_announce_close(scanner);
+
+	rule.implicit_host = NULL;
+	rule.secret_separator = separator;
+	CHECK(kg_announce_new(&rule, 1, 1) == NULL);
+	separator[KG_ANNOUNCE_MAX_SEPARATOR_BYTES] = '\0';
+	scanner = kg_announce_new(&rule, 1, 1);
+	CHECK(scanner != NULL);
+	kg_announce_close(scanner);
+}
+
 static void test_generation_reset_invalidates_stale_endpoint(void)
 {
 	struct kg_announce_scanner *scanner = new_scanner(10);
@@ -269,6 +304,7 @@ int main(void)
 	RUN(test_bare_loopback_endpoint_and_unterminated_final_line);
 	RUN(test_invalid_ports_hosts_and_hashes_are_tagged);
 	RUN(test_line_and_secret_bounds);
+	RUN(test_oversized_unused_rule_strings_are_refused);
 	RUN(test_generation_reset_invalidates_stale_endpoint);
 	return test_summary();
 }

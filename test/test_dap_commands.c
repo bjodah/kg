@@ -333,18 +333,28 @@ static void debug_with_keys(const char *bytes)
 	int fds[2];
 	int saved, devnull;
 
-	CHECK(pipe(fds) == 0);
+	if (pipe(fds) != 0) {
+		CHECK(!"pipe failed");
+		return;
+	}
 	CHECK(write(fds[1], bytes, len) == (ssize_t)len);
 	fflush(stdout);
+	/* Guarded rather than CHECKed (the test_perf.c refresh_quietly()
+	 * shape): CHECK records and continues, and gcc's analyzer rightly
+	 * objects to a dup2 of a descriptor a failed dup may have handed
+	 * back. */
 	saved = dup(STDOUT_FILENO);
 	devnull = open("/dev/null", O_WRONLY);
-	CHECK(saved >= 0 && devnull >= 0);
-	CHECK(dup2(devnull, STDOUT_FILENO) >= 0);
-	close(devnull);
+	if (devnull >= 0) {
+		dup2(devnull, STDOUT_FILENO);
+		close(devnull);
+	}
 	editor_dap_debug(fds[0]);
 	fflush(stdout);
-	CHECK(dup2(saved, STDOUT_FILENO) >= 0);
-	close(saved);
+	if (saved >= 0) {
+		dup2(saved, STDOUT_FILENO);
+		close(saved);
+	}
 	close(fds[0]);
 	close(fds[1]);
 }

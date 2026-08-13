@@ -437,14 +437,25 @@ def wait_change_pexpect(child: pexpect.spawn, budget: float) -> None:
 		time.sleep(READY_POLL)
 
 
-def wait_change_tmux(sock: str, pane: str, budget: float, text: str = "") -> None:
+def wait_change_tmux(sock: str, pane: str, budget: float, text: str = "",
+		     floor: float = 0.0) -> None:
 	"""tmux counterpart: wait for the pane to change -- or to say `text` --
-	and then settle."""
+	and then settle.
+
+	`floor` widens the quiet window the same way the end-of-case settle
+	floor does, and for the same reason: the condition appearing is not
+	the editor being DONE.  A debugger stop paints its line (the text a
+	SETTLE names) and then keeps painting as the stack waterfall answers,
+	ending with a point re-focus -- and a quiet gap between those repaints
+	is longer than READY_SETTLE on a slow enough runner, so the wait
+	returned mid-waterfall and the next key raced the re-focus.  The
+	budget still bounds everything."""
 	deadline = time.monotonic() + budget
 	start = run_tmux_cmd(sock, "capture-pane", "-t", pane, "-p",
 			     check=False).stdout
 	prev = start
 	quiet_since = time.monotonic()
+	quiet_needed = max(READY_SETTLE, floor)
 	while time.monotonic() < deadline:
 		now = run_tmux_cmd(sock, "capture-pane", "-t", pane, "-p",
 				   check=False).stdout
@@ -453,7 +464,7 @@ def wait_change_tmux(sock: str, pane: str, budget: float, text: str = "") -> Non
 			prev = now
 			quiet_since = moment
 		happened = (text in now) if text else (now != start)
-		if happened and moment - quiet_since >= READY_SETTLE:
+		if happened and moment - quiet_since >= quiet_needed:
 			return
 		time.sleep(READY_POLL)
 
@@ -970,7 +981,7 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 					continue
 				settle = settle_token(token)
 				if settle is not None:
-					wait_change_tmux(sock, pane, *settle)
+					wait_change_tmux(sock, pane, *settle, floor=settle_floor)
 					continue
 				send_token_tmux(sock, pane, token)
 				time.sleep(key_delay)
@@ -986,7 +997,7 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 					continue
 				settle = settle_token(token)
 				if settle is not None:
-					wait_change_tmux(sock, pane, *settle)
+					wait_change_tmux(sock, pane, *settle, floor=settle_floor)
 					continue
 				send_token_tmux(sock, pane, token)
 				time.sleep(key_delay)
@@ -1105,6 +1116,15 @@ def evaluate_case_status(case: Case, kg_argv: list[str], features: set[str],
 		details = None if passed else diff_text(expected, kg_run.saved,
 							"expected", "actual")
 
+	if not passed and details and kg_run.transcript:
+		# Same evidence rule as the screen assertions below: a saved-file
+		# diff from a run that only fails under lane load is undebuggable
+		# without what the editor was showing when it saved.
+		shown = "\n".join(
+			l for l in decode_text(kg_run.transcript).splitlines()
+			if l.strip())
+		details += "\nfinal screen was:\n" + shown
+
 	if passed and (case.expected_screen_contains or case.expected_screen_not_contains):
 		screen = decode_text(kg_run.transcript)
 		missing = []
@@ -1120,6 +1140,11 @@ def evaluate_case_status(case: Case, kg_argv: list[str], features: set[str],
 				msg.append("missing screen text: " + ", ".join(repr(s) for s in missing))
 			if unexpected:
 				msg.append("unexpected screen text: " + ", ".join(repr(s) for s in unexpected))
+			# The captured pane is the evidence; without it a failure
+			# that only reproduces under lane load is undebuggable
+			# from the log.
+			shown = "\n".join(l for l in screen.splitlines() if l.strip())
+			msg.append("captured screen was:\n" + shown)
 			details = "; ".join(msg)
 
 	if passed and case.expected_exit_code is not None:

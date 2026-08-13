@@ -1143,6 +1143,21 @@ struct lsp_client *lsp_client_start_wire(const struct kg_spawn_request *req,
 		   c, "initialize", params, len, on_initialize, NULL, true)
 		> 0;
 	free(params);
+	/* A failed send here has two different meanings.  The transport may
+	 * have died UNDERNEATH it: on the listen-hash wire the send's own
+	 * flush scans the announce and starts the connect, so a
+	 * synchronously refused connect -- reliable under valgrind, a
+	 * scheduling accident anywhere -- surfaces as this send's failure.
+	 * That death is the session's to report in its own words at the
+	 * first poll ("the connection to the server failed"), the same words
+	 * the refusal gets when it arrives a poll later; a constructor that
+	 * turns it into NULL renames it "could not start the language
+	 * server", which blames the spawn for a connection.  Only a send
+	 * refused with the transport still healthy -- an allocation failure
+	 * -- is a failed start. */
+	if (!sent && c->t && lsp_transport_error(c->t) != LSP_TRANSPORT_OK) {
+		return c;
+	}
 	if (!sent) {
 		saved_errno = c->t ? ENOMEM : errno;
 		lsp_transport_close(c->t);

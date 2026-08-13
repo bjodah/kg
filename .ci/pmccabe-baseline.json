@@ -1922,7 +1922,7 @@
   "src/lsp_client.c:lsp_client_set_ready_hook": 1,
   "src/lsp_client.c:lsp_client_shutdown_begin": 3,
   "src/lsp_client.c:lsp_client_start": 1,
-  "src/lsp_client.c:lsp_client_start_wire": 7,
+  "src/lsp_client.c:lsp_client_start_wire": 10,
   "src/lsp_client.c:lsp_client_state": 1,
   "src/lsp_client.c:lsp_client_wait_fds": 1,
   "src/lsp_client.c:now_ms": 2,

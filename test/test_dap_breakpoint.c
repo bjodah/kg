@@ -26,9 +26,12 @@
  * the cases that assert something did NOT happen pump a fixed short span.
  */
 
+#include "../src/dap.h"
 #include "../src/dap_breakpoint.h"
 #include "../src/dap_config.h"
+#include "../src/dap_decor.h"
 #include "../src/dap_session.h"
+#include "../src/decor.h"
 #include "../src/def.h"
 #include "../src/edit.h"
 #include "../src/event.h"
@@ -124,6 +127,10 @@ static void session_teardown(void)
 		free(b->row);
 		free(b->filename);
 		kg_marker_store_free(b);
+		/* The decorations dap_poll()'s own leg paints live in a
+		 * separate per-buffer store, and this suite frees its
+		 * buffers by hand rather than through bufmgr's kill path. */
+		kg_decor_store_free(b);
 		for (op = b->undostack.head; op;) {
 			struct undo_op *next = op->next;
 
@@ -342,6 +349,24 @@ static bool pump_for_sets(struct dap_session *s, size_t count)
 	return pump_until(s, saw_wanted_sets);
 }
 
+/* The EDITOR's poll leg rather than the session's, which is where a
+ * debounced re-sync is pushed from (dap_poll(), src/dap_core.c).  A case
+ * about an edit reaching the adapter drives that, or it would be asserting
+ * about a call nothing makes. */
+static bool poll_for_sets(size_t count)
+{
+	double deadline = monotonic_seconds() + PUMP_DEADLINE_SECONDS;
+
+	while (heard.asked_count < count) {
+		(void)dap_poll();
+		if (monotonic_seconds() >= deadline) {
+			return false;
+		}
+		nap_a_millisecond();
+	}
+	return true;
+}
+
 static bool is_configured(void)
 {
 	struct dap_session_state st;
@@ -384,6 +409,9 @@ static void setup(void)
 
 static void teardown(void)
 {
+	/* Before the buffers go: a decoration never outlives the buffer it
+	 * is in, and dap_poll() paints them (src/dap_core.c). */
+	dap_decor_reset();
 	dap_breakpoint_reset();
 	dap_breakpoint_set_report_hook(NULL, NULL);
 	session_teardown();
@@ -848,6 +876,60 @@ static void test_a_changed_event_sends_nothing(void)
 	teardown();
 }
 
+/* An EDIT is a mutation the adapter has to hear about too.  The marker
+ * moving is what makes the breakpoint stay with the code; without the
+ * re-send that follows it, the adapter goes on stopping at the line the
+ * breakpoint was on when the session started, for the rest of the session.
+ *
+ * The re-send is debounced and pushed from the editor's own poll leg, and
+ * every successful set re-keys every adapter id -- so what this asserts is
+ * the new LINE on the wire and a fresh id, never a stable one. */
+static void test_an_edit_resyncs_the_adapter(void)
+{
+	struct editor_buffer *b;
+	struct dap_session *s;
+	struct kg_edit e;
+	double until;
+	int was;
+
+	setup();
+	b = open_one("a.c");
+	s = configured_session(NULL);
+	CHECK(dap_breakpoint_add(b, 2, NULL) == DAP_BREAKPOINT_OK);
+	CHECK(pump_for_sets(s, 1));
+	pump_quietly(s);
+	CHECK(heard.asked[0].count == 1 && heard.asked[0].lines[0] == 3);
+	CHECK(info_at("a.c", 3).has_id);
+	was = info_at("a.c", 3).id;
+
+	e = kg_edit_internal(b, 0, 0, "/* new */\n", 10);
+	CHECK(kg_buffer_replace(&e, NULL) == 1);
+	kg_event_drain_safe();
+	CHECK(info_at("a.c", 4).line == 4);
+	/* Not on the edit itself: a burst of typing is one request. */
+	CHECKF(
+	    !dap_breakpoint_resync_due(), "the re-send skipped its debounce");
+	until = monotonic_seconds() + 0.05;
+	while (monotonic_seconds() < until) {
+		(void)dap_poll();
+		nap_a_millisecond();
+	}
+	CHECKF(heard.asked_count == 1, "%zu sets before the debounce expired",
+	    heard.asked_count);
+
+	CHECK(poll_for_sets(2));
+	pump_quietly(s);
+	CHECKF(heard.asked[1].count == 1 && heard.asked[1].lines[0] == 4,
+	    "the adapter was told line %d", heard.asked[1].lines[0]);
+	/* Re-keyed, as every successful set re-keys: the assertion is that
+	 * the id is the NEW round's, not that it survived. */
+	CHECK(info_at("a.c", 4).has_id);
+	CHECKF(
+	    info_at("a.c", 4).id != was, "the id was not re-keyed (%d)", was);
+	finish(s);
+	teardown();
+}
+
 /* ============================ what is heard ============================ */
 
 /* An unknown id with a reason other than "removed" creates a client-side
@@ -1010,6 +1092,82 @@ static void test_a_hit_is_settled_by_ids_or_by_the_stack(void)
 	teardown();
 }
 
+/* One line is one object, so a `dap-until` to a line the user already has a
+ * breakpoint on lands on THAT object -- and must not take it away when the
+ * run-to-here is over.  Only the temporary half ends; the breakpoint and its
+ * condition are the user's and outlive it, and the adapter is told so. */
+static void test_a_run_to_here_does_not_destroy_a_user_breakpoint(void)
+{
+	struct dap_breakpoint_options opts = { 0 };
+	struct dap_session *s;
+
+	setup();
+	s = configured_session("--breakpoint-id-base 11");
+	opts.condition = "x > 1";
+	CHECK(dap_breakpoint_add_at(tmppath("a.c"), 3, &opts)
+	    == DAP_BREAKPOINT_OK);
+	CHECK(pump_for_sets(s, 1));
+	pump_quietly(s);
+	CHECK(strcmp(heard.asked[0].condition, "x > 1") == 0);
+
+	/* The run-to-here joins the object rather than replacing it. */
+	CHECK(dap_breakpoint_arm_temporary(tmppath("a.c"), 3, on_armed, NULL)
+	    == DAP_BREAKPOINT_OK);
+	CHECK(pump_for_sets(s, 2));
+	pump_quietly(s);
+	CHECK(dap_breakpoint_count() == 1);
+	CHECK(dap_breakpoint_temporary_count() == 1);
+	CHECKF(strcmp(heard.asked[1].condition, "x > 1") == 0,
+	    "the temporary erased the condition on the wire: '%s'",
+	    heard.asked[1].condition);
+	CHECK(heard.armed_calls == 1 && heard.armed_verified);
+
+	/* The stop reaches it: the run-to-here is over, the breakpoint is
+	 * not, and the source is re-sent so the adapter still has it. */
+	CHECK(!feed_stopped("{\"reason\":\"breakpoint\",\"threadId\":1}"));
+	CHECK(dap_breakpoint_stopped_at(tmppath("a.c"), 3));
+	CHECK(dap_breakpoint_temporary_count() == 0);
+	CHECKF(
+	    dap_breakpoint_count() == 1, "the user's breakpoint was removed");
+	CHECKF(strcmp(info_at("a.c", 3).condition, "x > 1") == 0, "'%s'",
+	    info_at("a.c", 3).condition);
+	CHECK(pump_for_sets(s, 3));
+	pump_quietly(s);
+	CHECK(heard.asked[2].count == 1 && heard.asked[2].lines[0] == 3);
+	CHECK(strcmp(heard.asked[2].condition, "x > 1") == 0);
+	/* And the armed callback still ran exactly once. */
+	CHECK(heard.armed_calls == 1);
+	finish(s);
+	teardown();
+}
+
+/* The same rule at the other end of a temporary's life: the session sweep
+ * takes the run-to-here away and leaves the breakpoint the user set. */
+static void test_session_end_keeps_a_user_breakpoint_a_temporary_touched(void)
+{
+	struct dap_breakpoint_options opts = { 0 };
+	struct dap_session *s;
+
+	setup();
+	s = configured_session(NULL);
+	opts.condition = "x > 1";
+	CHECK(dap_breakpoint_add_at(tmppath("a.c"), 2, &opts)
+	    == DAP_BREAKPOINT_OK);
+	CHECK(dap_breakpoint_arm_temporary(tmppath("a.c"), 2, on_armed, NULL)
+	    == DAP_BREAKPOINT_OK);
+	CHECK(pump_for_sets(s, 1));
+	pump_quietly(s);
+	CHECK(dap_breakpoint_temporary_count() == 1);
+
+	finish(s);
+	CHECK(dap_breakpoint_temporary_count() == 0);
+	CHECKF(dap_breakpoint_count() == 1,
+	    "the session sweep took the user's breakpoint with the temporary");
+	CHECK(strcmp(info_at("a.c", 2).condition, "x > 1") == 0);
+	CHECK(!info_at("a.c", 2).temporary);
+	teardown();
+}
+
 /* A stop that is somebody else's -- an exception, another breakpoint --
  * never removes a temporary, and having named ITS hit ids it also closes
  * the question, so the stack fetch that follows cannot remove one either. */
@@ -1133,11 +1291,14 @@ int main(void)
 	RUN(test_a_missing_element_is_unverified_and_reported);
 	RUN(test_removing_the_last_one_sends_the_empty_array);
 	RUN(test_a_changed_event_sends_nothing);
+	RUN(test_an_edit_resyncs_the_adapter);
 	RUN(test_an_unknown_id_creates_and_removed_removes);
 	RUN(test_a_moved_breakpoint_reanchors_and_merges);
 	RUN(test_a_temporary_waits_for_its_own_answer);
 	RUN(test_an_unverified_temporary_is_removed_and_reported);
 	RUN(test_a_hit_is_settled_by_ids_or_by_the_stack);
+	RUN(test_a_run_to_here_does_not_destroy_a_user_breakpoint);
+	RUN(test_session_end_keeps_a_user_breakpoint_a_temporary_touched);
 	RUN(test_an_intervening_stop_never_removes_a_temporary);
 	RUN(test_session_death_removes_every_temporary);
 	RUN(test_a_never_answered_request_does_not_wedge_the_table);

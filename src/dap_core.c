@@ -74,6 +74,15 @@ int dap_poll(void)
 	 * START a session: a Java one spends its first seconds waiting for
 	 * a language server, and that wait advances here (src/dap_java.h). */
 	changed |= dap_java_poll();
+	/* An edit moved a breakpoint's anchor and the debounce has run out:
+	 * the adapter is told where the breakpoint is NOW, or it keeps
+	 * stopping at the line it was on when the session started
+	 * (src/dap_breakpoint.h).  Not a repaint of its own -- the edit
+	 * already painted the mark at its new line, and what the adapter
+	 * answers arrives through the session poll above. */
+	if (dap_breakpoint_resync_due()) {
+		dap_breakpoint_sync();
+	}
 	if (changed) {
 		dap_decor_refresh();
 	}

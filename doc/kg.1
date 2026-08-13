@@ -2407,6 +2407,8 @@ the adapter has confirmed it \(em so a
 .Ic dap-until
 whose line the adapter refuses stops nothing and says so, rather than
 running to the end.
+A breakpoint you already had on that line is not disturbed: only the
+one-shot half ends at the stop, and the breakpoint keeps its condition.
 See
 .Sx DEBUGGER .
 .It delete-backward-char

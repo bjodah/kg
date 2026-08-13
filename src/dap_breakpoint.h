@@ -231,6 +231,15 @@ void dap_breakpoint_event(const struct kg_json_value *body);
  * the second in-flight request per source this module exists to prevent. */
 void dap_breakpoint_sync(void);
 
+/* Whether an EDIT has moved a breakpoint's anchor since the adapter was
+ * last told, and the debounce that makes a burst of typing one request has
+ * expired.  dap_poll() asks this every tick and calls dap_breakpoint_sync()
+ * when it says yes, which is the whole of "the adapter hears about edits":
+ * without it an adapter keeps stopping at the line a breakpoint USED to be
+ * on for the rest of the session.  Idle it is one comparison, and
+ * dap_breakpoint_sync() is what disarms it. */
+bool dap_breakpoint_resync_due(void);
+
 /* The session is over (dead, cancelled, or about to be).  Every temporary
  * breakpoint is removed -- they belong to one run -- every id and
  * verification is forgotten, since they were that adapter's, and nothing is

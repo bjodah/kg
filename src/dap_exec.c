@@ -948,6 +948,21 @@ static const char *step_command(enum dap_exec_step step)
 	return "next";
 }
 
+/* A resume that never happened, whichever request it was: the program is
+ * still where it was, so the session goes back to STOPPED -- nothing else
+ * ever would, since the adapter that refused sends no `stopped` and no
+ * `continued` -- and the stop view is asked for again, because the epoch
+ * already moved when the request went out and the frame handles were
+ * conservatively invalidated with it.  The selection bump is part of the
+ * rollback and not decoration: it is what makes exec_current() drop a
+ * `stackTrace` answer for the view this one replaces. */
+static void resume_failed(void)
+{
+	dap_session_note_stopped(dap_session_current());
+	g.selection++;
+	request_stack(1);
+}
+
 static void on_resumed(
     struct dap_client *c, const struct dap_response *r, void *ctx)
 {
@@ -960,15 +975,9 @@ static void on_resumed(
 		return;
 	}
 	if (!r->success) {
-		/* Back to STOPPED and refetch: the epoch already moved when
-		 * the request went out, so the frame handles were
-		 * conservatively invalidated and have to be asked for
-		 * again. */
 		exec_report(true, "%s failed: %s", step_command(req->step),
 		    exec_error_text(r));
-		dap_session_note_stopped(dap_session_current());
-		g.selection++;
-		request_stack(1);
+		resume_failed();
 		free(req);
 		return;
 	}
@@ -1015,7 +1024,15 @@ bool dap_exec_resume(enum dap_exec_step step)
 	}
 	kg_jsonw_end_object(&w);
 	exec_changed();
-	return exec_send(step_command(step), &w, on_resumed, req);
+	if (!exec_send(step_command(step), &w, on_resumed, req)) {
+		/* A request that never left calls no callback of its own
+		 * (exec_send()), so the phase transition above is rolled back
+		 * here rather than left waiting for an answer that has no
+		 * question. */
+		resume_failed();
+		return false;
+	}
+	return true;
 }
 
 static void on_simple(
@@ -1056,6 +1073,25 @@ bool dap_exec_pause(void)
 
 /* --------------------------------- goto ------------------------------- */
 
+/* A `goto` is a resume, so a refused one is the same rollback a refused
+ * step is -- and it is not optional here: nothing else takes a session out
+ * of RESUMING, so without this every later execution command is refused
+ * until the session is restarted. */
+static void on_goto(
+    struct dap_client *c, const struct dap_response *r, void *ctx)
+{
+	struct exec_req *req = ctx;
+
+	(void)c;
+	if (!r->success) {
+		exec_report(true, "goto failed: %s", exec_error_text(r));
+		if (exec_current(req, false)) {
+			resume_failed();
+		}
+	}
+	free(req);
+}
+
 static void send_goto(int target_id)
 {
 	struct exec_req *req;
@@ -1067,8 +1103,12 @@ static void send_goto(int target_id)
 		return;
 	}
 	/* Resume-implying: the adapter answers with a fresh `stopped`, and
-	 * every handle kg holds is about the old one [M-4]. */
+	 * every handle kg holds is about the old one [M-4].  `resumed_epoch`
+	 * moves with it exactly as dap_exec_resume()'s does, or the
+	 * `continued` this jump causes reads as unsolicited and bumps the
+	 * epoch a second time. */
 	g.epoch++;
+	g.resumed_epoch = g.epoch;
 	clear_stop_view();
 	(void)dap_session_begin_resume(dap_session_current());
 	req = exec_req_new();
@@ -1079,7 +1119,9 @@ static void send_goto(int target_id)
 	kg_jsonw_key(&w, "targetId");
 	kg_jsonw_int(&w, target_id);
 	kg_jsonw_end_object(&w);
-	(void)exec_send("goto", &w, on_simple, req);
+	if (!exec_send("goto", &w, on_goto, req)) {
+		resume_failed();
+	}
 }
 
 static void fill_goto_targets(const struct kg_json_value *body)
@@ -1190,6 +1232,25 @@ bool dap_exec_goto_chosen(size_t index)
 
 /* -------------------------------- restart ----------------------------- */
 
+/* A restart the adapter refused.  Nothing resumed and nothing died, so the
+ * session is where it was -- but the stop view was dropped when the request
+ * went out, and a debugger showing blank panes until the next stop is a
+ * defect of its own, so it is asked for again. */
+static void on_restart(
+    struct dap_client *c, const struct dap_response *r, void *ctx)
+{
+	struct exec_req *req = ctx;
+
+	(void)c;
+	if (!r->success) {
+		exec_report(true, "restart failed: %s", exec_error_text(r));
+		if (exec_current(req, false)) {
+			request_stack(1);
+		}
+	}
+	free(req);
+}
+
 bool dap_exec_restart(void)
 {
 	struct dap_session *s = dap_session_current();
@@ -1199,21 +1260,25 @@ bool dap_exec_restart(void)
 		exec_report(true, "No debug session");
 		return false;
 	}
-	g.epoch++;
-	clear_stop_view();
 	if (exec_capable(DAP_CAP_RESTART_REQUEST)) {
 		/* The spec's stated preference, and the reason the
 		 * capability is read live: lldb-dap advertises `restart`
 		 * through the capabilities event rather than at initialize
-		 * [M-7]. */
+		 * [M-7].  The epoch moves here rather than above it: an
+		 * adapter that cannot restart at all is not a reason to
+		 * throw away the view the user is looking at. */
+		g.epoch++;
+		clear_stop_view();
 		kg_jsonw_init(&w);
 		kg_jsonw_begin_object(&w);
 		kg_jsonw_end_object(&w);
-		return exec_send("restart", &w, on_simple, exec_req_new());
+		return exec_send("restart", &w, on_restart, exec_req_new());
 	}
 	/* Client-side: end this session and relaunch the same configuration.
 	 * The breakpoint table and the window layout are editor property and
 	 * are not touched by either half. */
+	g.epoch++;
+	clear_stop_view();
 	g.relaunching = true;
 	g.relaunch_deadline_ms = now_ms() + DAP_EXEC_RESTART_GRACE_MS;
 	dap_session_end(s, DAP_END_TERMINATE);

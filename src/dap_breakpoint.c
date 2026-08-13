@@ -29,8 +29,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 struct dap_client; /* src/dap_client.h */
+
+/* How long an edit that moved a breakpoint waits before the source goes out
+ * again.  The panes' number and its reasoning (DAP_UI_DEBOUNCE_MS): a burst
+ * of typing is one `setBreakpoints`, not one per keystroke -- and every
+ * successful set re-keys every adapter id, so the burst matters. */
+#define DAP_BREAKPOINT_RESYNC_DEBOUNCE_MS 100u
 
 /* A table that could hold more than the configuration join can send would
  * be a table whose extra rows are silently never set. */
@@ -62,6 +69,12 @@ struct dap_bp {
 	bool has_id;
 	int id;
 	bool temporary;
+	/* Whether a user put a breakpoint HERE, as opposed to this object
+	 * existing only because a run-to-here needed somewhere to stop.  One
+	 * line is one object, so `dap-until` over a breakpoint the user set
+	 * lands on that object; this is what tells the two apart again when
+	 * the temporary half is over -- see temporary_hit(). */
+	bool user_set;
 	/* Spelled as the NEGATIVE so that zero is an ordinary breakpoint:
 	 * every one of the two creation sites below memsets its slot, and a
 	 * flag that had to be set to true afterwards is a flag one of them
@@ -129,10 +142,25 @@ static struct kg_event_subscriber_token event_token;
  * not reopen it and remove a temporary the adapter said was not hit. */
 static bool stop_question_open;
 
+/* An edit has moved an anchor since the adapter was last told, and when the
+ * re-send is due.  Armed by the change subscriber, disarmed by
+ * dap_breakpoint_sync(); idle it is one bool nobody writes. */
+static bool resync_due;
+static unsigned long long resync_due_ms;
+
 static void (*report_hook)(void *ctx, bool error, const char *text);
 static void *report_hook_ctx;
 
 /* ------------------------------ small parts --------------------------- */
+
+static unsigned long long now_ms(void)
+{
+	struct timespec ts;
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (unsigned long long)ts.tv_sec * 1000ull
+	    + (unsigned long long)(ts.tv_nsec / 1000000);
+}
 
 const char *dap_breakpoint_result_text(enum dap_breakpoint_result result)
 {
@@ -808,11 +836,28 @@ static void bp_apply_options(
 	if (!opts) {
 		return;
 	}
-	bp->temporary = opts->temporary;
-	copy_text(bp->condition, sizeof(bp->condition), opts->condition);
-	copy_text(
-	    bp->hit_condition, sizeof(bp->hit_condition), opts->hit_condition);
-	copy_text(bp->log_message, sizeof(bp->log_message), opts->log_message);
+	/* A UNION, exactly as bp_merge_into()'s is and for the same reason:
+	 * one line is one object, so a run-to-here over a breakpoint the user
+	 * already set ADDS the temporary half to it rather than converting
+	 * it.  What ends the temporary half without ending the breakpoint is
+	 * `user_set` (temporary_hit()). */
+	bp->temporary = bp->temporary || opts->temporary;
+	/* Only the fields this add actually carries.  A temporary add's
+	 * options are all NULL, and an unconditional copy of them is how a
+	 * `dap-until` used to erase the condition on the breakpoint it
+	 * landed on; a caller clearing one passes "" and still clears it. */
+	if (opts->condition) {
+		copy_text(
+		    bp->condition, sizeof(bp->condition), opts->condition);
+	}
+	if (opts->hit_condition) {
+		copy_text(bp->hit_condition, sizeof(bp->hit_condition),
+		    opts->hit_condition);
+	}
+	if (opts->log_message) {
+		copy_text(bp->log_message, sizeof(bp->log_message),
+		    opts->log_message);
+	}
 }
 
 /* Create or update one breakpoint, anchoring it if a buffer is visiting the
@@ -841,6 +886,11 @@ static enum dap_breakpoint_result bp_put(struct dap_bp_source *s, size_t index,
 		s->items[at].line = line;
 		bp_apply_options(&s->items[at], opts);
 		anchor_bp(b, &s->items[at]);
+	}
+	/* Any add that is not a run-to-here is a user putting a breakpoint
+	 * here, whether the object was made for it or was already there. */
+	if (!opts || !opts->temporary) {
+		s->items[at].user_set = true;
 	}
 	s->items[at].armed_cb = armed;
 	s->items[at].armed_ctx = armed_ctx;
@@ -1120,10 +1170,17 @@ void dap_breakpoint_session_answered(
 	}
 }
 
+bool dap_breakpoint_resync_due(void)
+{
+	return resync_due && now_ms() >= resync_due_ms;
+}
+
 void dap_breakpoint_sync(void)
 {
 	size_t i = source_count;
 
+	/* Whatever an edit was waiting to push, this is the push. */
+	resync_due = false;
 	/* Downwards, because a source that turns out to have nothing left to
 	 * say is released here and everything after it shifts down. */
 	while (i-- > 0) {
@@ -1155,9 +1212,18 @@ void dap_breakpoint_session_ended(void)
 
 		j = s->count;
 		while (j-- > 0) {
-			if (s->items[j].temporary) {
-				bp_forget(s, j);
+			if (!s->items[j].temporary) {
+				continue;
 			}
+			/* The run-to-here belonged to the run; a breakpoint
+			 * the user set does not, and outlives it here as it
+			 * does at the stop that reaches it. */
+			if (s->items[j].user_set) {
+				s->items[j].temporary = false;
+				s->items[j].armed_ctx = NULL;
+				continue;
+			}
+			bp_forget(s, j);
 		}
 		/* The ids and the verdicts were that adapter's, and there is
 		 * nobody left to tell about the removals. */
@@ -1217,6 +1283,9 @@ static void bp_merge_into(struct dap_bp *survivor, struct dap_bp *moved)
 	survivor->verified = moved->verified;
 	copy_text(survivor->message, sizeof(survivor->message), moved->message);
 	survivor->temporary = survivor->temporary || moved->temporary;
+	/* And so is `user_set`, or a user's breakpoint moved onto a
+	 * run-to-here's object would be swept away with it. */
+	survivor->user_set = survivor->user_set || moved->user_set;
 	if (!survivor->armed_cb && moved->armed_cb) {
 		survivor->armed_cb = moved->armed_cb;
 		survivor->armed_ctx = moved->armed_ctx;
@@ -1368,7 +1437,11 @@ enum dap_breakpoint_result dap_breakpoint_arm_temporary(
  * adapter, which is the "resyncing if the session lives" half of the rule.
  * A breakpoint hit before its own set response came back still has an armed
  * callback, and it is settled here rather than left waiting for an answer
- * that is now about a breakpoint the table no longer holds. */
+ * that is now about a breakpoint the table no longer holds.
+ *
+ * A breakpoint the user set is not removed by a run-to-here that landed on
+ * it: only the temporary half ends, and the source is re-sent so the adapter
+ * hears that the breakpoint itself survives. */
 static void temporary_hit(size_t index, size_t at, const char *why)
 {
 	struct dap_bp_source *s = sources[index];
@@ -1376,7 +1449,12 @@ static void temporary_hit(size_t index, size_t at, const char *why)
 	void *ctx = s->items[at].armed_ctx;
 
 	s->items[at].armed_cb = NULL;
-	bp_forget(s, at);
+	s->items[at].armed_ctx = NULL;
+	if (s->items[at].user_set) {
+		s->items[at].temporary = false;
+	} else {
+		bp_forget(s, at);
+	}
 	source_mutated(index);
 	if (cb) {
 		cb(ctx, false, why);
@@ -1477,17 +1555,35 @@ static void demote_buffer(struct kg_buffer_handle buffer)
 	}
 }
 
+/* The anchors' cache, kept honest at the safe point after every edit -- and
+ * where an edit becomes news for the adapter.  A marker that MOVED means the
+ * line the adapter would stop at is no longer the line the user sees, so the
+ * source's desired generation moves (a projection: nothing is sent from
+ * here) and the debounced re-send is armed.  Ordinary typing moves no
+ * marker; a newline inserted or removed above a breakpoint does. */
 static void refresh_buffer(struct kg_buffer_handle buffer)
 {
 	size_t i, j;
 
 	for (i = 0; i < source_count; i++) {
+		bool moved = false;
+
 		for (j = 0; j < sources[i]->count; j++) {
-			if (sources[i]->items[j].anchored
-			    && same_buffer(
-				sources[i]->items[j].marker.buffer, buffer)) {
-				(void)bp_refresh(&sources[i]->items[j]);
+			struct dap_bp *bp = &sources[i]->items[j];
+			int was;
+
+			if (!bp->anchored
+			    || !same_buffer(bp->marker.buffer, buffer)) {
+				continue;
 			}
+			was = bp->line;
+			moved |= bp_refresh(bp) != was;
+		}
+		if (moved) {
+			source_projected(i);
+			resync_due = true;
+			resync_due_ms
+			    = now_ms() + DAP_BREAKPOINT_RESYNC_DEBOUNCE_MS;
 		}
 	}
 }
@@ -1579,6 +1675,7 @@ void dap_breakpoint_reset(void)
 	source_count = 0;
 	memset(flights, 0, sizeof(flights));
 	stop_question_open = false;
+	resync_due = false;
 	(void)kg_event_unsubscribe(event_token);
 	event_token = KG_EVENT_SUBSCRIBER_NONE;
 }

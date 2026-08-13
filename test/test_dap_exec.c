@@ -58,8 +58,10 @@ static struct heard {
 	int asked_stack;
 	int asked_next;
 	int asked_variables;
+	int asked_pause;
 	int stack_thread_id;
 	int stack_levels;
+	int pause_thread_id;
 	char next_granularity[32];
 } heard;
 
@@ -118,6 +120,10 @@ static void note_arguments(const struct kg_json_value *body)
 		    = (int)kg_json_int(kg_json_get(args, "levels"), -1);
 	} else if (strcmp(command, "variables") == 0) {
 		heard.asked_variables++;
+	} else if (strcmp(command, "pause") == 0) {
+		heard.asked_pause++;
+		heard.pause_thread_id
+		    = (int)kg_json_int(kg_json_get(args, "threadId"), -1);
 	} else if (strcmp(command, "next") == 0) {
 		heard.asked_next++;
 		text = kg_json_str(kg_json_get(args, "granularity"), NULL);
@@ -535,20 +541,30 @@ static void test_preserve_focus_hint(void)
 /* ------------------------------- resuming ----------------------------- */
 
 /* One oracle, one sentence: without a stopped thread there is nothing to
- * step, and no request goes out. */
+ * step, and no request goes out.
+ *
+ * `dap-pause` is the EXCEPTION, and deliberately so: its own rule is that it
+ * is refused only when the program is ALREADY stopped, so a session with no
+ * stopped thread is exactly the one it must still be sent for -- it is the
+ * escape hatch for a resume that never came back.  With no thread selected
+ * it names thread 1, since a `pause` has to name one. */
 static void test_step_refused_without_a_stopped_thread(void)
 {
 	struct dap_session *s = start_session(
-	    "--capabilities '" CAPS_PLAIN "' --report-arguments next");
+	    "--capabilities '" CAPS_PLAIN "' --report-arguments next"
+	    " --report-arguments pause");
 
 	pump_quietly(s);
 	CHECK(!dap_exec_resume(DAP_EXEC_NEXT));
 	CHECK(!dap_exec_resume(DAP_EXEC_CONTINUE));
-	CHECK(!dap_exec_pause() || true); /* pause is the other rule */
-	pump_quietly(s);
-	CHECK(heard.asked_next == 0);
 	CHECKF(strcmp(heard.last_report, dap_exec_no_thread_text()) == 0,
 	    "said: %s", heard.last_report);
+	CHECKF(dap_exec_pause(), "pause was refused without a stopped thread");
+	pump_quietly(s);
+	CHECK(heard.asked_next == 0);
+	CHECKF(heard.asked_pause == 1, "%d pause requests", heard.asked_pause);
+	CHECKF(heard.pause_thread_id == 1, "paused thread %d",
+	    heard.pause_thread_id);
 	finish(s);
 }
 
@@ -793,6 +809,95 @@ static void test_goto_with_several_targets_waits_for_a_choice(void)
 	finish(s);
 }
 
+/* The stack has been asked for again AND the session is stopped: what a
+ * rolled-back resume looks like from outside, and both halves of it. */
+static int wanted_stack;
+
+static bool stopped_and_refetched(const struct dap_session_state *st)
+{
+	return st->phase == DAP_PHASE_STOPPED
+	    && heard.asked_stack >= wanted_stack;
+}
+
+/* A refused `goto` is data, not a death -- and it used to be a WEDGE: the
+ * phase went to RESUMING before the request went out, the adapter never
+ * resumed, so no `stopped` and no `continued` was ever coming and every
+ * later execution command was refused for the rest of the session.  It rolls
+ * back exactly as a refused step does. */
+static void test_failed_goto_returns_to_stopped(void)
+{
+	char extra[1600];
+	struct dap_session *s;
+
+	snprintf(extra, sizeof(extra),
+	    "--capabilities '{\"supportsConfigurationDoneRequest\":true,"
+	    "\"supportsGotoTargetsRequest\":true}'"
+	    " --stopped-after configurationDone"
+	    " --stopped-body '{\"reason\":\"breakpoint\",\"threadId\":1,"
+	    "\"allThreadsStopped\":true}'"
+	    " --body 'threads:{\"threads\":[{\"id\":1,\"name\":\"main\"}]}'"
+	    " --body 'stackTrace:{\"stackFrames\":[{\"id\":11,"
+	    "\"name\":\"main\",\"line\":3,\"source\":{\"path\":\"%s\"}}]}'"
+	    " --body 'gotoTargets:{\"targets\":[{\"id\":1,\"label\":\"one\"}]}'"
+	    " --error-message 'goto:no such target'"
+	    " --report-arguments stackTrace",
+	    script_path);
+	s = start_session(extra);
+	CHECK(pump_until(s, is_stopped));
+	pump_quietly(s);
+	wanted_stack = heard.asked_stack + 1;
+	/* One target, so the jump is sent from the `gotoTargets` answer. */
+	CHECK(dap_exec_goto(script_path, 4));
+	CHECK(pump_until(s, stopped_and_refetched));
+	pump_quietly(s);
+	CHECK(state_of(s).phase == DAP_PHASE_STOPPED);
+	CHECKF(heard.asked_stack == wanted_stack,
+	    "the refused goto refetched %d times", heard.asked_stack);
+	CHECK(dap_exec_frame_count() == 1);
+	CHECKF(strstr(heard.last_report, "no such target") != NULL, "said: %s",
+	    heard.last_report);
+	/* The point of the rollback: the session is usable again. */
+	CHECKF(dap_exec_resume(DAP_EXEC_CONTINUE),
+	    "the refused goto wedged the session");
+	finish(s);
+}
+
+/* A restart the adapter REFUSES is not a wedge -- nothing resumed -- but the
+ * stop view was dropped when the request went out, so a debugger left
+ * showing blank panes until the next stop is the defect here.  It is asked
+ * for again. */
+static void test_failed_restart_refetches_the_stack(void)
+{
+	char extra[1400];
+	struct dap_session *s;
+
+	snprintf(extra, sizeof(extra),
+	    "--capabilities '{\"supportsConfigurationDoneRequest\":true,"
+	    "\"supportsRestartRequest\":true}'"
+	    " --stopped-after configurationDone"
+	    " --stopped-body '{\"reason\":\"breakpoint\",\"threadId\":1,"
+	    "\"allThreadsStopped\":true}'"
+	    " --body 'threads:{\"threads\":[{\"id\":1,\"name\":\"main\"}]}'"
+	    " --body 'stackTrace:{\"stackFrames\":[{\"id\":11,"
+	    "\"name\":\"main\",\"line\":3,\"source\":{\"path\":\"%s\"}}]}'"
+	    " --error-message 'restart:cannot restart this target'"
+	    " --report-arguments stackTrace",
+	    script_path);
+	s = start_session(extra);
+	CHECK(pump_until(s, is_stopped));
+	pump_quietly(s);
+	wanted_stack = heard.asked_stack + 1;
+	CHECK(dap_exec_restart());
+	CHECK(pump_until(s, stopped_and_refetched));
+	pump_quietly(s);
+	CHECK(state_of(s).phase == DAP_PHASE_STOPPED);
+	CHECKF(dap_exec_frame_count() == 1,
+	    "%zu frames after a refused restart", dap_exec_frame_count());
+	CHECKF(strstr(heard.last_report, "cannot restart") != NULL, "said: %s",
+	    heard.last_report);
+	finish(s);
+}
+
 /* ------------------------------ variables ----------------------------- */
 
 /* An adapter that hands back a reference already in a node's own ancestry
@@ -940,6 +1045,8 @@ int main(void)
 	RUN(test_a_thread_event_never_strands_the_stop);
 	RUN(test_goto_refused_without_the_capability);
 	RUN(test_goto_with_several_targets_waits_for_a_choice);
+	RUN(test_failed_goto_returns_to_stopped);
+	RUN(test_failed_restart_refetches_the_stack);
 	RUN(test_variable_expansion_refuses_a_cycle);
 	RUN(test_nested_variables_expand_by_reference);
 	RUN(test_a_stale_reference_answered_success_is_dropped);

@@ -918,34 +918,47 @@ void editor_find_regexp(int fd, int direction)
 	do_isearch(fd, direction, SEARCH_REGEXP);
 }
 
-/* Where a refused match resumes: past the whole glyph at `col`, so a
- * byte offset never lands inside a multi-byte character.  This is the
- * only advance in the literal query-replace loop that is not already a
- * whole match, and it used to be a plain col + 1. */
-static int skip_one_glyph(erow *row, int col)
-{
-	int span = utf8_glyph_span_at(row->chars, row->size, col);
+/* One literal query-replace match.  The flat span is the edit and
+ * decoration coordinate; row and col are only for putting point on it. */
+struct query_replace_match {
+	int filerow, col;
+	size_t begin, end;
+};
 
-	return col + (span > 0 ? span : 1);
+/* Find the first literal match in [from, limit).  A query newline and a
+ * row separator are both one buffer byte, so `qlen` names the flat match
+ * length even when isearch_literal_col() crosses several rows. */
+static int query_replace_find(size_t from, size_t limit, const char *query,
+    int qlen, int fold, struct query_replace_match *match)
+{
+	int row, col;
+
+	buffer_position_to_row_col(bcur(), from, &row, &col);
+	for (; row < bcur()->numrows; row++, col = 0) {
+		int found
+		    = isearch_literal_col(row, col, 1, query, qlen, fold, 0);
+
+		if (found < 0) {
+			continue;
+		}
+		match->filerow = row;
+		match->col = found;
+		match->begin = buffer_row_col_to_position(bcur(), row, found);
+		match->end = match->begin + (size_t)qlen;
+		return match->end <= limit;
+	}
+	return 0;
 }
 
-/* How a replacement reshapes the row it lands in.  `*nl` rows appear
- * below that row, and `*tail` is how many bytes of the replacement follow
- * its last separator -- which is the column the bytes that came after the
- * match end up at, on the last of the new rows.  With no separator the
- * row count does not move and `*tail` is the whole replacement. */
-static void replacement_shape(const char *replace, int rlen, int *nl, int *tail)
+/* Where a refused match resumes: past the whole glyph at its start, so a
+ * byte offset never lands inside a multi-byte character.  A match at EOL
+ * begins with a newline, whose one-byte separator is the glyph to skip. */
+static size_t query_replace_skip(const struct query_replace_match *match)
 {
-	int i;
+	erow *row = &bcur()->row[match->filerow];
+	int span = utf8_glyph_span_at(row->chars, row->size, match->col);
 
-	*nl = 0;
-	*tail = rlen;
-	for (i = 0; i < rlen; i++) {
-		if (replace[i] == '\n') {
-			(*nl)++;
-			*tail = rlen - i - 1;
-		}
-	}
+	return match->begin + (size_t)(span > 0 ? span : 1);
 }
 
 void editor_query_replace(int fd)
@@ -954,10 +967,9 @@ void editor_query_replace(int fd)
 	char replace[KILO_QUERY_LEN + 1] = { 0 };
 	struct kg_decor_handle match_decor = { 0 };
 	int slen, rlen;
-	int replace_nl, replace_tail;
-	int filerow, match_col;
 	int start_row, start_col, end_row, end_col;
 	int count = 0, replace_all = 0;
+	size_t scan, limit;
 
 	query_replace_bounds(&start_row, &start_col, &end_row, &end_col);
 
@@ -982,36 +994,26 @@ void editor_query_replace(int fd)
 		    fd, replace, rlen, start_row, end_row);
 		return;
 	}
-	filerow = start_row;
-	match_col = start_col;
+	scan = buffer_row_col_to_position(bcur(), start_row, start_col);
+	limit = buffer_row_col_to_position(bcur(), end_row, end_col);
 	fold = !query_has_upper(search, slen);
-	replacement_shape(replace, rlen, &replace_nl, &replace_tail);
 
-	while (filerow <= end_row && filerow < bcur()->numrows) {
-		char *match = case_strstr(
-		    bcur()->row[filerow].chars + match_col, search, fold);
+	while (scan <= limit) {
+		struct query_replace_match match;
 		enum replace_answer answer = REPLACE_DO;
 
-		if (!match) {
-			filerow++;
-			match_col = 0;
-			continue;
-		}
-		match_col = match - bcur()->row[filerow].chars;
-		/* A match straddling the region end is outside it, and so is
-		 * every later match on this row. */
-		if (filerow == end_row && match_col + slen > end_col) {
+		if (!query_replace_find(
+			scan, limit, search, slen, fold, &match)) {
 			break;
 		}
 
-		editor_goto_line_direct(filerow + 1, match_col + 1);
+		editor_goto_line_direct(match.filerow + 1, match.col + 1);
 
 		/* Highlight the match: one temporary decoration, replacing
 		 * whatever the previous iteration's answer left behind. */
 		search_match_decor_drop(&match_decor);
-		match_decor = search_match_decor(
-		    buffer_row_col_to_position(bcur(), filerow, match_col),
-		    (size_t)slen);
+		match_decor
+		    = search_match_decor(match.begin, match.end - match.begin);
 		if (match_decor.id == 0) {
 			editor_set_status_message("Out of memory");
 			running = 0;
@@ -1034,41 +1036,28 @@ void editor_query_replace(int fd)
 		}
 
 		if (answer != REPLACE_SKIP) {
-			/* Where the region's end sits relative to the match,
-			 * measured before the row it shares with it moves. */
-			int after = end_col - match_col - slen;
-			int resume;
-
 			/* The match is about to be edited; retire its
 			 * decoration first.  Ownership stays with this loop
 			 * the whole time -- it is never handed to the edit,
 			 * so there is only ever one place that deletes it. */
 			search_match_decor_drop(&match_decor);
 
-			/* A replacement is one user operation: one row
-			 * rebuild, and one C-_ that removes the replacement
-			 * span and restores the original match. */
-			if (!editor_row_replace_range(filerow, match_col, slen,
-				replace, rlen, KG_EDIT_USER)) {
+			/* One flat edit handles both row-local and cross-row
+			 * matches.  The scan and region end move by the same
+			 * byte delta regardless of how either string reshapes
+			 * rows. */
+			struct kg_edit e = kg_edit_user(bcur(), match.begin,
+			    match.end, replace, (size_t)rlen);
+
+			if (!kg_buffer_replace(&e, NULL)) {
 				break;
 			}
-
-			/* A replacement holding a separator splits the row, so
-			 * both the resume point and the region's end land on a
-			 * row that did not exist a moment ago.  Without this
-			 * the next search would start past the end of the (now
-			 * much shorter) row it thinks it is still on. */
-			resume = replace_nl ? replace_tail : match_col + rlen;
-			if (filerow == end_row) {
-				end_col = resume + after;
-			}
-			end_row += replace_nl;
-			filerow += replace_nl;
-			match_col = resume;
+			limit
+			    = limit - (match.end - match.begin) + (size_t)rlen;
+			scan = match.begin + (size_t)rlen;
 			count++;
 		} else {
-			match_col
-			    = skip_one_glyph(&bcur()->row[filerow], match_col);
+			scan = query_replace_skip(&match);
 		}
 	}
 

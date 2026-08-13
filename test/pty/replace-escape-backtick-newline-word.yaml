@@ -1,0 +1,28 @@
+name: replace-escape-backtick-newline-word
+filename: bash-code-block.md
+initial: |
+  \`
+  Bash#!/bin/sh
+keys:
+  - "M-%"
+  - "\\"
+  - "`"
+  - C-q
+  - C-j
+  - B
+  - a
+  - s
+  - h
+  - RET
+  - "`"
+  - B
+  - a
+  - s
+  - h
+  - C-q
+  - C-j
+  - RET
+  - SPC
+expected_saved: |
+  `Bash
+  #!/bin/sh

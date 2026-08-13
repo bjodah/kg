@@ -1,5 +1,9 @@
 # DAP subplan 03 — Java via nbcode (measured); jdtls road recorded
 
+*Historical: the nbcode road below SHIPPED. `nbcode-java` is one of the
+four built-in adapters (src/dap_config.c), so "planned" reads as the plan's
+tense and not the tree's; the jdtls road is still only recorded.*
+
 Parent: `doc/plans/2026-08-11-dap.md`; prerequisites: subplans 00-02
 complete (Java is the first adapter extension, not part of the v1
 milestone). Everything marked measured was observed live on this box on

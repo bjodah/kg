@@ -54,8 +54,12 @@ keys:
   - SETTLE=15:*dap-stack*
   - F12
   - SETTLE=5
-  # The session goes.  The keys it owned go with it, so F8 below is the
-  # user's own key again and types nothing.
+  # The session goes.  The keys it owned go with it, so F8 below reaches
+  # nothing.  WHAT F8 DID IS THE SCREEN'S BUSINESS, not the saved file's:
+  # neither an unbound F8 nor a live dap-continue types anything, so a
+  # file assertion here passes with the keymap left installed (measured).
+  # The echo area tells them apart -- an unbound single key says nothing
+  # at all, while dap-continue with no session says so out loud.
   - M-x
   - dap-disconnect
   - RET
@@ -77,3 +81,6 @@ expected_screen_not_contains:
   - "*dap-stack*"
   - "*dap-locals*"
   - "*dap-breakpoints*"
+  # And F8 reached no command: a dap-continue still bound to it would
+  # have answered dap_exec_no_thread_text() (src/dap_exec.c) here.
+  - "No stopped thread"

@@ -60,7 +60,7 @@ env:
     --body 'stackTrace:{"stackFrames":[{"id":12,"name":"main","line":6,"source":{"path":"{CWD}/main.c"}}]}'
     --body 'stackTrace:{"stackFrames":[{"id":12,"name":"main","line":6,"source":{"path":"{CWD}/main.c"}},{"id":13,"name":"caller","line":3,"source":{"path":"{CWD}/main.c"}}]}'
     --body 'scopes:{"scopes":[{"name":"Locals","variablesReference":21}]}'
-    --body 'evaluate:{"result":"42","variablesReference":0}'
+    --body 'evaluate:{"result":"KG-EVAL-OK","variablesReference":0}'
     --variables '{"21":[{"name":"answer","value":"42","variablesReference":0}]}'
     --output-split 'configurationDone:hello from the debuggee'
 keys:
@@ -110,7 +110,7 @@ keys:
   - RET
   - answer
   - RET
-  - SETTLE=15:42
+  - SETTLE=15:KG-EVAL-OK
 expected_saved: |
   #include <stdio.h>
 
@@ -127,7 +127,9 @@ expected_screen_contains:
   # One `print` split across two `output` events, joined back into the line
   # the program actually printed [M-12].
   - hello from the debuggee
-  # The evaluated value, in the echo area, from the frame the walk selected
-  # -- and a value no line of the source says, so that finding it on screen
-  # means the adapter answered.
-  - "42"
+  # The evaluated value, in the echo area, from the frame the walk selected.
+  # It is a SENTINEL rather than the obvious 42 because the locals pane on
+  # the same screen already says `answer = 42`: a wait for "42" was
+  # satisfied before dap-evaluate ran, and the whole evaluate interaction
+  # could be deleted with this case still green (measured).
+  - KG-EVAL-OK

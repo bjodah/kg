@@ -664,9 +664,6 @@ def load_case(path: Path) -> Case:
 	backend = data.get("backend", "pexpect")
 	if backend not in ("pexpect", "tmux"):
 		raise ValueError(f"{path}: backend must be pexpect or tmux")
-	if expected_exit_code is not None and backend == "tmux":
-		raise ValueError(f"{path}: expected_exit_code is not supported with backend: tmux "
-				 "(the tmux runner hardcodes exit code 0 since the process runs detached)")
 	# `SETTLE=<seconds>:<text>` reads the screen, and only the tmux backend
 	# has one to read: a pexpect transcript is raw output with escape
 	# sequences in it, where "contains" would answer a different question.
@@ -938,6 +935,21 @@ def wait_exit_tmux(sock: str, session: str, budget: float) -> None:
 		time.sleep(READY_POLL)
 
 
+def read_status_tmux(status_path: Path) -> int | None:
+	"""kg's exit status from the sidecar the pane's shell wrote, or None.
+
+	None means "not observed", which is what the evaluator already does
+	nothing about: a case that deliberately leaves kg running has no status
+	to read, and the pane is killed out from under the shell instead.  A
+	shell that reports a signal death as 128+n matches what
+	run_editor_pexpect() synthesizes from signalstatus.
+	"""
+	try:
+		return int(status_path.read_text().strip())
+	except (OSError, ValueError):
+		return None
+
+
 def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str],
 		    trailer_keys: list[str], startup_delay: float,
 		    key_delay: float, dimensions: tuple[int, int],
@@ -949,7 +961,11 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 	if shutil.which("tmux") is None:
 		return RunResult(None, None, "tmux not found", b"")
 
-	with tempfile.TemporaryDirectory(prefix="kg-tmux-") as td:
+	# The status sidecar gets a directory of its own rather than a file in
+	# `td`: `td` is the case's working directory, and a case that completes
+	# or lists a file name there would see the harness's own bookkeeping.
+	with tempfile.TemporaryDirectory(prefix="kg-tmux-") as td, \
+	     tempfile.TemporaryDirectory(prefix="kg-tmux-status-") as sd:
 		file_path = Path(td) / filename
 		write_file_under_test(file_path, initial, file_mode)
 		write_workspace_files(Path(td), workspace_files or {})
@@ -958,15 +974,25 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 		home.mkdir()
 		write_config_files(home, config_files)
 		sock = str(Path(td) / "tmux.sock")
+		status_path = Path(sd) / "status"
 		session = "ptyaccept"
 		pane = f"{session}:0.0"
 		rows, cols = dimensions
-		cmd = "env -u XDG_CONFIG_HOME " + \
+		run = "env -u XDG_CONFIG_HOME " + \
 		      f"HOME={shlex.quote(str(home))} " + \
 		      "TERM=xterm-256color LC_ALL=C.UTF-8 " + \
 		      "".join(f"{k}={shlex.quote(v)} " for k, v in
 			      expand_case_env(case_env, Path(td)).items()) + \
 		      " ".join(shlex.quote(a) for a in argv + [str(file_path)])
+		# kg's exit status, which the pane itself does not keep: tmux
+		# destroys the session as the pane's command exits and there is
+		# nothing left to ask.  The shell that ran kg writes it to a
+		# sidecar before it exits, so "session gone" (wait_exit_tmux)
+		# still means the status is on disk.  /bin/sh is named
+		# explicitly because `$?` is POSIX and tmux would otherwise pick
+		# the box's login shell, which need not be.
+		cmd = "/bin/sh -c " + shlex.quote(
+			f"{run}; printf %s $? > {shlex.quote(str(status_path))}")
 		transcript = io.StringIO()
 
 		try:
@@ -1021,7 +1047,8 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 				pass
 			run_tmux_cmd(sock, "kill-server", check=False)
 
-		return RunResult(file_path.read_bytes(), 0, None, transcript.getvalue().encode())
+		return RunResult(file_path.read_bytes(), read_status_tmux(status_path),
+				 None, transcript.getvalue().encode())
 
 
 def run_editor(argv: list[str], filename: str, initial: str, keys: list[str],
@@ -1161,11 +1188,11 @@ def evaluate_case_status(case: Case, kg_argv: list[str], features: set[str],
 		# a heap leak on the interactive error paths that ASan had
 		# found and nothing was reading.
 		#
-		# The tmux backend cannot participate: it drives kg inside a
-		# tmux pane and never waits on kg itself, so run_editor_tmux
-		# reports 0 unconditionally -- which is why
-		# expected_exit_code is refused for that backend too. Cases
-		# that must observe a status use backend: pexpect.
+		# Both backends participate.  The tmux one has no process of
+		# its own to wait on, so the shell that ran kg inside the pane
+		# writes the status to a sidecar (read_status_tmux); a case
+		# that deliberately leaves kg running reports None, which is
+		# "not observed" and not a failure.
 		passed = 0
 		details = (f"kg exited {kg_run.exit_code}; a sanitizer or "
 			   "assertion failure reports through the exit "
@@ -1221,8 +1248,15 @@ def main() -> int:
 	# green summary means the same thing everywhere it is read.
 	emacs = resolve_emacs(args.emacs)
 	have_tmux = shutil.which("tmux") is not None
-	oracle_cases = sum(1 for c in cases if c.oracle == "emacs")
-	tmux_cases = sum(1 for c in cases if case_needs_tmux(c))
+	# Only the cases this build can run at all.  A case ruled out by
+	# `requires_feature:` is skipped by evaluate_case_status() before it ever
+	# looks at a tool, so counting its tools here would report a tool nothing
+	# needs -- and under --require-tools abort the run over it, naming a
+	# tool for a case this build cannot reach.  A `requires_feature: -dap`
+	# case that wanted debugpy would do exactly that to every +dap lane.
+	runnable = [c for c in cases if not feature_mismatch(c, features)]
+	oracle_cases = sum(1 for c in runnable if c.oracle == "emacs")
+	tmux_cases = sum(1 for c in runnable if case_needs_tmux(c))
 	missing = []
 	if oracle_cases and emacs is None:
 		missing.append(f"emacs ({oracle_cases} oracle case(s); set --emacs "
@@ -1230,7 +1264,7 @@ def main() -> int:
 	if tmux_cases and not have_tmux:
 		missing.append(f"tmux ({tmux_cases} case(s) need it)")
 	tool_cases: dict[str, int] = {}
-	for case in cases:
+	for case in runnable:
 		for tool in case.requires_tool:
 			tool_cases[tool] = tool_cases.get(tool, 0) + 1
 	for tool in sorted(tool_cases):
@@ -1238,7 +1272,7 @@ def main() -> int:
 		if unavailable:
 			missing.append(f"{unavailable} ({tool_cases[tool]} case(s) need it)")
 	module_cases: dict[str, int] = {}
-	for case in cases:
+	for case in runnable:
 		if case.requires_python_module:
 			module_cases[case.requires_python_module] = \
 				module_cases.get(case.requires_python_module, 0) + 1

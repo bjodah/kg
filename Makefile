@@ -1800,7 +1800,8 @@ clean:
 	      $(DAP_ALL) \
 	      $(OBJDIR)/.features-* $(OBJDIR)/.with-lisp-* $(TESTDIR)/*.o \
 	      $(TESTBINS) $(TESTDIR)/kgbatch $(GC_STRESS_KGBATCH) \
-	      $(FUZZBINS) $(TESTDIR)/fuzz_lsp_frames $(REGEX_DIFF_BIN)
+	      $(FUZZBINS) $(TESTDIR)/fuzz_lsp_frames \
+	      $(FUZZBIN_DAP_DISPATCH) $(REGEX_DIFF_BIN)
 	rm -rf $(PERFOBJDIR) $(TS_FAKE_GRAMMAR_DIR)
 
 distclean: clean
@@ -1842,5 +1843,6 @@ uninstall:
 	fuzz-localvars fuzz-localvars-seed fuzz-localvars-smoke \
 	fuzz-compile-parse fuzz-compile-parse-seed fuzz-compile-parse-smoke \
 	fuzz-frames fuzz-frames-seed fuzz-frames-smoke \
+	fuzz-dap-dispatch fuzz-dap-dispatch-seed fuzz-dap-dispatch-smoke \
 	fuzz-seed fuzz-smoke \
 	deb release install uninstall

@@ -616,6 +616,32 @@ static void test_lisp_arena_stats_renders(void)
 	kg_lisp_shutdown();
 }
 
+/* The debugger's rows, counted.  Every one of them exists in BOTH
+ * configurations -- a row that vanished with `WITH_DAP=0` would leave
+ * `M-x dap-continue` reporting a command nobody has heard of -- and
+ * test/pty/dap-absent-without-the-feature.yaml sweeps all of them through
+ * `M-x` on such a build to prove each answers the one sentence instead.
+ * That case names them one by one, so a new `dap-*` row that did not grow
+ * it would ship an untested stub.  THIS NUMBER AND THAT CASE MOVE
+ * TOGETHER; the case's own header says how its list is generated. */
+#define DAP_COMMAND_COUNT 23
+
+static void test_dap_command_rows_are_all_swept_by_the_pty_case(void)
+{
+	int i, n = table_size(), found = 0;
+
+	for (i = 0; i < n; i++) {
+		if (strncmp(cmd_descriptor_at(i)->name, "dap-", 4) == 0) {
+			found++;
+		}
+	}
+	CHECKF(found == DAP_COMMAND_COUNT,
+	    "%d dap-* rows, expected %d: extend "
+	    "test/pty/dap-absent-without-the-feature.yaml to sweep the new "
+	    "one, then this count",
+	    found, DAP_COMMAND_COUNT);
+}
+
 int main(void)
 {
 	RUN(test_names_sorted_and_unique);
@@ -638,5 +664,6 @@ int main(void)
 	RUN(test_fast_path_applies_the_same_policy_and_identity);
 	RUN(test_the_keystrokes_key_is_recorded);
 	RUN(test_descriptors_are_reachable_by_id);
+	RUN(test_dap_command_rows_are_all_swept_by_the_pty_case);
 	return test_summary();
 }

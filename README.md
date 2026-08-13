@@ -763,8 +763,10 @@ answers "kg was built without DAP support" rather than leaving `M-x` to
 report an unknown command.
 
 Adapters are found on `PATH` at run time; nothing is downloaded or
-installed, the same rule the LSP client follows. Two ship built in:
-`lldb-dap` for C and C++, and `python3 -m debugpy.adapter` for Python.
+installed, the same rule the LSP client follows. Four ship built in:
+`lldb-dap` for C and C++, `python3 -m debugpy.adapter` for Python, `dlv
+dap` for Go, and `nbcode-java` for Java — which is not a command at all but
+the debug adapter the Java language server already announces.
 
 An adapter kg starts, and the program it runs, get no controlling
 terminal — kg's own belongs to kg. The program's output arrives as

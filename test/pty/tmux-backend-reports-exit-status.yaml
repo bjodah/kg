@@ -1,0 +1,33 @@
+# The tmux backend's own exit status, which used to be a hardcoded 0.
+#
+# A tmux case never waits on kg: tmux owns the pane's process and destroys
+# the session as it exits, so there is nothing left to ask for a status.
+# The shell that ran kg writes it to a sidecar instead (read_status_tmux in
+# utils/pty_accept.py), which is what makes the default "a nonzero status
+# fails the case" rule -- how a sanitizer report or an assertion failure
+# arrives when the saved file is perfectly correct -- reach the 229 cases
+# that use this backend.
+#
+# This is that path's self-test: the same abort git-commit-abort.yaml drives
+# through pexpect, driven through tmux.  `C-c C-k` on a COMMIT_EDITMSG
+# buffer leaves the message unchanged and exits 1, so a run that still
+# reported 0 would fail here rather than in whichever real case next hid a
+# crash behind a correct file.
+#
+# There is no trailer: kg exits on its own, and the SETTLE is the bounded
+# wait for it to have done so before the pane is torn down.
+name: tmux-backend-reports-exit-status
+filename: COMMIT_EDITMSG
+backend: tmux
+initial: |
+  # Please enter the commit message for your changes.
+keys:
+  - garbage
+  - C-c
+  - C-k
+  - y
+  - SETTLE=2
+trailer_keys: []
+expected_saved: |
+  # Please enter the commit message for your changes.
+expected_exit_code: 1

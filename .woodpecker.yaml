@@ -13,4 +13,4 @@ steps:
       # run-ci-steps.sh skips (the suite under valgrind).
       CI_EXPENSIVE: "1"
     commands:
-      - bash -l .ci/run-ci-steps.sh
+      - bash -lc 'source $(compgen -G /opt-3/cpython-*-apt-deb/bin/activate) && .ci/run-ci-steps.sh'

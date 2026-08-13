@@ -7,6 +7,7 @@ when:
 steps:
   - name: build-and-test
     image: *ci_image
+    privileged: true
     environment:
       # Hosted CI runs everything, including the expensive steps a local
       # run-ci-steps.sh skips (the suite under valgrind).

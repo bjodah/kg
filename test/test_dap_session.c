@@ -526,6 +526,29 @@ static void test_the_requests_carry_the_snapshot_and_the_filter_defaults(void)
 	finish(s);
 }
 
+/* The outbound half of the same rule: a filter id kg could not hold whole
+ * was never merged, so it is never asked for either -- an id is the
+ * adapter's own word and kg does not send back a shortened one.  The
+ * filter beside it, which fits, is asked for as usual. */
+static void test_a_filter_id_kg_cannot_name_is_never_asked_for(void)
+{
+	struct dap_session *s;
+
+	memset(&heard, 0, sizeof(heard));
+	plant_sources(0);
+	s = start_session(DAP_REQUEST_LAUNCH,
+	    "--report-arguments setExceptionBreakpoints --capabilities "
+	    "'{\"supportsConfigurationDoneRequest\":true,"
+	    "\"exceptionBreakpointFilters\":["
+	    "{\"filter\":\"0123456789012345678901234567890123456789\","
+	    "\"label\":\"Forty bytes of filter\",\"default\":true},"
+	    "{\"filter\":\"uncaught\",\"label\":\"Uncaught\","
+	    "\"default\":true}]}'");
+	CHECK(pump_until(s, is_configured));
+	CHECK(strcmp(heard.asked_filters, "uncaught ") == 0);
+	finish(s);
+}
+
 /* Without the capability, `configurationDone` is not sent at all and the
  * milestone completes after exception configuration: the capability MEANS
  * the request exists. */
@@ -1029,6 +1052,41 @@ static void test_a_failed_launch_is_reported_and_torn_down(void)
 	finish(s);
 }
 
+/* A teardown that began while `initialize` was still outstanding: the
+ * response arrives afterwards, and the debuggee the user just asked to stop
+ * must not be started by it.  The adapter is slow on purpose, so the window
+ * is a window rather than a race.
+ *
+ * This is the one continuation an ending session refuses.  The
+ * configuration ones deliberately run to the end (the case above), because
+ * they finish what the adapter is already doing rather than START
+ * something. */
+static void test_a_teardown_during_initialize_never_launches(void)
+{
+	struct dap_session *s;
+	struct dap_session_state st;
+
+	memset(&heard, 0, sizeof(heard));
+	plant_sources(0);
+	s = start_session(DAP_REQUEST_LAUNCH,
+	    "--delay initialize:0.4 --report-arguments launch "
+	    "--capabilities '" CAPS_FULL "'");
+	/* Nothing has been pumped yet, so the handshake is certainly still
+	 * outstanding here. */
+	CHECK(!state_of(s).initialize_done);
+	dap_session_end(s, DAP_END_TERMINATE);
+	CHECK(pump_until(s, is_dead));
+	st = state_of(s);
+	/* The response did arrive -- this is the ordering the case is about,
+	 * not an adapter that never answered. */
+	CHECK(st.initialize_done);
+	CHECK(!st.launch_sent && !st.launch_done);
+	/* And nothing that looks like a launch reached the adapter: the fake
+	 * reports the arguments of every `launch` it is asked to answer. */
+	CHECK(strstr(heard.events, "kgArguments") == NULL);
+	finish(s);
+}
+
 /* An adapter that refuses `initialize` never gets a launch: there is
  * nothing to disconnect from politely and the session ends. */
 static void test_a_refused_initialize_ends_the_session(void)
@@ -1241,6 +1299,7 @@ int main(void)
 	RUN(test_configuration_runs_over_an_empty_source_list);
 	RUN(test_one_failed_source_never_wedges_the_join);
 	RUN(test_the_requests_carry_the_snapshot_and_the_filter_defaults);
+	RUN(test_a_filter_id_kg_cannot_name_is_never_asked_for);
 	RUN(test_without_the_capability_no_configuration_done_is_sent);
 	RUN(test_a_stop_during_configuration_survives_the_response);
 	RUN(test_exited_records_a_code_without_ending_the_session);
@@ -1259,6 +1318,7 @@ int main(void)
 	RUN(test_a_failed_launch_with_no_output_hands_nothing_over);
 	RUN(test_the_debuggee_output_on_the_adapters_stderr);
 	RUN(test_a_refused_initialize_ends_the_session);
+	RUN(test_a_teardown_during_initialize_never_launches);
 	RUN(test_the_teardown_matrix);
 	RUN(test_disconnect_ends_on_its_response);
 	RUN(test_terminate_without_the_capability_disconnects_terminating);

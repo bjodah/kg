@@ -447,6 +447,13 @@ static int inbox_take_message(
 		}
 		return 0;
 	}
+	/* The same bound, once the block IS complete.  The arm above only ever
+	 * sees a block still waiting for its blank line, so an oversized block
+	 * whose blank line arrived inside the same read would otherwise be
+	 * parsed however long it was. */
+	if (head > FRAMED_IO_MAX_HEADER_BYTES) {
+		return fail_inbound(io, FRAMED_IO_ERR_TOO_LARGE);
+	}
 	if (headers_content_length(io->inbox.data, head, &length) != 0) {
 		return fail_inbound(io, FRAMED_IO_ERR_PROTOCOL);
 	}

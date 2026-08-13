@@ -477,12 +477,21 @@ static void on_launch(
 
 /* Sent from the initialize response handler, with NO deadline [M-1]: the
  * response has no fixed position and a debuggee may take as long as it
- * likes to start.  What replaces the deadline is dap_session_cancel(). */
+ * likes to start.  What replaces the deadline is dap_session_cancel().
+ *
+ * A teardown that began while `initialize` was still outstanding wins here,
+ * and only here: the configuration continuations deliberately run to the
+ * end of an ending session, because they FINISH what the adapter is already
+ * doing, while this one would START the debuggee the user just asked to
+ * stop. */
 static void send_launch(struct dap_session *s)
 {
 	const char *command
 	    = s->request == DAP_REQUEST_ATTACH ? "attach" : "launch";
 
+	if (s->ending) {
+		return;
+	}
 	s->st.launch_sent = true;
 	if (!s->client) {
 		fail_locally(s, command, on_launch, s);

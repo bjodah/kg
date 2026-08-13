@@ -120,6 +120,12 @@ Protocol options:
 ``--bad-type-before CMD``
     Before answering CMD, send a message whose ``type`` is not one of the
     protocol's three.
+``--raw-frame CMD:JSON`` (repeatable)
+    Before answering CMD, write JSON verbatim as a frame -- unparsed, so
+    the bytes a case chose are the bytes kg reads.  It is the only way to
+    spell a message ``json.dumps`` of a Python object cannot: a
+    ``request_seq`` that is not an integer, a string one with a NUL inside
+    it, an event whose name carries one.  One-shot, in argv order.
 ``--error-message CMD:TEXT`` / ``--error-format CMD:TEXT``
     Refuse CMD with the failure in ``message`` (debugpy's shape) or in
     ``body.error.format`` with ``showUser``, ``url`` and ``urlLabel``
@@ -486,6 +492,11 @@ class Protocol:
         # the two events the case is about.
         self.output_splits = [(spec.partition(":")[0], spec.partition(":")[2])
                               for spec in args.output_split]
+        # One-shot too, and for the same reason: the frames these spell are
+        # ones kg must REFUSE, and a stream of them would say nothing more
+        # than the first.
+        self.raw_frames = [(spec.partition(":")[0], spec.partition(":")[2])
+                           for spec in args.raw_frame]
         self.bodies = {}
         for name, text in ((spec.partition(":")[0], spec.partition(":")[2])
                            for spec in args.body):
@@ -591,6 +602,17 @@ class Protocol:
         # The handshake is a command like any other where the triggers are
         # concerned, so `--die-after initialize` and the rest name it too.
         self.after("initialize")
+
+    def write_raw_frames(self, command):
+        """Every raw frame whose trigger is `command`, verbatim, removed as
+        it goes."""
+        keep = []
+        for trigger, text in self.raw_frames:
+            if trigger == command:
+                write_all(self.stdout, frame(text.encode("utf-8")))
+            else:
+                keep.append((trigger, text))
+        self.raw_frames = keep
 
     def send_capabilities_event(self):
         self.event("capabilities", {
@@ -701,6 +723,7 @@ class Protocol:
             self.write({"seq": self.next_seq(), "type": "response",
                         "request_seq": self.args.stray_request_seq,
                         "success": True, "command": "kgStray", "body": {}})
+        self.write_raw_frames(command)
         if command in self.args.bad_type_before:
             self.write({"seq": self.next_seq(), "type": "kgNotAType",
                         "command": command})
@@ -980,6 +1003,8 @@ def main(argv):
                         help="protocol: a response nobody awaits, before CMD")
     parser.add_argument("--stray-request-seq", type=int, default=987654,
                         help="protocol: the request_seq that stray carries")
+    parser.add_argument("--raw-frame", action="append", default=[],
+                        help="protocol: CMD:JSON as a verbatim frame before CMD")
     parser.add_argument("--bad-type-before", action="append", default=[],
                         help="protocol: a message with no usable type")
     parser.add_argument("--error-message", action="append", default=[],

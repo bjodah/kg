@@ -31,7 +31,6 @@
 
 #include <assert.h>
 #include <errno.h>
-#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -146,24 +145,50 @@ static long long now_ms(void)
 
 /* -------------------------- protocol numbers -------------------------- */
 
+/* A protocol token compared as the counted thing it is: a JSON string may
+ * legally carry a NUL (src/json.h), so `"launch\0junk"` is a name that is
+ * not `launch` however a strcmp() reads it. */
+static bool tok_eq(const char *s, size_t n, const char *lit)
+{
+	size_t len = strlen(lit);
+
+	return s && n == len && memcmp(s, lit, len) == 0;
+}
+
 /* A protocol id, range-checked into int32 [M-10]: the spec pins
  * `variablesReference` to (0, 2^31) and every id all four measured adapters
  * emitted fits, so a number outside it is an adapter fault to report rather
- * than a reason for a wider type.  A string of digits is coerced, because
- * netcoredbg spells `seq` that way and one strtoll is cheaper than a
- * conversation that cannot be correlated. */
+ * than a reason for a wider type.  A number with a fraction is not an id at
+ * all: correlating `1.9` by truncating it delivers an answer to a question
+ * nobody asked it about.  A string of digits IS coerced, because netcoredbg
+ * spells `seq` that way and one strtoll is cheaper than a conversation that
+ * cannot be correlated -- the whole string, though, since a NUL inside one
+ * is not the end of it. */
 static bool id_int32(const struct kg_json_value *v, int32_t *out)
 {
 	const char *s;
 	char *end;
+	size_t len = 0;
+	double d;
 	long long n;
 
 	if (kg_json_kind_of(v) == KG_JSON_NUMBER) {
-		n = kg_json_int(v, LLONG_MIN);
-	} else if ((s = kg_json_str(v, NULL)) != NULL && *s) {
+		/* Range before the cast, so the cast is defined, then
+		 * integrality against the value it came from. */
+		d = kg_json_num(v, 0);
+		if (!(d >= (double)INT32_MIN && d <= (double)INT32_MAX)) {
+			return false;
+		}
+		n = (long long)d;
+		if ((double)n != d) {
+			return false;
+		}
+	} else if ((s = kg_json_str(v, &len)) != NULL && *s) {
 		errno = 0;
 		n = strtoll(s, &end, 10);
-		if (errno != 0 || *end) {
+		/* strtoll's own tolerance of leading blanks and a `+` stays;
+		 * what does not is a tail, spelled with bytes or with a NUL. */
+		if (errno != 0 || *end || (size_t)(end - s) != len) {
 			return false;
 		}
 	} else {
@@ -477,12 +502,20 @@ static const struct {
 
 /* Replace the filter list, and only when one was supplied: a `capabilities`
  * event that says nothing about exception filters is not an adapter
- * withdrawing them. */
+ * withdrawing them.
+ *
+ * A filter id is the ADAPTER's word, and it is sent back verbatim at every
+ * configuration, so one that does not fit is skipped rather than stored
+ * short: a truncated id would be kg asking for a filter the adapter never
+ * offered (src/dap_client.h).  The longest any measured adapter sends is
+ * 13 bytes.  The label and the description are not skipped for the same
+ * reason -- they are text kg SHOWS, never text it sends back. */
 static void caps_merge_filters(
     struct dap_client *c, const struct kg_json_value *list)
 {
 	const struct kg_json_value *entry;
 	struct dap_exception_filter *out;
+	size_t id_len;
 	const char *id;
 	size_t count;
 	size_t i;
@@ -494,13 +527,19 @@ static void caps_merge_filters(
 	c->filter_count = 0;
 	for (i = 0; i < count && c->filter_count < ARRAY_LEN(c->filters); i++) {
 		entry = kg_json_at(list, i);
-		id = kg_json_str(kg_json_get(entry, "filter"), NULL);
-		if (!id || !*id) {
+		id_len = 0;
+		id = kg_json_str(kg_json_get(entry, "filter"), &id_len);
+		if (!id || id_len == 0) {
+			continue;
+		}
+		if (id_len >= sizeof(c->filters[0].filter)) {
+			client_log(c, DAP_LOG_DEBUG,
+			    "an exception filter kg cannot name was ignored");
 			continue;
 		}
 		out = &c->filters[c->filter_count++];
 		memset(out, 0, sizeof(*out));
-		safe_text(id, out->filter, sizeof(out->filter));
+		safe_textn(id, id_len, out->filter, sizeof(out->filter));
 		safe_text(kg_json_str(kg_json_get(entry, "label"), NULL),
 		    out->label, sizeof(out->label));
 		safe_text(kg_json_str(kg_json_get(entry, "description"), NULL),
@@ -621,7 +660,8 @@ static void deliver_event(
  * decision for a layer that knows what a thread is. */
 static void handle_event(struct dap_client *c, const struct kg_json_value *root)
 {
-	const char *name = kg_json_str(kg_json_get(root, "event"), NULL);
+	size_t len = 0;
+	const char *name = kg_json_str(kg_json_get(root, "event"), &len);
 	const struct kg_json_value *body = kg_json_get(root, "body");
 
 	if (!name || !*name) {
@@ -629,14 +669,14 @@ static void handle_event(struct dap_client *c, const struct kg_json_value *root)
 		    "the debug adapter sent an event with no name");
 		return;
 	}
-	if (strcmp(name, "output") == 0) {
+	if (tok_eq(name, len, "output")) {
 		handle_output(c, body);
 		return;
 	}
-	if (strcmp(name, "capabilities") == 0) {
+	if (tok_eq(name, len, "capabilities")) {
 		caps_merge(c, kg_json_get(body, "capabilities"));
 	}
-	if (strcmp(name, "initialized") == 0) {
+	if (tok_eq(name, len, "initialized")) {
 		c->initialized_seen = true;
 		if (!c->initialize_done) {
 			/* Out of order, and absorbed in one bool rather than
@@ -671,12 +711,12 @@ static const struct {
 	{ "startDebugging", "kg debugs one session at a time" },
 };
 
-static const char *reverse_reason(const char *command)
+static const char *reverse_reason(const char *command, size_t len)
 {
 	size_t i;
 
 	for (i = 0; i < ARRAY_LEN(reverse_arms); i++) {
-		if (strcmp(command, reverse_arms[i].command) == 0) {
+		if (tok_eq(command, len, reverse_arms[i].command)) {
 			return reverse_arms[i].reason;
 		}
 	}
@@ -705,29 +745,40 @@ static void send_refusal(struct dap_client *c, int32_t request_seq,
 /* A request from the adapter.  It needs a command to be answered about and
  * an inbound `seq` to be answered TO: with no correlatable number there is
  * no answer that could reach the right question, so it is logged and left,
- * never guessed at. */
+ * never guessed at.  A command kg cannot hold whole is the same kind of
+ * unanswerable, and for the same reason: the refusal names the command
+ * back, and a truncated spelling would name a request the adapter never
+ * made (src/dap_client.h). */
 static void handle_reverse_request(
     struct dap_client *c, const struct kg_json_value *root)
 {
 	char command[DAP_CLIENT_COMMAND_MAX];
 	char text[DAP_CLIENT_COMMAND_MAX + 64];
+	size_t raw_len = 0;
+	const char *raw;
 	const char *reason;
 	int32_t request_seq;
 
-	safe_text(kg_json_str(kg_json_get(root, "command"), NULL), command,
-	    sizeof(command));
-	if (!command[0]) {
+	raw = kg_json_str(kg_json_get(root, "command"), &raw_len);
+	if (!raw || raw_len == 0) {
 		client_log(c, DAP_LOG_ERROR,
 		    "the debug adapter sent a request with no command");
 		return;
 	}
+	if (raw_len >= sizeof(command)) {
+		client_log(c, DAP_LOG_ERROR,
+		    "the debug adapter asked for something kg cannot even "
+		    "name back to it");
+		return;
+	}
+	safe_textn(raw, raw_len, command, sizeof(command));
 	if (!id_int32(kg_json_get(root, "seq"), &request_seq)) {
 		snprintf(text, sizeof(text),
 		    "the adapter's %s request has no usable seq", command);
 		client_log(c, DAP_LOG_ERROR, text);
 		return;
 	}
-	reason = reverse_reason(command);
+	reason = reverse_reason(raw, raw_len);
 	if (!reason) {
 		snprintf(
 		    text, sizeof(text), "kg implements no %s request", command);
@@ -818,7 +869,9 @@ static void response_deliver(struct dap_client *c,
 static void handle_response(
     struct dap_client *c, const struct kg_json_value *root)
 {
-	const char *command = kg_json_str(kg_json_get(root, "command"), NULL);
+	size_t command_len = 0;
+	const char *command
+	    = kg_json_str(kg_json_get(root, "command"), &command_len);
 	const struct kg_json_value *ok = kg_json_get(root, "success");
 	char text[DAP_CLIENT_COMMAND_MAX * 2 + 64];
 	struct dap_pending slot;
@@ -838,7 +891,7 @@ static void handle_response(
 		    "for");
 		return;
 	}
-	if (strcmp(c->pending[index].command, command) != 0) {
+	if (!tok_eq(command, command_len, c->pending[index].command)) {
 		snprintf(text, sizeof(text),
 		    "the adapter answered %s with a %s response",
 		    c->pending[index].command, command);
@@ -861,18 +914,19 @@ enum dap_message_type {
 
 static enum dap_message_type message_type(const struct kg_json_value *root)
 {
-	const char *type = kg_json_str(kg_json_get(root, "type"), NULL);
+	size_t len = 0;
+	const char *type = kg_json_str(kg_json_get(root, "type"), &len);
 
 	if (!type) {
 		return DAP_MESSAGE_UNKNOWN;
 	}
-	if (strcmp(type, "response") == 0) {
+	if (tok_eq(type, len, "response")) {
 		return DAP_MESSAGE_RESPONSE;
 	}
-	if (strcmp(type, "event") == 0) {
+	if (tok_eq(type, len, "event")) {
 		return DAP_MESSAGE_EVENT;
 	}
-	if (strcmp(type, "request") == 0) {
+	if (tok_eq(type, len, "request")) {
 		return DAP_MESSAGE_REQUEST;
 	}
 	return DAP_MESSAGE_UNKNOWN;
@@ -1007,8 +1061,16 @@ void dap_client_close(struct dap_client *c)
 	 * descriptors go a few lines below. */
 	drain_stderr_bytes(c);
 	drain_log(c);
-	pending_fail_all(c, "the debug session ended");
-	c->dead = true;
+	/* Dead BEFORE the failures run, in client_die()'s order: a callback
+	 * that asks a new question from inside its own failure is refused here
+	 * and now, rather than writing to a transport this call is about to
+	 * close and registering a callback `free(c)` would then drop. */
+	if (!c->dead) {
+		c->dead = true;
+		safe_text(
+		    "the debug session ended", c->death, sizeof(c->death));
+	}
+	pending_fail_all(c, c->death);
 	dap_transport_close(c->t);
 	free(c);
 }

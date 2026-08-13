@@ -598,6 +598,84 @@ static void test_an_out_of_range_request_seq_is_a_protocol_error(void)
 	dap_client_close(c);
 }
 
+/* A number with a fraction is not a protocol id, and truncating it into one
+ * would hand this answer to the question numbered 1.  It is refused, and
+ * the request keeps waiting for the answer that is really its own. */
+static void test_a_fractional_request_seq_is_not_correlated(void)
+{
+	const char *extra[] = { "--raw-frame",
+		"kg/echo:{\"type\":\"response\",\"request_seq\":1.9,"
+		"\"success\":true,\"command\":\"kg/echo\",\"body\":{}}",
+		NULL };
+	struct dap_client *c = start_protocol(extra);
+	struct answer a = { 0 };
+
+	CHECK(c != NULL);
+	if (!c) {
+		return;
+	}
+	CHECK(echo_request(c, "whole", &a) == 1);
+	CHECK(pump_until(c, &a.calls, 1));
+	CHECK(a.calls == 1);
+	/* The body that reached the caller is the adapter's real answer, not
+	 * the fraction's empty one. */
+	CHECK(strcmp(a.echo_tag, "whole") == 0);
+	CHECK(heard.errors >= 1);
+	CHECK(contains(heard.last_error, "correlate"));
+	dap_client_close(c);
+}
+
+/* netcoredbg's string spelling is coerced, but only when the whole string
+ * is the number: a JSON string may carry a NUL (src/json.h), and
+ * `"1\0junk"` is not the id 1 however strtoll reads it. */
+static void test_a_string_request_seq_with_a_tail_is_not_correlated(void)
+{
+	const char *extra[] = { "--raw-frame",
+		"kg/echo:{\"type\":\"response\","
+		"\"request_seq\":\"1\\u0000junk\","
+		"\"success\":true,\"command\":\"kg/echo\",\"body\":{}}",
+		NULL };
+	struct dap_client *c = start_protocol(extra);
+	struct answer a = { 0 };
+
+	CHECK(c != NULL);
+	if (!c) {
+		return;
+	}
+	CHECK(echo_request(c, "counted", &a) == 1);
+	CHECK(pump_until(c, &a.calls, 1));
+	CHECK(a.calls == 1);
+	CHECK(strcmp(a.echo_tag, "counted") == 0);
+	CHECK(heard.errors >= 1);
+	CHECK(contains(heard.last_error, "correlate"));
+	dap_client_close(c);
+}
+
+/* The same rule on an event name: `output` is the one event this layer
+ * keeps for itself, and a name that merely STARTS with it is not it.  The
+ * event goes to the hook like any other unknown one, and nothing reaches
+ * the transcript. */
+static void test_an_event_name_with_a_tail_is_not_dispatched(void)
+{
+	const char *extra[] = { "--raw-frame",
+		"kg/echo:{\"type\":\"event\",\"event\":\"output\\u0000junk\","
+		"\"body\":{\"category\":\"stdout\",\"output\":\"nope\"}}",
+		NULL };
+	struct dap_client *c = start_protocol(extra);
+	struct answer a = { 0 };
+
+	CHECK(c != NULL);
+	if (!c) {
+		return;
+	}
+	CHECK(echo_request(c, "named", &a) == 1);
+	CHECK(pump_until(c, &a.calls, 1));
+	CHECK(heard.outputs == 0);
+	CHECK(heard.output_text[0] == '\0');
+	CHECK(heard.events == 1);
+	dap_client_close(c);
+}
+
 /* A message whose `type` is none of the protocol's three: logged, ignored,
  * and the conversation continues -- unlike bytes that are not JSON at all,
  * which end the client. */
@@ -734,6 +812,66 @@ static void test_exception_filters_are_replaced_only_when_supplied(void)
 		CHECK(f->default_on);
 	}
 	CHECK(dap_client_exception_filter(c, 2) == NULL);
+	dap_client_close(c);
+}
+
+/* A filter id is the ADAPTER's word and goes back to it verbatim at every
+ * configuration, so one kg cannot hold whole is dropped rather than stored
+ * short: a truncated id would ask for a filter the adapter never offered
+ * (src/dap_client.h).  The ones beside it are unaffected. */
+static void test_an_exception_filter_kg_cannot_name_is_dropped(void)
+{
+	const char *extra[] = { "--capabilities",
+		"{\"exceptionBreakpointFilters\":["
+		"{\"filter\":\"0123456789012345678901234567890123456789\","
+		"\"label\":\"Forty bytes of filter\"},"
+		"{\"filter\":\"uncaught\",\"label\":\"Uncaught\","
+		"\"default\":true}]}",
+		NULL };
+	struct dap_client *c = start_protocol(extra);
+	const struct dap_exception_filter *f;
+	struct answer a = { 0 };
+
+	CHECK(c != NULL);
+	if (!c) {
+		return;
+	}
+	CHECK(initialize(c, &a));
+	CHECK(dap_client_exception_filter_count(c) == 1);
+	f = dap_client_exception_filter(c, 0);
+	CHECK(f != NULL);
+	if (f) {
+		CHECK(strcmp(f->filter, "uncaught") == 0);
+		CHECK(f->default_on);
+	}
+	dap_client_close(c);
+}
+
+/* A reverse request whose command kg cannot hold is left unanswered for
+ * the reason an uncorrelatable seq is: the refusal names the command back,
+ * and a truncated spelling would name a request the adapter never made.
+ * The proof is the adapter's own count of responses received: zero. */
+static void test_a_reverse_request_kg_cannot_name_is_never_answered(void)
+{
+	const char *extra[]
+	    = { "--reverse", "kgReverseRequestWithARidiculouslyLongName",
+		      "--reverse-on", "kg/echo", NULL };
+	struct dap_client *c = start_protocol(extra);
+	struct answer first = { 0 };
+	struct answer second = { 0 };
+
+	CHECK(c != NULL);
+	if (!c) {
+		return;
+	}
+	CHECK(echo_request(c, "one", &first) == 1);
+	CHECK(pump_until(c, &first.calls, 1));
+	CHECK(echo_request(c, "two", &second) == 2);
+	CHECK(pump_until(c, &second.calls, 1));
+	CHECK(second.client_responses == 0);
+	CHECK(heard.reverse_reports == 0);
+	CHECK(heard.errors >= 1);
+	CHECK(contains(heard.last_error, "name"));
 	dap_client_close(c);
 }
 
@@ -905,6 +1043,64 @@ static void test_death_flushes_every_pending_callback_exactly_once(void)
 	CHECK(dap_client_pending_count(c) == 0);
 	dap_client_close(c);
 	CHECK(one.calls == 1 && two.calls == 1 && three.calls == 1);
+}
+
+/* What a failure callback may do is ask a new question (src/dap_client.h),
+ * and the hardest moment to keep the exactly-once contract at is a close:
+ * the client is dead BEFORE the failures run, so the nested request is
+ * refused here and now.  Left the other way round it would pass the
+ * liveness check, put a frame on a transport this call is about to close,
+ * and register a callback the free() below would silently drop. */
+static struct {
+	int asked;
+	int answered;
+	long long seq;
+	bool got_an_answer;
+	char message[DAP_CLIENT_TEXT_MAX];
+} nested;
+
+static void on_nested(
+    struct dap_client *c, const struct dap_response *r, void *ctx)
+{
+	(void)c;
+	(void)ctx;
+	nested.answered++;
+	nested.got_an_answer = r->answered;
+	snprintf(nested.message, sizeof(nested.message), "%s",
+	    r->error ? r->error->message : "");
+}
+
+static void ask_again(
+    struct dap_client *c, const struct dap_response *r, void *ctx)
+{
+	(void)r;
+	(void)ctx;
+	nested.asked++;
+	nested.seq
+	    = dap_client_request(c, "kg/nested", NULL, 0, on_nested, NULL);
+}
+
+static void test_a_failure_callback_may_ask_again_during_a_close(void)
+{
+	const char *extra[] = { "--no-reply", "kg/echo", NULL };
+	struct dap_client *c = start_protocol(extra);
+	struct answer a = { 0 };
+
+	CHECK(c != NULL);
+	if (!c) {
+		return;
+	}
+	memset(&nested, 0, sizeof(nested));
+	CHECK(dap_client_request(c, "kg/echo", NULL, 0, ask_again, &a) == 1);
+	CHECK(dap_client_pending_count(c) == 1);
+	dap_client_close(c);
+	CHECK(nested.asked == 1);
+	/* Exactly once, and refused rather than sent: -1 is a request that
+	 * never reached the transport (src/dap_client.h). */
+	CHECK(nested.answered == 1);
+	CHECK(nested.seq == -1);
+	CHECK(!nested.got_an_answer);
+	CHECK(contains(nested.message, "ended"));
 }
 
 /* kg's own bound, on an adapter that is perfectly well: the request is not
@@ -1120,17 +1316,23 @@ int main(int argc, char **argv)
 	RUN(test_a_duplicate_response_runs_the_callback_once);
 	RUN(test_a_response_to_an_unknown_request_seq_is_dropped);
 	RUN(test_an_out_of_range_request_seq_is_a_protocol_error);
+	RUN(test_a_fractional_request_seq_is_not_correlated);
+	RUN(test_a_string_request_seq_with_a_tail_is_not_correlated);
+	RUN(test_an_event_name_with_a_tail_is_not_dispatched);
 	RUN(test_a_message_with_no_usable_type_is_ignored);
 	RUN(test_a_response_whose_command_disagrees_is_refused);
 	RUN(test_capabilities_merge_from_an_event);
 	RUN(test_the_misspelled_terminate_debuggee_is_read);
 	RUN(test_exception_filters_are_replaced_only_when_supplied);
+	RUN(test_an_exception_filter_kg_cannot_name_is_dropped);
+	RUN(test_a_reverse_request_kg_cannot_name_is_never_answered);
 	RUN(test_an_error_in_message_reaches_the_caller);
 	RUN(test_an_error_in_body_error_format_reaches_the_caller);
 	RUN(test_a_deadline_expires_but_launch_has_none);
 	RUN(test_a_response_after_its_deadline_is_not_a_second_callback);
 	RUN(test_a_sustained_flood_stays_inside_the_bounds);
 	RUN(test_death_flushes_every_pending_callback_exactly_once);
+	RUN(test_a_failure_callback_may_ask_again_during_a_close);
 	RUN(test_a_full_pending_table_fails_the_callback_locally);
 	RUN(test_events_before_the_initialize_response);
 	RUN(test_output_waits_bounded_for_a_destination);

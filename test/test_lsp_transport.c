@@ -308,6 +308,39 @@ static void test_endless_header_block_is_refused(void)
 	lsp_transport_close(t);
 }
 
+/* The same bound from the other side: a header block that is over it but
+ * COMPLETE, blank line and all.  The case above only ever exercises a block
+ * still waiting for its terminator, so this one is written to land in a
+ * SINGLE write() -- a python child rather than a shell loop, and 8342 bytes
+ * against a 16 KiB read -- because a block that arrives in pieces trips the
+ * incomplete-block arm on the way and would pass either way. */
+static void test_a_complete_oversized_header_block_is_refused(void)
+{
+	/* 126 pad lines of 66 bytes, then a legal Content-Length and the
+	 * blank line: 8337 bytes of header block against a bound of 8192. */
+	const char *program
+	    = "import sys, time\n"
+	      "pad = (b'X-Pad: ' + b'a' * 57 + b'\\r\\n') * 126\n"
+	      "sys.stdout.buffer.write(\n"
+	      "    pad + b'Content-Length: 5\\r\\n\\r\\nhello')\n"
+	      "sys.stdout.buffer.flush()\n"
+	      "time.sleep(2)\n";
+	const char *argv[4] = { "python3", "-c", NULL, NULL };
+	const char *body = NULL;
+	struct lsp_transport *t;
+	size_t len = 0;
+
+	argv[2] = program;
+	t = start_argv(argv);
+	CHECK(t != NULL);
+	if (!t) {
+		return;
+	}
+	CHECK(pump_until_message(t, &body, &len) == -1);
+	CHECK(lsp_transport_error(t) == LSP_TRANSPORT_ERR_TOO_LARGE);
+	lsp_transport_close(t);
+}
+
 /* The outbound queue's bound, which is the one bound here that is not
  * about a misbehaving server: a server that has stopped reading its stdin
  * must not turn kg's own requests into unbounded memory.  Both halves of
@@ -1384,6 +1417,7 @@ int main(int argc, char **argv)
 	RUN(test_partial_header_is_reassembled);
 	RUN(test_header_names_are_case_insensitive);
 	RUN(test_endless_header_block_is_refused);
+	RUN(test_a_complete_oversized_header_block_is_refused);
 	RUN(test_oversized_sends_are_refused);
 	RUN(test_unknown_headers_are_skipped);
 	RUN(test_bare_newline_headers_are_tolerated);

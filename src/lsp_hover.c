@@ -230,16 +230,17 @@ size_t lsp_hover_render(
 /* The whole answer, kept where a reader can go back to it.  Rebuilt per
  * hover rather than appended to: the question was about one symbol, and a
  * transcript of every symbol asked about is a log nobody asked for. */
-static void hover_store(const char *text, size_t len)
+static bool hover_store(const char *text, size_t len)
 {
 	int slot
 	    = buf_prepare_special_text(LSP_HOVER_BUFFER_NAME, &text_syntax, 1);
 
 	if (slot < 0) {
-		return;
+		return false;
 	}
 	(void)buf_append_special_text(slot, text, len);
 	(void)buf_append_special_text(slot, "\n", 1);
+	return true;
 }
 
 /* Report it: the first line in the echo area, and the whole of a
@@ -257,7 +258,15 @@ static void hover_show(const char *text, size_t len)
 		editor_set_status_message("%.*s", first, text);
 		return;
 	}
-	hover_store(text, len);
+	if (!hover_store(text, len)) {
+		/* buf_prepare_special_text() has already said why -- the
+		 * table was full, or that name is a buffer of the user's own
+		 * that kg will not overwrite -- and naming a buffer that does
+		 * not hold the answer would be worse than the first line
+		 * alone. */
+		editor_set_status_message("%.*s…", first, text);
+		return;
+	}
 	editor_set_status_message(
 	    "%.*s… — " LSP_HOVER_BUFFER_NAME, first, text);
 }

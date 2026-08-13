@@ -2,6 +2,7 @@
 #define KG_DAP_BREAKPOINT_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 /* The breakpoint table: where a breakpoint LIVES, which is the editor and
  * not a session.
@@ -145,6 +146,16 @@ void dap_breakpoint_init(void);
 void dap_breakpoint_set_report_hook(
     void (*hook)(void *ctx, bool error, const char *text), void *ctx);
 
+/* Told whenever the SET changed: a breakpoint added, removed, enabled,
+ * moved or verified, and -- the one nothing else can be told about -- a
+ * source released, which COMPACTS the vector under every index a pane
+ * rendered.  A projection that is not repainted after a compaction is a
+ * pane whose lines name the wrong file, so this is the notification point
+ * for the same reason dap_ui_changed() is: this module never repaints
+ * anything itself, and until this hook existed an ordinary
+ * `setBreakpoints` response could rearrange the table with nobody told. */
+void dap_breakpoint_set_changed_hook(void (*hook)(void *ctx), void *ctx);
+
 /* Drop the whole table and unsubscribe: editor shutdown, and every test's
  * setup.  Markers are deleted from whatever buffers still hold them. */
 void dap_breakpoint_reset(void);
@@ -177,6 +188,15 @@ enum dap_breakpoint_result dap_breakpoint_toggle(
  * mutation. */
 size_t dap_breakpoint_count(void);
 size_t dap_breakpoint_source_count(void);
+/* WHICH source, across mutations.  An index is a position in a compacted
+ * vector and a release memmoves everything after it, so anything that
+ * remembers a source between two keystrokes -- a rendered pane row --
+ * remembers this instead: it is unique per source INSTANCE, so a source
+ * that was released is not found rather than found as its successor.  Zero
+ * for an index nothing occupies, and zero never names a source. */
+uint32_t dap_breakpoint_source_epoch(size_t source);
+/* The index that epoch has now, false when that source is gone. */
+bool dap_breakpoint_source_by_epoch(uint32_t epoch, size_t *index);
 const char *dap_breakpoint_source_path(size_t source);
 const char *dap_breakpoint_source_display_path(size_t source);
 size_t dap_breakpoint_source_length(size_t source);

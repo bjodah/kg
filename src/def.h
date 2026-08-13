@@ -392,6 +392,15 @@ struct editor_buffer {
 	 * kg's own *special* buffers answer the same question through the
 	 * leading asterisk, so ask buf_visits_file() rather than this flag. */
 	int no_file;
+	/* 1 when kg MADE this buffer as one of its own, through
+	 * buf_prepare_special_text(), and may therefore rebuild it from
+	 * scratch.  C-x b creates a buffer with ANY name the user types,
+	 * including `*compilation*` or a debugger pane's, and adopting one of
+	 * those by name would drop somebody's unsaved rows and their undo
+	 * chain with them.  So the name is not the permission; this is.
+	 * Cleared with the slot, so killing a pane and letting kg make it
+	 * again works. */
+	int special_owned;
 };
 
 /* Global editor state */

@@ -31,6 +31,7 @@
 #include "../src/winmgr.h"
 #include "test.h"
 
+#include <fcntl.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -320,6 +321,125 @@ static void test_execution_commands_without_a_session(void)
 	session_teardown();
 }
 
+/* ------------------------------- dap-debug ---------------------------- */
+
+/* The chooser reads from a real descriptor, so these cases hand it one with
+ * the keystrokes already in it.  Stdout is parked on /dev/null for the
+ * call: the prompt repaints the screen and this suite links the real
+ * display.c, whose frames would otherwise land in the test output. */
+static void debug_with_keys(const char *bytes)
+{
+	size_t len = strlen(bytes);
+	int fds[2];
+	int saved, devnull;
+
+	CHECK(pipe(fds) == 0);
+	CHECK(write(fds[1], bytes, len) == (ssize_t)len);
+	fflush(stdout);
+	saved = dup(STDOUT_FILENO);
+	devnull = open("/dev/null", O_WRONLY);
+	CHECK(saved >= 0 && devnull >= 0);
+	CHECK(dup2(devnull, STDOUT_FILENO) >= 0);
+	close(devnull);
+	editor_dap_debug(fds[0]);
+	fflush(stdout);
+	CHECK(dup2(saved, STDOUT_FILENO) >= 0);
+	close(saved);
+	close(fds[0]);
+	close(fds[1]);
+}
+
+/* Every configuration below names a substitution nothing answers to, so a
+ * launch that is REACHED fails in the expansion -- synchronously, with no
+ * adapter started, and with the name of the variable in the message.  That
+ * is what makes "which configuration did it try to launch" observable at
+ * all. */
+static void write_configs(const char *first, const char *second)
+{
+	char one[256];
+	char text[600];
+
+	snprintf(one, sizeof(one),
+	    "{\"name\":\"%s\",\"adapter\":\"debugpy\",\"request\":\"launch\","
+	    "\"arguments\":{\"program\":\"${%sVar}\"}}",
+	    first, first);
+	if (second) {
+		char two[256];
+
+		snprintf(two, sizeof(two),
+		    ",{\"name\":\"%s\",\"adapter\":\"debugpy\","
+		    "\"request\":\"launch\","
+		    "\"arguments\":{\"program\":\"${%sVar}\"}}",
+		    second, second);
+		snprintf(text, sizeof(text),
+		    "{\"version\":1,\"configurations\":[%s%s]}", one, two);
+	} else {
+		snprintf(text, sizeof(text),
+		    "{\"version\":1,\"configurations\":[%s]}", one);
+	}
+	write_text_file(tmppath(".kg-dap.json"), text);
+}
+
+/* A cancelled chooser launches NOTHING.  `choice` is file-static and
+ * outlives the command, and the launch used to be guarded by a `valid` flag
+ * that only the success path ever wrote -- so C-g at the chooser fell
+ * through and relaunched whatever was chosen last time, in whatever
+ * directory the buffer had since moved to. */
+static void test_a_cancelled_chooser_launches_nothing(void)
+{
+	write_configs("alpha", NULL);
+	open_one_source("prog.c");
+
+	/* The first run answers every question: RET takes the offered
+	 * configuration, and the launch it commits to is the one that will be
+	 * remembered. */
+	debug_with_keys("\r");
+	CHECKF(strstr(editor.statusmsg, "alphaVar"),
+	    "the first run never reached the launch: %s", editor.statusmsg);
+
+	/* The second finds a file that no longer has `alpha` in it, and is
+	 * cancelled at the chooser. */
+	write_configs("one", "two");
+	debug_with_keys("\a");
+	CHECKF(!strstr(editor.statusmsg, "alpha"),
+	    "C-g at the chooser launched the previous configuration: %s",
+	    editor.statusmsg);
+	CHECKF(!strstr(editor.statusmsg, "oneVar"),
+	    "C-g at the chooser launched something: %s", editor.statusmsg);
+
+	/* A name nothing answers to is the same refusal: it says so and stops
+	 * there.  C-a C-k clears the offered default first. */
+	debug_with_keys("\x01\x0bnosuch\r");
+	CHECKF(
+	    strstr(editor.statusmsg, "nosuch"), "said: %s", editor.statusmsg);
+	CHECKF(!strstr(editor.statusmsg, "alpha"),
+	    "an unknown name launched the previous configuration: %s",
+	    editor.statusmsg);
+
+	/* And through both refusals the last SUCCESSFUL choice survived --
+	 * which is what `dap-restart` relaunches and what makes a second
+	 * `dap-debug` a repeat.  `zulu` is what the file offers first, so
+	 * `alpha` coming back is the remembered choice and not the default. */
+	write_configs("zulu", "alpha");
+	debug_with_keys("\r");
+	CHECKF(strstr(editor.statusmsg, "alphaVar"),
+	    "the remembered choice was lost: %s", editor.statusmsg);
+	session_teardown();
+	unlink(tmppath(".kg-dap.json"));
+}
+
+/* A buffer that visits no file names no source, no project root and no
+ * `${file}`: `dap-debug` refuses it rather than debugging whatever the
+ * previous buffer was. */
+static void test_dap_debug_refuses_a_buffer_with_no_file(void)
+{
+	session(0, NULL);
+	debug_with_keys("\r");
+	CHECKF(strstr(editor.statusmsg, "visits no file"), "said: %s",
+	    editor.statusmsg);
+	session_teardown();
+}
+
 /* -------------------------------- layout ------------------------------ */
 
 /* The panes are arranged and the user's windows come back: a debugger that
@@ -370,6 +490,8 @@ int main(void)
 	RUN(test_a_buffer_with_no_file_is_refused);
 	RUN(test_decorations_are_a_projection_of_the_table);
 	RUN(test_execution_commands_without_a_session);
+	RUN(test_a_cancelled_chooser_launches_nothing);
+	RUN(test_dap_debug_refuses_a_buffer_with_no_file);
 	RUN(test_many_windows_toggles_and_restores);
 	RUN(test_the_repl_needs_a_terminal);
 	return test_summary();

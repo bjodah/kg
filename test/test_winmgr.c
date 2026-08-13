@@ -17,6 +17,7 @@
  * protocols are gone the helpers collapse to a plain `&buflist[i]`.
  */
 
+#include "../src/bufmgr.h"
 #include "../src/bufmgr_internal.h"
 #include "../src/def.h"
 #include "../src/event.h"
@@ -1549,6 +1550,58 @@ static void test_special_buffer_reuse_bumps_identity(void)
 	free(names[0]);
 }
 
+/* A buffer the USER made under one of kg's own special names is not kg's
+ * to rebuild.  C-x b takes any name at all (README), so `*compilation*` or
+ * a debugger pane's name is a buffer somebody may have typed into -- and
+ * buf_prepare_special_text() used to adopt it by name alone, dropping every
+ * row and freeing the undo chain with it.  Ten callers reach that path, and
+ * the debugger's four model panes reach it on a timer with no command
+ * pressed at all.
+ *
+ * The flag goes with the slot, so killing the user's buffer hands the name
+ * back and kg can make its own again. */
+static void test_a_user_buffer_is_not_adopted_as_a_special_one(void)
+{
+	char *names[1];
+	int mine;
+
+	write_text_file(tmppath("a.txt"), "alpha\n");
+	names[0] = strdup(tmppath("a.txt"));
+	session(1, names);
+
+	mine = buf_handle_slot(buf_create_named("*dap-stack*"));
+	CHECK(mine >= 0);
+	CHECK(buf_select(mine) != 0);
+	editor_insert_char('h');
+	editor_insert_char('i');
+	CHECK(bslot(mine)->numrows == 1);
+	CHECKF(bslot(mine)->undostack.head != NULL, "nothing to undo to begin");
+
+	CHECKF(
+	    buf_prepare_special_text("*dap-stack*", &compilation_syntax, 1) < 0,
+	    "kg adopted a buffer of the user's");
+	CHECKF(bslot(mine)->numrows == 1 && bslot(mine)->row[0].size == 2,
+	    "the user's text went with the adoption");
+	CHECKF(bslot(mine)->undostack.head != NULL,
+	    "the user's undo chain went with the adoption");
+	CHECKF(buf_find_special("*dap-stack*") < 0,
+	    "the user's buffer answers to the special-buffer lookup");
+
+	/* buf_kill_buffer() refuses a modified buffer outright (the prompt
+	 * that would ask about it is buf_kill()'s), and what is under test
+	 * here is the slot handover, not that policy. */
+	bslot(mine)->dirty = 0;
+	CHECK(buf_kill_buffer(buf_handle(mine)) != 0);
+	kg_event_drain_safe();
+	CHECKF(buf_prepare_special_text("*dap-stack*", &compilation_syntax, 1)
+		>= 0,
+	    "the name stayed refused after the user's buffer was killed");
+	CHECK(buf_find_special("*dap-stack*") >= 0);
+
+	session_teardown();
+	free(names[0]);
+}
+
 /* buf_current is the selected window's buffer, by construction.  Every
  * command that changes either one has to leave them agreeing, or the mode
  * line describes one buffer while the keys edit another. */
@@ -2434,6 +2487,7 @@ int main(void)
 	RUN(test_check_handles_recovers_an_injected_stale_view);
 	RUN(test_last_buffer_leaves_no_stale_view);
 	RUN(test_special_buffer_reuse_bumps_identity);
+	RUN(test_a_user_buffer_is_not_adopted_as_a_special_one);
 	RUN(test_current_buffer_is_the_selected_window_s);
 	RUN(test_goal_column_belongs_to_the_view);
 	RUN(test_window_handle_resolves_until_slot_released_and_reused);

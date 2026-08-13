@@ -34,14 +34,22 @@ struct dap_session; /* src/dap_session.h */
 #define DAP_WHO "dap-debug"
 
 /* What the user last chose, so `dap-debug` can be repeated and
- * `dap-restart` can relaunch the same thing without asking again. */
-static struct {
+ * `dap-restart` can relaunch the same thing without asking again.
+ *
+ * `dap-debug` builds a CANDIDATE of this and commits it only once every
+ * question has been answered.  Writing the parts as they arrive is how a
+ * C-g at the chooser used to launch the previous configuration: the
+ * filename had already been overwritten, `valid` was still last time's, and
+ * nothing between the cancel and the launch said otherwise. */
+struct dap_choice {
 	char filename[PATH_MAX];
 	char config_name[DAP_CONFIG_NAME_MAX];
 	char program[PATH_MAX];
 	bool have_program;
 	bool valid;
-} choice;
+};
+
+static struct dap_choice choice;
 
 /* The REPL's own history, so that walking it does not walk somebody else's
  * shell commands, and `dap-evaluate`'s, which is a different question asked
@@ -63,7 +71,12 @@ static int current_row(void) { return editor_current_filerow(); }
  * scratch buffer" is one sentence in one place. */
 static bool current_file(char *out, size_t out_size)
 {
-	if (bcur()->no_file || !bcur()->filename
+	/* buf_visits_file() rather than `no_file` alone (src/def.h says so):
+	 * kg's own *special* buffers -- `*scratch*`, a debugger pane -- carry
+	 * a NAME in `filename` and no file behind it, and a debugger asking
+	 * an adapter to run `*scratch*` is the failure this predicate is
+	 * here to prevent. */
+	if (!buf_visits_file(bcur()) || !bcur()->filename
 	    || bcur()->filename[0] == '\0') {
 		return false;
 	}
@@ -149,6 +162,17 @@ static void on_session_changed(void *ctx, struct dap_session *session)
 	ui_changed();
 }
 
+/* The breakpoint table changed shape.  It reports its own sentences but
+ * repaints nothing, and one of its changes -- a source released, which
+ * compacts every index after it -- is not otherwise visible to anybody:
+ * without this the breakpoint pane could keep showing rows built before
+ * the compaction (src/dap_breakpoint.h). */
+static void on_breakpoints_changed(void *ctx)
+{
+	(void)ctx;
+	ui_changed();
+}
+
 static void on_session_report(void *ctx, bool error, const char *text)
 {
 	(void)ctx;
@@ -208,9 +232,15 @@ static void on_relaunch(void *ctx)
 	/* The configuration, the breakpoint table and the layout are all
 	 * still here; only the adapter is new.  The build step is not re-run
 	 * -- a restart restarts the program, and rebuilding it is what
-	 * `dap-debug` is for. */
+	 * `dap-debug` is for.
+	 *
+	 * The layout is NOT put back up from here: both paths that produce a
+	 * session already do it themselves -- start_session() for an ordinary
+	 * adapter, and dap_java_set_session_hook() for the one whose session
+	 * exists only once a language server has answered -- so a call here
+	 * would only ever fire on the path that produced NO session, which is
+	 * six panes around a debugger that is not running. */
 	dap_launch(false);
-	dap_ui_layout_session_started();
 }
 
 /* ------------------------------- starting ----------------------------- */
@@ -438,16 +468,20 @@ static void dap_launch(bool run_build)
 /* The chooser.  One configuration runs without a question; several ask, and
  * the last successful choice is the default, which is what makes the
  * command repeatable. */
-static bool choose_config(int fd, const struct dap_config_set *set)
+static bool choose_config(
+    int fd, const struct dap_config_set *set, struct dap_choice *pick)
 {
 	char name[DAP_CONFIG_NAME_MAX];
 	size_t i;
 
 	if (set->count == 1) {
-		snprintf(choice.config_name, sizeof(choice.config_name), "%s",
+		snprintf(pick->config_name, sizeof(pick->config_name), "%s",
 		    set->configs[0].name);
 		return true;
 	}
+	/* The DEFAULT comes from the last committed choice -- that is what
+	 * makes the command repeatable -- and the answer goes to the
+	 * candidate, which is what makes a refusal cost nothing. */
 	snprintf(name, sizeof(name), "%s",
 	    find_config(set, choice.config_name) ? choice.config_name
 						 : set->configs[0].name);
@@ -457,7 +491,7 @@ static bool choose_config(int fd, const struct dap_config_set *set)
 	}
 	for (i = 0; i < set->count; i++) {
 		if (strcmp(set->configs[i].name, name) == 0) {
-			snprintf(choice.config_name, sizeof(choice.config_name),
+			snprintf(pick->config_name, sizeof(pick->config_name),
 			    "%s", name);
 			return true;
 		}
@@ -469,21 +503,22 @@ static bool choose_config(int fd, const struct dap_config_set *set)
 /* lldb-dap has no program until a user names one, and
  * `${workspaceRoot}/a.out` would be a debugger that silently debugs the
  * wrong thing (src/dap_config.h). */
-static bool ask_program(int fd, const struct dap_launch_config *cfg)
+static bool ask_program(
+    int fd, const struct dap_launch_config *cfg, struct dap_choice *pick)
 {
-	choice.have_program = false;
+	pick->have_program = false;
 	if (!cfg->needs_program) {
 		return true;
 	}
-	choice.program[0] = '\0';
-	if (editor_read_line_path(fd, "Program to debug: ", choice.program,
-		sizeof(choice.program))
+	pick->program[0] = '\0';
+	if (editor_read_line_path(
+		fd, "Program to debug: ", pick->program, sizeof(pick->program))
 		!= MINIBUF_ACCEPTED
-	    || choice.program[0] == '\0') {
+	    || pick->program[0] == '\0') {
 		editor_set_status_message(DAP_WHO ": cancelled");
 		return false;
 	}
-	choice.have_program = true;
+	pick->have_program = true;
 	return true;
 }
 
@@ -491,8 +526,10 @@ void editor_dap_debug(int fd)
 {
 	struct dap_config_error err = { "", "", DAP_CONFIG_NO_OFFSET };
 	char message[DAP_CONFIG_MESSAGE_MAX];
+	struct dap_choice pick = { 0 };
 	struct dap_config_set *set;
 	const struct dap_launch_config *cfg;
+	bool chosen;
 
 	if (dap_session_current()) {
 		editor_set_status_message(
@@ -503,21 +540,43 @@ void editor_dap_debug(int fd)
 		editor_set_status_message(DAP_WHO ": the build is still going");
 		return;
 	}
-	(void)current_file(choice.filename, sizeof(choice.filename));
-	set = dap_config_load(choice.filename, &err);
+	/* Asked FIRST and refused here: `${file}` and the walk for
+	 * `.kg-dap.json` both start at the buffer's own file, and a buffer
+	 * that visits none used to leave the previous project's filename in
+	 * place -- which is a debugger silently debugging the last thing. */
+	if (!current_file(pick.filename, sizeof(pick.filename))) {
+		editor_set_status_message(
+		    DAP_WHO ": this buffer visits no file");
+		return;
+	}
+	set = dap_config_load(pick.filename, &err);
 	if (!set) {
 		dap_config_error_format(&err, message, sizeof(message));
 		editor_set_status_message(DAP_WHO ": %s", message);
 		return;
 	}
-	if (set->count > 0 && choose_config(fd, set)) {
-		cfg = find_config(set, choice.config_name);
-		choice.valid = cfg && ask_program(fd, cfg);
+	if (set->count == 0) {
+		dap_config_free(set);
+		editor_set_status_message(
+		    DAP_WHO ": no configurations to choose from");
+		return;
+	}
+	chosen = choose_config(fd, set, &pick);
+	if (chosen) {
+		cfg = find_config(set, pick.config_name);
+		chosen = cfg && ask_program(fd, cfg, &pick);
 	}
 	dap_config_free(set);
-	if (choice.valid) {
-		dap_launch(true);
+	/* Every question answered, and only now: a cancelled chooser, a name
+	 * nothing answers to and a cancelled program prompt all leave the
+	 * previous choice exactly as it was -- which is what `dap-restart`
+	 * relaunches -- and launch nothing. */
+	if (!chosen) {
+		return;
 	}
+	pick.valid = true;
+	choice = pick;
+	dap_launch(true);
 }
 
 /* ------------------------------- execution ---------------------------- */
@@ -812,6 +871,7 @@ void dap_commands_init(void)
 
 	dap_exec_set_hooks(&hooks);
 	dap_breakpoint_set_report_hook(on_session_report, NULL);
+	dap_breakpoint_set_changed_hook(on_breakpoints_changed, NULL);
 	dap_java_set_session_hook(dap_ui_layout_session_started);
 	dap_decor_init();
 	dap_ui_init();
@@ -826,6 +886,7 @@ void dap_commands_shutdown(void)
 	}
 	dap_exec_set_hooks(NULL);
 	dap_breakpoint_set_report_hook(NULL, NULL);
+	dap_breakpoint_set_changed_hook(NULL, NULL);
 	dap_java_set_session_hook(NULL);
 	dap_java_cancel();
 	dap_decor_reset();

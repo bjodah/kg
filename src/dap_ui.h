@@ -80,15 +80,23 @@ enum dap_ui_row_kind {
  *
  * `stable_id` is the identity RET acts on and it means what the kind says:
  * an adapter frame id, an adapter thread id, a breakpoint's LINE (its
- * source is `parent`), a scope's `variablesReference`, and -- for a
+ * source is `source_epoch`), a scope's `variablesReference`, and -- for a
  * variable -- its index in the stop model's vector, which is exact within
  * one suspension and meaningless outside it.  `suspension_epoch` is what
  * says which suspension: a row from an older one is refused rather than
  * acted on, because every adapter measured answers a stale handle with
- * success and silently wrong data [M-4]. */
+ * success and silently wrong data [M-4].
+ *
+ * `source_epoch` is the breakpoint row's other half, and is what `parent`
+ * used to be: a source's position in the table is stable only until the
+ * next mutation (src/dap_breakpoint.h) and a release compacts the vector,
+ * so a row that remembered an index would resolve to whichever file slid
+ * into it.  The epoch names the source INSTANCE, and a row whose source is
+ * gone is refused rather than acted on somebody else's file. */
 struct dap_ui_row {
 	enum dap_ui_row_kind kind;
 	unsigned suspension_epoch;
+	unsigned source_epoch;
 	int stable_id;
 	int parent;
 	int depth;

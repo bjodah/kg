@@ -151,6 +151,11 @@ static unsigned long long resync_due_ms;
 static void (*report_hook)(void *ctx, bool error, const char *text);
 static void *report_hook_ctx;
 
+/* Where "the set changed" goes.  Separate from the report hook because it
+ * carries no words: a repaint is not news for the echo area. */
+static void (*changed_hook)(void *ctx);
+static void *changed_hook_ctx;
+
 /* ------------------------------ small parts --------------------------- */
 
 static unsigned long long now_ms(void)
@@ -184,6 +189,21 @@ void dap_breakpoint_set_report_hook(
 {
 	report_hook = hook;
 	report_hook_ctx = ctx;
+}
+
+void dap_breakpoint_set_changed_hook(void (*hook)(void *ctx), void *ctx)
+{
+	changed_hook = hook;
+	changed_hook_ctx = ctx;
+}
+
+/* One notification, cheap and safe from inside a response callback: it
+ * calls a hook that sets a flag (src/dap_ui.h) and touches no table. */
+static void note_changed(void)
+{
+	if (changed_hook) {
+		changed_hook(changed_hook_ctx);
+	}
 }
 
 /* One line of news.  Adapter text reaches it (a refusal, a relocation
@@ -432,6 +452,11 @@ static void source_release(size_t index)
 	    (source_count - index - 1) * sizeof(sources[0]));
 	source_count--;
 	sources[source_count] = NULL;
+	/* Every index at or after `index` now names a different source.  A
+	 * projection built before this call has to hear about it, whether the
+	 * release came from a user's own removal or from an ordinary
+	 * `setBreakpoints` response nothing else reports. */
+	note_changed();
 }
 
 /* ---------------------------- talking to an adapter ------------------- */
@@ -620,6 +645,7 @@ static void source_sync(size_t index)
 static void source_mutated(size_t index)
 {
 	sources[index]->desired_generation++;
+	note_changed();
 	source_sync(index);
 }
 
@@ -631,6 +657,7 @@ static void source_mutated(size_t index)
 static void source_projected(size_t index)
 {
 	sources[index]->desired_generation++;
+	note_changed();
 }
 
 /* ----------------------------- the response --------------------------- */
@@ -781,6 +808,11 @@ static void finish_round(uint32_t epoch, bool success, const char *error_text,
 	}
 	s->request_in_flight = false;
 	missing = apply_response(s, success, body);
+	/* Verdicts, ids and relocated lines all moved: the pane says
+	 * "pending" or "verified" per breakpoint and the line it renders is
+	 * the adapter's answer, so this is a repaint even when nothing else
+	 * below happens. */
+	note_changed();
 	if (!success && error_text) {
 		report(true, "breakpoints in %s were refused: %s", s->display,
 		    error_text);
@@ -1009,6 +1041,24 @@ size_t dap_breakpoint_count(void)
 		total += sources[i]->count;
 	}
 	return total;
+}
+
+uint32_t dap_breakpoint_source_epoch(size_t source)
+{
+	return source < source_count ? sources[source]->epoch : 0;
+}
+
+bool dap_breakpoint_source_by_epoch(uint32_t epoch, size_t *index)
+{
+	size_t at = 0;
+
+	if (!source_by_epoch(epoch, &at)) {
+		return false;
+	}
+	if (index) {
+		*index = at;
+	}
+	return true;
 }
 
 const char *dap_breakpoint_source_path(size_t source)
@@ -1241,6 +1291,8 @@ void dap_breakpoint_session_ended(void)
 		source_release(i);
 	}
 	stop_question_open = false;
+	/* Temporaries are gone and every verdict was that adapter's. */
+	note_changed();
 }
 
 /* ------------------------------- events ------------------------------- */

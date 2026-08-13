@@ -41,4 +41,11 @@ enum buf_name_mode {
 enum minibuf_result buf_read_name(int fd, const char *prompt, char *out,
     int outsize, enum buf_name_mode mode, int *picked);
 
+/* The slot holding kg's own special buffer called `name`, or -1 -- which
+ * is also the answer when the buffer wearing that name is one the user
+ * made with C-x b.  The rest of that family (buf_prepare_special_text(),
+ * buf_append_special_text()) is declared in def.h, next to the buffer
+ * table it writes; this one is here because it needs nothing from it. */
+int buf_find_special(const char *name);
+
 #endif /* KG_BUFMGR_H */

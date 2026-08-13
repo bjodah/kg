@@ -1,0 +1,60 @@
+# C-x b to a pane's own name makes a buffer that is the USER'S.
+#
+# kg's special buffers used to be claimed by name alone: whatever answered
+# to `*dap-stack*` was rebuilt from the debugger's tables, every row dropped
+# and the undo chain freed with them.  C-x b takes any name at all (README),
+# so that buffer can be somebody's notes -- and the debugger reaches that
+# path on a repaint timer, with no command pressed.
+#
+# No adapter is started: the layout is reachable by name without a session
+# (dap-breakpoint-pane.yaml's reason), and F9 needs none either.  Both
+# routes to the pane are pressed -- the command that asks for every pane's
+# buffer at once, and the breakpoint whose repaint arrives on a timer -- and
+# what is asserted is that the typed text is still on screen after both, in
+# a buffer kg never rebuilt.
+name: dap-user-buffer-named-like-a-pane
+filename: main.c
+requires_feature: dap
+backend: tmux
+dimensions: [30, 100]
+initial: |
+  int main(void)
+  {
+  	return 0;
+  }
+keys:
+  # A window of its own, so the source is still reachable afterwards.
+  - C-x
+  - "2"
+  - C-x
+  - b
+  - "*dap-stack*"
+  - RET
+  - keep
+  - SPC
+  - this
+  # The debug layout wants all six panes and one of the names is taken.
+  - M-x
+  - dap-many-windows
+  - RET
+  - SETTLE=2
+  # And the other route to the same place: a breakpoint in the source is
+  # news for the panes, and the repaint it schedules runs on a timer with
+  # the buffer above still on screen.
+  - C-x
+  - o
+  - C-n
+  - C-n
+  - F9
+  - SETTLE=3
+expected_saved: |
+  int main(void)
+  {
+  	return 0;
+  }
+expected_screen_contains:
+  # The user's text, still there.
+  - keep this
+expected_screen_not_contains:
+  # The grid never went up, so the pane kg would have rebuilt is absent.
+  - "Stack —"

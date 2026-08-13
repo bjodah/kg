@@ -29,7 +29,11 @@ standard VT100 escape sequences.
   as Emacs' switch-to-buffer does, whatever the name is spelled like.
   It visits no file, so C-x C-s asks where to write it, C-x s never
   offers it, and C-x k kills it without asking about unsaved changes --
-  which is also how kg's own `*special*` buffers are killed
+  which is also how kg's own `*special*` buffers are killed.
+  A buffer you made this way is yours even when it wears one of kg's own
+  names: `M-x compile` or a debugger pane will not rebuild a
+  `*compilation*` or `*dap-stack*` you typed into, it says whose buffer it
+  is and does nothing, and killing yours hands the name back
 - Split-window support
 - Visual mark mode: the region renders in reverse video as you move.
   The mark, the mark ring and the active region belong to the buffer,
@@ -821,8 +825,10 @@ slot, as GDB's do, and `dap-info-toggle-breakpoints-threads` (`t` in the
 pane) swaps them.
 
 In any of the six panes, `RET` acts on **what the line is**: a frame is
-selected and its source visited, a thread is selected, a breakpoint is
-visited, and a variable is expanded or collapsed. `d` deletes the
+selected and its source visited, a thread line reports which thread kg is
+looking at (there is no thread switch yet, and the line says so rather than
+pretending), a breakpoint is visited, and a variable is expanded or
+collapsed. `d` deletes the
 breakpoint on the line, `D` enables or disables it — a disabled breakpoint
 is one kg keeps and the adapter is never told about — and `q` buries the
 pane. A line from an earlier stop is refused rather than acted on: every

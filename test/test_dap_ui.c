@@ -324,6 +324,65 @@ static void test_killing_the_transcript_starts_a_fresh_one(void)
 	session_teardown();
 }
 
+/* The pane's buffer was killed and something OTHER than an output event
+ * made it again -- the layout does, and so does dap_ui_show().  The
+ * transcript's accounting has to notice the death anyway: a budget carried
+ * over from a buffer nobody can read is a fresh transcript born truncated,
+ * and a gap nobody is told about is a debugger that quietly lost output. */
+static void test_a_killed_transcript_recreated_by_the_layout(void)
+{
+	int slot;
+
+	open_one_source("relaid.c");
+	CHECK(dap_ui_show(DAP_UI_PANE_OUTPUT));
+	dap_ui_output("stdout", "before\n", 7);
+	CHECK(dap_ui_test_transcript_bytes(DAP_UI_PANE_OUTPUT) == 7);
+	slot = buf_find_open("*dap-output*");
+	CHECK(slot >= 0);
+	CHECK(buf_kill_buffer(buf_handle(slot)) != 0);
+	kg_event_drain_safe();
+	/* The pane comes back through the layout, which knows nothing about
+	 * transcripts and simply asks for every pane's buffer. */
+	CHECK(invoke("dap-many-windows") == CMD_RAN);
+	dap_ui_output("stdout", "after\n", 6);
+	CHECKF(pane_says("*dap-output*", "transcript restarted"),
+	    "the pane came back through F12 and said nothing about the gap");
+	CHECKF(dap_ui_test_transcript_bytes(DAP_UI_PANE_OUTPUT) == 6,
+	    "%zu bytes charged: the budget outlived the buffer",
+	    dap_ui_test_transcript_bytes(DAP_UI_PANE_OUTPUT));
+	session_teardown();
+}
+
+/* C-x b makes a buffer with ANY name, a pane's included, and that buffer is
+ * the user's: the debugger neither rebuilds it nor appends an adapter's
+ * bytes to it.  The repaint reaches this path on a timer, so "the user was
+ * not pressing anything" is not a defence. */
+static void test_a_user_buffer_named_like_a_pane_is_left_alone(void)
+{
+	int mine;
+
+	open_one_source("notmine.c");
+	mine = buf_handle_slot(buf_create_named(DAP_UI_OUTPUT_BUFFER_NAME));
+	CHECK(mine >= 0);
+	CHECK(buf_select(mine) != 0);
+	editor_insert_char('m');
+	editor_insert_char('y');
+	CHECK(buflist[mine].numrows == 1);
+
+	dap_ui_output("stdout", "adapter bytes\n", 14);
+	CHECKF(
+	    buflist[mine].numrows == 1 && strcmp(row_text(mine, 0), "my") == 0,
+	    "the adapter wrote into the user's buffer: <%s>",
+	    row_text(mine, 0));
+	CHECKF(dap_ui_test_transcript_bytes(DAP_UI_PANE_OUTPUT) == 0,
+	    "the transcript charged bytes it never wrote anywhere");
+	/* And the pane map stays out of it: RET in that buffer is the user's
+	 * own key, not the debugger's. */
+	CHECKF(!dap_ui_current_buffer_is_pane(),
+	    "a buffer of the user's claimed to be a debugger pane");
+	session_teardown();
+}
+
 /* Categories: `console` is the REPL's, `stdout`/`stderr` the output pane's,
  * and stderr is marked at the start of a line and nowhere else -- a mark in
  * the middle of somebody else's line would cut it in half. */
@@ -467,6 +526,116 @@ static void test_a_heading_line_does_nothing(void)
 	session_teardown();
 }
 
+/* A breakpoint row names a SOURCE, and a source's index is stable only
+ * until the next mutation: removing the last breakpoint of one releases it
+ * and MEMMOVES every source after it down.  A row that remembered the index
+ * would then resolve to the file that slid into it -- so RET would visit,
+ * `d` would delete and `D` would disable a breakpoint in a file the user
+ * was not looking at.  The row remembers the source's epoch instead.
+ *
+ * Both files carry a breakpoint on the SAME line, which is what makes the
+ * confusion reachable: the row's own line survives the compaction and would
+ * be found in the wrong source. */
+static void test_a_stale_breakpoint_row_does_not_act_on_another_file(void)
+{
+	struct dap_breakpoint_info info;
+	char *argv[2];
+
+	write_text_file(tmppath("first.c"), source_text);
+	write_text_file(tmppath("second.c"), source_text);
+	argv[0] = (char *)tmppath("first.c");
+	argv[1] = (char *)tmppath("second.c");
+	session(2, argv);
+	CHECK(dap_breakpoint_add_at(tmppath("first.c"), 3, NULL)
+	    == DAP_BREAKPOINT_OK);
+	CHECK(dap_breakpoint_add_at(tmppath("second.c"), 3, NULL)
+	    == DAP_BREAKPOINT_OK);
+	CHECK(dap_ui_show(DAP_UI_PANE_BREAKPOINTS));
+	CHECKF(dap_ui_test_row_count(DAP_UI_PANE_BREAKPOINTS) == 3,
+	    "%zu rows (a heading and two breakpoints)",
+	    dap_ui_test_row_count(DAP_UI_PANE_BREAKPOINTS));
+
+	/* first.c's source goes the moment its last breakpoint does, and the
+	 * repaint that would notice is debounced -- which is exactly the
+	 * window in which the pane's rows are last mutation's. */
+	CHECK(dap_breakpoint_remove_at(tmppath("first.c"), 3));
+	CHECK(dap_breakpoint_source_count() == 1);
+	CHECK(dap_ui_test_row_count(DAP_UI_PANE_BREAKPOINTS) == 3);
+
+	CHECK(enter_pane("*dap-breakpoints*", 1));
+	CHECK(invoke("dap-info-select") == CMD_RAN);
+	CHECKF(strstr(editor.statusmsg, "gone"), "said: %s", editor.statusmsg);
+	CHECKF(!strstr(bcur()->filename ? bcur()->filename : "", "second.c"),
+	    "RET on a stale row visited the other file");
+	CHECK(invoke("dap-info-delete-breakpoint") == CMD_RAN);
+	CHECKF(dap_breakpoint_count() == 1,
+	    "`d` on a stale row deleted the other file's breakpoint");
+	CHECK(invoke("dap-info-toggle-breakpoint") == CMD_RAN);
+	CHECK(dap_breakpoint_find(tmppath("second.c"), 3, &info));
+	CHECKF(info.enabled,
+	    "`D` on a stale row disabled the other file's breakpoint");
+
+	/* And the change scheduled a repaint of its own: nothing else would,
+	 * since an ordinary setBreakpoints response releases sources with no
+	 * command pressed at all. */
+	{
+		struct timespec nap
+		    = { 0, (long)(DAP_UI_DEBOUNCE_MS + 20) * 1000000L };
+
+		nanosleep(&nap, NULL);
+	}
+	CHECKF(dap_ui_poll() != 0, "the compaction never scheduled a repaint");
+	CHECKF(dap_ui_test_row_count(DAP_UI_PANE_BREAKPOINTS) == 2,
+	    "%zu rows after the repaint",
+	    dap_ui_test_row_count(DAP_UI_PANE_BREAKPOINTS));
+	session_teardown();
+}
+
+/* The cut, and the line that says so.  Every renderer promises a visible
+ * "N omitted" (src/dap_ui.h) and every one of them wrote it through the
+ * same bound it was announcing, so the marker could never render: the last
+ * row is reserved for it. */
+static void test_a_truncated_pane_says_how_much_it_cut(void)
+{
+	char many[4096];
+	char needle[64];
+	size_t shown = DAP_UI_ROWS_MAX - 2; /* the heading and the marker */
+	size_t total = 0;
+	size_t f, i;
+
+	for (i = 0; i < sizeof(many) - 1; i++) {
+		many[i] = (i % 40 == 39) ? '\n' : 'x';
+	}
+	many[sizeof(many) - 1] = '\0';
+	open_one_source("many.c");
+	/* One source holds DAP_BREAKPOINT_MAX_PER_SOURCE, so the rows past
+	 * the pane's bound take several files. */
+	for (f = 0; f < 5; f++) {
+		char name[32];
+
+		snprintf(name, sizeof(name), "bp%zu.c", f);
+		write_text_file(tmppath(name), many);
+		for (i = 1; i <= 60; i++) {
+			if (dap_breakpoint_add_at(tmppath(name), (int)i, NULL)
+			    == DAP_BREAKPOINT_OK) {
+				total++;
+			}
+		}
+	}
+	CHECKF(total > DAP_UI_ROWS_MAX, "%zu breakpoints is not enough to cut",
+	    total);
+	CHECK(dap_ui_show(DAP_UI_PANE_BREAKPOINTS));
+	CHECKF(
+	    dap_ui_test_row_count(DAP_UI_PANE_BREAKPOINTS) == DAP_UI_ROWS_MAX,
+	    "%zu rows, not the bound",
+	    dap_ui_test_row_count(DAP_UI_PANE_BREAKPOINTS));
+	snprintf(
+	    needle, sizeof(needle), "%zu breakpoints omitted", total - shown);
+	CHECKF(pane_says("*dap-breakpoints*", needle),
+	    "the pane never said it had cut (expected <%s>)", needle);
+	session_teardown();
+}
+
 /* --------------------------- the map predicates ----------------------- */
 
 /* Activation is by buffer NAME, per keystroke, through one predicate -- and
@@ -552,6 +721,40 @@ static void test_a_small_terminal_refuses_the_layout(void)
 	CHECK(dap_ui_layout_active());
 	CHECK(invoke("dap-many-windows") == CMD_RAN);
 	CHECK(win_count == before);
+	session_teardown();
+}
+
+/* The restore itself can be REFUSED -- the terminal shrank while the grid
+ * was up, below what the user's own configuration needs.  Then the grid is
+ * still on screen, so the snapshot has to survive: dropping it would leave
+ * kg believing the layout was off with six panes up, and the next F12 would
+ * save the GRID as "the user's windows", which is the one state their own
+ * layout cannot be recovered from. */
+static void test_a_refused_restore_keeps_the_grid_and_the_snapshot(void)
+{
+	open_one_source("shrunk.c");
+	win_split_horizontal();
+	win_split_horizontal();
+	CHECKF(win_count == 3, "%d windows to save", win_count);
+	CHECK(invoke("dap-many-windows") == CMD_RAN);
+	CHECK(win_count == 6);
+	CHECK(dap_ui_layout_active());
+	/* Three stacked windows need 1 + 2*3 rows (src/winconfig.c). */
+	win_total_rows = 6;
+	CHECK(invoke("dap-many-windows") == CMD_RAN);
+	CHECKF(dap_ui_layout_active(),
+	    "the layout called itself off with the grid still up");
+	CHECKF(win_count == 6, "%d windows after a refused restore", win_count);
+	CHECKF(
+	    strstr(editor.statusmsg, "still up"), "said: %s", editor.statusmsg);
+	/* The snapshot outlived the refusal: with room again, the toggle puts
+	 * back the layout the user had, not a default one. */
+	win_total_rows = 24;
+	win_reflow();
+	CHECK(invoke("dap-many-windows") == CMD_RAN);
+	CHECKF(!dap_ui_layout_active(), "the restore never took");
+	CHECKF(
+	    win_count == 3, "%d windows restored, not the 3 saved", win_count);
 	session_teardown();
 }
 
@@ -901,6 +1104,41 @@ static void test_the_locals_pane_expands_by_identity(void)
 	session_teardown();
 }
 
+/* RET on a thread REPORTS.  There is no thread switch in v1 -- the stop
+ * model has a getter for the selected thread and no setter -- so the line
+ * that is not the selected one has to say what kg cannot do rather than
+ * claim it did it. */
+static void test_ret_on_a_thread_says_only_what_is_true(void)
+{
+	struct dap_ui_row meta;
+	struct dap_session *s;
+
+	open_one_source("threads.c");
+	s = start_fake(stop_script(tmppath("threads.c")));
+	CHECK(pump_until_stopped(s));
+	pump_quietly(s);
+	CHECK(dap_ui_show(DAP_UI_PANE_THREADS));
+	CHECK(dap_ui_test_row(DAP_UI_PANE_THREADS, 1, &meta));
+	CHECK(meta.kind == DAP_UI_ROW_THREAD && meta.stable_id == 1);
+	CHECK(dap_ui_test_row(DAP_UI_PANE_THREADS, 2, &meta));
+	CHECK(meta.kind == DAP_UI_ROW_THREAD && meta.stable_id == 2);
+	CHECK(dap_exec_selected_thread() == 1);
+
+	CHECK(enter_pane("*dap-threads*", 1));
+	CHECK(invoke("dap-info-select") == CMD_RAN);
+	CHECKF(strstr(editor.statusmsg, "Thread 1 is the one"), "said: %s",
+	    editor.statusmsg);
+	CHECK(enter_pane("*dap-threads*", 2));
+	CHECK(invoke("dap-info-select") == CMD_RAN);
+	CHECKF(strstr(editor.statusmsg, "cannot switch threads"),
+	    "RET on another thread claimed something: %s", editor.statusmsg);
+	CHECKF(!strstr(editor.statusmsg, "Thread 2"),
+	    "the message says thread 2 is the one kg is looking at: %s",
+	    editor.statusmsg);
+	finish(s);
+	session_teardown();
+}
+
 /* The expansion race, from the UI's side: a row built under one suspension
  * is refused once the epoch has moved, because every measured adapter
  * answers a stale handle with success and wrong data [M-4]. */
@@ -1023,15 +1261,20 @@ int main(void)
 	RUN(test_a_lone_cr_is_a_newline);
 	RUN(test_the_transcript_cap_marks_once);
 	RUN(test_killing_the_transcript_starts_a_fresh_one);
+	RUN(test_a_killed_transcript_recreated_by_the_layout);
+	RUN(test_a_user_buffer_named_like_a_pane_is_left_alone);
 	RUN(test_categories_and_the_stderr_mark);
 	RUN(test_untrusted_bytes_are_kept_as_bytes);
 	RUN(test_the_repl_transcript_attributes_its_answers);
 	RUN(test_the_breakpoint_pane_lists_and_visits);
 	RUN(test_the_breakpoint_pane_deletes_and_disables);
 	RUN(test_a_heading_line_does_nothing);
+	RUN(test_a_stale_breakpoint_row_does_not_act_on_another_file);
+	RUN(test_a_truncated_pane_says_how_much_it_cut);
 	RUN(test_the_maps_are_live_where_they_should_be);
 	RUN(test_the_layout_saves_once_and_restores_once);
 	RUN(test_a_small_terminal_refuses_the_layout);
+	RUN(test_a_refused_restore_keeps_the_grid_and_the_snapshot);
 	RUN(test_a_resize_between_save_and_restore);
 	RUN(test_session_end_restores_only_an_active_grid);
 	RUN(test_a_saved_buffer_that_died);
@@ -1040,6 +1283,7 @@ int main(void)
 	RUN(test_an_undisplayed_pane_is_not_repainted);
 	RUN(test_the_stack_pane_lists_selects_and_visits);
 	RUN(test_the_locals_pane_expands_by_identity);
+	RUN(test_ret_on_a_thread_says_only_what_is_true);
 	RUN(test_a_row_from_an_earlier_stop_is_refused);
 	RUN(test_decoration_priorities_on_a_hard_row);
 	RUN(test_an_empty_stopped_line_still_has_a_range);

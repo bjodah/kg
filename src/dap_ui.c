@@ -9,6 +9,7 @@
 #include "dap_ui.h"
 
 #include "bufhandle.h"
+#include "bufmgr.h"
 #include "dap_breakpoint.h"
 #include "dap_exec.h"
 #include "def.h"
@@ -44,6 +45,11 @@ struct dap_ui_pane_state {
 	bool truncated;
 	bool pending_cr; /* the last accepted byte was a CR [M-12] */
 	bool at_line_start;
+	/* The buffer kg had here was killed.  Sticky, because the handle it
+	 * was noticed through is overwritten by the next pane_slot(): the
+	 * transcript's own accounting is what has to see it, and that may be
+	 * one output event later. */
+	bool died;
 };
 
 static const struct {
@@ -113,12 +119,26 @@ void dap_ui_changed(void)
 /* The pane's buffer, created if this is the first time anybody asked.
  * find-or-create and never re-prepare: buf_prepare_special_text() clears
  * what it finds, and clearing a transcript because a pane was displayed
- * again would be a debugger that forgets what the program printed. */
+ * again would be a debugger that forgets what the program printed.
+ *
+ * The find half asks for kg's OWN buffer of that name: a buffer the user
+ * made with C-x b *dap-output* is not this pane, and appending an adapter's
+ * bytes to it would be the debugger writing into somebody's notes.  The
+ * create half then refuses that name and says so, which is where the one
+ * message about it comes from. */
 static int pane_slot(enum dap_ui_pane pane)
 {
 	struct dap_ui_pane_state *p = &panes[pane];
-	int slot = buf_find_open(pane_table[pane].name);
+	int slot = buf_find_special(pane_table[pane].name);
 
+	/* Read the death BEFORE the handle is overwritten below, and keep it
+	 * until the transcript accounting has consumed it: a pane recreated
+	 * by F12 or by dap_ui_show() reaches here first, and a budget carried
+	 * over from a buffer nobody can read is a fresh transcript born
+	 * truncated. */
+	if (p->buffer.id != 0 && !buf_resolve(p->buffer)) {
+		p->died = true;
+	}
 	if (slot < 0) {
 		slot = buf_prepare_special_text(
 		    pane_table[pane].name, &text_syntax, 1);
@@ -137,7 +157,7 @@ static int pane_slot(enum dap_ui_pane pane)
  * them the moment it is displayed. */
 static bool pane_displayed(enum dap_ui_pane pane)
 {
-	int slot = buf_find_open(pane_table[pane].name);
+	int slot = buf_find_special(pane_table[pane].name);
 	int i;
 
 	if (slot < 0) {
@@ -180,8 +200,11 @@ bool dap_ui_current_buffer_is_pane(void)
 		return false;
 	}
 	for (i = 0; i < DAP_UI_PANE_COUNT; i++) {
+		/* The name AND kg's ownership of it: a buffer of the user's
+		 * called `*dap-stack*` is not a pane, and giving it the pane
+		 * map would take RET away from somebody's own text. */
 		if (strcmp(name, pane_table[i].name) == 0) {
-			return true;
+			return buf_find_special(name) == buf_current;
 		}
 	}
 	return false;
@@ -236,13 +259,21 @@ static bool rb_reserve(size_t extra)
 
 /* Append one LINE and the metadata that describes it.  Every pane line goes
  * through here, which is what keeps the text and the vector in lockstep:
- * one call is one '\n' and one row.  Past the row bound nothing is appended
- * at all, and the caller's "N omitted" line is what a reader sees instead. */
+ * one call is one '\n' and one row.
+ *
+ * THE LAST ROW IS THE MARKER'S.  A data row stops one short of the bound, so
+ * the "N omitted" line the caller writes afterwards -- kind NONE, like the
+ * heading -- always has a slot to land in.  Counting a cut and then refusing
+ * the line that reports it is how the promise in src/dap_ui.h was
+ * unfulfillable: every renderer's marker went through the same full buffer
+ * it was announcing. */
 static void rb_line(const struct dap_ui_row *meta, const char *text)
 {
+	size_t bound = meta->kind == DAP_UI_ROW_NONE ? DAP_UI_ROWS_MAX
+						     : DAP_UI_ROWS_MAX - 1;
 	size_t len = strlen(text);
 
-	if (rb.row_count >= DAP_UI_ROWS_MAX) {
+	if (rb.row_count >= bound) {
 		rb.omitted++;
 		return;
 	}
@@ -337,7 +368,7 @@ static bool rb_commit(enum dap_ui_pane pane)
 	if (rb.failed) {
 		return false;
 	}
-	views_save(buf_find_open(pane_table[pane].name), views);
+	views_save(buf_find_special(pane_table[pane].name), views);
 	slot = buf_prepare_special_text(pane_table[pane].name, &text_syntax, 1);
 	if (slot < 0) {
 		return false;
@@ -410,19 +441,27 @@ static void append_plain(char *line, size_t size, const char *text)
 static int transcript_slot(enum dap_ui_pane pane)
 {
 	struct dap_ui_pane_state *p = &panes[pane];
-	bool killed = p->buffer.id != 0 && !buf_resolve(p->buffer);
+	bool killed;
 	int slot;
 
-	if (killed) {
-		*p = (struct dap_ui_pane_state) { 0 };
-		p->at_line_start = true;
-	}
+	/* pane_slot() is what notices the death, and it may have noticed it
+	 * during an earlier call that had nothing to do with a transcript --
+	 * F12 rebuilding the grid, or dap_ui_show().  So the flag is read
+	 * (and consumed) here rather than recomputed from a handle that call
+	 * has already replaced. */
 	slot = pane_slot(pane);
-	if (slot >= 0 && killed) {
+	killed = p->died;
+	if (slot < 0) {
+		return -1; /* the flag stays set until it can be reported */
+	}
+	if (killed) {
 		static const char notice[]
 		    = "[transcript restarted; what came before went with the "
 		      "buffer]\n";
 
+		*p = (struct dap_ui_pane_state) { 0 };
+		p->at_line_start = true;
+		p->buffer = buf_handle(slot);
 		(void)buf_append_special_text(slot, notice, sizeof(notice) - 1);
 	}
 	return slot;
@@ -869,7 +908,12 @@ static void render_breakpoint_line(
 {
 	struct dap_ui_row meta = { .kind = DAP_UI_ROW_BREAKPOINT,
 		.stable_id = info->line,
-		.parent = (int)source,
+		/* The source instance, not its position: the position is
+		 * compacted out from under this row by the next release, and
+		 * `d` on a row naming file B would then delete a breakpoint
+		 * in file C (src/dap_ui.h). */
+		.source_epoch = dap_breakpoint_source_epoch(source),
+		.parent = -1,
 		.navigable = true };
 	char line[PATH_MAX + 128];
 	char where[64];
@@ -967,7 +1011,7 @@ void dap_ui_refresh_now(void)
 	repaint_all();
 }
 
-static void layout_restore(void);
+static bool layout_restore(void);
 
 int dap_ui_poll(void)
 {
@@ -980,7 +1024,7 @@ int dap_ui_poll(void)
 	}
 	if (layout.restore_pending) {
 		layout.restore_pending = false;
-		layout_restore();
+		(void)layout_restore();
 		return 1;
 	}
 	if (!dirty || now_ms() < due_ms) {
@@ -1003,7 +1047,7 @@ bool dap_ui_show(enum dap_ui_pane pane)
 	}
 	if (!pane_table[pane].transcript) {
 		repaint_pane(pane);
-		slot = buf_find_open(pane_table[pane].name);
+		slot = buf_find_special(pane_table[pane].name);
 	}
 	if (slot < 0) {
 		return false;
@@ -1079,8 +1123,12 @@ static bool layout_apply(void)
 		}
 		slot = pane_slot(pane);
 		if (slot < 0) {
-			editor_set_status_message(
-			    "dap-many-windows: no room for the panes");
+			/* buf_prepare_special_text() has already said why --
+			 * the buffer table is full, or that name belongs to a
+			 * buffer of the user's own that kg will not overwrite
+			 * -- and "no room for the panes" over the top of
+			 * either would be the editor answering its own
+			 * question with a worse answer. */
 			return false;
 		}
 		buffers[i] = buf_handle(slot);
@@ -1106,20 +1154,39 @@ static bool layout_apply(void)
  *
  * Windows the user split or deleted while the grid was up are discarded
  * with it -- the configuration that comes back is the pre-grid one. */
-static void layout_restore(void)
+static bool layout_restore(void)
 {
 	if (!layout.active) {
-		return;
+		return true;
+	}
+	/* A restore can be REFUSED -- a terminal shrunk below what the saved
+	 * configuration needs is the reachable one -- and win_configuration_
+	 * restore() validates before it mutates, so a refusal has changed
+	 * nothing.  Dropping the snapshot here would leave the grid on screen,
+	 * kg believing the layout was off, and the next F12 saving the GRID as
+	 * "the user's windows": the one state from which the user's own layout
+	 * is unrecoverable.  So the snapshot outlives a refusal. */
+	if (win_configuration_restore(&layout.saved) != KG_WINDOW_LAYOUT_OK) {
+		editor_set_status_message(
+		    "dap-many-windows: your windows do not fit yet; the debug "
+		    "layout is still up");
+		return false;
 	}
 	layout.active = false;
-	(void)win_configuration_restore(&layout.saved);
 	win_configuration_clear(&layout.saved);
+	return true;
 }
 
 void dap_ui_layout_toggle(void)
 {
 	if (layout.active) {
-		layout_restore();
+		if (!layout_restore()) {
+			/* Still up, and the refusal has already said why; the
+			 * preference stays "on", because the user asking for
+			 * their windows back in a terminal that cannot hold
+			 * them is not them asking for the grid again. */
+			return;
+		}
 		layout.wanted = false;
 	} else if (layout_apply()) {
 		layout.wanted = true;
@@ -1152,7 +1219,11 @@ void dap_ui_layout_session_ended(void)
 		layout.restore_pending = true;
 		return;
 	}
-	layout_restore();
+	/* A refusal leaves the grid up with no session behind it, which is
+	 * the state a `dap-many-windows` before any session already produces
+	 * -- and the next toggle, in a terminal with room, puts the user's
+	 * windows back. */
+	(void)layout_restore();
 }
 
 bool dap_ui_layout_active(void) { return layout.active; }
@@ -1231,9 +1302,23 @@ static void ret_frame(const struct dap_ui_row *row)
 	editor_set_status_message("That frame is no longer in the stack");
 }
 
+/* The file a breakpoint row names, resolved NOW: the epoch it was rendered
+ * with is looked up in the table as it is at this keystroke, so a source
+ * that has been released since answers nothing rather than answering with
+ * whichever source took its index. */
+static const char *breakpoint_row_path(const struct dap_ui_row *row)
+{
+	size_t index;
+
+	if (!dap_breakpoint_source_by_epoch(row->source_epoch, &index)) {
+		return NULL;
+	}
+	return dap_breakpoint_source_path(index);
+}
+
 static void ret_breakpoint(const struct dap_ui_row *row)
 {
-	const char *path = dap_breakpoint_source_path((size_t)row->parent);
+	const char *path = breakpoint_row_path(row);
 	struct dap_breakpoint_info info;
 
 	if (!path || !dap_breakpoint_find(path, row->stable_id, &info)) {
@@ -1242,6 +1327,25 @@ static void ret_breakpoint(const struct dap_ui_row *row)
 	}
 	(void)editor_visit_file_position(DAP_UI_WHO, path, info.line, 1,
 	    panes[DAP_UI_PANE_BREAKPOINTS].buffer);
+}
+
+/* RET on a thread REPORTS; it does not switch.  There is no selection
+ * setter in src/dap_exec.h -- the selected thread is the one the adapter's
+ * `stopped` event named -- so saying "selected" on any line the user
+ * happened to be on would be the editor claiming an operation it does not
+ * have. */
+static void ret_thread(const struct dap_ui_row *row)
+{
+	int selected = dap_exec_selected_thread();
+
+	if (row->stable_id == selected) {
+		editor_set_status_message(
+		    "Thread %d is the one kg is looking at", row->stable_id);
+		return;
+	}
+	editor_set_status_message(
+	    "kg cannot switch threads yet; it is looking at thread %d",
+	    selected);
 }
 
 static void ret_variable(const struct dap_ui_row *row)
@@ -1297,8 +1401,7 @@ void dap_ui_info_ret(void)
 		ret_frame(&row);
 		break;
 	case DAP_UI_ROW_THREAD:
-		editor_set_status_message(
-		    "Thread %d is the one kg is looking at", row.stable_id);
+		ret_thread(&row);
 		break;
 	case DAP_UI_ROW_BREAKPOINT:
 		ret_breakpoint(&row);
@@ -1325,7 +1428,7 @@ void dap_ui_info_delete(void)
 		editor_set_status_message("Not a breakpoint line");
 		return;
 	}
-	path = dap_breakpoint_source_path((size_t)row.parent);
+	path = breakpoint_row_path(&row);
 	if (!path || !dap_breakpoint_remove_at(path, row.stable_id)) {
 		editor_set_status_message("That breakpoint is gone");
 		return;
@@ -1346,7 +1449,7 @@ void dap_ui_info_toggle_enable(void)
 		editor_set_status_message("Not a breakpoint line");
 		return;
 	}
-	path = dap_breakpoint_source_path((size_t)row.parent);
+	path = breakpoint_row_path(&row);
 	if (!path || !dap_breakpoint_find(path, row.stable_id, &info)
 	    || !dap_breakpoint_set_enabled(
 		path, row.stable_id, !info.enabled)) {
@@ -1375,7 +1478,7 @@ void dap_ui_info_toggle_breakpoints_threads(void)
 		return;
 	}
 	repaint_pane(want);
-	slot = buf_find_open(pane_table[want].name);
+	slot = buf_find_special(pane_table[want].name);
 	if (slot < 0) {
 		return;
 	}

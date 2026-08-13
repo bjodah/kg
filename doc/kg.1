@@ -2269,6 +2269,12 @@ need not ask again.
 A configuration with no program of its own \(em kg's built-in
 .Ic lldb-dap
 one \(em asks for the program to debug rather than guessing at one.
+Refused in a buffer that visits no file: the configuration file is looked
+for beside that file and
+.Ic ${file}
+expands to it, so there is nothing to debug and nowhere to look.
+Cancelling either prompt, or naming a configuration the file does not
+have, launches nothing and leaves the remembered choice alone.
 See
 .Sx DEBUGGER .
 .It dap-disconnect
@@ -2317,8 +2323,11 @@ See
 .Sx DEBUGGER .
 .It dap-info-select
 Act on the debugger line point is on, dispatching on what that line is: a
-frame is selected and its source visited, a thread is selected, a
-breakpoint is visited, and a variable is expanded or collapsed.
+frame is selected and its source visited, a thread line reports which
+thread kg is looking at, a breakpoint is visited, and a variable is
+expanded or collapsed.
+Switching threads is not implemented, and the line says so rather than
+claiming to have switched.
 Bound to
 .Ic RET
 in the debugger's panes.
@@ -4117,9 +4126,15 @@ saves the arrangement in force then rather than resurrecting the first.
 The end of a session puts it back too, but only while the layout is on
 screen.
 A terminal too small for six windows refuses cleanly and keeps the
-arrangement it has.
+arrangement it has, and a terminal that has since shrunk too far for the
+saved arrangement refuses the way back the same way: the layout stays up,
+the snapshot is kept, and the next
+.Ic F12
+with room restores it.
 Windows split or deleted by hand while the layout is up are discarded
 with it.
+A pane whose name is already a buffer of your own is not taken over: the
+layout says whose buffer it is and does not go up.
 .Pp
 .Pa *dap-breakpoints*
 and
@@ -4133,8 +4148,9 @@ swaps them.
 In any of the six,
 .Ic RET
 acts on what the line IS: a frame is selected and its source visited, a
-thread is selected, a breakpoint is visited, and a variable is expanded
-or collapsed.
+thread line reports which thread kg is looking at \(em there is no thread
+switch yet, and the line says so \(em a breakpoint is visited, and a
+variable is expanded or collapsed.
 .Ic d
 deletes the breakpoint on the line,
 .Ic D

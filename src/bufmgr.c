@@ -596,6 +596,9 @@ static void buf_reset(void)
 	b->syntax = NULL;
 	bcur()->filename = NULL;
 	bcur()->no_file = 0;
+	/* A slot about to hold a file is not a special buffer of kg's,
+	 * whatever the slot held a moment ago. */
+	bcur()->special_owned = 0;
 	kg_mark_clear(bcur());
 	kg_mark_ring_clear(bcur());
 	bcur()->shift_select = 0;
@@ -638,6 +641,19 @@ static int buf_find_by_name(const char *name)
  * or not -- before it can open it needs the answer before buf_open_path()
  * would give it one. */
 int buf_find_open(const char *path) { return buf_find_by_name(path); }
+
+/* The slot holding kg's OWN special buffer called `name`, and -1 both when
+ * there is no such buffer and when the buffer wearing that name is one the
+ * user made (C-x b).  A caller that is about to write a special buffer's
+ * content asks this rather than buf_find_open(), for the reason
+ * buf_prepare_special_text() refuses the same case: the name is not the
+ * permission. */
+int buf_find_special(const char *name)
+{
+	int slot = buf_find_by_name(name);
+
+	return (slot >= 0 && buflist[slot].special_owned) ? slot : -1;
+}
 
 /* Lowest unused buffer slot, or -1 when the table is full. */
 static int buf_first_free_slot(void)
@@ -2462,6 +2478,8 @@ static int buf_kill_commit(int slot, struct kg_buffer_handle dying)
 	buflist[slot].active = 0;
 	buflist[slot].filename = NULL;
 	buflist[slot].no_file = 0;
+	/* The next occupant of this slot has to earn the flag itself. */
+	buflist[slot].special_owned = 0;
 	buflist[slot].dirty = 0;
 	buflist[slot].syntax = NULL;
 	/* Every handle taken on this buffer stops resolving here. */
@@ -2798,6 +2816,9 @@ static int buf_prepare_special_new(int slot, const char *name)
 	kg_event_publish_lifecycle(
 	    &res, kg_event_make_buffer_opened(buf_handle(slot)));
 	buflist[slot].filename = strdup(name);
+	/* This is where a special buffer becomes kg's: the only place the
+	 * flag is set, and the reason a later prepare may clear it. */
+	buflist[slot].special_owned = 1;
 	buf_count++;
 	return slot;
 }
@@ -2808,6 +2829,16 @@ int buf_prepare_special_text(
 	int target_slot = buf_find_by_name(name);
 
 	if (target_slot >= 0) {
+		/* Only a buffer kg made under this name is kg's to rebuild.
+		 * A buffer of the user's that happens to wear it (C-x b takes
+		 * any name at all) is refused here rather than cleared: its
+		 * rows and its undo chain are the one copy there is. */
+		if (!buflist[target_slot].special_owned) {
+			editor_set_status_message(
+			    "%s is your own buffer; kg will not overwrite it",
+			    name);
+			return -1;
+		}
 		buf_clear_special_text(target_slot);
 	} else {
 		int slot = buf_first_free_slot();

@@ -52,7 +52,18 @@ PTY_SETTLE_FLOOR=${PTY_SETTLE_FLOOR:-$([ "${CI_PARALLEL}" = 1 ] && echo 1.5 || e
 # PTY cases are independent and spend their time waiting on a child editor,
 # so pooling them scales past the core count.  8 is half the 16 measured
 # safe at 6-way lane concurrency (96 concurrent cases held 13 of 32 cores).
-PTY_JOBS=${PTY_JOBS:-8}
+#
+# Past the core count, not past every core count.  A handful of cases wait
+# on something far heavier than a child editor -- a JVM language server, a
+# `go build`, rust-analyzer's sysroot load -- and those do not overlap for
+# free.  Measured on the hosted CI box, three cores against this one's
+# thirty-two: the full suite at 8 jobs failed lsp-nbcode-definition,
+# dap-delve-go-smoke and dap-delve-build-error, all three of which pass on
+# that same box when run alone.  So the pool is capped by the cores it
+# actually has, with 2 as the floor (a one-core box still overlaps the
+# waiting), and a box with 8 or more is unaffected: this is the same 8 it
+# always was on the development box and in any lane of --parallel.
+PTY_JOBS=${PTY_JOBS:-$(( CI_NPROC < 8 ? (CI_NPROC < 2 ? 2 : CI_NPROC) : 8 ))}
 
 # Where run-ci-steps.sh keeps its lock, per-step state and per-step logs.  It
 # has to stay in the real tree: a lane runs in a throwaway copy of it.

@@ -36,9 +36,11 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   failure naming the tool. The oracle binary is `--emacs`, else
   `$KG_PTY_EMACS` (`make check KG_PTY_EMACS=...`), else `emacs` on PATH,
   else the `/opt-3` developer-box pin.
-- PTY cases run concurrently; `--jobs` (Makefile `PTY_JOBS`, CI default 8)
-  sets how many. Use `--jobs 1` when debugging a case so its output is not
-  interleaved with other work on the box.
+- PTY cases run concurrently; `--jobs` (Makefile `PTY_JOBS`) sets how many.
+  `.ci/ci-env.sh` asks for 8, capped by `nproc` and floored at 2, because
+  the cases that wait on a JVM language server or a `go build` do not
+  overlap for free on a box with three cores. Use `--jobs 1` when debugging
+  a case so its output is not interleaved with other work on the box.
 - `make check-regex-differential` compares kg's regex engine against
   Emacs' own matcher on randomly generated patterns and subjects
   (`utils/regex_differential.py` drives `test/regex_differential.c` and
@@ -79,8 +81,8 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   floor, and `make coverage-baseline` is the one command that rewrites
   the file (bank an improvement; a drop needs a reason in the commit).
   Branch data is collected and reported but not yet a floor. The lane
-  keeps `PTY_JOBS=8`: three runs (two at 8, one at 1) agreed file for
-  file, so the parallel gcda merge is not lossy here and the 5m37
+  keeps the parallel `PTY_JOBS`: three runs (two at 8, one at 1) agreed
+  file for file, so the parallel gcda merge is not lossy here and the 5m37
   serial run buys nothing over 1m02. A file may lose up to 4 covered
   lines (the tree, 8) before the gate fires: repeated runs of one commit
   wobble by up to 3 lines in `src/syntax.c`, whose highlighting paths
@@ -409,7 +411,11 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   It is what buys the time a real debug adapter takes to reach its first
   stop (~6.8 s measured for debugpy) without raising `key_delay` for
   every key in the case; an expired wait is not itself a failure, the
-  assertion that follows it is.
+  assertion that follows it is. It is also how the four real-server
+  `lsp-*-definition` cases wait for a jump to land — never with a fixed
+  count of repaints, which is a wall-clock sleep sized on whichever box
+  measured it and the reason those cases failed on a three-core CI box
+  while passing on a thirty-two-core one.
   `Home`, `End`, `C-Home`, `C-End`,
   `S-Home`, `S-End`, `Up`, `Down`, `PageUp`, `PageDown`, and `F1`
   through `F12` are named tokens (sent as xterm SS3 / tilde / cursor

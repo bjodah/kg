@@ -19,17 +19,32 @@ name: lsp-gopls-definition
 # eight are the leading TAB, "return" and the space after it -- and an
 # identifier's first byte is a position gopls resolves without argument.
 #
-# There are TWO M-. for the reason lsp-rust-analyzer-definition.yaml
-# explains at length: servers start lazily, so the first M-. is what spawns
-# gopls, and a Go module has to be loaded before any position in it resolves
-# -- the first request is answered from whatever the server knows so far.
-# The idle repaints between them are that load, and the ones after the
-# second M-. are the wait for the answer; C-l repaints without moving point,
-# so each costs a key_delay and changes nothing whichever way the race went.
+# The M-. is asked REPEATEDLY for the reason lsp-rust-analyzer-definition
+# .yaml explains at length: servers start lazily, so the first M-. is what
+# spawns gopls, and a Go module has to be loaded before any position in it
+# resolves -- the first request is answered from whatever the server knows
+# so far, rather than held until it knows more.  So the question is asked
+# again rather than waited on longer: five rounds of M-. followed by
+# `SETTLE=<budget>:(5,5)`, budgets escalating 4, 4, 8, 16, 32.  A SETTLE is
+# a budget and not a sleep -- the harness polls the pane until the mode
+# line reads the definition's position, which is on screen only once the
+# answer has been applied, the mode line reading `(8,8)` until then -- so
+# the round that lands ends its wait immediately, every later round is free
+# (its SETTLE sees `(5,5)` already there, and re-asking at the declaration
+# point returns that same location), and only the rounds that ask too early
+# cost their budget.  The escalation keeps a fast box cheap while still
+# covering one that needs a minute: the last round is asked at t=32 s and
+# waits until t=64 s.
+#
+# What this replaced was 24 repaints (7.2 s) for the load and 10 (3.0 s)
+# for the answer -- a fixed sleep sized on the development box, which is
+# the shape that failed on the CI box for the sibling servers.  Reading a
+# pane needs one to read, which is why this case is `backend: tmux` (a box
+# without tmux SKIPs it, the same way a box without gopls does) and why it
+# no longer carries a key_delay: the delay used to BE the wait.
 requires_feature: lsp
 requires_tool: gopls
-backend: pexpect
-key_delay: 0.3
+backend: tmux
 filename: main.go
 workspace_files:
   go.mod: |
@@ -67,41 +82,15 @@ keys:
   - "C-f"
   - "C-f"
   - "M-."
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
+  - "SETTLE=4:(5,5)"
   - "M-."
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
+  - "SETTLE=4:(5,5)"
+  - "M-."
+  - "SETTLE=8:(5,5)"
+  - "M-."
+  - "SETTLE=16:(5,5)"
+  - "M-."
+  - "SETTLE=32:(5,5)"
   - "X"
 expected_saved: |
   package main

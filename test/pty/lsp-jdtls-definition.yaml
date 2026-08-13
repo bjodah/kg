@@ -33,22 +33,33 @@ name: lsp-jdtls-definition
 # -- because kg advertises neither dynamic registration nor configuration,
 # so the MethodNotFound kg would send never comes up.
 #
-# The wait is 32 repaints at 0.3 s, ~9.6 s.  Measured from inside this very
-# case by bisecting the number of C-l: 6 repaints (1.8 s) fails and 8
-# (2.4 s) passes, so the jump lands ~2.4 s after M-. on this box, cold.
-# Four times that is the size shipped, because a CI box running five
-# sanitizer lanes and starting a JVM is not this box, and the failure mode
-# of being too quick is a case that flakes rather than one that fails.  C-l
-# is the key because it repaints without moving point, so it costs a
-# key_delay and changes nothing whether the answer has arrived yet or not.
+# The wait is `SETTLE=60:(2,15)` -- a BUDGET, not a sleep: the harness
+# polls the pane until the mode line reads the definition's position and
+# gives up after 60 s, and it is the assertion after it that fails, not the
+# expiry.  `(2,15)` is where the jump lands, and it is on screen only once
+# the answer has been applied; before it the mode line reads `(5,8)`.
+# That needs a pane to read, which is why this case is `backend: tmux` (a
+# box without tmux SKIPs it, the same way a box without jdtls does) and why
+# it no longer carries a key_delay: the delay used to BE the wait.
+#
+# The wait this replaced was 32 repaints at 0.3 s, ~9.6 s, and it is why
+# this case existed as a CI failure before it existed as a passing one.  A
+# fixed sleep sized on one box does not survive being run on another:
+# bisecting the repaint count measures 3.0-3.7 s to the answer on the
+# development box (8 fails, 12 passes) and 11.2-12.4 s on the CI box, three
+# cores against thirty-two, where 36 repaints passed once and failed once
+# and the shipped 32 could not pass at all -- on an IDLE box, before the
+# suite's own eight-way concurrency is added.  The budget here is ~5x the
+# slowest measurement rather than 4x the fastest, and costs nothing when it
+# is not needed: the converted case takes 8.8 s end to end on the
+# development box and 19.0 s on the CI box.
 #
 # Point is walked to the reference rather than searched to it: four Down and
 # eight C-f put it on the "l" of the indented `localTarget(1);`, and an
 # identifier's first byte is a position jdt.ls resolves without argument.
 requires_feature: lsp
 requires_tool: jdtls
-backend: pexpect
-key_delay: 0.3
+backend: tmux
 filename: Fixture.java
 config_files:
   .m2/settings.xml: |
@@ -92,38 +103,7 @@ keys:
   - "C-f"
   - "C-f"
   - "M-."
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
+  - "SETTLE=60:(2,15)"
   - "X"
 expected_saved: |
   class Fixture {

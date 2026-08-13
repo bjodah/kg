@@ -1,5 +1,5 @@
 variables:
-  - &ci_image 'cont-reg.bjodah.se:443/bjodah/triceratops-8:10'
+  - &ci_image 'cont-reg.bjodah.se:443/bjodah/triceratops-9:10'
 
 when:
   - event: [push]
@@ -13,5 +13,4 @@ steps:
       # run-ci-steps.sh skips (the suite under valgrind).
       CI_EXPENSIVE: "1"
     commands:
-      - bash -lc "rustup component add rust-analyzer"
       - bash -l .ci/run-ci-steps.sh

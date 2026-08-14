@@ -83,10 +83,19 @@ KG_READY_PATTERN = r"(?:----|-\*\*-)  "
 KG_READY = re.compile(KG_READY_PATTERN)
 KG_READY_BYTES = re.compile(KG_READY_PATTERN.encode())
 READY_POLL = 0.005
-# Only reached when the mode line never shows up, so it can be generous:
-# polling normally returns in a few milliseconds on a plain build and about
-# 0.35 s under valgrind.
+# Floor under the readiness budget; the budget itself is the case's own
+# --timeout.  Waiting longer costs a healthy editor nothing -- the wait ends
+# on the mode line, in a few milliseconds on a plain build and about 0.35 s
+# under valgrind -- so only an editor that never paints spends it, and for
+# that one PTY_TIMEOUT is the knob .ci/ci-env.sh already sizes per box.  A
+# second, separate, unsized budget here is not free: see EditorNotReady for
+# what expiring one used to do.
 READY_DEADLINE = 2.0
+# What the tmux backend allows the session to take to disappear after the
+# trailer's C-x C-c.  Unrelated to READY_DEADLINE, whose value it used to
+# borrow: cases that deliberately leave kg running must not pay the per-run
+# timeout here (see wait_exit_tmux).
+EXIT_DEADLINE = 2.0
 # A frame can be painted from inside init-file evaluation, so the mode line
 # alone does not mean kg has reached its input loop.  Wait for output to
 # stop as well.
@@ -99,6 +108,34 @@ EMACS_FALLBACK = "/opt-3/emacs-31-lucid/bin/emacs"
 # case runs in a fresh temporary directory, so a path into the repository is
 # otherwise unnameable from one.
 ROOT = Path(__file__).resolve().parent.parent
+
+
+class EditorNotReady(Exception):
+	"""The editor never painted a first frame, so its terminal is still
+	the pty's DEFAULT line discipline -- and the case's keys must not be
+	typed into that.
+
+	Both wait_ready_* used to swallow an expired wait and start sending
+	anyway, on the theory that a slow editor merely fails late.  It does
+	not: a key sent before kg reaches enable_raw_mode() (src/tty.c) is
+	interpreted by the cooked line discipline instead of by kg.  C-c is
+	VINTR, so kg dies of SIGINT and the harness reports its own
+	128+2=130.  C-u is VKILL, so it silently erases every key queued
+	before it.  C-s/C-q are XOFF/XON, C-? is VERASE, C-w VWERASE, C-o
+	VDISCARD, C-v VLNEXT, and ICRNL rewrites RET.  What comes out is not
+	a late case but a fabricated one, and it is indistinguishable in the
+	log from a real editor defect: one hosted MSan run spent 212 FAILs
+	and 54 ERRORs -- saved-file diffs, missing screen text, nine `kg
+	exited 130` -- on nothing but this, in a lane where kg tripped no
+	sanitizer at all.  A case whose editor never started has no
+	measurement to report, so it says so and stops.
+	"""
+
+	def __init__(self, budget: float) -> None:
+		super().__init__(
+			f"no first frame within {budget:g}s; the editor's "
+			"terminal is still in the pty's default cooked mode, "
+			"where C-c is VINTR and C-u is VKILL")
 
 
 @dataclass
@@ -772,33 +809,37 @@ def write_workspace_files(cwd: Path, workspace_files: dict[str, str]) -> None:
 		target.write_text(content.replace("{CWD}", str(cwd)))
 
 
-def wait_ready_pexpect(child: pexpect.spawn, ready: bool, budget: float) -> None:
-	"""Wait for the editor's first painted frame, or sleep the budget.
+def wait_ready_pexpect(child: pexpect.spawn, ready: bool,
+		       startup_delay: float, budget: float) -> None:
+	"""Wait for the editor's first painted frame, or sleep `startup_delay`.
 
 	`budget` is a deadline rather than a cost: a plain build is ready in a
 	few milliseconds where the same binary under valgrind needs ~0.3 s, and
-	polling charges each runner only what it actually takes.  When the
-	pattern never shows up (unknown editor, immediate exit) this degrades
-	to the fixed sleep it replaced.
+	polling charges each runner only what it actually takes.  An editor
+	whose readiness cannot be recognised (the Emacs oracle) takes the
+	fixed sleep this replaced instead.
+
+	An expired budget raises: see EditorNotReady for why sending keys
+	anyway is worse than reporting nothing.
 	"""
 	if not ready:
-		time.sleep(budget)
+		time.sleep(startup_delay)
 		return
 	budget = max(budget, READY_DEADLINE)
 	deadline = time.monotonic() + budget
 	try:
 		child.expect(KG_READY_BYTES, timeout=budget)
-		last = time.monotonic()
-		while time.monotonic() < deadline:
-			try:
-				if child.read_nonblocking(4096, READY_POLL):
-					last = time.monotonic()
-			except pexpect.TIMEOUT:
-				pass
-			if time.monotonic() - last >= READY_SETTLE:
-				return
-	except (pexpect.TIMEOUT, pexpect.EOF):
-		pass
+	except (pexpect.TIMEOUT, pexpect.EOF) as exc:
+		raise EditorNotReady(budget) from exc
+	last = time.monotonic()
+	while time.monotonic() < deadline:
+		try:
+			if child.read_nonblocking(4096, READY_POLL):
+				last = time.monotonic()
+		except (pexpect.TIMEOUT, pexpect.EOF):
+			pass
+		if time.monotonic() - last >= READY_SETTLE:
+			return
 
 
 def run_editor_pexpect(argv: list[str], filename: str, initial: str, keys: list[str],
@@ -836,7 +877,8 @@ def run_editor_pexpect(argv: list[str], filename: str, initial: str, keys: list[
 		child.logfile_read = log
 
 		try:
-			wait_ready_pexpect(child, ready, startup_delay)
+			wait_ready_pexpect(child, ready, startup_delay,
+					   max(startup_delay, timeout))
 			for token in [*keys, *trailer_keys]:
 				settle = settle_token(token)
 				if settle is not None:
@@ -862,10 +904,15 @@ def run_tmux_cmd(sock: str, *args: str, check: bool = True) -> subprocess.Comple
 	return subprocess.run(["tmux", "-S", sock, *args], check=check, capture_output=True, text=True)
 
 
-def wait_ready_tmux(sock: str, pane: str, ready: bool, budget: float) -> None:
-	"""tmux counterpart of wait_ready_pexpect; see that docstring."""
+def wait_ready_tmux(sock: str, pane: str, ready: bool,
+		    startup_delay: float, budget: float) -> None:
+	"""tmux counterpart of wait_ready_pexpect; see that docstring.
+
+	The pane's pty is the editor's own, so an expired wait here means
+	exactly what it means there, and raises for the same reason.
+	"""
 	if not ready:
-		time.sleep(budget)
+		time.sleep(startup_delay)
 		return
 	budget = max(budget, READY_DEADLINE)
 	deadline = time.monotonic() + budget
@@ -880,6 +927,7 @@ def wait_ready_tmux(sock: str, pane: str, ready: bool, budget: float) -> None:
 		elif KG_READY.search(cp.stdout) and now - last >= READY_SETTLE:
 			return
 		time.sleep(READY_POLL)
+	raise EditorNotReady(budget)
 
 
 def settle_tmux(sock: str, pane: str, budget: float, floor: float = 0.0) -> None:
@@ -998,7 +1046,8 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 		try:
 			run_tmux_cmd(sock, "new-session", "-d", "-s", session,
 				     "-x", str(cols), "-y", str(rows), cmd)
-			wait_ready_tmux(sock, pane, ready, startup_delay)
+			wait_ready_tmux(sock, pane, ready, startup_delay,
+					max(startup_delay, timeout))
 			for token in keys:
 				if token.startswith("RESIZE="):
 					r, c = map(int, token.split("=")[1].split(","))
@@ -1029,7 +1078,7 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 				time.sleep(key_delay)
 			if trailer_keys:
 				wait_exit_tmux(sock, session,
-					       min(timeout, READY_DEADLINE))
+					       min(timeout, EXIT_DEADLINE))
 			else:
 				time.sleep(min(key_delay, timeout))
 		except Exception as exc:

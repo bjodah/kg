@@ -106,5 +106,50 @@ class TokenBytesTest(unittest.TestCase):
 			pty_accept.tmux_token_hex("BYTE=e2")
 
 
+class ReadinessTest(unittest.TestCase):
+	"""What the harness does when the editor never paints a first frame.
+
+	Wire-level for the same reason the token tests are: the answer is a
+	property of the harness, not of any one case, and it decides which
+	line discipline the case's keys are interpreted by.
+	"""
+
+	def test_editor_that_never_paints_is_refused_not_typed_into(self) -> None:
+		# Sending anyway types into a pty still in its default cooked
+		# mode, where the keys mean what termios says and not what kg
+		# says: C-c is VINTR (kg dies of SIGINT, which the harness
+		# reports as its own 128+2), C-u is VKILL and erases every key
+		# queued before it.  The failures that come out name the
+		# editor, so they have to not happen.
+		child = mock.Mock()
+		child.expect.side_effect = pty_accept.pexpect.TIMEOUT("no frame")
+		with self.assertRaisesRegex(pty_accept.EditorNotReady, "cooked"):
+			pty_accept.wait_ready_pexpect(child, True, 0.5, 0.1)
+		child.send.assert_not_called()
+
+	def test_tmux_readiness_expiry_is_refused_too(self) -> None:
+		# READY_DEADLINE is a floor under the budget, so it has to come
+		# down too or this test waits it out rather than the 0.1 asked
+		# for.
+		with mock.patch.object(pty_accept, "run_tmux_cmd") as run, \
+		     mock.patch.object(pty_accept, "READY_DEADLINE", 0.01):
+			run.return_value = mock.Mock(stdout="no mode line here")
+			with self.assertRaisesRegex(pty_accept.EditorNotReady,
+						    "cooked"):
+				pty_accept.wait_ready_tmux("sock", "pane", True,
+							   0.5, 0.1)
+
+	def test_unrecognised_editor_sleeps_the_startup_delay_not_the_budget(
+			self) -> None:
+		# The Emacs oracle's readiness cannot be recognised (KG_READY
+		# describes kg's mode line), so it takes a fixed sleep -- and
+		# that sleep is startup_delay.  The budget beside it is the
+		# case's whole timeout, which the oracle must never sleep.
+		with mock.patch.object(pty_accept.time, "sleep") as slept:
+			pty_accept.wait_ready_pexpect(mock.Mock(), False,
+						      0.5, 20.0)
+		slept.assert_called_once_with(0.5)
+
+
 if __name__ == "__main__":
 	unittest.main()

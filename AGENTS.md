@@ -340,8 +340,22 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
 - `startup_delay` and `key_delay` exist for timing-sensitive interactive cases; keep them explicit and case-local.
 - kg's runs no longer sleep `startup_delay`: the harness polls until kg has
   painted its first frame and gone quiet, so a plain build waits ~3 ms and
-  the same binary under valgrind waits ~0.33 s. `startup_delay` is now the
-  fallback deadline, and the sleep the Emacs oracle still takes.
+  the same binary under valgrind waits ~0.33 s. `startup_delay` is the sleep
+  the Emacs oracle still takes -- its readiness cannot be recognised -- and
+  a floor under kg's own budget, which is otherwise the case's `--timeout`
+  (`PTY_TIMEOUT`). Budget, not cost: the wait ends on the mode line, so only
+  an editor that never paints spends it.
+- A readiness wait that expires is an ERROR naming the reason, never a case
+  that goes ahead and types. Until kg reaches `enable_raw_mode()`
+  (`src/tty.c`) the pty is still in its DEFAULT cooked line discipline, and
+  a key sent into that one is interpreted by termios rather than by kg:
+  `C-c` is VINTR, so kg dies of SIGINT and the harness reports its own
+  128+2=130; `C-u` is VKILL, so it erases every key queued behind it;
+  `C-s`/`C-q` are XOFF/XON, `C-?` is VERASE, and ICRNL rewrites RET. The
+  failures that come out of that name kg: one hosted MSan run, on a box too
+  slow to paint inside the old fixed two seconds, spent 212 FAILs and 54
+  ERRORs -- saved-file diffs, missing screen text, nine `kg exited 130` --
+  with no sanitizer report anywhere in the log.
 - `key_delay` is not "time for kg to keep up" -- keys queue in the pty. It
   is bounded below by kg semantics: under 30 ms between keys kg decides it
   is seeing a paste (`editor.paste_mode`) and drops auto-indent and

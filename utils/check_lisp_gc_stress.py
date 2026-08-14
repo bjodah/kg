@@ -26,7 +26,10 @@ against the stress-built fe object.  It requires
     tens of thousands of objects, so the loop the stress build can
     afford (every allocation is O(arena) there) never fills it.
 
-Cheap enough for `make check`: three kg processes, well under a second.
+Three kg processes, and what they cost is the build's, not the check's:
+about a second all told on a plain build, minutes under a sanitizer,
+because a stress collection is O(arena) and there are ~15600 of them.
+STRESS_TIMEOUT_RATIO below is where that is measured and sized.
 """
 
 import argparse
@@ -35,6 +38,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 
 # Conses hard and keeps almost nothing: the garbage is what drives the
 # collector, and the small retained list is what a mistaken collection
@@ -133,26 +137,100 @@ MIN_STRESS_COLLECTIONS = 1000
 
 # A stress collection is O(arena), and the arena holds tens of thousands
 # of objects, so this lane is slow by construction and slowest where it
-# matters most.  Measured on this box with the ci-05 MSan lane's own
-# binary: the PRELUDE ALONE costs 69 s and 9222 collections before the
-# script's first form runs -- that is fixed cost, and it grew with Phase
-# 15's library -- and each iteration of the loop above adds about 0.8 s.
-# That is why the loop is 40 iterations rather than the 300 it was
-# through Phase 14 -- measured under MSan: 300 iterations 229 s (past the
-# 120 s this timeout used to be, which is how the regression was found),
-# 100 iterations 149 s, 40 iterations 138 s -- and why the timeout now has
-# real headroom rather than a little.  The knee is the prelude, not the
-# loop, so cutting the loop further buys almost nothing.  A plain build
-# runs the whole check in about 1 s.
-STRESS_TIMEOUT = 600
+# matters most.  Measured with the ci-05 MSan lane's own binary on the
+# 32-core development box, where the whole run is 142.7 s and 15612
+# collections: the PRELUDE ALONE is 97.7 s and 11339 of them, before the
+# script's first form runs; the forms outside the loop add 686 more; the
+# 40 iterations add 3587.  So 73% of the run is fixed cost, and time
+# tracks collections almost exactly, at ~9 ms each (0 iterations 104.9 s,
+# 10 iterations 128.7 s, 40 iterations 142.7 s).  That is why the loop is
+# 40 iterations rather than the 300 it was through Phase 14 (measured
+# under MSan then: 300 -> 229 s, 100 -> 149 s, 40 -> 138 s), and why
+# cutting it further buys almost nothing: the knee is the prelude.  Nor
+# does a smaller arena -- a stress build at KG_LISP_ARENA_SIZE=256 KiB
+# measures 75 s, only 1.9x, because marking the ~10600 live objects costs
+# what sweeping the rest does, and it would want a second object build
+# and an arena the shipped editor does not have.
+#
+# What the per-run timeout is FOR, therefore, is not cost: it is a
+# collector that never terminates -- an unclosed mark loop, a free list
+# that never refills -- which has to fail the build instead of wedging
+# CI.  Nothing here asserts how FAST the stress build is, and everything
+# it does assert is counted rather than timed.
+#
+# So the budget is sized the way the PTY harness sizes its readiness
+# wait: a deadline that charges each runner what that runner actually
+# costs.  The ordinary build runs the same script first, on the same box
+# and in the same build configuration, so its measured seconds are the
+# scale factor.  Ratios measured per build, each ordinary run against its
+# own stress run over the same script:
+#
+#   gcc -O0 -g (make check)      0.03 s ->   1.55 s    52x
+#   gcc --coverage (ci-02)       0.03 s ->   3.24 s   108x
+#   clang ASan+UBSan (ci-04)     0.04 s ->  10.65 s   266x
+#   clang MSan (ci-05)           0.53 s -> 142.71 s   269x
+#   clang MSan, 3-vCPU CI box    2.10 s -> 644.40 s   307x
+#
+# The plain build's 52x is not the outlier it looks like: its ordinary
+# run is mostly process startup, which is why there is a floor as well as
+# a ratio.  The last row is why the number cannot be fixed at all.  That
+# box is ~3x slower per core than this one on the ordinary run and ~4.5x
+# on the stress run, which is the arena sweep meeting three slow vCPUs --
+# so 644 s is what the run costs there with the box IDLE, and a 600 s
+# constant sized on this box could not pass on that one at all.  The lane
+# then adds its own load on top: `make -j3 check` reaches this check
+# through `check:`'s prerequisites and runs it beside check-unit and
+# beside check-pty's PTY_JOBS=3 editors, where it was measured holding
+# 60% of one vCPU and taking 720.85 s.  A ratio moves with all of that
+# because both of its terms do.
+#
+# 1000 is 3.3x the worst ratio above; on that box it computes a 2100 s
+# budget for the 644.4 s run.
+#
+# The floor is what every build except MSan actually gets, because their
+# ordinary run is too short to scale anything from: 120 s is 11x the ASan
+# stress run, 37x the coverage one, 77x the plain one.  The cap keeps "a
+# hang fails the build" true no matter what the calibration run reports:
+# an hour, not an unbounded multiple.  Both numbers are printed against
+# what they were given, so the next sizing decision is made from a CI log
+# rather than from a guess.
+#
+# ORDINARY_TIMEOUT stays a plain number because it is the bootstrap --
+# something has to bound the run the scale factor is read from -- and it
+# can afford to be one: the ordinary runs measured 0.01 s to 6.77 s over
+# every configuration above, the slowest of them the big script on the
+# hosted box, so 300 s is 44x the worst of them.  It is the one number
+# here a slower box could still outgrow, and the run it bounds is the
+# cheap one, which is the trade.
+ORDINARY_TIMEOUT = 300
+STRESS_TIMEOUT_RATIO = 1000
+STRESS_TIMEOUT_FLOOR = 120
+STRESS_TIMEOUT_CAP = 3600
 
 STATS = re.compile(r"^arena: collections=(\d+) peak-live=(\d+) failures=(\d+)$")
 
 
-def run(binary: pathlib.Path, script: pathlib.Path):
-	proc = subprocess.run(
-	    [str(binary), "-b", "-g", str(script)],
-	    capture_output=True, text=True, timeout=STRESS_TIMEOUT)
+def run(binary: pathlib.Path, script: pathlib.Path, budget: float, why: str):
+	"""Evaluate `script` and return its value, arena stats and seconds.
+
+	`budget` is a deadline, not an expected cost, and `why` says where it
+	came from: a run that reaches it has hung, and the message has to be
+	enough to tell that apart from a box slower than the one the budget
+	was derived on -- which is the failure this replaced.
+	"""
+	start = time.monotonic()
+	try:
+		proc = subprocess.run(
+		    [str(binary), "-b", "-g", str(script)],
+		    capture_output=True, text=True, timeout=budget)
+	except subprocess.TimeoutExpired:
+		raise SystemExit(
+		    f"FAIL: {binary} did not finish {script.name} within "
+		    f"{budget:.0f} s ({why}).  Either the collector no longer "
+		    f"terminates, or this run is more than "
+		    f"{STRESS_TIMEOUT_RATIO}x the ordinary build's cost, in "
+		    f"which case re-measure both and re-size the ratio here")
+	elapsed = time.monotonic() - start
 	if proc.returncode != 0:
 		raise SystemExit(
 		    f"FAIL: {binary} exited {proc.returncode}\n{proc.stderr}")
@@ -167,7 +245,13 @@ def run(binary: pathlib.Path, script: pathlib.Path):
 	if value is None or stats is None:
 		raise SystemExit(
 		    f"FAIL: {binary} printed no value/stats pair:\n{proc.stdout}")
-	return value, stats
+	return value, stats, elapsed
+
+
+def stress_budget(ordinary_seconds: float) -> float:
+	"""This box's own ordinary run, scaled -- see STRESS_TIMEOUT_RATIO."""
+	scaled = STRESS_TIMEOUT_RATIO * ordinary_seconds
+	return min(STRESS_TIMEOUT_CAP, max(STRESS_TIMEOUT_FLOOR, scaled))
 
 
 def main() -> int:
@@ -181,14 +265,22 @@ def main() -> int:
 			print(f"# lisp-gc-stress-check: {binary} missing, SKIP")
 			return 0
 
+	fixed = f"the fixed {ORDINARY_TIMEOUT} s ordinary-run budget"
 	with tempfile.TemporaryDirectory() as tmp:
 		script = pathlib.Path(tmp) / "gc-stress.el"
 		script.write_text(SCRIPT)
-		plain_value, plain_stats = run(args.kgbatch, script)
-		stress_value, stress_stats = run(args.stress_kgbatch, script)
+		plain_value, plain_stats, plain_seconds = run(
+		    args.kgbatch, script, ORDINARY_TIMEOUT, fixed)
+		budget = stress_budget(plain_seconds)
+		stress_value, stress_stats, stress_seconds = run(
+		    args.stress_kgbatch, script, budget,
+		    f"{STRESS_TIMEOUT_RATIO}x this build's own "
+		    f"{plain_seconds:.2f} s ordinary run, floor "
+		    f"{STRESS_TIMEOUT_FLOOR} s, cap {STRESS_TIMEOUT_CAP} s")
 		big = pathlib.Path(tmp) / "gc-stress-big.el"
 		big.write_text(BIG_SCRIPT)
-		big_value, big_stats = run(args.kgbatch, big)
+		big_value, big_stats, _ = run(
+		    args.kgbatch, big, ORDINARY_TIMEOUT, fixed)
 
 	problems = []
 	if plain_value != EXPECTED:
@@ -218,7 +310,9 @@ def main() -> int:
 	print(f"lisp-gc-stress-check: value {plain_value}; "
 	      f"collections {plain_stats[0]} -> {stress_stats[0]}; "
 	      f"peak live {plain_stats[1]} -> {stress_stats[1]}; "
-	      f"ordinary build over a full arena: {big_stats[0]} collection(s)")
+	      f"ordinary build over a full arena: {big_stats[0]} collection(s); "
+	      f"stress run {stress_seconds:.1f} s of a {budget:.0f} s budget, "
+	      f"ordinary run {plain_seconds:.2f} s")
 	for problem in problems:
 		print(f"  FAIL: {problem}", file=sys.stderr)
 	return 1 if problems else 0

@@ -167,6 +167,7 @@ int editor_delete_text_range_raw(int start_row, int start_col, int byte_len)
 void editor_cleanup(void) { }
 int compilation_poll(void) { return 0; }
 void compilation_start_pending_restart(void) { }
+void compilation_deliver_completion(void) { }
 
 /* src/tty.c asks for and takes back mouse reporting, and hands a decoded
  * report over; src/mouse.c does all three for real, and reaches the
@@ -195,3 +196,6 @@ struct editor_buffer *win_buffer(const struct editor_window *w)
 }
 
 int win_buffer_slot(const struct editor_window *w) { return w->buf.slot; }
+
+int kg_lisp_active(void) { return 0; }
+void kg_lisp_sync_display_options(void) { }

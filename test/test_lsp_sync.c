@@ -29,8 +29,8 @@
 #include "../src/def.h"
 #include "../src/edit.h"
 #include "../src/event.h"
+#include "../src/json.h"
 #include "../src/lsp_client.h"
-#include "../src/lsp_json.h"
 #include "../src/lsp_sync.h"
 #include "../src/lsp_uri.h"
 #include "../src/process.h"
@@ -291,11 +291,11 @@ static void test_uri_accepts_localhost_and_any_case(void)
 static char record_text[65536];
 static char *record_line[32];
 static int record_count;
-static struct lsp_json *record_doc;
+static struct kg_json *record_doc;
 
 static void record_reset(void)
 {
-	lsp_json_free(record_doc);
+	kg_json_free(record_doc);
 	record_doc = NULL;
 	record_count = 0;
 	record_text[0] = '\0';
@@ -329,9 +329,9 @@ static void record_read(void)
 /* A string node's bytes, or "" for a member the server did not send: every
  * assertion below is a strcmp, and an absent member should fail it rather
  * than crash it. */
-static const char *json_text(const struct lsp_json_value *v)
+static const char *json_text(const struct kg_json_value *v)
 {
-	const char *s = lsp_json_str(v, NULL);
+	const char *s = kg_json_str(v, NULL);
 
 	return s ? s : "";
 }
@@ -340,21 +340,21 @@ static const char *json_text(const struct lsp_json_value *v)
  * `method`.  One parsed document at a time: the previous is released here,
  * so a case reads its records in order and nothing outlives the assertion
  * it was read for. */
-static const struct lsp_json_value *record_params(int i, const char **method)
+static const struct kg_json_value *record_params(int i, const char **method)
 {
-	const struct lsp_json_value *root;
+	const struct kg_json_value *root;
 
-	lsp_json_free(record_doc);
+	kg_json_free(record_doc);
 	record_doc = NULL;
 	if (i < 0 || i >= record_count) {
 		*method = "";
 		return NULL;
 	}
 	record_doc
-	    = lsp_json_parse(record_line[i], strlen(record_line[i]), NULL);
-	root = lsp_json_root(record_doc);
-	*method = json_text(lsp_json_get(root, "method"));
-	return lsp_json_get(root, "params");
+	    = kg_json_parse(record_line[i], strlen(record_line[i]), NULL);
+	root = kg_json_root(record_doc);
+	*method = json_text(kg_json_get(root, "method"));
+	return kg_json_get(root, "params");
 }
 
 /* ---------------------------- the fake server ------------------------- */
@@ -363,8 +363,8 @@ struct answer {
 	int calls;
 };
 
-static void on_reply(struct lsp_client *c, const struct lsp_json_value *result,
-    const struct lsp_json_value *error, void *ctx)
+static void on_reply(struct lsp_client *c, const struct kg_json_value *result,
+    const struct kg_json_value *error, void *ctx)
 {
 	(void)c;
 	(void)result;
@@ -487,32 +487,32 @@ static void replace_bytes(size_t begin, size_t end, const char *text)
 /* ------------------------------ assertions ---------------------------- */
 
 static long long json_at(
-    const struct lsp_json_value *v, const char *a, const char *b, const char *c)
+    const struct kg_json_value *v, const char *a, const char *b, const char *c)
 {
-	const struct lsp_json_value *n = lsp_json_get(v, a);
+	const struct kg_json_value *n = kg_json_get(v, a);
 
-	n = b ? lsp_json_get(n, b) : n;
-	n = c ? lsp_json_get(n, c) : n;
-	return lsp_json_int(n, -1);
+	n = b ? kg_json_get(n, b) : n;
+	n = c ? kg_json_get(n, c) : n;
+	return kg_json_int(n, -1);
 }
 
 /* The one contentChanges element of a recorded didChange. */
-static const struct lsp_json_value *only_change(
-    const struct lsp_json_value *params)
+static const struct kg_json_value *only_change(
+    const struct kg_json_value *params)
 {
-	const struct lsp_json_value *changes
-	    = lsp_json_get(params, "contentChanges");
+	const struct kg_json_value *changes
+	    = kg_json_get(params, "contentChanges");
 
-	CHECK(lsp_json_len(changes) == 1);
-	return lsp_json_at(changes, 0);
+	CHECK(kg_json_len(changes) == 1);
+	return kg_json_at(changes, 0);
 }
 
 static void check_ranged_change(int index, long long version, long long sl,
     long long sc, long long el, long long ec, const char *text)
 {
-	const struct lsp_json_value *params;
-	const struct lsp_json_value *change;
-	const struct lsp_json_value *range;
+	const struct kg_json_value *params;
+	const struct kg_json_value *change;
+	const struct kg_json_value *range;
 	const char *method = "";
 
 	params = record_params(index, &method);
@@ -520,7 +520,7 @@ static void check_ranged_change(int index, long long version, long long sl,
 	    strcmp(method, "textDocument/didChange") == 0, "got '%s'", method);
 	CHECK(json_at(params, "textDocument", "version", NULL) == version);
 	change = only_change(params);
-	range = lsp_json_get(change, "range");
+	range = kg_json_get(change, "range");
 	CHECKF(json_at(range, "start", "line", NULL) == sl, "start.line");
 	CHECKF(json_at(range, "start", "character", NULL) == sc,
 	    "start.character (got %lld, want %lld)",
@@ -529,9 +529,9 @@ static void check_ranged_change(int index, long long version, long long sl,
 	CHECKF(json_at(range, "end", "character", NULL) == ec,
 	    "end.character (got %lld, want %lld)",
 	    json_at(range, "end", "character", NULL), ec);
-	CHECKF(strcmp(json_text(lsp_json_get(change, "text")), text) == 0,
+	CHECKF(strcmp(json_text(kg_json_get(change, "text")), text) == 0,
 	    "text (got '%s', want '%s')",
-	    json_text(lsp_json_get(change, "text")), text);
+	    json_text(kg_json_get(change, "text")), text);
 }
 
 /* =========================== synchronisation =========================== */
@@ -543,8 +543,8 @@ static const char *const c_source[] = { "int main(void)", "{", "}", NULL };
 static void test_didopen_carries_the_whole_text(void)
 {
 	struct lsp_client *c = start_server("incremental", "utf-8");
-	const struct lsp_json_value *params;
-	const struct lsp_json_value *doc;
+	const struct kg_json_value *params;
+	const struct kg_json_value *doc;
 	const char *method = "";
 	struct kg_buffer_handle buf;
 	char want_uri[PATH_MAX];
@@ -562,13 +562,13 @@ static void test_didopen_carries_the_whole_text(void)
 	CHECK(record_count == 1);
 	params = record_params(0, &method);
 	CHECK(strcmp(method, "textDocument/didOpen") == 0);
-	doc = lsp_json_get(params, "textDocument");
+	doc = kg_json_get(params, "textDocument");
 	CHECK(lsp_uri_from_path(file_path, want_uri, sizeof(want_uri)));
-	CHECK(strcmp(json_text(lsp_json_get(doc, "uri")), want_uri) == 0);
-	CHECK(strcmp(json_text(lsp_json_get(doc, "languageId")), "c") == 0);
-	CHECK(lsp_json_int(lsp_json_get(doc, "version"), -1) == 1);
+	CHECK(strcmp(json_text(kg_json_get(doc, "uri")), want_uri) == 0);
+	CHECK(strcmp(json_text(kg_json_get(doc, "languageId")), "c") == 0);
+	CHECK(kg_json_int(kg_json_get(doc, "version"), -1) == 1);
 	CHECK(
-	    strcmp(json_text(lsp_json_get(doc, "text")), "int main(void)\n{\n}")
+	    strcmp(json_text(kg_json_get(doc, "text")), "int main(void)\n{\n}")
 	    == 0);
 	/* And the module answers the two questions a request builder asks. */
 	CHECK(strcmp(lsp_sync_uri(c, buf), want_uri) == 0);
@@ -844,8 +844,8 @@ static void test_full_sync_sends_the_whole_document(void)
 {
 	struct lsp_client *c = start_server("full", "utf-8");
 	static const char *const lines[] = { "alpha", "beta", NULL };
-	const struct lsp_json_value *params;
-	const struct lsp_json_value *change;
+	const struct kg_json_value *params;
+	const struct kg_json_value *change;
 	const char *method = "";
 	struct kg_buffer_handle buf;
 
@@ -867,9 +867,9 @@ static void test_full_sync_sends_the_whole_document(void)
 	CHECK(strcmp(method, "textDocument/didChange") == 0);
 	CHECK(json_at(params, "textDocument", "version", NULL) == 2);
 	change = only_change(params);
-	CHECK(lsp_json_get(change, "range") == NULL);
-	CHECK(strcmp(json_text(lsp_json_get(change, "text")), "ALPHA\nbeta")
-	    == 0);
+	CHECK(kg_json_get(change, "range") == NULL);
+	CHECK(
+	    strcmp(json_text(kg_json_get(change, "text")), "ALPHA\nbeta") == 0);
 
 	lsp_sync_drop_client(c);
 	lsp_client_dispose(c, 200);
@@ -922,7 +922,7 @@ static void test_a_server_that_wants_nothing_gets_nothing(void)
 static void test_open_close_without_changes(void)
 {
 	struct lsp_client *c = start_server("none", "utf-8");
-	const struct lsp_json_value *params;
+	const struct kg_json_value *params;
 	const char *method = "";
 	struct kg_buffer_handle buf;
 
@@ -943,8 +943,8 @@ static void test_open_close_without_changes(void)
 	CHECK(record_count == 1);
 	params = record_params(0, &method);
 	CHECK(strcmp(method, "textDocument/didOpen") == 0);
-	CHECK(strcmp(json_text(lsp_json_get(
-			 lsp_json_get(params, "textDocument"), "text")),
+	CHECK(strcmp(json_text(kg_json_get(
+			 kg_json_get(params, "textDocument"), "text")),
 		  "int main(void)\n{\n}")
 	    == 0);
 	/* The version was not spent on a change nobody was told about. */
@@ -961,7 +961,7 @@ static void test_open_close_without_changes(void)
 static void test_close_notifies_and_forgets(void)
 {
 	struct lsp_client *c = start_server("incremental", "utf-8");
-	const struct lsp_json_value *params;
+	const struct kg_json_value *params;
 	const char *method = "";
 	struct kg_buffer_handle buf;
 	char want_uri[PATH_MAX];
@@ -988,8 +988,8 @@ static void test_close_notifies_and_forgets(void)
 	params = record_params(2, &method);
 	CHECK(strcmp(method, "textDocument/didClose") == 0);
 	CHECK(lsp_uri_from_path(file_path, want_uri, sizeof(want_uri)));
-	CHECK(strcmp(json_text(lsp_json_get(
-			 lsp_json_get(params, "textDocument"), "uri")),
+	CHECK(strcmp(json_text(kg_json_get(
+			 kg_json_get(params, "textDocument"), "uri")),
 		  want_uri)
 	    == 0);
 	params = record_params(3, &method);
@@ -1019,7 +1019,7 @@ static void test_close_notifies_and_forgets(void)
 static void test_writing_the_buffer_elsewhere_reopens_the_document(void)
 {
 	struct lsp_client *c = start_server("incremental", "utf-8");
-	const struct lsp_json_value *params;
+	const struct kg_json_value *params;
 	const char *method = "";
 	struct kg_buffer_handle buf;
 	char first_uri[PATH_MAX];
@@ -1049,19 +1049,19 @@ static void test_writing_the_buffer_elsewhere_reopens_the_document(void)
 	CHECK(record_count == 3);
 	params = record_params(1, &method);
 	CHECK(strcmp(method, "textDocument/didClose") == 0);
-	CHECK(strcmp(json_text(lsp_json_get(
-			 lsp_json_get(params, "textDocument"), "uri")),
+	CHECK(strcmp(json_text(kg_json_get(
+			 kg_json_get(params, "textDocument"), "uri")),
 		  first_uri)
 	    == 0);
 	params = record_params(2, &method);
 	CHECK(strcmp(method, "textDocument/didOpen") == 0);
-	CHECK(strcmp(json_text(lsp_json_get(
-			 lsp_json_get(params, "textDocument"), "uri")),
+	CHECK(strcmp(json_text(kg_json_get(
+			 kg_json_get(params, "textDocument"), "uri")),
 		  second_uri)
 	    == 0);
 	CHECK(json_at(params, "textDocument", "version", NULL) == 1);
-	CHECK(strcmp(json_text(lsp_json_get(
-			 lsp_json_get(params, "textDocument"), "text")),
+	CHECK(strcmp(json_text(kg_json_get(
+			 kg_json_get(params, "textDocument"), "text")),
 		  "INT main(void)\n{\n}")
 	    == 0);
 
@@ -1087,7 +1087,7 @@ static void test_writing_the_buffer_elsewhere_reopens_the_document(void)
 static void test_a_killed_buffer_closes_its_document(void)
 {
 	struct lsp_client *c = start_server("incremental", "utf-8");
-	const struct lsp_json_value *params;
+	const struct kg_json_value *params;
 	struct kg_event_reservation res;
 	struct kg_buffer_handle buf;
 	const char *method = "";
@@ -1121,8 +1121,8 @@ static void test_a_killed_buffer_closes_its_document(void)
 	CHECKF(
 	    strcmp(method, "textDocument/didClose") == 0, "got '%s'", method);
 	CHECK(lsp_uri_from_path(file_path, want_uri, sizeof(want_uri)));
-	CHECK(strcmp(json_text(lsp_json_get(
-			 lsp_json_get(params, "textDocument"), "uri")),
+	CHECK(strcmp(json_text(kg_json_get(
+			 kg_json_get(params, "textDocument"), "uri")),
 		  want_uri)
 	    == 0);
 

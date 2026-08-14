@@ -1,5 +1,5 @@
 /* test_lsp_json.c — the JSON layer under the LSP client
- * (src/lsp_json.c, Stage 2 of doc/plans/2026-08-08-lsp.md).
+ * (src/json.c, Stage 2 of doc/plans/2026-08-08-lsp.md).
  *
  * Pure logic: no child process, no editor state, no transport.  Every case
  * is a byte string in and a tree or a refusal out, which is why this suite
@@ -14,7 +14,7 @@
  * the property that matters, which is that a server would understand it.
  */
 
-#include "../src/lsp_json.h"
+#include "../src/json.h"
 #include "test.h"
 
 #include <stdlib.h>
@@ -22,19 +22,19 @@
 
 /* Parse a NUL-terminated literal.  Almost every case is spelled that way;
  * the ones with an embedded NUL pass their own length. */
-static struct lsp_json *parse(const char *text)
+static struct kg_json *parse(const char *text)
 {
-	return lsp_json_parse(text, strlen(text), NULL);
+	return kg_json_parse(text, strlen(text), NULL);
 }
 
 /* A document that must be refused, with the offset the parser stopped at
  * left in `*off` for the cases that care where. */
 static bool refuses(const char *text, size_t *off)
 {
-	struct lsp_json *doc = lsp_json_parse(text, strlen(text), off);
+	struct kg_json *doc = kg_json_parse(text, strlen(text), off);
 
 	if (doc) {
-		lsp_json_free(doc);
+		kg_json_free(doc);
 		return false;
 	}
 	return true;
@@ -42,97 +42,97 @@ static bool refuses(const char *text, size_t *off)
 
 /* Does this string node hold exactly these bytes?  Compares by length
  * first, so a case with an embedded NUL cannot pass by accident. */
-static bool str_is(const struct lsp_json_value *v, const char *want, size_t n)
+static bool str_is(const struct kg_json_value *v, const char *want, size_t n)
 {
 	size_t len = 0;
-	const char *s = lsp_json_str(v, &len);
+	const char *s = kg_json_str(v, &len);
 
 	return s && len == n && memcmp(s, want, n) == 0;
 }
 
 static void test_scalars(void)
 {
-	struct lsp_json *doc = parse("  null  ");
+	struct kg_json *doc = parse("  null  ");
 
 	CHECK(doc != NULL);
-	CHECK(lsp_json_kind_of(lsp_json_root(doc)) == LSP_JSON_NULL);
-	lsp_json_free(doc);
+	CHECK(kg_json_kind_of(kg_json_root(doc)) == KG_JSON_NULL);
+	kg_json_free(doc);
 
 	doc = parse("true");
 	CHECK(doc != NULL);
-	CHECK(lsp_json_kind_of(lsp_json_root(doc)) == LSP_JSON_BOOL);
-	CHECK(lsp_json_bool(lsp_json_root(doc), false) == true);
-	lsp_json_free(doc);
+	CHECK(kg_json_kind_of(kg_json_root(doc)) == KG_JSON_BOOL);
+	CHECK(kg_json_bool(kg_json_root(doc), false) == true);
+	kg_json_free(doc);
 
 	doc = parse("false");
 	CHECK(doc != NULL);
-	CHECK(lsp_json_bool(lsp_json_root(doc), true) == false);
-	lsp_json_free(doc);
+	CHECK(kg_json_bool(kg_json_root(doc), true) == false);
+	kg_json_free(doc);
 
 	doc = parse("-12.5e2");
 	CHECK(doc != NULL);
-	CHECK(lsp_json_kind_of(lsp_json_root(doc)) == LSP_JSON_NUMBER);
-	CHECK(lsp_json_num(lsp_json_root(doc), 0.0) == -1250.0);
-	lsp_json_free(doc);
+	CHECK(kg_json_kind_of(kg_json_root(doc)) == KG_JSON_NUMBER);
+	CHECK(kg_json_num(kg_json_root(doc), 0.0) == -1250.0);
+	kg_json_free(doc);
 
 	doc = parse("\"plain\"");
 	CHECK(doc != NULL);
-	CHECK(str_is(lsp_json_root(doc), "plain", 5));
-	lsp_json_free(doc);
+	CHECK(str_is(kg_json_root(doc), "plain", 5));
+	kg_json_free(doc);
 
 	doc = parse("0");
 	CHECK(doc != NULL);
-	CHECK(lsp_json_int(lsp_json_root(doc), -1) == 0);
-	lsp_json_free(doc);
+	CHECK(kg_json_int(kg_json_root(doc), -1) == 0);
+	kg_json_free(doc);
 }
 
 /* An empty document is not a document.  It is what a server that wrote a
  * zero-length body sends, and it must not read as `null`. */
 static void test_empty_input_is_refused(void)
 {
-	CHECK(lsp_json_parse("", 0, NULL) == NULL);
-	CHECK(lsp_json_parse(NULL, 0, NULL) == NULL);
+	CHECK(kg_json_parse("", 0, NULL) == NULL);
+	CHECK(kg_json_parse(NULL, 0, NULL) == NULL);
 	CHECK(refuses("   ", NULL));
 }
 
 static void test_nested_structures(void)
 {
-	struct lsp_json *doc = parse("{\"a\":[1,2,{\"b\":[true,null]}],"
-				     "\"c\":{}}");
-	const struct lsp_json_value *root;
-	const struct lsp_json_value *inner;
+	struct kg_json *doc = parse("{\"a\":[1,2,{\"b\":[true,null]}],"
+				    "\"c\":{}}");
+	const struct kg_json_value *root;
+	const struct kg_json_value *inner;
 	size_t key_len = 0;
 
 	CHECK(doc != NULL);
 	if (!doc) {
 		return;
 	}
-	root = lsp_json_root(doc);
-	CHECK(lsp_json_kind_of(root) == LSP_JSON_OBJECT);
-	CHECK(lsp_json_len(root) == 2);
-	CHECK(lsp_json_len(lsp_json_get(root, "a")) == 3);
-	CHECK(lsp_json_int(lsp_json_at(lsp_json_get(root, "a"), 0), -1) == 1);
-	CHECK(lsp_json_int(lsp_json_at(lsp_json_get(root, "a"), 1), -1) == 2);
+	root = kg_json_root(doc);
+	CHECK(kg_json_kind_of(root) == KG_JSON_OBJECT);
+	CHECK(kg_json_len(root) == 2);
+	CHECK(kg_json_len(kg_json_get(root, "a")) == 3);
+	CHECK(kg_json_int(kg_json_at(kg_json_get(root, "a"), 0), -1) == 1);
+	CHECK(kg_json_int(kg_json_at(kg_json_get(root, "a"), 1), -1) == 2);
 
-	inner = lsp_json_at(lsp_json_get(root, "a"), 2);
-	CHECK(lsp_json_kind_of(inner) == LSP_JSON_OBJECT);
-	CHECK(lsp_json_len(lsp_json_get(inner, "b")) == 2);
-	CHECK(lsp_json_bool(lsp_json_at(lsp_json_get(inner, "b"), 0), false));
-	CHECK(lsp_json_kind_of(lsp_json_at(lsp_json_get(inner, "b"), 1))
-	    == LSP_JSON_NULL);
+	inner = kg_json_at(kg_json_get(root, "a"), 2);
+	CHECK(kg_json_kind_of(inner) == KG_JSON_OBJECT);
+	CHECK(kg_json_len(kg_json_get(inner, "b")) == 2);
+	CHECK(kg_json_bool(kg_json_at(kg_json_get(inner, "b"), 0), false));
+	CHECK(kg_json_kind_of(kg_json_at(kg_json_get(inner, "b"), 1))
+	    == KG_JSON_NULL);
 
 	/* An empty object is an object, not an absent member. */
-	CHECK(lsp_json_kind_of(lsp_json_get(root, "c")) == LSP_JSON_OBJECT);
-	CHECK(lsp_json_len(lsp_json_get(root, "c")) == 0);
+	CHECK(kg_json_kind_of(kg_json_get(root, "c")) == KG_JSON_OBJECT);
+	CHECK(kg_json_len(kg_json_get(root, "c")) == 0);
 
 	/* Members come back in document order, named. */
-	CHECK(lsp_json_key_at(root, 0, &key_len) != NULL);
-	CHECK(key_len == 1 && lsp_json_key_at(root, 0, NULL)[0] == 'a');
-	CHECK(lsp_json_key_at(root, 1, NULL)[0] == 'c');
-	CHECK(lsp_json_key_at(root, 2, NULL) == NULL);
+	CHECK(kg_json_key_at(root, 0, &key_len) != NULL);
+	CHECK(key_len == 1 && kg_json_key_at(root, 0, NULL)[0] == 'a');
+	CHECK(kg_json_key_at(root, 1, NULL)[0] == 'c');
+	CHECK(kg_json_key_at(root, 2, NULL) == NULL);
 	/* An array's elements have no names. */
-	CHECK(lsp_json_key_at(lsp_json_get(root, "a"), 0, NULL) == NULL);
-	lsp_json_free(doc);
+	CHECK(kg_json_key_at(kg_json_get(root, "a"), 0, NULL) == NULL);
+	kg_json_free(doc);
 }
 
 /* Every accessor takes NULL, so a client chaining them writes one check at
@@ -140,74 +140,74 @@ static void test_nested_structures(void)
  * absent one. */
 static void test_null_propagation(void)
 {
-	struct lsp_json *doc = parse("{\"result\":7}");
-	const struct lsp_json_value *root;
+	struct kg_json *doc = parse("{\"result\":7}");
+	const struct kg_json_value *root;
 
 	CHECK(doc != NULL);
 	if (!doc) {
 		return;
 	}
-	root = lsp_json_root(doc);
-	CHECK(lsp_json_get(root, "missing") == NULL);
-	CHECK(lsp_json_get(NULL, "result") == NULL);
-	CHECK(lsp_json_get(root, NULL) == NULL);
+	root = kg_json_root(doc);
+	CHECK(kg_json_get(root, "missing") == NULL);
+	CHECK(kg_json_get(NULL, "result") == NULL);
+	CHECK(kg_json_get(root, NULL) == NULL);
 	/* A number is not an object, so descending into one is not a crash. */
-	CHECK(lsp_json_get(lsp_json_get(root, "result"), "uri") == NULL);
-	CHECK(lsp_json_kind_of(NULL) == LSP_JSON_NONE);
-	CHECK(lsp_json_len(NULL) == 0);
-	CHECK(lsp_json_at(NULL, 0) == NULL);
-	CHECK(lsp_json_key_at(NULL, 0, NULL) == NULL);
-	CHECK(lsp_json_str(NULL, NULL) == NULL);
-	CHECK(lsp_json_str(lsp_json_get(root, "result"), NULL) == NULL);
-	CHECK(lsp_json_int(NULL, 42) == 42);
-	CHECK(lsp_json_num(NULL, 1.5) == 1.5);
-	CHECK(lsp_json_bool(NULL, true) == true);
-	CHECK(lsp_json_root(NULL) == NULL);
-	lsp_json_free(NULL);
+	CHECK(kg_json_get(kg_json_get(root, "result"), "uri") == NULL);
+	CHECK(kg_json_kind_of(NULL) == KG_JSON_NONE);
+	CHECK(kg_json_len(NULL) == 0);
+	CHECK(kg_json_at(NULL, 0) == NULL);
+	CHECK(kg_json_key_at(NULL, 0, NULL) == NULL);
+	CHECK(kg_json_str(NULL, NULL) == NULL);
+	CHECK(kg_json_str(kg_json_get(root, "result"), NULL) == NULL);
+	CHECK(kg_json_int(NULL, 42) == 42);
+	CHECK(kg_json_num(NULL, 1.5) == 1.5);
+	CHECK(kg_json_bool(NULL, true) == true);
+	CHECK(kg_json_root(NULL) == NULL);
+	kg_json_free(NULL);
 
 	/* Absent and null are different answers, which is what tells a
 	 * "found nothing" reply from an error reply. */
-	CHECK(lsp_json_kind_of(lsp_json_get(root, "nope")) == LSP_JSON_NONE);
-	lsp_json_free(doc);
+	CHECK(kg_json_kind_of(kg_json_get(root, "nope")) == KG_JSON_NONE);
+	kg_json_free(doc);
 
 	doc = parse("{\"result\":null}");
 	CHECK(doc != NULL);
-	CHECK(lsp_json_kind_of(lsp_json_get(lsp_json_root(doc), "result"))
-	    == LSP_JSON_NULL);
-	lsp_json_free(doc);
+	CHECK(kg_json_kind_of(kg_json_get(kg_json_root(doc), "result"))
+	    == KG_JSON_NULL);
+	kg_json_free(doc);
 }
 
 static void test_string_escapes(void)
 {
-	struct lsp_json *doc
+	struct kg_json *doc
 	    = parse("\"q:\\\" b:\\\\ s:\\/ \\b\\f\\n\\r\\t u:\\u0041\"");
 
 	CHECK(doc != NULL);
-	CHECK(str_is(lsp_json_root(doc), "q:\" b:\\ s:/ \b\f\n\r\t u:A", 21));
-	lsp_json_free(doc);
+	CHECK(str_is(kg_json_root(doc), "q:\" b:\\ s:/ \b\f\n\r\t u:A", 21));
+	kg_json_free(doc);
 
 	/* Two-byte and three-byte code points from \u, and raw UTF-8 bytes
 	 * passed through untouched. */
 	doc = parse("\"\\u00e5\\u4e2d\"");
 	CHECK(doc != NULL);
-	CHECK(str_is(lsp_json_root(doc), "\xc3\xa5\xe4\xb8\xad", 5));
-	lsp_json_free(doc);
+	CHECK(str_is(kg_json_root(doc), "\xc3\xa5\xe4\xb8\xad", 5));
+	kg_json_free(doc);
 
 	doc = parse("\"r\xc3\xa5\"");
 	CHECK(doc != NULL);
-	CHECK(str_is(lsp_json_root(doc), "r\xc3\xa5", 3));
-	lsp_json_free(doc);
+	CHECK(str_is(kg_json_root(doc), "r\xc3\xa5", 3));
+	kg_json_free(doc);
 }
 
 /* A surrogate pair is the only way an astral character can be spelled with
  * \u, and U+1F600 is the one everybody's test file has. */
 static void test_surrogate_pair(void)
 {
-	struct lsp_json *doc = parse("\"\\ud83d\\ude00\"");
+	struct kg_json *doc = parse("\"\\ud83d\\ude00\"");
 
 	CHECK(doc != NULL);
-	CHECK(str_is(lsp_json_root(doc), "\xf0\x9f\x98\x80", 4));
-	lsp_json_free(doc);
+	CHECK(str_is(kg_json_root(doc), "\xf0\x9f\x98\x80", 4));
+	kg_json_free(doc);
 }
 
 static void test_bad_strings_are_refused(void)
@@ -235,7 +235,7 @@ static void test_bad_strings_are_refused(void)
 static void test_number_grammar(void)
 {
 	size_t off = 0;
-	struct lsp_json *doc;
+	struct kg_json *doc;
 
 	CHECK(refuses("01", &off));
 	CHECK(off == 1);
@@ -255,12 +255,12 @@ static void test_number_grammar(void)
 	/* 0e0 and 0.0 are legal; only `0` followed by a DIGIT is not. */
 	doc = parse("0e0");
 	CHECK(doc != NULL);
-	CHECK(lsp_json_num(lsp_json_root(doc), 1.0) == 0.0);
-	lsp_json_free(doc);
+	CHECK(kg_json_num(kg_json_root(doc), 1.0) == 0.0);
+	kg_json_free(doc);
 	doc = parse("-0.5");
 	CHECK(doc != NULL);
-	CHECK(lsp_json_num(lsp_json_root(doc), 1.0) == -0.5);
-	lsp_json_free(doc);
+	CHECK(kg_json_num(kg_json_root(doc), 1.0) == -0.5);
+	kg_json_free(doc);
 
 	/* The rule is the INTEGER part's alone, and a parser that spread it
 	 * over the whole number would refuse three spellings every server
@@ -269,16 +269,16 @@ static void test_number_grammar(void)
 	 * would still parse. */
 	doc = parse("1e007");
 	CHECK(doc != NULL);
-	CHECK(lsp_json_num(lsp_json_root(doc), 0.0) == 1e7);
-	lsp_json_free(doc);
+	CHECK(kg_json_num(kg_json_root(doc), 0.0) == 1e7);
+	kg_json_free(doc);
 	doc = parse("1.0625");
 	CHECK(doc != NULL);
-	CHECK(lsp_json_num(lsp_json_root(doc), 0.0) == 1.0625);
-	lsp_json_free(doc);
+	CHECK(kg_json_num(kg_json_root(doc), 0.0) == 1.0625);
+	kg_json_free(doc);
 	doc = parse("0.0625");
 	CHECK(doc != NULL);
-	CHECK(lsp_json_num(lsp_json_root(doc), 0.0) == 0.0625);
-	lsp_json_free(doc);
+	CHECK(kg_json_num(kg_json_root(doc), 0.0) == 0.0625);
+	kg_json_free(doc);
 
 	/* And it is enforced wherever a value may be, not only at the top:
 	 * a parser that dropped it reads `[01]` as `[1]` and `{"a":01}` as
@@ -295,23 +295,23 @@ static void test_number_grammar(void)
  * rather than invoking the undefined behaviour an out-of-range cast is. */
 static void test_integer_accessor(void)
 {
-	struct lsp_json *doc = parse("[2.9, -2.9, 1e30, -1e30, 42, 1e18]");
-	const struct lsp_json_value *a;
+	struct kg_json *doc = parse("[2.9, -2.9, 1e30, -1e30, 42, 1e18]");
+	const struct kg_json_value *a;
 
 	CHECK(doc != NULL);
 	if (!doc) {
 		return;
 	}
-	a = lsp_json_root(doc);
-	CHECK(lsp_json_int(lsp_json_at(a, 0), -1) == 2);
-	CHECK(lsp_json_int(lsp_json_at(a, 1), -1) == -2);
-	CHECK(lsp_json_int(lsp_json_at(a, 2), -1) == -1);
-	CHECK(lsp_json_int(lsp_json_at(a, 3), -1) == -1);
-	CHECK(lsp_json_int(lsp_json_at(a, 4), -1) == 42);
-	CHECK(lsp_json_int(lsp_json_at(a, 5), -1) == 1000000000000000000LL);
-	CHECK(lsp_json_at(a, 6) == NULL);
-	CHECK(lsp_json_int(lsp_json_at(a, 6), 99) == 99);
-	lsp_json_free(doc);
+	a = kg_json_root(doc);
+	CHECK(kg_json_int(kg_json_at(a, 0), -1) == 2);
+	CHECK(kg_json_int(kg_json_at(a, 1), -1) == -2);
+	CHECK(kg_json_int(kg_json_at(a, 2), -1) == -1);
+	CHECK(kg_json_int(kg_json_at(a, 3), -1) == -1);
+	CHECK(kg_json_int(kg_json_at(a, 4), -1) == 42);
+	CHECK(kg_json_int(kg_json_at(a, 5), -1) == 1000000000000000000LL);
+	CHECK(kg_json_at(a, 6) == NULL);
+	CHECK(kg_json_int(kg_json_at(a, 6), 99) == 99);
+	kg_json_free(doc);
 }
 
 /* JSON strings may hold a NUL.  The tree carries both the length and a
@@ -319,17 +319,17 @@ static void test_integer_accessor(void)
  * needs the truth gets that too. */
 static void test_embedded_nul(void)
 {
-	struct lsp_json *doc = parse("\"a\\u0000b\"");
+	struct kg_json *doc = parse("\"a\\u0000b\"");
 	const char *s;
 	size_t len = 0;
 
 	CHECK(doc != NULL);
-	s = lsp_json_str(lsp_json_root(doc), &len);
+	s = kg_json_str(kg_json_root(doc), &len);
 	CHECK(s != NULL);
 	CHECK(len == 3);
 	CHECK(s && strlen(s) == 1);
 	CHECK(s && memcmp(s, "a\0b", 4) == 0);
-	lsp_json_free(doc);
+	kg_json_free(doc);
 }
 
 /* Bytes in, not a C string: a body with a NUL in the middle is parsed to
@@ -337,14 +337,14 @@ static void test_embedded_nul(void)
 static void test_length_is_authoritative(void)
 {
 	static const char body[] = "{\"a\":1}\0garbage";
-	struct lsp_json *doc = lsp_json_parse(body, 7, NULL);
+	struct kg_json *doc = kg_json_parse(body, 7, NULL);
 
 	CHECK(doc != NULL);
-	CHECK(lsp_json_int(lsp_json_get(lsp_json_root(doc), "a"), -1) == 1);
-	lsp_json_free(doc);
+	CHECK(kg_json_int(kg_json_get(kg_json_root(doc), "a"), -1) == 1);
+	kg_json_free(doc);
 	/* The same buffer with the NUL inside the document's extent is
 	 * trailing garbage, and refused. */
-	CHECK(lsp_json_parse(body, sizeof(body) - 1, NULL) == NULL);
+	CHECK(kg_json_parse(body, sizeof(body) - 1, NULL) == NULL);
 }
 
 static void test_trailing_garbage(void)
@@ -384,32 +384,32 @@ static void test_extensions_are_refused(void)
  * either a refused legitimate reply or an unbounded recursion. */
 static void test_depth_bound(void)
 {
-	char deep[6 * (LSP_JSON_MAX_DEPTH + 1) + 8];
-	struct lsp_json *doc;
+	char deep[6 * (KG_JSON_MAX_DEPTH + 1) + 8];
+	struct kg_json *doc;
 	unsigned n;
 	size_t i;
 
-	for (n = LSP_JSON_MAX_DEPTH; n <= LSP_JSON_MAX_DEPTH + 1; n++) {
+	for (n = KG_JSON_MAX_DEPTH; n <= KG_JSON_MAX_DEPTH + 1; n++) {
 		for (i = 0; i < n; i++) {
 			deep[i] = '[';
 			deep[2 * n - 1 - i] = ']';
 		}
 		deep[2 * n] = '\0';
-		doc = lsp_json_parse(deep, 2 * n, NULL);
-		CHECKF(((n == LSP_JSON_MAX_DEPTH) == (doc != NULL)),
+		doc = kg_json_parse(deep, 2 * n, NULL);
+		CHECKF(((n == KG_JSON_MAX_DEPTH) == (doc != NULL)),
 		    "%u nested arrays: doc=%p", n, (void *)doc);
-		lsp_json_free(doc);
+		kg_json_free(doc);
 	}
 	/* Objects are bounded by the same counter. */
-	for (i = 0; i < LSP_JSON_MAX_DEPTH + 1; i++) {
+	for (i = 0; i < KG_JSON_MAX_DEPTH + 1; i++) {
 		memcpy(deep + 5 * i, "{\"a\":", 5);
 	}
-	memcpy(deep + 5 * (LSP_JSON_MAX_DEPTH + 1), "1", 1);
-	for (i = 0; i < LSP_JSON_MAX_DEPTH + 1; i++) {
-		deep[5 * (LSP_JSON_MAX_DEPTH + 1) + 1 + i] = '}';
+	memcpy(deep + 5 * (KG_JSON_MAX_DEPTH + 1), "1", 1);
+	for (i = 0; i < KG_JSON_MAX_DEPTH + 1; i++) {
+		deep[5 * (KG_JSON_MAX_DEPTH + 1) + 1 + i] = '}';
 	}
-	i = 6 * (LSP_JSON_MAX_DEPTH + 1) + 1;
-	CHECK(lsp_json_parse(deep, i, NULL) == NULL);
+	i = 6 * (KG_JSON_MAX_DEPTH + 1) + 1;
+	CHECK(kg_json_parse(deep, i, NULL) == NULL);
 }
 
 /* An oversized document is refused before a byte of it is looked at; the
@@ -428,7 +428,7 @@ static void test_depth_bound(void)
  * before touching the buffer, and only a mutant pays to walk it. */
 static void test_input_bound(void)
 {
-	const size_t len = (size_t)LSP_JSON_MAX_INPUT_BYTES + 1;
+	const size_t len = (size_t)KG_JSON_MAX_INPUT_BYTES + 1;
 	char *text = malloc(len);
 
 	CHECK(text != NULL);
@@ -438,13 +438,13 @@ static void test_input_bound(void)
 	memset(text, 'a', len);
 	text[0] = '"';
 	text[len - 1] = '"';
-	CHECK(lsp_json_parse(text, len, NULL) == NULL);
+	CHECK(kg_json_parse(text, len, NULL) == NULL);
 	free(text);
 }
 
 /* A real clangd `textDocument/definition` reply, hand-copied.  The point is
  * not the parser -- the cases above cover that -- it is that the access
- * pattern a client writes against this shape reads the way lsp_json.h
+ * pattern a client writes against this shape reads the way json.h
  * promises, chained and unguarded until the end. */
 static void test_clangd_definition_reply(void)
 {
@@ -453,34 +453,33 @@ static void test_clangd_definition_reply(void)
 	      "\"uri\":\"file:///work/src/buffer.c\","
 	      "\"range\":{\"start\":{\"line\":118,\"character\":4},"
 	      "\"end\":{\"line\":118,\"character\":21}}}]}";
-	struct lsp_json *doc = parse(body);
-	const struct lsp_json_value *msg;
-	const struct lsp_json_value *loc;
-	const struct lsp_json_value *start;
+	struct kg_json *doc = parse(body);
+	const struct kg_json_value *msg;
+	const struct kg_json_value *loc;
+	const struct kg_json_value *start;
 
 	CHECK(doc != NULL);
 	if (!doc) {
 		return;
 	}
-	msg = lsp_json_root(doc);
-	CHECK(str_is(lsp_json_get(msg, "jsonrpc"), "2.0", 3));
-	CHECK(lsp_json_int(lsp_json_get(msg, "id"), -1) == 3);
-	CHECK(lsp_json_len(lsp_json_get(msg, "result")) == 1);
+	msg = kg_json_root(doc);
+	CHECK(str_is(kg_json_get(msg, "jsonrpc"), "2.0", 3));
+	CHECK(kg_json_int(kg_json_get(msg, "id"), -1) == 3);
+	CHECK(kg_json_len(kg_json_get(msg, "result")) == 1);
 
-	loc = lsp_json_at(lsp_json_get(msg, "result"), 0);
-	CHECK(
-	    str_is(lsp_json_get(loc, "uri"), "file:///work/src/buffer.c", 25));
-	start = lsp_json_get(lsp_json_get(loc, "range"), "start");
-	CHECK(lsp_json_int(lsp_json_get(start, "line"), -1) == 118);
-	CHECK(lsp_json_int(lsp_json_get(start, "character"), -1) == 4);
-	CHECK(lsp_json_int(
-		  lsp_json_get(lsp_json_get(lsp_json_get(loc, "range"), "end"),
+	loc = kg_json_at(kg_json_get(msg, "result"), 0);
+	CHECK(str_is(kg_json_get(loc, "uri"), "file:///work/src/buffer.c", 25));
+	start = kg_json_get(kg_json_get(loc, "range"), "start");
+	CHECK(kg_json_int(kg_json_get(start, "line"), -1) == 118);
+	CHECK(kg_json_int(kg_json_get(start, "character"), -1) == 4);
+	CHECK(kg_json_int(
+		  kg_json_get(kg_json_get(kg_json_get(loc, "range"), "end"),
 		      "character"),
 		  -1)
 	    == 21);
 	/* The chain a client writes for a member no server sent. */
-	CHECK(lsp_json_get(lsp_json_get(msg, "error"), "message") == NULL);
-	lsp_json_free(doc);
+	CHECK(kg_json_get(kg_json_get(msg, "error"), "message") == NULL);
+	kg_json_free(doc);
 }
 
 /* Build the request kg will actually send, parse it back, and ask the tree
@@ -490,87 +489,84 @@ static void test_clangd_definition_reply(void)
 static void test_writer_round_trip(void)
 {
 	static const char nasty[] = "he said \"hi\"\\path\nnext\x01 \xc3\xa5";
-	struct lsp_jsonw w;
-	struct lsp_json *doc;
-	const struct lsp_json_value *root;
-	const struct lsp_json_value *params;
+	struct kg_jsonw w;
+	struct kg_json *doc;
+	const struct kg_json_value *root;
+	const struct kg_json_value *params;
 	char *out = NULL;
 	size_t len = 0;
 
-	lsp_jsonw_init(&w);
-	lsp_jsonw_begin_object(&w);
-	lsp_jsonw_key(&w, "jsonrpc");
-	lsp_jsonw_string(&w, "2.0");
-	lsp_jsonw_key(&w, "id");
-	lsp_jsonw_int(&w, 17);
-	lsp_jsonw_key(&w, "method");
-	lsp_jsonw_string(&w, "textDocument/definition");
-	lsp_jsonw_key(&w, "params");
-	lsp_jsonw_begin_object(&w);
-	lsp_jsonw_key(&w, "textDocument");
-	lsp_jsonw_begin_object(&w);
-	lsp_jsonw_key(&w, "uri");
-	lsp_jsonw_string(&w, nasty);
-	lsp_jsonw_end_object(&w);
-	lsp_jsonw_key(&w, "position");
-	lsp_jsonw_begin_object(&w);
-	lsp_jsonw_key(&w, "line");
-	lsp_jsonw_int(&w, 0);
-	lsp_jsonw_key(&w, "character");
-	lsp_jsonw_int(&w, -3);
-	lsp_jsonw_end_object(&w);
-	lsp_jsonw_key(&w, "flags");
-	lsp_jsonw_begin_array(&w);
-	lsp_jsonw_bool(&w, true);
-	lsp_jsonw_bool(&w, false);
-	lsp_jsonw_null(&w);
-	lsp_jsonw_int(&w, 9007199254740993LL);
-	lsp_jsonw_raw(&w, "{\"pre\":[1]}", 11);
-	lsp_jsonw_end_array(&w);
-	lsp_jsonw_end_object(&w);
-	lsp_jsonw_end_object(&w);
-	CHECK(lsp_jsonw_finish(&w, &out, &len) == 0);
+	kg_jsonw_init(&w);
+	kg_jsonw_begin_object(&w);
+	kg_jsonw_key(&w, "jsonrpc");
+	kg_jsonw_string(&w, "2.0");
+	kg_jsonw_key(&w, "id");
+	kg_jsonw_int(&w, 17);
+	kg_jsonw_key(&w, "method");
+	kg_jsonw_string(&w, "textDocument/definition");
+	kg_jsonw_key(&w, "params");
+	kg_jsonw_begin_object(&w);
+	kg_jsonw_key(&w, "textDocument");
+	kg_jsonw_begin_object(&w);
+	kg_jsonw_key(&w, "uri");
+	kg_jsonw_string(&w, nasty);
+	kg_jsonw_end_object(&w);
+	kg_jsonw_key(&w, "position");
+	kg_jsonw_begin_object(&w);
+	kg_jsonw_key(&w, "line");
+	kg_jsonw_int(&w, 0);
+	kg_jsonw_key(&w, "character");
+	kg_jsonw_int(&w, -3);
+	kg_jsonw_end_object(&w);
+	kg_jsonw_key(&w, "flags");
+	kg_jsonw_begin_array(&w);
+	kg_jsonw_bool(&w, true);
+	kg_jsonw_bool(&w, false);
+	kg_jsonw_null(&w);
+	kg_jsonw_int(&w, 9007199254740993LL);
+	kg_jsonw_raw(&w, "{\"pre\":[1]}", 11);
+	kg_jsonw_end_array(&w);
+	kg_jsonw_end_object(&w);
+	kg_jsonw_end_object(&w);
+	CHECK(kg_jsonw_finish(&w, &out, &len) == 0);
 	CHECK(out != NULL);
 	if (!out) {
 		return;
 	}
 	CHECK(len == strlen(out));
 
-	doc = lsp_json_parse(out, len, NULL);
+	doc = kg_json_parse(out, len, NULL);
 	CHECKF(doc != NULL, "built document did not parse: %s", out);
 	if (!doc) {
 		free(out);
 		return;
 	}
-	root = lsp_json_root(doc);
-	CHECK(str_is(lsp_json_get(root, "jsonrpc"), "2.0", 3));
-	CHECK(lsp_json_int(lsp_json_get(root, "id"), -1) == 17);
-	CHECK(str_is(
-	    lsp_json_get(root, "method"), "textDocument/definition", 23));
-	params = lsp_json_get(root, "params");
-	CHECK(str_is(lsp_json_get(lsp_json_get(params, "textDocument"), "uri"),
-	    nasty, sizeof(nasty) - 1));
+	root = kg_json_root(doc);
+	CHECK(str_is(kg_json_get(root, "jsonrpc"), "2.0", 3));
+	CHECK(kg_json_int(kg_json_get(root, "id"), -1) == 17);
 	CHECK(
-	    lsp_json_int(
-		lsp_json_get(lsp_json_get(params, "position"), "character"), 0)
+	    str_is(kg_json_get(root, "method"), "textDocument/definition", 23));
+	params = kg_json_get(root, "params");
+	CHECK(str_is(kg_json_get(kg_json_get(params, "textDocument"), "uri"),
+	    nasty, sizeof(nasty) - 1));
+	CHECK(kg_json_int(
+		  kg_json_get(kg_json_get(params, "position"), "character"), 0)
 	    == -3);
-	CHECK(lsp_json_len(lsp_json_get(params, "flags")) == 5);
-	CHECK(lsp_json_bool(
-	    lsp_json_at(lsp_json_get(params, "flags"), 0), false));
-	CHECK(!lsp_json_bool(
-	    lsp_json_at(lsp_json_get(params, "flags"), 1), true));
-	CHECK(lsp_json_kind_of(lsp_json_at(lsp_json_get(params, "flags"), 2))
-	    == LSP_JSON_NULL);
+	CHECK(kg_json_len(kg_json_get(params, "flags")) == 5);
+	CHECK(kg_json_bool(kg_json_at(kg_json_get(params, "flags"), 0), false));
+	CHECK(!kg_json_bool(kg_json_at(kg_json_get(params, "flags"), 1), true));
+	CHECK(kg_json_kind_of(kg_json_at(kg_json_get(params, "flags"), 2))
+	    == KG_JSON_NULL);
 	/* An integer beyond a double's exact range still round-trips
 	 * through the writer's %lld, and comes back as the nearest double
-	 * -- the reason lsp_jsonw_int() is not "print a double". */
-	CHECK(lsp_json_num(lsp_json_at(lsp_json_get(params, "flags"), 3), 0.0)
+	 * -- the reason kg_jsonw_int() is not "print a double". */
+	CHECK(kg_json_num(kg_json_at(kg_json_get(params, "flags"), 3), 0.0)
 	    == 9007199254740992.0);
 	/* Pre-encoded bytes are spliced in as one value, structure intact. */
-	CHECK(lsp_json_int(
-		  lsp_json_at(
-		      lsp_json_get(
-			  lsp_json_at(lsp_json_get(params, "flags"), 4), "pre"),
+	CHECK(kg_json_int(
+		  kg_json_at(
+		      kg_json_get(
+			  kg_json_at(kg_json_get(params, "flags"), 4), "pre"),
 		      0),
 		  -1)
 	    == 1);
@@ -583,7 +579,7 @@ static void test_writer_round_trip(void)
 	/* Non-ASCII is passed through, not \u-escaped. */
 	CHECK(strstr(out, "\xc3\xa5") != NULL);
 
-	lsp_json_free(doc);
+	kg_json_free(doc);
 	free(out);
 }
 
@@ -592,57 +588,216 @@ static void test_writer_round_trip(void)
  * and both are caught at the one check the header promises. */
 static void test_writer_refusals(void)
 {
-	struct lsp_jsonw w;
+	struct kg_jsonw w;
 	char *out = (char *)"sentinel";
 	size_t len = 7;
 
-	lsp_jsonw_init(&w);
-	lsp_jsonw_begin_object(&w);
-	lsp_jsonw_key(&w, "a");
-	lsp_jsonw_int(&w, 1);
-	CHECK(lsp_jsonw_finish(&w, &out, &len) == -1);
+	kg_jsonw_init(&w);
+	kg_jsonw_begin_object(&w);
+	kg_jsonw_key(&w, "a");
+	kg_jsonw_int(&w, 1);
+	CHECK(kg_jsonw_finish(&w, &out, &len) == -1);
 	CHECK(out == NULL);
 	CHECK(len == 0);
 
-	lsp_jsonw_init(&w);
-	CHECK(lsp_jsonw_finish(&w, &out, &len) == -1);
+	kg_jsonw_init(&w);
+	CHECK(kg_jsonw_finish(&w, &out, &len) == -1);
 
 	/* A close with nothing open poisons the builder rather than
 	 * emitting a stray bracket. */
-	lsp_jsonw_init(&w);
-	lsp_jsonw_begin_array(&w);
-	lsp_jsonw_end_array(&w);
-	lsp_jsonw_end_array(&w);
-	CHECK(lsp_jsonw_finish(&w, &out, &len) == -1);
+	kg_jsonw_init(&w);
+	kg_jsonw_begin_array(&w);
+	kg_jsonw_end_array(&w);
+	kg_jsonw_end_array(&w);
+	CHECK(kg_jsonw_finish(&w, &out, &len) == -1);
 
 	/* Abandoning a half-built document leaks nothing (valgrind is the
 	 * assertion here). */
-	lsp_jsonw_init(&w);
-	lsp_jsonw_begin_object(&w);
-	lsp_jsonw_key(&w, "half");
-	lsp_jsonw_free(&w);
+	kg_jsonw_init(&w);
+	kg_jsonw_begin_object(&w);
+	kg_jsonw_key(&w, "half");
+	kg_jsonw_free(&w);
 	/* Free after finish is harmless. */
-	lsp_jsonw_free(&w);
+	kg_jsonw_free(&w);
 }
 
 /* A top-level array and a top-level string are documents too, and the
  * writer emits them without an enclosing object. */
 static void test_writer_top_level_array(void)
 {
-	struct lsp_jsonw w;
+	struct kg_jsonw w;
 	char *out = NULL;
 	size_t len = 0;
 
-	lsp_jsonw_init(&w);
-	lsp_jsonw_begin_array(&w);
-	lsp_jsonw_stringn(&w, "a\0b", 3);
-	lsp_jsonw_end_array(&w);
-	CHECK(lsp_jsonw_finish(&w, &out, &len) == 0);
+	kg_jsonw_init(&w);
+	kg_jsonw_begin_array(&w);
+	kg_jsonw_stringn(&w, "a\0b", 3);
+	kg_jsonw_end_array(&w);
+	CHECK(kg_jsonw_finish(&w, &out, &len) == 0);
 	if (!out) {
 		return;
 	}
 	CHECK(strcmp(out, "[\"a\\u0000b\"]") == 0);
 	free(out);
+}
+
+/* The writer's numeric half.  JSON has one numeric type, so what matters
+ * is that a value survives the round trip and that the two things JSON
+ * cannot spell are refused rather than written as words. */
+static void test_writer_numbers(void)
+{
+	static const double values[] = { 0.0, 1.0, -1.0, 0.1, 0.5, 1e300,
+		1e-300, 3.141592653589793, 1234567890123.0, -0.0 };
+	struct kg_jsonw w;
+	struct kg_json *doc;
+	char *out = NULL;
+	size_t len = 0;
+	size_t i;
+
+	for (i = 0; i < sizeof(values) / sizeof(*values); i++) {
+		kg_jsonw_init(&w);
+		kg_jsonw_number(&w, values[i]);
+		CHECKF(kg_jsonw_finish(&w, &out, &len) == 0, "%g", values[i]);
+		if (!out) {
+			continue;
+		}
+		doc = kg_json_parse(out, len, NULL);
+		CHECKF(doc != NULL, "`%s` is not JSON", out);
+		CHECKF(kg_json_num(kg_json_root(doc), 1.0) == values[i],
+		    "%g came back as %s", values[i], out);
+		kg_json_free(doc);
+		free(out);
+		out = NULL;
+	}
+	/* And the shortest spelling is chosen, so a `0.1` a user wrote stays
+	 * one rather than becoming 0.10000000000000001. */
+	kg_jsonw_init(&w);
+	kg_jsonw_number(&w, 0.1);
+	CHECK(kg_jsonw_finish(&w, &out, &len) == 0);
+	if (out) {
+		CHECK(strcmp(out, "0.1") == 0);
+		free(out);
+	}
+	/* Neither an infinity nor a NaN is a JSON value. */
+	kg_jsonw_init(&w);
+	kg_jsonw_number(&w, 1.0 / 0.0);
+	CHECK(kg_jsonw_finish(&w, &out, &len) == -1);
+	kg_jsonw_init(&w);
+	kg_jsonw_number(&w, 0.0 / 0.0);
+	CHECK(kg_jsonw_finish(&w, &out, &len) == -1);
+}
+
+/* Serialising a PARSED value, which is the one crossing between the two
+ * halves: the copy must preserve exactly what a protocol peer distinguishes
+ * -- null against omission, a float against an integer, a key or a string
+ * containing a NUL -- and it must escape rather than splice. */
+static void test_writer_copies_a_parsed_value(void)
+{
+	static const char text[]
+	    = "{\"a\":null,\"b\":[1,2.5,true,\"q\\\"q\"],"
+	      "\"c\":{\"d\":\"line\\nbreak\"},\"e\":-0.75,\"f\":\"\"}";
+	struct kg_json *doc = kg_json_parse(text, sizeof(text) - 1, NULL);
+	struct kg_json *again;
+	struct kg_jsonw w;
+	char *out = NULL;
+	size_t len = 0;
+
+	CHECK(doc != NULL);
+	if (!doc) {
+		return;
+	}
+	kg_jsonw_init(&w);
+	kg_jsonw_value(&w, kg_json_root(doc));
+	CHECK(kg_jsonw_finish(&w, &out, &len) == 0);
+	if (!out) {
+		kg_json_free(doc);
+		return;
+	}
+	/* The compact canonical form of the same document. */
+	CHECK(strcmp(out, text) == 0);
+	again = kg_json_parse(out, len, NULL);
+	CHECK(again != NULL);
+	CHECK(kg_json_kind_of(kg_json_get(kg_json_root(again), "a"))
+	    == KG_JSON_NULL);
+	CHECK(kg_json_kind_of(kg_json_get(kg_json_root(again), "zzz"))
+	    == KG_JSON_NONE);
+	CHECK(kg_json_num(kg_json_get(kg_json_root(again), "e"), 0.0) == -0.75);
+	kg_json_free(again);
+	kg_json_free(doc);
+	free(out);
+
+	/* A NULL node is not a value and cannot stand in for one. */
+	kg_jsonw_init(&w);
+	kg_jsonw_value(&w, NULL);
+	CHECK(kg_jsonw_finish(&w, &out, &len) == -1);
+}
+
+/* A key with a NUL in it is legal JSON, and a copy that used strlen would
+ * lose the half after it. */
+static void test_writer_keeps_a_nul_bearing_key(void)
+{
+	static const char text[] = "{\"a\\u0000b\":1}";
+	struct kg_json *doc = kg_json_parse(text, sizeof(text) - 1, NULL);
+	struct kg_jsonw w;
+	char *out = NULL;
+	size_t len = 0;
+
+	CHECK(doc != NULL);
+	if (!doc) {
+		return;
+	}
+	kg_jsonw_init(&w);
+	kg_jsonw_value(&w, kg_json_root(doc));
+	CHECK(kg_jsonw_finish(&w, &out, &len) == 0);
+	if (out) {
+		CHECK(strcmp(out, "{\"a\\u0000b\":1}") == 0);
+		free(out);
+	}
+	kg_json_free(doc);
+}
+
+/* Duplicate members: data for a protocol peer, a refusal for a file.  The
+ * flag is what keeps those two answers apart, and the refusal carries the
+ * offset of the object that carried both. */
+static void test_duplicate_keys_only_under_the_flag(void)
+{
+	static const char text[] = "{\"a\":1,\"b\":{\"c\":1,\"c\":2}}";
+	struct kg_json *doc;
+	size_t offset = 0;
+	char many[16 * 1024];
+	size_t used;
+	size_t i;
+
+	doc = kg_json_parse(text, sizeof(text) - 1, &offset);
+	CHECK(doc != NULL);
+	kg_json_free(doc);
+
+	doc = kg_json_parse_ex(
+	    text, sizeof(text) - 1, KG_JSON_REJECT_DUPLICATE_KEYS, &offset);
+	CHECK(doc == NULL);
+	CHECK(offset > 0);
+	/* Distinct keys are still accepted under the flag, at every
+	 * depth. */
+	doc = kg_json_parse_ex("{\"a\":{\"a\":1},\"b\":2}",
+	    strlen("{\"a\":{\"a\":1},\"b\":2}"), KG_JSON_REJECT_DUPLICATE_KEYS,
+	    &offset);
+	CHECK(doc != NULL);
+	kg_json_free(doc);
+
+	/* Asking for the check bounds how many members one object may have,
+	 * because the check is pairwise. */
+	used = (size_t)snprintf(many, sizeof(many), "{");
+	for (i = 0; i <= KG_JSON_STRICT_MAX_MEMBERS; i++) {
+		used += (size_t)snprintf(many + used, sizeof(many) - used,
+		    "%s\"k%zu\":1", i ? "," : "", i);
+	}
+	used += (size_t)snprintf(many + used, sizeof(many) - used, "}");
+	doc = kg_json_parse(many, used, NULL);
+	CHECK(doc != NULL);
+	kg_json_free(doc);
+	doc = kg_json_parse_ex(
+	    many, used, KG_JSON_REJECT_DUPLICATE_KEYS, &offset);
+	CHECK(doc == NULL);
 }
 
 int main(void)
@@ -666,5 +821,9 @@ int main(void)
 	RUN(test_writer_round_trip);
 	RUN(test_writer_refusals);
 	RUN(test_writer_top_level_array);
+	RUN(test_writer_numbers);
+	RUN(test_writer_copies_a_parsed_value);
+	RUN(test_writer_keeps_a_nul_bearing_key);
+	RUN(test_duplicate_keys_only_under_the_flag);
 	return test_summary();
 }

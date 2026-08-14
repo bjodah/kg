@@ -1,0 +1,25 @@
+# Keys typed before kg has painted anything are kg's, not termios'.
+#
+# kg enters raw mode before it loads a file, so everything between that
+# switch and the first frame -- the file read, init.el -- happens with the
+# terminal already kg's and the keys queued in the pty.  `typeahead_keys:`
+# is the only way to type into that window; see send_typeahead_pexpect().
+#
+# The three assertions, in the order the keys make them:
+#   C-c   is kg's user prefix.  In the pty's default line discipline it is
+#         VINTR, and kg dies of SIGINT -- which is why this case pins
+#         expected_exit_code, and why 130 is the failure to look for.
+#   C-g   quits the prefix C-c opened, so the keys after it start clean.
+#   C-u 3 is universal-argument.  In the default line discipline C-u is
+#         VKILL and erases the queue instead, leaving kg to self-insert
+#         the "3" -- so "3z" saved where "zzz" was asked for says the
+#         window was cooked.
+# The burst arrives inside kg's paste threshold, so this is also a case
+# where auto-indent and autocompletion are off; nothing here wants them.
+name: typeahead-before-first-frame
+filename: typeahead.txt
+initial: "hello\n"
+typeahead_keys: [C-c, C-g, C-u, "3", z]
+keys: []
+expected_saved: "zzzhello\n"
+expected_exit_code: 0

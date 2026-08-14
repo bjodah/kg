@@ -18,6 +18,7 @@
 
 #include "lsp_server.h"
 
+#include "announce.h"
 #include "lsp.h"
 #include "lsp_client.h"
 #include "lsp_transport.h"
@@ -40,16 +41,59 @@ static bool dir_has_go_markers(const char *dir);
 static bool dir_has_rust_markers(const char *dir);
 static bool dir_has_java_markers(const char *dir);
 
+/* nbcode's `initializationOptions`, and the reason this table has a column
+ * for them at all.
+ *
+ * Oracle's NetBeans server reads one object it invented
+ * (vscode/src/lsp/nbLanguageClient.ts) and behaves differently without it:
+ * `wantsJavaSupport` is what turns the Java support on, and `commandPrefix`
+ * is the namespace its own commands answer under.  kg sends the same object
+ * with every flag for a UI facility it does not have turned OFF -- a status
+ * bar it would have to paint, a test-results view, an HTML page renderer --
+ * because advertising a facility kg lacks is how a client ends up being
+ * sent messages it silently drops.
+ *
+ * It is DATA on the spec rather than a branch in the client's
+ * build_initialize(), which would otherwise have to know a server's name to
+ * build a request: every other row's column is NULL, and a NULL column
+ * produces the request every server has always been sent, with no
+ * `initializationOptions` member at all.
+ *
+ * Measured against oracle-java 26.0.1 on 2026-08-12 (the smaller payload
+ * frozen here, not the extension's): the LSP `initialize` is answered in
+ * 0.16 s, the debug adapter answers its own `initialize` in 0.04 s and
+ * `launch` succeeds. */
+static const char nbcode_init_options[]
+    = "{\"nbcodeCapabilities\":{"
+      "\"statusBarMessageSupport\":false,"
+      "\"testResultsSupport\":false,"
+      "\"showHtmlPageSupport\":false,"
+      "\"wantsJavaSupport\":true,"
+      "\"wantsGroovySupport\":false,"
+      "\"commandPrefix\":\"jdk\","
+      "\"configurationPrefix\":\"jdk.\","
+      "\"altConfigurationPrefix\":\"netbeans.\"}}";
+
 /* What kg knows how to start.  `env` is spelled out rather than derived
  * from `name` so the environment variable a user sets is greppable in this
  * file, and `argv` is a direct exec -- no shell -- so nothing in a built-in
  * spec can be word-split by a stray space in the environment.  The override
  * is the opposite by design: a command line for /bin/sh.
  *
+ * `language` is the name a row answers to from OUTSIDE this module, where an
+ * editor mode id is the wrong currency: the debugger's adapter spec names
+ * the language server it is the sibling of (src/dap_config.h), and a
+ * `.kg-dap.json` cannot spell an enum.  It is a column rather than a
+ * derivation from `name` because a server may be replaced -- Java's just
+ * was -- without the language it serves changing.
+ *
  * `wire` is how the frames reach that command (src/lsp_transport.h).  Every
- * built-in spec is LSP_WIRE_STDIO, which is the protocol's own arrangement
- * and what every server kg names speaks; LSP_WIRE_LISTEN_HASH exists for
- * the one an override can ask for, and no row selects it. */
+ * row but Java's is LSP_WIRE_STDIO, the protocol's own arrangement;
+ * nbcode does not speak LSP on stdio at all.
+ *
+ * `init_options` is the server's own half of the initialize request; see
+ * above.  NULL for every server that has nothing to say, which is all of
+ * them but nbcode. */
 struct lsp_server_spec {
 	/* The two enums sit together so the pointers after them stay packed:
 	 * a 4-byte field anywhere among them costs this table a hole per
@@ -57,29 +101,55 @@ struct lsp_server_spec {
 	enum kg_mode_id mode;
 	enum lsp_wire wire;
 	const char *name;
+	const char *language;
 	const char *env;
+	const char *init_options;
 	const char *const argv[4];
 	bool (*has_markers)(const char *dir);
 };
 
+/* Java is nbcode, on the listen-hash wire, with BOTH server flags.
+ *
+ * The second flag is the debugger's (doc/plans/dap/03-java.md, parent plan
+ * decision 4): one nbcode process announces a language server and a Java
+ * Debug Server Adapter on one stdout, and kg's Java debugging is that
+ * sibling socket.  Asking for it costs a build with no debugger nothing --
+ * a port is listened on and never connected to -- and NOT asking for it
+ * would mean restarting the user's Java server to debug, which is the one
+ * thing the shared-process design exists to avoid.
+ *
+ * jdt.ls has not gone anywhere: `KG_LSP_SERVER_JAVA` still names a command
+ * line, and `jdtls` in it is the pre-nbcode editor exactly.  What changed
+ * is which of the two a box with both installed gets by default, and the
+ * installer for the new default is utils/install-nbcode.sh. */
 static const struct lsp_server_spec server_specs[] = {
-	{ KG_MODE_C, LSP_WIRE_STDIO, "clangd", LSP_SERVER_ENV_PREFIX "C",
-	    { "clangd", NULL }, dir_has_c_markers },
-	{ KG_MODE_PYTHON, LSP_WIRE_STDIO, "ty", LSP_SERVER_ENV_PREFIX "PYTHON",
-	    { "ty", "server", NULL }, dir_has_python_markers },
-	{ KG_MODE_GO, LSP_WIRE_STDIO, "gopls", LSP_SERVER_ENV_PREFIX "GO",
-	    { "gopls", NULL }, dir_has_go_markers },
-	{ KG_MODE_RUST, LSP_WIRE_STDIO, "rust-analyzer",
-	    LSP_SERVER_ENV_PREFIX "RUST", { "rust-analyzer", NULL },
+	{ KG_MODE_C, LSP_WIRE_STDIO, "clangd", "c", LSP_SERVER_ENV_PREFIX "C",
+	    NULL, { "clangd", NULL }, dir_has_c_markers },
+	{ KG_MODE_PYTHON, LSP_WIRE_STDIO, "ty", "python",
+	    LSP_SERVER_ENV_PREFIX "PYTHON", NULL, { "ty", "server", NULL },
+	    dir_has_python_markers },
+	{ KG_MODE_GO, LSP_WIRE_STDIO, "gopls", "go", LSP_SERVER_ENV_PREFIX "GO",
+	    NULL, { "gopls", NULL }, dir_has_go_markers },
+	{ KG_MODE_RUST, LSP_WIRE_STDIO, "rust-analyzer", "rust",
+	    LSP_SERVER_ENV_PREFIX "RUST", NULL, { "rust-analyzer", NULL },
 	    dir_has_rust_markers },
-	{ KG_MODE_JAVA, LSP_WIRE_STDIO, "jdtls", LSP_SERVER_ENV_PREFIX "JAVA",
-	    { "jdtls", NULL }, dir_has_java_markers },
+	{ KG_MODE_JAVA, LSP_WIRE_LISTEN_HASH, "nbcode", "java",
+	    LSP_SERVER_ENV_PREFIX "JAVA", nbcode_init_options,
+	    { "nbcode", "--start-java-language-server=listen-hash:0",
+		"--start-java-debug-adapter-server=listen-hash:0", NULL },
+	    dir_has_java_markers },
 };
 
 struct lsp_instance {
 	const struct lsp_server_spec *spec;
 	struct lsp_client *client;
 	char root[PATH_MAX];
+	/* The wire this instance was actually STARTED on, which is the row's
+	 * only when no override replaced it.  Kept because the sibling-
+	 * endpoint query asks it: a Java server that is not on the
+	 * listen-hash wire is not an nbcode and announces no debug adapter,
+	 * whatever the row it came from says. */
+	enum lsp_wire wire;
 };
 
 static struct lsp_instance instances[LSP_SERVER_MAX_INSTANCES];
@@ -327,7 +397,16 @@ bool lsp_workspace_root(
  *
  * Returns the command, or NULL for "there is no override here" -- which is
  * what an empty value, and a `listen-hash:` with nothing to run after it,
- * both mean.  `*wire` is left alone unless the token asked for it. */
+ * both mean.
+ *
+ * `*wire` is set by every override that IS one, and to STDIO unless the
+ * token asked otherwise.  It is set rather than left alone because the wire
+ * is a property of the command and not of the language: since the Java row
+ * became nbcode its own wire is the socket, and an override inheriting that
+ * would speak a handshake to `jdtls` -- or to a fake -- that neither has
+ * anything to answer with.  An override replaces the command, so it
+ * replaces the arrangement the command speaks, and it says which one it
+ * wants in the one place a user can say it. */
 static const char *override_command(const char *value, enum lsp_wire *wire)
 {
 	static const char token[] = "listen-hash:";
@@ -338,6 +417,7 @@ static const char *override_command(const char *value, enum lsp_wire *wire)
 	}
 	if (strncmp(value, token, len) != 0
 	    || (value[len] != ' ' && value[len] != '\t')) {
+		*wire = LSP_WIRE_STDIO;
 		return value;
 	}
 	value += len;
@@ -355,9 +435,17 @@ static const char *override_command(const char *value, enum lsp_wire *wire)
  * command line (src/lsp_server.h says so to the user); the built-in spec is
  * an argv exec'd directly.  The child's working directory is the workspace
  * root, which is what a server started by hand in that directory would
- * see. */
-static struct lsp_client *spec_start(
-    const struct lsp_server_spec *spec, const char *root)
+ * see.
+ *
+ * The row's `init_options` travel with the row and not with the command,
+ * for the reason its `name` already does two lines below: an override
+ * points kg at a wrapper script, a fake, or the same server under another
+ * path, and what kg is configuring is still the server this row is about.
+ * The alternative -- dropping them whenever an override is set -- would
+ * mean the documented way of running nbcode by hand produced a session
+ * whose debugger half was not configured. */
+static struct lsp_client *spec_start(const struct lsp_server_spec *spec,
+    const char *root, enum lsp_wire *wire_out)
 {
 	enum lsp_wire wire = spec->wire;
 	const char *command = override_command(getenv(spec->env), &wire);
@@ -372,13 +460,14 @@ static struct lsp_client *spec_start(
 	} else {
 		req.argv = spec->argv;
 	}
-	c = lsp_client_start_wire(&req, root, wire);
+	c = lsp_client_start_wire(&req, root, wire, spec->init_options);
 	/* The spec's name, not the command line's: an override points kg at
 	 * a wrapper script or a fake, and what a message about "clangd"
 	 * should say is which server kg thinks it is talking to. */
 	if (c) {
 		lsp_client_set_name(c, spec->name);
 	}
+	*wire_out = wire;
 	return c;
 }
 
@@ -425,6 +514,112 @@ static void status_set(enum lsp_server_status *out, enum lsp_server_status s)
 	}
 }
 
+/* --------------------------- sibling endpoints ------------------------ */
+
+/* The row a `.kg-dap.json` names, found by language rather than by mode.
+ * Linear over five rows, like spec_for() beside it. */
+static const struct lsp_server_spec *spec_for_language(const char *language)
+{
+	size_t i;
+
+	if (!language || !*language) {
+		return NULL;
+	}
+	for (i = 0; i < sizeof(server_specs) / sizeof(server_specs[0]); i++) {
+		if (strcmp(server_specs[i].language, language) == 0) {
+			return &server_specs[i];
+		}
+	}
+	return NULL;
+}
+
+/* Which announce tag a row's sibling is, false for a row that has none.
+ * The tag is an out-parameter because the enum has no zero: "none" is the
+ * return value, not a value of the tag.
+ *
+ * It is keyed on the WIRE and not on the server's name, which is the honest
+ * test and also the one that answers the override question correctly: an
+ * override that did not ask for the listen-hash wire is not running an
+ * nbcode whatever it is called, has no second announce, and must be told so
+ * rather than waited on.  That is the "requires the nbcode Java server"
+ * verdict, decided from what kg started rather than from a string. */
+static bool sibling_tag(
+    const struct lsp_instance *slot, enum lsp_transport_endpoint_tag *tag)
+{
+	if (slot->spec->mode == KG_MODE_JAVA
+	    && slot->wire == LSP_WIRE_LISTEN_HASH) {
+		*tag = LSP_TRANSPORT_ENDPOINT_JAVA_DEBUG;
+		return true;
+	}
+	return false;
+}
+
+enum kg_lsp_sibling_status lsp_server_sibling_endpoint(const char *language,
+    const char *abs_path, enum kg_lsp_sibling_intent intent,
+    struct kg_lsp_sibling_endpoint *out)
+{
+	const struct lsp_server_spec *spec = spec_for_language(language);
+	enum lsp_server_status status = LSP_SERVER_OK;
+	struct kg_announced_endpoint announced;
+	enum lsp_transport_endpoint_tag tag;
+	struct lsp_instance *slot;
+	char root[PATH_MAX];
+
+	if (!spec || !out) {
+		return KG_LSP_SIBLING_UNSUPPORTED;
+	}
+	/* Started here rather than waited for -- but only when the caller
+	 * asked to start one.  The other intent is a live session checking on
+	 * its own owner, and starting a replacement under it would hand it an
+	 * endpoint belonging to a process its socket is not connected to. */
+	if (intent == KG_LSP_SIBLING_START
+	    && !lsp_server_for(spec->mode, abs_path, &status)) {
+		return KG_LSP_SIBLING_NOT_RUNNING;
+	}
+	if (!lsp_workspace_root(spec->mode, abs_path, root, sizeof(root))) {
+		return KG_LSP_SIBLING_NOT_RUNNING;
+	}
+	slot = instance_find(spec, root);
+	if (!slot) {
+		/* Nothing is running for this root.  For a caller that asked
+		 * to start one, that means it died inside its own start --
+		 * instance_find() empties the slot of a client that is already
+		 * DEAD.  For one checking on a session, it means the owner is
+		 * gone, which is the same news. */
+		return KG_LSP_SIBLING_DEAD;
+	}
+	if (!sibling_tag(slot, &tag)) {
+		return KG_LSP_SIBLING_UNSUPPORTED;
+	}
+	switch (lsp_client_state(slot->client)) {
+	case LSP_CLIENT_DEAD:
+		return KG_LSP_SIBLING_DEAD;
+	case LSP_CLIENT_INITIALIZING:
+		/* THE ordering rule (doc/plans/dap/03-java.md): the debug
+		 * connection captures the language session's state when it is
+		 * constructed, so a socket opened before `initialized` gets a
+		 * session that is not there yet.  The announce has usually
+		 * arrived by now; it is deliberately not enough. */
+		return KG_LSP_SIBLING_STARTING;
+	case LSP_CLIENT_READY:
+		break;
+	}
+	if (!lsp_client_announced_endpoint(slot->client, tag, &announced)) {
+		/* Either nothing has been announced yet, or the child that
+		 * announced it is gone -- the query reaps to tell them apart,
+		 * so a dead child never yields a port. */
+		return lsp_client_state(slot->client) == LSP_CLIENT_DEAD
+		    ? KG_LSP_SIBLING_DEAD
+		    : KG_LSP_SIBLING_NONE;
+	}
+	memcpy(out->host, announced.host, sizeof(out->host));
+	out->port = announced.port;
+	memcpy(out->secret, announced.secret, sizeof(out->secret));
+	out->secret_len = announced.secret_len;
+	out->generation = announced.generation;
+	return KG_LSP_SIBLING_OK;
+}
+
 struct lsp_client *lsp_server_for(enum kg_mode_id mode, const char *abs_path,
     enum lsp_server_status *status_out)
 {
@@ -450,7 +645,7 @@ struct lsp_client *lsp_server_for(enum kg_mode_id mode, const char *abs_path,
 		status_set(status_out, LSP_SERVER_REGISTRY_FULL);
 		return NULL;
 	}
-	slot->client = spec_start(spec, root);
+	slot->client = spec_start(spec, root, &slot->wire);
 	if (!slot->client) {
 		status_set(status_out, LSP_SERVER_SPAWN_FAILED);
 		return NULL;

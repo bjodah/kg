@@ -1,0 +1,66 @@
+# The debuggee's output is UNTRUSTED BYTES and reaches the screen only
+# through display_glyph_at() (CLAUDE.md; doc/plans/dap/02-ui.md).
+#
+# The program here prints an escape sequence that would clear the screen
+# and turn the terminal red if it were passed through as itself.  What must
+# be on screen instead is its visible spelling -- `^[` for the escape byte,
+# Emacs' caret notation -- with the rest of the line still readable after
+# it, and with every mode line still where it was.  A terminal that had
+# obeyed the sequence would have neither.
+#
+# The bytes are written as a YAML double-quoted escape (\e), which is the
+# only way to get one into an argv the harness passes through a shell.
+name: dap-output-untrusted-bytes
+filename: main.c
+requires_feature: dap
+backend: tmux
+dimensions: [30, 100]
+initial: |
+  #include <stdio.h>
+
+  int main(void)
+  {
+  	return 0;
+  }
+workspace_files:
+  .kg-dap.json: |
+    { "version": 1,
+      "configurations": [
+        { "name": "fake",
+          "adapter": "lldb-dap",
+          "request": "launch",
+          "arguments": { "program": "${file}" } } ] }
+env:
+  KG_DAP_ADAPTER_LLDB: "python3 {REPO}/test/fake_dap_adapter.py --mode protocol\
+    \ --capabilities '{\"supportsConfigurationDoneRequest\":true}'\
+    \ --stopped-after configurationDone\
+    \ --stopped-body '{\"reason\":\"breakpoint\",\"threadId\":1,\"allThreadsStopped\":true}'\
+    \ --body 'threads:{\"threads\":[{\"id\":1,\"name\":\"main\"}]}'\
+    \ --body 'stackTrace:{\"stackFrames\":[{\"id\":11,\"name\":\"main\",\"line\":5,\"source\":{\"path\":\"{CWD}/main.c\"}}]}'\
+    \ --output-split 'configurationDone:\e[2J\e[31mDANGER and then some\n'"
+keys:
+  - M-x
+  - dap-debug
+  - RET
+  - RET
+  - SETTLE=15:DANGER
+  - M-x
+  - dap-many-windows
+  - RET
+  - SETTLE=10:*dap-output*
+expected_saved: |
+  #include <stdio.h>
+
+  int main(void)
+  {
+  	return 0;
+  }
+expected_screen_contains:
+  # The escape byte, spelled rather than obeyed.
+  - "^["
+  # And the text after it, which a terminal that had obeyed the sequence
+  # would have cleared away.
+  - DANGER and then some
+  # The screen is still kg's: the panes' mode lines are all there.
+  - "*dap-output*"
+  - "*dap-stack*"

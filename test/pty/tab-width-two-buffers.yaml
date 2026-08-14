@@ -1,0 +1,27 @@
+# Verifies that (setq-local tab-width 4) sets tab width in one buffer
+# without affecting another buffer (which keeps tab-width 8).
+name: tab-width-two-buffers
+filename: buf1.txt
+requires_feature: lisp
+backend: tmux
+dimensions: [12, 40]
+initial: "\tbuf1\n"
+keys:
+  - "M-:"
+  - "(setq-local tab-width 4)"
+  - RET
+  - C-x
+  - "2"
+  - C-x
+  - o
+  - C-x
+  - b
+  - buf2.txt
+  - RET
+  - "\tbuf2"
+expected_saved: "\tbuf1\n"
+expected_screen_contains:
+  - "    buf1"
+  - "        buf2"
+expected_screen_not_contains:
+  - "        buf1"

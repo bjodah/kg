@@ -27,6 +27,7 @@ void copy_result(char *result, size_t result_size, const char *text)
 #include <setjmp.h>
 #include <stdarg.h>
 #include <stdckdint.h>
+#include <stdint.h>
 #include <stdlib.h>
 #ifndef _WIN32
 #include <unistd.h>
@@ -36,6 +37,7 @@ void copy_result(char *result, size_t result_size, const char *text)
 #endif
 
 #include "../fe/fe.h"
+#include "bufhandle.h"
 #include "cmd.h"
 /* lisp.h is already included, unconditionally, above -- this second
  * #include is a no-op through the header guard.  Kept out rather than
@@ -1481,6 +1483,58 @@ int kg_lisp_variable_non_nil(const char *name)
 	return non_nil;
 }
 
+/* Fe has no host callback on assignment, so C cannot be notified at the
+ * exact setq.  Poll at the two seams that need a current answer: before a
+ * repaint, and inside a geometry-consuming native.  One symbol lookup and
+ * one frame cover every buffer; editor_set_tab_width() makes the unchanged
+ * case a comparison and owns all derived-state invalidation. */
+static void sync_display_options_in_frame(void)
+{
+	FeObject *symbol = FeMakeSymbol(state.context, "tab-width");
+	int i;
+
+	for (i = 0; i < MAX_BUFFERS; i++) {
+		FeObject *value;
+		int width = KG_TAB_WIDTH;
+
+		if (!buflist[i].active) {
+			continue;
+		}
+		value = lisp_locals_buffer_value(
+		    state.context, symbol, buf_handle(i));
+		if (value != nullptr && FeGetType(value) == FeTInteger) {
+			int64_t n = FeToInteger(state.context, value);
+
+			if (n >= 1 && n <= KG_TAB_WIDTH_MAX) {
+				width = (int)n;
+			}
+		}
+		editor_set_tab_width(&buflist[i], width);
+	}
+}
+
+void kg_lisp_sync_display_options(void)
+{
+	if (!state.initialized) {
+		return;
+	}
+	if (state.frame_active) {
+		sync_display_options_in_frame();
+		return;
+	}
+	state.frame.gc_checkpoint = FeSaveGC(state.context);
+	state.frame_active = true;
+	if (setjmp(state.frame.error_jump) != 0) {
+		FeRestoreGC(state.context, state.frame.gc_checkpoint);
+		state.frame_active = false;
+		lisp_settle_completion();
+		return;
+	}
+	sync_display_options_in_frame();
+	FeRestoreGC(state.context, state.frame.gc_checkpoint);
+	state.frame_active = false;
+}
+
 int kg_lisp_arena_stats(struct kg_lisp_arena_stats *out)
 {
 	FeArenaStats stats;
@@ -1599,6 +1653,8 @@ int kg_lisp_variable_non_nil(const char *name)
 	(void)name;
 	return 0;
 }
+
+void kg_lisp_sync_display_options(void) { }
 
 int kg_lisp_arena_stats(struct kg_lisp_arena_stats *out)
 {

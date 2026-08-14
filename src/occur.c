@@ -13,6 +13,7 @@
 #include "next_error.h"
 #include "regex.h"
 #include "visit.h"
+#include "winmgr.h"
 
 #include <ctype.h>
 #include <stdio.h>

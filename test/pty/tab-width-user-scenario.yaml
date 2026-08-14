@@ -1,0 +1,22 @@
+# Test the exact user-reported scenario:
+# Visiting foo.cpp, writing "int main(){\n<TAB>return 0;\n}",
+# and verifying that M-: (setq tab-width 4) <RET> updates the visual
+# indentation of the TAB from 8 spaces to 4 spaces.
+name: tab-width-user-scenario
+filename: foo.cpp
+requires_feature: lisp
+backend: tmux
+dimensions: [12, 40]
+initial: ""
+keys:
+  - "int main(){\n"
+  - TAB
+  - "return 0;\n}"
+  - "M-:"
+  - "(setq tab-width 4)"
+  - RET
+expected_saved: "int main(){\n\treturn 0;\n}"
+expected_screen_contains:
+  - "    return 0;"
+expected_screen_not_contains:
+  - "        return 0;"

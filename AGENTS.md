@@ -36,9 +36,11 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   failure naming the tool. The oracle binary is `--emacs`, else
   `$KG_PTY_EMACS` (`make check KG_PTY_EMACS=...`), else `emacs` on PATH,
   else the `/opt-3` developer-box pin.
-- PTY cases run concurrently; `--jobs` (Makefile `PTY_JOBS`, CI default 8)
-  sets how many. Use `--jobs 1` when debugging a case so its output is not
-  interleaved with other work on the box.
+- PTY cases run concurrently; `--jobs` (Makefile `PTY_JOBS`) sets how many.
+  `.ci/ci-env.sh` asks for 8, capped by `nproc` and floored at 2, because
+  the cases that wait on a JVM language server or a `go build` do not
+  overlap for free on a box with three cores. Use `--jobs 1` when debugging
+  a case so its output is not interleaved with other work on the box.
 - `make check-regex-differential` compares kg's regex engine against
   Emacs' own matcher on randomly generated patterns and subjects
   (`utils/regex_differential.py` drives `test/regex_differential.c` and
@@ -63,13 +65,13 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   subprojects use, and `-print_final_stats` so execs/s and peak RSS are
   in the log. Every target has tracked seeds under `test/fuzz-seeds/<target>`
   and a `make fuzz-<target>-seed` that copies them into the gitignored
-  working corpus; `make fuzz-seed` does all six. Crash, timeout and OOM
+  working corpus; `make fuzz-seed` does all targets. Crash, timeout and OOM
   inputs land in `test/fuzz-artifacts/<target>/`.
-  `test/fuzz_lsp_frames.c` is the one target that needs a seam to reach
-  its parser: it drives the real `src/lsp_transport.c` over a pipe it
-  writes itself, through `lsp_transport_attach_fuzz_fd()`, which exists
-  only under `KG_FUZZ` because the shipped way in forks a language server
-  per input.
+  `test/fuzz_frames.c` drives the real `src/framed_io.c` parser over a
+  pipe it writes itself.  Its tracked seeds and working corpus use the
+  `frames` target name (`test/fuzz-seeds/frames`,
+  `test/fuzz-corpus/frames`, `make fuzz-frames-seed`); the input encoding
+  did not change when framing was extracted from the LSP transport.
 - `make fuzz-regex-seed-replay` runs every tracked regex seed once without
   mutation. Each harness documents its input encoding in its header
   comment (`test/fuzz_regex.c`, `test/fuzz_keypress.c`, ...).
@@ -79,8 +81,8 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   floor, and `make coverage-baseline` is the one command that rewrites
   the file (bank an improvement; a drop needs a reason in the commit).
   Branch data is collected and reported but not yet a floor. The lane
-  keeps `PTY_JOBS=8`: three runs (two at 8, one at 1) agreed file for
-  file, so the parallel gcda merge is not lossy here and the 5m37
+  keeps the parallel `PTY_JOBS`: three runs (two at 8, one at 1) agreed
+  file for file, so the parallel gcda merge is not lossy here and the 5m37
   serial run buys nothing over 1m02. A file may lose up to 4 covered
   lines (the tree, 8) before the gate fires: repeated runs of one commit
   wobble by up to 3 lines in `src/syntax.c`, whose highlighting paths
@@ -146,10 +148,12 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   need `make bench WITH_TREE_SITTER=1`, and a plain `make bench` skips
   them.
 - Hosted CI is one Woodpecker step (`.woodpecker.yaml`): a prebuilt image
-  with the toolchain in it, `apt-get install pmccabe`, then
-  `bash -l .ci/run-ci-steps.sh` -- the same runner, and the same steps
-  discovered from the same glob, as a local run. It sets `CI_EXPENSIVE=1`,
-  so it also runs the expensive steps a local run skips.
+  with the whole toolchain in it, an interpreter activation, then
+  `.ci/run-ci-steps.sh` -- the same runner, and the same steps discovered
+  from the same glob, as a local run. It sets `CI_EXPENSIVE=1`, so it also
+  runs the expensive steps a local run skips. It installs nothing: that
+  box resolves internal names only, so a step that fetches cannot run
+  there at all (`doc/CI-server-peculiarities.md`).
 - The toolchain, and who needs it.  Every one of these is a bare name the
   Makefile or a `.ci` step resolves through `PATH`, overridable by the
   variable in parentheses; nothing is pinned to an absolute path any more.
@@ -188,11 +192,24 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
     and FAILS if it cannot.  A box that has an install --
     `$TREE_SITTER_PREFIX`, `$TREE_SITTER_ROOT`, or the `/opt-2` one this
     development box carries -- fetches nothing.
-  - Hosted CI needs nothing beyond these: the image carries the toolchain
-    and `.woodpecker.yaml` installs only `pmccabe` on top of it.  The
-    runner discovers its steps with a shell glob, so no `jq`.  The one
-    thing the image does not carry yet is a tree-sitter prefix, which is
-    why `ci-13` builds one per run there.
+  - Hosted CI needs nothing beyond these and installs none of them: the
+    image carries the whole toolchain, `pmccabe` and `scc` among it, and a
+    tree-sitter prefix in `$TREE_SITTER_ROOT`, so `ci-13` fetches nothing
+    there.  It could not: that box resolves internal names only
+    (`doc/CI-server-peculiarities.md`).  The runner discovers its steps
+    with a shell glob, so no `jq`.
+- Three optional subsystems are build axes that all default to 1 and all
+  cost nothing to have on -- `WITH_LISP`, `WITH_LSP` and `WITH_DAP` (the
+  debugger; servers and adapters are found at run time, so none of them has
+  a build-time dependency). Each is validated 0/1 in the Makefile, spells
+  itself into the ONE feature stamp's name, and answers `kg -V` with a
+  `+word`/`-word` that `requires_feature:` in a PTY case reads. The
+  disabled build of each is a CI lane and nothing else covers it:
+  `.ci/ci-08-with-lisp-0.sh`, `.ci/ci-14-with-lsp-0.sh`,
+  `.ci/ci-16-with-dap-0.sh`. A facade module (`src/lisp.h`, `src/lsp.h`,
+  `src/dap.h`) is compiled in both configurations so no other module ever
+  carries a `KG_USE_*` conditional; the disabled half does nothing and says
+  so where a user would otherwise wonder.
 - To iterate on one CI gate, run its script directly, e.g.
   `.ci/ci-01-*.sh`; shared defaults come from `.ci/ci-env.sh`.
 - `CC` and `CFLAGS` are overridable on the make command line, e.g.
@@ -202,7 +219,7 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   `CC` is silently ignored.
 - Final green light comes from running `.ci/run-ci-steps.sh` (static
   analysis, sanitizers, compilation warnings as errors...). The runner
-  dispatches numbered scripts `.ci/ci-01-*.sh` through `.ci/ci-15-*.sh`;
+  dispatches numbered scripts `.ci/ci-01-*.sh` through `.ci/ci-16-*.sh`;
   run one directly when iterating on a specific phase. The step list is a
   glob, so a new `.ci/ci-NN-*.sh` joins the run with no runner change.
 - A step that costs minutes rather than seconds is *expensive*, and the
@@ -323,13 +340,44 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
 - `startup_delay` and `key_delay` exist for timing-sensitive interactive cases; keep them explicit and case-local.
 - kg's runs no longer sleep `startup_delay`: the harness polls until kg has
   painted its first frame and gone quiet, so a plain build waits ~3 ms and
-  the same binary under valgrind waits ~0.33 s. `startup_delay` is now the
-  fallback deadline, and the sleep the Emacs oracle still takes.
+  the same binary under valgrind waits ~0.33 s. `startup_delay` is the sleep
+  the Emacs oracle still takes -- its readiness cannot be recognised -- and
+  a floor under kg's own budget, which is otherwise the case's `--timeout`
+  (`PTY_TIMEOUT`). Budget, not cost: the wait ends on the mode line, so only
+  an editor that never paints spends it.
+- A readiness wait that expires is an ERROR naming the reason, never a case
+  that goes ahead and types. Until kg reaches `enable_raw_mode()`
+  (`src/tty.c`) the pty is still in its DEFAULT cooked line discipline, and
+  a key sent into that one is interpreted by termios rather than by kg:
+  `C-c` is VINTR, so kg dies of SIGINT and the harness reports its own
+  128+2=130; `C-u` is VKILL, so it erases every key queued behind it;
+  `C-s`/`C-q` are XOFF/XON, `C-?` is VERASE, and ICRNL rewrites RET. The
+  failures that come out of that name kg: one hosted MSan run, on a box too
+  slow to paint inside the old fixed two seconds, spent 212 FAILs and 54
+  ERRORs -- saved-file diffs, missing screen text, nine `kg exited 130` --
+  with no sanitizer report anywhere in the log.
 - `key_delay` is not "time for kg to keep up" -- keys queue in the pty. It
   is bounded below by kg semantics: under 30 ms between keys kg decides it
   is seeing a paste (`editor.paste_mode`) and drops auto-indent and
   autocompletion, and a bare `ESC` merges with the next key unless they are
   more than 100 ms apart. Do not take the default below 0.05.
+- `typeahead_keys:` is the one opt-in past that readiness wait, and it does
+  not skip it: the keys go into the window between raw mode and the first
+  painted frame -- where kg loads its files and its init file, and where a
+  key is queued in the pty rather than acted on. It fires on kg's mouse-report
+  request, which is not a stand-in for a sleep: `enable_raw_mode()` sends it
+  as its last act, so seeing it MEANS the line discipline is kg's, on any box
+  and under any sanitizer. Matched exactly rather than "whatever arrives
+  first", because `--kg-runner` puts a wrapper on the same pty and a
+  `valgrind` without `--quiet` greets it. Sending at spawn instead races
+  execve and the dynamic linker -- 1.7 ms here, lost every time -- and would
+  measure that race in the cooked mode the readiness wait exists to keep
+  cases out of. The list is sent as one write with no `key_delay`, since
+  type-ahead is by definition what arrives faster than the editor reads it,
+  so kg sees it as a paste. `backend: pexpect` only (the escape it watches
+  for paints nothing, and `capture-pane` only shows what was painted), and
+  not with `oracle:` (the oracle has no readiness signal to type ahead of);
+  both refused at load time.
 - A tmux case ends when the pane has been *unchanged* for 50 ms, which
   cannot be told apart from "kg has not painted yet" -- a kg still running
   a compilation, a shell command or an arena-filling hook is silent. The
@@ -347,8 +395,9 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   rather than from a file — `KG_LSP_SERVER_C`, which is how an LSP case
   injects `test/fake_lsp_server.py` in place of clangd. `{REPO}` in a
   value expands to the checkout root, since a case runs with its working
-  directory in a fresh temporary directory. The Emacs oracle deliberately
-  does not get it.
+  directory in a fresh temporary directory, and `{CWD}` expands to that
+  directory (a canned debug adapter's answers name the source file they
+  stopped in, absolutely). The Emacs oracle deliberately does not get it.
 - `workspace_files:` maps relative paths to contents planted *beside the
   file under test* (`config_files:` plants under the case's HOME): a
   `compile_commands.json`, a `pyproject.toml`, the second file of a
@@ -366,21 +415,64 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
 - `requires_tool: <name>` SKIPs the case with a printed reason when that
   bare executable is not on PATH, and `--require-tools` turns it into an
   upfront failure, exactly as for tmux and the Emacs oracle. It is how the
-  real-server LSP cases (`clangd`, `ty`) stay in the suite on boxes
-  without them; `requires_feature:` only covers kg's own `-V` features.
+  real-server LSP cases (`clangd`, `ty`) and the real-adapter DAP case
+  (`lldb-dap`) stay in the suite on boxes without them;
+  `requires_feature:` only covers kg's own `-V` features.
+- `requires_python_module: <name>` is the same rule for a module rather
+  than an executable: it SKIPs when `python3` (the literal interpreter kg
+  spawns, not `$PYTHON`) cannot import it. debugpy is why — kg's Python
+  adapter is `python3 -m debugpy.adapter`, so there is no file on PATH
+  for `requires_tool:` to look for.
+- A FIXTURE MUST NEED NOTHING FETCHED. `requires_tool:` covers what has
+  to be installed and `requires_python_module:` what has to be
+  importable; nothing covers what a tool would download, and the hosted
+  CI box has no route out — `repo.maven.apache.org` does not even
+  resolve there. The measured trap is a `pom.xml`: nbcode debugs a file
+  in a Maven project by running the project, which resolves
+  `exec-maven-plugin` from Maven Central at launch time, so
+  dap-nbcode-java-smoke passed here off a warm `~/.m2` and on CI spent
+  36 s reaching `BUILD FAILURE` and then failed looking exactly like a
+  slow box timing out. Prefer the fixture that keeps the work local (no
+  project: nbcode compiles the single file itself); when only a fetching
+  one will do, the case is not a `make check` case.
+- `requires_feature:` takes `kg -V`'s own vocabulary, and a leading `-`
+  is the ABSENCE form: `requires_feature: -dap` runs only in a build
+  whose `-V` says `-dap`, which is how the case asserting that a
+  `WITH_DAP=0` editor still answers every `dap-*` command with a sentence
+  runs in `.ci/ci-16` and skips everywhere else. A list
+  (`requires_feature: [dap, -lsp]`) needs ALL of its entries, which is
+  how a case pins one configuration of two interacting subsystems.
 - tmux-backed cases can assert visible screen content with `expected_screen_contains` and `expected_screen_not_contains`.
 - Known discrepancies can be checked in as `xfail: true`; `XPASS` fails `make check` so expectations get cleaned up once behavior changes.
 - Key tokens in PTY YAML are literal unless named. Use `SPC` for an
   actual space key, `RET` for Enter, `M-RET` for Meta-Enter (sent as
   one ESC+CR token so the pair lands inside kg's escape window),
-  `C-?` for Backspace, `M-TAB` (also spelled `C-M-i`: the same two
-  bytes, ESC and TAB) for completion-at-point, and `C-q` followed by
-  the next token for quoted input. `Home`, `End`, `C-Home`, `C-End`,
-  `S-Home`, `S-End`, `Up`, and `Down` are named tokens (sent as xterm
-  tilde / modified tilde / cursor sequences).
-  PageUp/PageDown have no named tokens; emit their escape bytes via
-  `M-[` plus the letter/digit/`~` (e.g. `M-[`, `H` for Home on
-  terminals that send `ESC[H`).
+  `C-?` for Backspace, `M-SPC` for Meta-Space, `M-TAB` (also spelled
+  `C-M-i`: the same two bytes, ESC and TAB) for completion-at-point, and
+  `C-q` followed by the next token for quoted input.
+  `SETTLE=<seconds>` and `SETTLE=<seconds>:<text>` are not keys at all but
+  one bounded wait: the harness waits for the editor to paint something
+  and go quiet — or, with `<text>`, for the pane to say it (tmux only,
+  refused at load time on `pexpect`) — and never longer than the budget.
+  It is what buys the time a real debug adapter takes to reach its first
+  stop (~6.8 s measured for debugpy) without raising `key_delay` for
+  every key in the case; an expired wait is not itself a failure, the
+  assertion that follows it is. It is also how the four real-server
+  `lsp-*-definition` cases wait for a jump to land — never with a fixed
+  count of repaints, which is a wall-clock sleep sized on whichever box
+  measured it and the reason those cases failed on a three-core CI box
+  while passing on a thirty-two-core one.
+  `Home`, `End`, `C-Home`, `C-End`,
+  `S-Home`, `S-End`, `Up`, `Down`, `PageUp`, `PageDown`, and `F1`
+  through `F12` are named tokens (sent as xterm SS3 / tilde / cursor
+  sequences). The debugger spellings `C-F5`, `C-F9`, `M-F10`, `M-F11`,
+  `M-Up`, and `M-Down` are named too. Named sequences use one exact byte
+  table for both backends, so do not reconstruct them from `M-[` pieces.
+  A `C-`/`M-`/`S-` token whose payload names a key (two or more letters
+  and digits: `M-F12`, `S-Up`) and is not in that table is a hard error
+  rather than the token's own letters typed after ESC — add its exact
+  bytes to `NAMED_KEY_BYTES`. A single-character payload, and an escape
+  body such as an SGR mouse report's `M-[<0;14;2M`, are unaffected.
   `BYTE=e2` sends one raw byte named in hex. Every other token is UTF-8
   encoded on the way out, so this is the only way to send a byte that is
   not valid UTF-8; it needs `backend: pexpect`.

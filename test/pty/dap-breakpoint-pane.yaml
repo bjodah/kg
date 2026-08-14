@@ -1,0 +1,53 @@
+# F9 BEFORE there is a session, and the pane that proves it took.
+#
+# This is the milestone's own first step and it is why there are two minor
+# maps rather than one (doc/plans/dap/02-ui.md): the breakpoint keys are
+# live in any buffer that visits a file, with no adapter anywhere, while
+# F4-F8 and F10-F12 belong to a map that is live only while a session is
+# running -- so those keys are still the user's own here, which the
+# unchanged saved file below is the evidence for.
+#
+# No adapter is started, so nothing here is timing-dependent: the
+# breakpoint table is editor property (doc/plans/dap/01-protocol.md
+# stage 5) and the pane is a projection of it.
+name: dap-breakpoint-pane
+filename: dap-bp.c
+requires_feature: dap
+backend: tmux
+dimensions: [30, 100]
+initial: |
+  int main(void)
+  {
+  	return 0;
+  }
+keys:
+  # Line 3, with the debugger's own key rather than through M-x.
+  - C-n
+  - C-n
+  - F9
+  # Every session-only key, pressed where there is no session: they must
+  # reach neither a debugger command nor self-insertion.
+  - F5
+  - F6
+  - F8
+  - F12
+  # The layout is still reachable by name, which is what makes the pane
+  # visible without a session.
+  - M-x
+  - dap-many-windows
+  - RET
+  - SETTLE=5:*dap-breakpoints*
+expected_saved: |
+  int main(void)
+  {
+  	return 0;
+  }
+expected_screen_contains:
+  # The pane, by its mode line, and the breakpoint it is a projection of.
+  - "*dap-breakpoints*"
+  - "dap-bp.c:3"
+  # Nothing has verified it: no adapter has ever been told.
+  - pending
+  # The panes the grid arranges beside it.
+  - "*dap-stack*"
+  - "*dap-repl*"

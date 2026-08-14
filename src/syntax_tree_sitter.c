@@ -212,7 +212,8 @@ static int prio_reset(struct kg_syntax_state *st, int need)
  * chars_to_render_col() is the only conversion, and it is applied to both
  * ends. */
 static void paint_span(struct kg_syntax_state *st, erow *row, int c0, int c1,
-    unsigned char hl, unsigned char priority)
+    unsigned char hl, unsigned char priority,
+    const struct kg_display_options *options)
 {
 	int r0, r1, i;
 
@@ -227,8 +228,8 @@ static void paint_span(struct kg_syntax_state *st, erow *row, int c0, int c1,
 	}
 	KG_ASSERT_CHARS_OFF(row, c0);
 	KG_ASSERT_CHARS_OFF(row, c1);
-	r0 = chars_to_render_col(row, c0);
-	r1 = chars_to_render_col(row, c1);
+	r0 = chars_to_render_col(row, c0, options);
+	r1 = chars_to_render_col(row, c1, options);
 	if (r1 > row->rsize) {
 		r1 = row->rsize;
 	}
@@ -249,7 +250,7 @@ static void paint_span(struct kg_syntax_state *st, erow *row, int c0, int c1,
  * Rows outside the capture are not its business, and the range the cursor
  * was given means they are not offered either. */
 static void paint_capture(struct kg_syntax_state *st, erow *row, TSNode node,
-    unsigned int capture_index)
+    unsigned int capture_index, const struct kg_display_options *options)
 {
 	TSPoint from = ts_node_start_point(node);
 	TSPoint to = ts_node_end_point(node);
@@ -263,7 +264,7 @@ static void paint_capture(struct kg_syntax_state *st, erow *row, TSNode node,
 	c0 = (from.row == line) ? (int)from.column : 0;
 	c1 = (to.row == line) ? (int)to.column : row->size;
 	paint_span(st, row, c0, c1, st->lang->capture_hl[capture_index],
-	    st->lang->capture_priority[capture_index]);
+	    st->lang->capture_priority[capture_index], options);
 }
 
 /* The backend contract: colour one non-empty row.  The facade has already
@@ -303,7 +304,8 @@ void syntax_backend_update_row(struct editor_buffer *b, struct erow *row)
 			const TSQueryCapture *cap
 			    = &match.captures[capture_index];
 
-			paint_capture(st, row, cap->node, cap->index);
+			paint_capture(
+			    st, row, cap->node, cap->index, &b->display);
 		}
 	}
 }

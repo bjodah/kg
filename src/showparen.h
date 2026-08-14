@@ -33,6 +33,7 @@
 #define KG_SHOWPAREN_H
 
 struct erow;
+struct kg_display_options;
 
 /* On by default, as in Emacs 28.1 and later.  `show-paren-mode' (M-x) is
  * the way off; there is no key. */
@@ -72,7 +73,7 @@ struct show_paren_result {
  * Pure: reads rows and nothing else, allocates nothing, and never looks
  * at show_paren_mode -- the caller decides whether the mode is on. */
 void show_paren_compute(struct erow *rows, int numrows, int row, int col,
-    struct show_paren_result *out);
+    const struct kg_display_options *options, struct show_paren_result *out);
 
 /* Retire the previous highlight and publish the current one, for the
  * current window's point.  Called once per repaint (src/display.c), which

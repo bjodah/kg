@@ -17,8 +17,12 @@
  * protocols are gone the helpers collapse to a plain `&buflist[i]`.
  */
 
+#include "../src/bufmgr.h"
+#include "../src/bufmgr_internal.h"
 #include "../src/def.h"
 #include "../src/event.h"
+#include "../src/vgeom.h"
+#include "../src/winmgr.h"
 #include "test.h"
 #include <limits.h>
 #include <stdint.h>
@@ -126,6 +130,11 @@ static void session_teardown(void)
 {
 	int i, j;
 
+	for (i = 0; i < MAX_WINDOWS; i++) {
+		free(winlist[i].vgeom);
+		winlist[i].vgeom = NULL;
+	}
+
 	for (i = 0; i < MAX_BUFFERS; i++) {
 		struct editor_buffer *b = &buflist[i];
 		struct undo_op *op;
@@ -173,6 +182,124 @@ static size_t drain_all(struct kg_event *out, size_t max)
 		n++;
 	}
 	return n;
+}
+
+static void check_snapshot_view(const struct kg_window_snapshot *expected,
+    const struct editor_window *actual)
+{
+	CHECK(win_shows_buffer(actual, expected->buffer));
+	CHECK(actual->cx == expected->cx);
+	CHECK(actual->cy == expected->cy);
+	CHECK(actual->rowoff == expected->rowoff);
+	CHECK(actual->coloff == expected->coloff);
+	CHECK(actual->rowoff_visual == expected->rowoff_visual);
+	CHECK(actual->desired_visual_col == expected->desired_visual_col);
+	CHECK(actual->col_group == expected->col_group);
+}
+
+static int same_window_handle(
+    struct kg_window_handle a, struct kg_window_handle b)
+{
+	return a.slot == b.slot && a.id == b.id && a.generation == b.generation;
+}
+
+static void check_configuration_view_restored(
+    const struct kg_window_configuration *configuration)
+{
+	CHECK(win_count == configuration->count);
+	for (int i = 0; i < configuration->count; i++) {
+		const struct kg_window_snapshot *snapshot
+		    = &configuration->windows[i];
+
+		CHECK(winlist[snapshot->slot].active);
+		check_snapshot_view(snapshot, &winlist[snapshot->slot]);
+	}
+	CHECK(win_current == configuration->selected_window.slot);
+	CHECK(buf_current == win_buffer_slot(wcur()));
+}
+
+static void fill_buffer_handles(struct kg_buffer_handle handles[], int count)
+{
+	for (int i = 0; i < count; i++) {
+		handles[i] = buf_handle(i);
+		CHECK(buf_resolve(handles[i]) != NULL);
+	}
+}
+
+static void session_with_buffers(int count, char *names[])
+{
+	static int serial;
+	char leaf[48];
+	const char *text
+	    = "line0\nline1\nline2\nline3\nline4\nline5\nline6\nline7\n";
+
+	for (int i = 0; i < count; i++) {
+		const char *path;
+
+		snprintf(leaf, sizeof(leaf), "layout-%d-%d.txt", serial, i);
+		path = tmppath(leaf);
+		write_text_file(path, text);
+		names[i] = strdup(path);
+		CHECK(names[i] != NULL);
+	}
+	serial++;
+	session(count, names);
+}
+
+static void teardown_buffer_session(int count, char *names[])
+{
+	session_teardown();
+	for (int i = 0; i < count; i++) {
+		free(names[i]);
+	}
+}
+
+struct layout_observation {
+	struct kg_window_configuration configuration;
+	struct kg_window_handle handles[MAX_WINDOWS];
+	int geometry[MAX_WINDOWS][5];
+	int current;
+	int buffer_current;
+	int count;
+	void *selected_vgeom;
+};
+
+static struct layout_observation observe_layout(void)
+{
+	struct layout_observation observed = { 0 };
+
+	win_configuration_save(&observed.configuration);
+	observed.current = win_current;
+	observed.buffer_current = buf_current;
+	observed.count = win_count;
+	observed.selected_vgeom = wcur()->vgeom;
+	for (int i = 0; i < MAX_WINDOWS; i++) {
+		observed.handles[i] = win_handle(i);
+		observed.geometry[i][0] = winlist[i].active;
+		observed.geometry[i][1] = winlist[i].x;
+		observed.geometry[i][2] = winlist[i].y;
+		observed.geometry[i][3] = winlist[i].w;
+		observed.geometry[i][4] = winlist[i].h;
+	}
+	return observed;
+}
+
+static void check_layout_unchanged(const struct layout_observation *before)
+{
+	check_configuration_view_restored(&before->configuration);
+	CHECK(win_current == before->current);
+	CHECK(buf_current == before->buffer_current);
+	CHECK(win_count == before->count);
+	CHECK(wcur()->vgeom == before->selected_vgeom);
+	for (int i = 0; i < MAX_WINDOWS; i++) {
+		CHECK(same_window_handle(win_handle(i), before->handles[i]));
+		CHECK(winlist[i].active == before->geometry[i][0]);
+		CHECK(winlist[i].x == before->geometry[i][1]);
+		CHECK(winlist[i].y == before->geometry[i][2]);
+		CHECK(winlist[i].w == before->geometry[i][3]);
+		CHECK(winlist[i].h == before->geometry[i][4]);
+	}
+	CHECK(kg_event_queue_pop(NULL) == false);
 }
 
 /* Index of the one active window that is not `win_current`. */
@@ -888,18 +1015,20 @@ static void test_slot_exhaustion_and_reuse(void)
 	names[0] = strdup(tmppath("a.txt"));
 	session(1, names);
 
+	/* An open is ~3 lifecycle events (the outgoing view's detach, the
+	 * incoming one's attach, the buffer's open) against a 64-slot queue,
+	 * so filling the table drains as it goes -- the same relief a real
+	 * session's per-keystroke safe point gives.  Without it the last
+	 * slots are refused for want of event capacity, and this suite would
+	 * be asserting that ceiling instead of the buffer table's. */
 	for (i = 1; i < MAX_BUFFERS; i++) {
 		snprintf(name, sizeof(name), "f%02d.txt", i);
 		write_text_file(tmppath(name), "x\n");
 		buf_open_path(tmppath(name), 0);
+		kg_event_drain_safe();
 	}
 	CHECK(buf_count == MAX_BUFFERS);
 	invariants();
-	/* Filling every slot is ~2 lifecycle events each (open, then the
-	 * window following it); drain them here, the same relief a real
-	 * session's safe points give, so the kill/reopen below is not the
-	 * operation that happens to hit the reserved capacity's ceiling. */
-	kg_event_drain_safe();
 
 	/* One more is refused rather than overwriting a slot. */
 	write_text_file(tmppath("overflow.txt"), "x\n");
@@ -937,6 +1066,103 @@ static void test_slot_exhaustion_and_reuse(void)
 	CHECK(bslot(5)->dirty == 0);
 	CHECK(!kg_mark_is_set(bslot(5)));
 	CHECK(kg_marker_resolve(killed_marker, &marker_pos) == KG_MARKER_GONE);
+
+	session_teardown();
+	free(names[0]);
+}
+
+/* The bound sizes buflist[] and every sibling table indexed by a buffer
+ * slot, and only a full table reaches the last entry of any of them.  Fill
+ * it, then take the buffer that landed in the last slot through the whole
+ * lifecycle: resolve, display in another window, undisplay, kill, reuse,
+ * and a change that collapses into that slot's event-overflow entry. */
+static void test_last_slot_lifecycle(void)
+{
+	const int last = MAX_BUFFERS - 1;
+	char *names[1];
+	char name[64];
+	struct kg_buffer_handle handle, reopened;
+	struct kg_event ev;
+	int i, other;
+
+	write_text_file(tmppath("a.txt"), "alpha\n");
+	names[0] = strdup(tmppath("a.txt"));
+	session(1, names);
+
+	/* Bounded by the iteration count as well as by buf_count, so an open
+	 * that stops taking slots ends the loop instead of spinning; the
+	 * drain is what keeps the event queue from being the thing that
+	 * stops it (see test_slot_exhaustion_and_reuse()). */
+	for (i = 1; i < MAX_BUFFERS && buf_count < MAX_BUFFERS; i++) {
+		snprintf(name, sizeof(name), "f%02d.txt", i);
+		write_text_file(tmppath(name), "x\n");
+		buf_open_path(tmppath(name), 0);
+		kg_event_drain_safe();
+	}
+	CHECK(buf_count == MAX_BUFFERS);
+	CHECK(bslot(last)->active);
+	invariants();
+
+	/* One past the last slot is refused rather than folded onto one. */
+	write_text_file(tmppath("over.txt"), "x\n");
+	buf_open_path(tmppath("over.txt"), 0);
+	CHECK(buf_count == MAX_BUFFERS);
+	invariants();
+
+	/* The last slot answers to a handle like any other. */
+	handle = buf_handle(last);
+	CHECK(buf_resolve(handle) == bslot(last));
+	CHECK(buf_handle_slot(handle) == last);
+
+	/* It displays in a second window, and stops being displayed.  The
+	 * fill left it selected, and a buffer already on screen is not
+	 * displayed again, so look away from it first. */
+	CHECK(buf_select(0));
+	kg_event_drain_safe();
+	CHECK(win_can_display_buffer_other_window(last));
+	win_display_buffer_other_window(last);
+	other = other_window();
+	CHECK(other >= 0);
+	CHECK(win_buffer_slot(&winlist[other]) == last);
+	win_undisplay_buffer(last);
+	CHECK(win_count == 1);
+	for (i = 0; i < MAX_WINDOWS; i++) {
+		CHECK(!winlist[i].active
+		    || !win_shows_buffer(&winlist[i], handle));
+	}
+	invariants();
+	kg_event_drain_safe();
+
+	/* Killing it frees the last slot, and it is the only free one, so
+	 * the next open must take it back. */
+	buf_select(last);
+	buf_kill(-1);
+	CHECK(buf_count == MAX_BUFFERS - 1);
+	CHECK(!bslot(last)->active);
+	CHECK(buf_resolve(handle) == NULL);
+	buf_open_path(tmppath("over.txt"), 0);
+	CHECK(buf_count == MAX_BUFFERS);
+	CHECK(bslot(last)->active);
+	CHECK(strstr(bslot(last)->filename, "over.txt") != NULL);
+	reopened = buf_handle(last);
+	CHECK(buf_resolve(reopened) == bslot(last));
+	CHECK(buf_resolve(handle) == NULL);
+	invariants();
+	kg_event_drain_safe();
+
+	/* With no droppable room left, a change to the reused buffer folds
+	 * into the overflow entry the last slot owns, and the drain hands it
+	 * back naming that buffer's current identity. */
+	CHECK(buf_select(last));
+	kg_event_drain_safe();
+	kg_event_queue_set_capacity_for_test(KG_EVENT_LIFECYCLE_RESERVE);
+	editor_insert_char('Q');
+	CHECK(kg_event_queue_pop(&ev));
+	CHECK(ev.kind == KG_EVENT_BUFFER_BROAD_CHANGE);
+	CHECK(ev.payload.broad.buffer.slot == last);
+	CHECK(ev.payload.broad.buffer.id == reopened.id);
+	CHECK(kg_event_queue_pop(NULL) == false);
+	kg_event_queue_init();
 
 	session_teardown();
 	free(names[0]);
@@ -1324,6 +1550,58 @@ static void test_special_buffer_reuse_bumps_identity(void)
 	free(names[0]);
 }
 
+/* A buffer the USER made under one of kg's own special names is not kg's
+ * to rebuild.  C-x b takes any name at all (README), so `*compilation*` or
+ * a debugger pane's name is a buffer somebody may have typed into -- and
+ * buf_prepare_special_text() used to adopt it by name alone, dropping every
+ * row and freeing the undo chain with it.  Ten callers reach that path, and
+ * the debugger's four model panes reach it on a timer with no command
+ * pressed at all.
+ *
+ * The flag goes with the slot, so killing the user's buffer hands the name
+ * back and kg can make its own again. */
+static void test_a_user_buffer_is_not_adopted_as_a_special_one(void)
+{
+	char *names[1];
+	int mine;
+
+	write_text_file(tmppath("a.txt"), "alpha\n");
+	names[0] = strdup(tmppath("a.txt"));
+	session(1, names);
+
+	mine = buf_handle_slot(buf_create_named("*dap-stack*"));
+	CHECK(mine >= 0);
+	CHECK(buf_select(mine) != 0);
+	editor_insert_char('h');
+	editor_insert_char('i');
+	CHECK(bslot(mine)->numrows == 1);
+	CHECKF(bslot(mine)->undostack.head != NULL, "nothing to undo to begin");
+
+	CHECKF(
+	    buf_prepare_special_text("*dap-stack*", &compilation_syntax, 1) < 0,
+	    "kg adopted a buffer of the user's");
+	CHECKF(bslot(mine)->numrows == 1 && bslot(mine)->row[0].size == 2,
+	    "the user's text went with the adoption");
+	CHECKF(bslot(mine)->undostack.head != NULL,
+	    "the user's undo chain went with the adoption");
+	CHECKF(buf_find_special("*dap-stack*") < 0,
+	    "the user's buffer answers to the special-buffer lookup");
+
+	/* buf_kill_buffer() refuses a modified buffer outright (the prompt
+	 * that would ask about it is buf_kill()'s), and what is under test
+	 * here is the slot handover, not that policy. */
+	bslot(mine)->dirty = 0;
+	CHECK(buf_kill_buffer(buf_handle(mine)) != 0);
+	kg_event_drain_safe();
+	CHECKF(buf_prepare_special_text("*dap-stack*", &compilation_syntax, 1)
+		>= 0,
+	    "the name stayed refused after the user's buffer was killed");
+	CHECK(buf_find_special("*dap-stack*") >= 0);
+
+	session_teardown();
+	free(names[0]);
+}
+
 /* buf_current is the selected window's buffer, by construction.  Every
  * command that changes either one has to leave them agreeing, or the mode
  * line describes one buffer while the keys edit another. */
@@ -1595,6 +1873,538 @@ static void test_split_publishes_view_attached_for_the_new_window(void)
 	free(names[0]);
 }
 
+static void test_configuration_round_trip_resize_and_reuse(void)
+{
+	char *names[3];
+	struct kg_buffer_handle buffers[3];
+	struct kg_window_configuration configuration;
+	struct kg_window_handle before[MAX_WINDOWS];
+	int rows[] = { 2, 1 };
+
+	session_with_buffers(3, names);
+	fill_buffer_handles(buffers, 3);
+	CHECK(win_arrange_grid(2, rows, buffers, 3, 1) == KG_WINDOW_LAYOUT_OK);
+	for (int i = 0; i < 3; i++) {
+		struct editor_window *w = &winlist[i];
+
+		w->cx = i + 1;
+		w->cy = i;
+		w->rowoff = i + 1;
+		w->coloff = i;
+		w->rowoff_visual = i + 3;
+		w->desired_visual_col = i + 7;
+	}
+	/* Selected slot 1 has ten text rows before resize and only four after.
+	 * Its logical point must stay row 7, column 4 across that shrink. */
+	winlist[1].rowoff = 1;
+	winlist[1].cy = 6;
+	winlist[1].coloff = 1;
+	winlist[1].cx = 3;
+	win_configuration_save(&configuration);
+	CHECK(configuration.valid);
+	int saved_filerow = wcur()->rowoff + wcur()->cy;
+	int saved_filecol = wcur()->coloff + wcur()->cx;
+	for (int i = 0; i < 3; i++) {
+		before[i] = win_handle(i);
+	}
+
+	kg_event_drain_safe();
+	CHECK(win_configuration_restore(&configuration) == KG_WINDOW_LAYOUT_OK);
+	check_configuration_view_restored(&configuration);
+	for (int i = 0; i < 3; i++) {
+		CHECK(win_resolve(before[i]) == NULL);
+		CHECK(winlist[i].vgeom == NULL);
+	}
+	(void)get_total_visual_rows(wcur(), bcur());
+	CHECK(wcur()->vgeom != NULL);
+	struct kg_window_handle first_restore = win_handle(win_current);
+	kg_event_drain_safe();
+	win_total_rows = 12;
+	win_total_cols = 41;
+	/* Restore is read-only with respect to its caller-owned value and
+	 * reuses it against the terminal's new geometry. */
+	CHECK(win_configuration_restore(&configuration) == KG_WINDOW_LAYOUT_OK);
+	CHECK(win_count == configuration.count);
+	for (int i = 0; i < configuration.count; i++) {
+		struct kg_window_snapshot *snapshot = &configuration.windows[i];
+
+		CHECK(win_shows_buffer(
+		    &winlist[snapshot->slot], snapshot->buffer));
+		CHECK(winlist[snapshot->slot].col_group == snapshot->col_group);
+	}
+	CHECK(win_current == configuration.selected_window.slot);
+	CHECK(buf_current == win_buffer_slot(wcur()));
+	CHECK(wcur()->rowoff + wcur()->cy == saved_filerow);
+	CHECK(wcur()->coloff + wcur()->cx == saved_filecol);
+	CHECK(wcur()->cy < wcur()->h);
+	CHECK(winlist[0].w + winlist[2].w == 40);
+	CHECK(winlist[0].h == 5);
+	CHECK(win_resolve(first_restore) == NULL);
+	CHECK(wcur()->vgeom == NULL);
+
+	teardown_buffer_session(3, names);
+}
+
+static void test_configuration_clamps_after_buffer_shrinks(void)
+{
+	char *names[1];
+	struct kg_window_configuration configuration;
+
+	session_with_buffers(1, names);
+	wcur()->rowoff = 5;
+	wcur()->cy = 2;
+	wcur()->coloff = 2;
+	wcur()->cx = 3;
+	win_configuration_save(&configuration);
+	/* Shrink in memory after the save; restore must not revive a point
+	 * beyond the new last row/column. */
+	while (bcur()->numrows > 1) {
+		editor_del_row(bcur(), bcur()->numrows - 1);
+	}
+	CHECK(win_configuration_restore(&configuration) == KG_WINDOW_LAYOUT_OK);
+	CHECK(wcur()->rowoff + wcur()->cy == 0);
+	CHECK(wcur()->coloff + wcur()->cx <= bcur()->row[0].size);
+
+	teardown_buffer_session(1, names);
+}
+
+static void test_configuration_clamps_nonselected_visual_offset_after_shrink(
+    void)
+{
+	char *names[2];
+	struct kg_buffer_handle buffers[2];
+	struct kg_window_configuration configuration;
+	int rows[] = { 2 };
+
+	session_with_buffers(2, names);
+	fill_buffer_handles(buffers, 2);
+	/* Slot 0 is deliberately non-selected.  Its visual offset is far beyond
+	 * what will remain after its buffer shrinks, and the selected pane
+	 * cannot repair it as part of cursor refresh. */
+	CHECK(win_arrange_grid(1, rows, buffers, 2, 1) == KG_WINDOW_LAYOUT_OK);
+	buflist[0].visual_line_mode = 1;
+	winlist[0].rowoff_visual = 90;
+	win_configuration_save(&configuration);
+	while (buflist[0].numrows > 1) {
+		editor_del_row(&buflist[0], buflist[0].numrows - 1);
+	}
+	/* Slot 0 is normalized first, so this forces that non-selected pane's
+	 * total-row query through vgeom's allocation-free scan fallback. */
+	vgeom_fail_alloc_after(0);
+	CHECK(win_configuration_restore(&configuration) == KG_WINDOW_LAYOUT_OK);
+	CHECK(win_current == 1);
+	CHECK(winlist[0].rowoff_visual == 0);
+	CHECK(winlist[0].vgeom == NULL);
+	CHECK(winlist[1].vgeom == NULL);
+	vgeom_fail_alloc_after(-1);
+
+	teardown_buffer_session(2, names);
+}
+
+static void test_configuration_canonicalizes_column_labels_for_split(void)
+{
+	char *names[1];
+	struct kg_window_configuration configuration;
+
+	session_with_buffers(1, names);
+	win_configuration_save(&configuration);
+	configuration.windows[0].col_group = INT_MAX;
+	CHECK(win_configuration_restore(&configuration) == KG_WINDOW_LAYOUT_OK);
+	CHECK(wcur()->col_group == 0);
+	/* An ordinary vertical split computes max_group + 1.  Dense restore
+	 * labels keep this defined even for the largest valid public input. */
+	win_split_vertical();
+	CHECK(win_count == 2);
+	CHECK(winlist[0].col_group == 0);
+	CHECK(winlist[other_window()].col_group == 1);
+
+	teardown_buffer_session(1, names);
+}
+
+static void test_configuration_events_use_old_then_fresh_handles(void)
+{
+	char *names[2];
+	struct kg_buffer_handle buffers[2];
+	struct kg_window_configuration configuration;
+	struct kg_event events[4];
+	struct kg_window_handle old[2];
+	int rows[] = { 2 };
+
+	session_with_buffers(2, names);
+	fill_buffer_handles(buffers, 2);
+	CHECK(win_arrange_grid(1, rows, buffers, 2, 1) == KG_WINDOW_LAYOUT_OK);
+	win_configuration_save(&configuration);
+	old[0] = win_handle(0);
+	old[1] = win_handle(1);
+	kg_event_drain_safe();
+
+	CHECK(win_configuration_restore(&configuration) == KG_WINDOW_LAYOUT_OK);
+	CHECK(drain_all(events, 4) == 4);
+	for (int i = 0; i < 2; i++) {
+		CHECK(events[i].kind == KG_EVENT_VIEW_DETACHED);
+		CHECK(
+		    same_window_handle(events[i].payload.view.window, old[i]));
+		CHECK(events[i].payload.view.buffer.id == buffers[i].id);
+		CHECK(win_resolve(old[i]) == NULL);
+	}
+	for (int i = 0; i < 2; i++) {
+		struct kg_window_handle fresh = win_handle(i);
+		struct kg_event *event = &events[i + 2];
+
+		CHECK(event->kind == KG_EVENT_VIEW_ATTACHED);
+		CHECK(event->payload.view.window.id == fresh.id);
+		CHECK(event->payload.view.window.id != old[i].id);
+		CHECK(win_resolve(event->payload.view.window) == &winlist[i]);
+		CHECK(event->payload.view.buffer.id == buffers[i].id);
+	}
+
+	teardown_buffer_session(2, names);
+}
+
+static void test_configuration_dead_buffer_fallbacks(void)
+{
+	char *names[4];
+	struct kg_buffer_handle buffers[4];
+	struct kg_window_configuration configuration;
+	int saved_rows[] = { 2 }, other_rows[] = { 2 };
+
+	/* The selected saved buffer dies: first surviving saved window wins. */
+	session_with_buffers(4, names);
+	fill_buffer_handles(buffers, 4);
+	CHECK(win_arrange_grid(1, saved_rows, buffers, 2, 1)
+	    == KG_WINDOW_LAYOUT_OK);
+	win_configuration_save(&configuration);
+	CHECK(win_arrange_grid(1, other_rows, &buffers[2], 2, 0)
+	    == KG_WINDOW_LAYOUT_OK);
+	CHECK(buf_kill_buffer(buffers[1]));
+	kg_event_drain_safe();
+	CHECK(win_configuration_restore(&configuration) == KG_WINDOW_LAYOUT_OK);
+	CHECK(win_count == 1);
+	CHECK(win_shows_buffer(wcur(), buffers[0]));
+	CHECK(buf_current == buffers[0].slot);
+	teardown_buffer_session(4, names);
+
+	/* A dead unselected window is omitted without moving selection. */
+	session_with_buffers(4, names);
+	fill_buffer_handles(buffers, 4);
+	CHECK(win_arrange_grid(1, saved_rows, buffers, 2, 1)
+	    == KG_WINDOW_LAYOUT_OK);
+	win_configuration_save(&configuration);
+	CHECK(win_arrange_grid(1, other_rows, &buffers[2], 2, 0)
+	    == KG_WINDOW_LAYOUT_OK);
+	CHECK(buf_kill_buffer(buffers[0]));
+	kg_event_drain_safe();
+	CHECK(win_configuration_restore(&configuration) == KG_WINDOW_LAYOUT_OK);
+	CHECK(win_count == 1);
+	CHECK(win_current == 1);
+	CHECK(win_shows_buffer(wcur(), buffers[1]));
+	CHECK(buf_current == buffers[1].slot);
+	teardown_buffer_session(4, names);
+}
+
+static void test_configuration_dead_handle_does_not_follow_slot_reuse(void)
+{
+	char *names[2];
+	struct kg_buffer_handle buffers[2], replacement;
+	struct kg_window_configuration configuration;
+	int rows[] = { 2 };
+
+	session_with_buffers(2, names);
+	fill_buffer_handles(buffers, 2);
+	CHECK(win_arrange_grid(1, rows, buffers, 2, 0) == KG_WINDOW_LAYOUT_OK);
+	win_configuration_save(&configuration);
+	CHECK(buf_kill_buffer(buffers[0]));
+	replacement = buf_create_named("replacement-in-reused-slot");
+	CHECK(buf_resolve(replacement) != NULL);
+	CHECK(replacement.slot == buffers[0].slot);
+	CHECK(replacement.id != buffers[0].id);
+	kg_event_drain_safe();
+
+	CHECK(win_configuration_restore(&configuration) == KG_WINDOW_LAYOUT_OK);
+	CHECK(win_count == 1);
+	CHECK(win_shows_buffer(wcur(), buffers[1]));
+	CHECK(!win_shows_buffer(wcur(), replacement));
+
+	teardown_buffer_session(2, names);
+}
+
+static void test_configuration_none_survive_creates_scratch(void)
+{
+	char *names[2];
+	struct kg_buffer_handle buffers[2];
+	struct kg_window_configuration configuration;
+	struct kg_event events[3];
+	int one[] = { 1 };
+
+	session_with_buffers(2, names);
+	fill_buffer_handles(buffers, 2);
+	win_configuration_save(&configuration);
+	CHECK(
+	    win_arrange_grid(1, one, &buffers[1], 1, 0) == KG_WINDOW_LAYOUT_OK);
+	CHECK(buf_kill_buffer(buffers[0]));
+	kg_event_drain_safe();
+	CHECK(buf_find_open("*scratch*") < 0);
+	CHECK(win_configuration_restore(&configuration) == KG_WINDOW_LAYOUT_OK);
+	CHECK(win_count == 1);
+	CHECK(strcmp(bcur()->filename, "*scratch*") == 0);
+	CHECK(bcur()->no_file);
+	CHECK(drain_all(events, 3) == 3);
+	CHECK(events[0].kind == KG_EVENT_BUFFER_OPENED);
+	CHECK(events[1].kind == KG_EVENT_VIEW_DETACHED);
+	CHECK(events[2].kind == KG_EVENT_VIEW_ATTACHED);
+
+	teardown_buffer_session(2, names);
+}
+
+static void test_configuration_none_survive_reuses_existing_scratch(void)
+{
+	char *names[2];
+	struct kg_buffer_handle buffers[2], scratch;
+	struct kg_window_configuration configuration;
+	struct kg_event events[2];
+	int one[] = { 1 };
+
+	session_with_buffers(2, names);
+	fill_buffer_handles(buffers, 2);
+	win_configuration_save(&configuration);
+	scratch = buf_create_named("*scratch*");
+	CHECK(buf_resolve(scratch) != NULL);
+	CHECK(
+	    win_arrange_grid(1, one, &buffers[1], 1, 0) == KG_WINDOW_LAYOUT_OK);
+	CHECK(buf_kill_buffer(buffers[0]));
+	kg_event_drain_safe();
+	CHECK(win_configuration_restore(&configuration) == KG_WINDOW_LAYOUT_OK);
+	CHECK(win_shows_buffer(wcur(), scratch));
+	CHECK(drain_all(events, 2) == 2);
+	CHECK(events[0].kind == KG_EVENT_VIEW_DETACHED);
+	CHECK(events[1].kind == KG_EVENT_VIEW_ATTACHED);
+
+	teardown_buffer_session(2, names);
+}
+
+static void test_configuration_scratch_failures_are_atomic(void)
+{
+	char *names[2];
+	struct kg_buffer_handle buffers[2];
+	struct kg_window_configuration dead_configuration;
+	struct kg_event_reservation all_credits[3];
+	struct layout_observation before;
+	int one[] = { 1 };
+
+	/* The one fallible pre-commit allocation leaves even the event queue
+	 * and old vgeom untouched. */
+	session_with_buffers(2, names);
+	fill_buffer_handles(buffers, 2);
+	win_configuration_save(&dead_configuration);
+	CHECK(
+	    win_arrange_grid(1, one, &buffers[1], 1, 0) == KG_WINDOW_LAYOUT_OK);
+	CHECK(buf_kill_buffer(buffers[0]));
+	kg_event_drain_safe();
+	/* OPEN + old DETACH + new ATTACH exactly fill this logical ring. */
+	kg_event_queue_set_capacity_for_test(3);
+	wcur()->vgeom = malloc(1);
+	before = observe_layout();
+	buf_create_named_fail_alloc_once_for_test();
+	CHECK(win_configuration_restore(&dead_configuration)
+	    == KG_WINDOW_LAYOUT_ALLOCATION_FAILED);
+	check_layout_unchanged(&before);
+	/* The failed allocation released every pre-reserved credit. */
+	CHECK(kg_event_reserve_lifecycle_batch(all_credits, 3));
+	for (int i = 0; i < 3; i++) {
+		kg_event_release_reservation(&all_credits[i]);
+	}
+	CHECK(win_configuration_restore(&dead_configuration)
+	    == KG_WINDOW_LAYOUT_OK);
+	kg_event_queue_init();
+	teardown_buffer_session(2, names);
+
+	/* A full buffer table refuses before reserving or detaching anything.
+	 */
+	session_with_buffers(2, names);
+	fill_buffer_handles(buffers, 2);
+	win_configuration_save(&dead_configuration);
+	CHECK(
+	    win_arrange_grid(1, one, &buffers[1], 1, 0) == KG_WINDOW_LAYOUT_OK);
+	CHECK(buf_kill_buffer(buffers[0]));
+	for (int i = 0; i < MAX_BUFFERS && buf_count < MAX_BUFFERS; i++) {
+		char name[32];
+
+		snprintf(name, sizeof(name), "fill-%d", i);
+		CHECK(buf_resolve(buf_create_named(name)) != NULL);
+	}
+	CHECK(buf_count == MAX_BUFFERS);
+	kg_event_drain_safe();
+	wcur()->vgeom = malloc(1);
+	before = observe_layout();
+	CHECK(win_configuration_restore(&dead_configuration)
+	    == KG_WINDOW_LAYOUT_BUFFER_CAPACITY);
+	check_layout_unchanged(&before);
+	teardown_buffer_session(2, names);
+}
+
+static void test_grid_success_minimum_asymmetric_and_live_point(void)
+{
+	char *names[6];
+	struct kg_buffer_handle buffers[6];
+	int six_rows[] = { 3, 3 }, asymmetric[] = { 1, 2 };
+
+	session_with_buffers(6, names);
+	fill_buffer_handles(buffers, 6);
+	/* last_point is deliberately stale.  Detaching the live view must
+	 * bank and preserve this current point before the grid attaches it. */
+	wcur()->cx = 3;
+	wcur()->cy = 2;
+	wcur()->rowoff = 1;
+	wcur()->coloff = 2;
+	bcur()->last_point = (struct kg_point) { 0 };
+	win_total_rows = 7;
+	win_total_cols = 3;
+	CHECK(win_arrange_grid(2, six_rows, buffers, 6, 0)
+	    == KG_WINDOW_LAYOUT_OK);
+	CHECK(win_count == 6);
+	CHECK(wcur()->rowoff + wcur()->cy == 3);
+	CHECK(wcur()->coloff + wcur()->cx == 5);
+	for (int i = 0; i < 6; i++) {
+		CHECK(winlist[i].active);
+		CHECK(winlist[i].col_group == (i < 3 ? 0 : 1));
+		CHECK(winlist[i].h == 1);
+		CHECK(winlist[i].w == 1);
+	}
+	CHECK(win_current == 0 && buf_current == buffers[0].slot);
+
+	win_total_rows = 5;
+	CHECK(win_arrange_grid(2, asymmetric, buffers, 3, 2)
+	    == KG_WINDOW_LAYOUT_OK);
+	CHECK(win_count == 3);
+	CHECK(winlist[0].col_group == 0);
+	CHECK(winlist[1].col_group == 1);
+	CHECK(winlist[2].col_group == 1);
+	CHECK(win_current == 2 && buf_current == buffers[2].slot);
+	invariants();
+
+	teardown_buffer_session(6, names);
+}
+
+static void test_configuration_restore_minimum_geometry(void)
+{
+	char *names[6];
+	struct kg_buffer_handle buffers[6];
+	struct kg_window_configuration configuration;
+	struct layout_observation before;
+	int rows[] = { 3, 3 };
+
+	session_with_buffers(6, names);
+	fill_buffer_handles(buffers, 6);
+	CHECK(win_arrange_grid(2, rows, buffers, 6, 2) == KG_WINDOW_LAYOUT_OK);
+	win_configuration_save(&configuration);
+	kg_event_drain_safe();
+	win_total_rows = 7;
+	win_total_cols = 3;
+	CHECK(win_configuration_restore(&configuration) == KG_WINDOW_LAYOUT_OK);
+	for (int i = 0; i < 6; i++) {
+		CHECK(winlist[i].h == 1);
+		CHECK(winlist[i].w == 1);
+	}
+	kg_event_drain_safe();
+	wcur()->vgeom = malloc(1);
+	before = observe_layout();
+
+	win_total_rows = 6;
+	CHECK(win_configuration_restore(&configuration)
+	    == KG_WINDOW_LAYOUT_TOO_SMALL);
+	check_layout_unchanged(&before);
+	win_total_rows = 7;
+	win_total_cols = 2;
+	CHECK(win_configuration_restore(&configuration)
+	    == KG_WINDOW_LAYOUT_TOO_SMALL);
+	check_layout_unchanged(&before);
+
+	teardown_buffer_session(6, names);
+}
+
+static void test_grid_failures_leave_everything_unchanged(void)
+{
+	char *names[4];
+	struct kg_buffer_handle buffers[4], duplicate[2];
+	struct layout_observation before;
+	int two_columns[] = { 1, 1 }, bad_sum[] = { 1, 2 };
+	int too_many[] = { MAX_WINDOWS + 1 };
+
+	session_with_buffers(4, names);
+	fill_buffer_handles(buffers, 4);
+	CHECK(buf_kill_buffer(buffers[3]));
+	kg_event_drain_safe();
+	wcur()->vgeom = malloc(1);
+	before = observe_layout();
+	duplicate[0] = duplicate[1] = buffers[1];
+
+	CHECK(win_arrange_grid(2, two_columns, duplicate, 2, 0)
+	    == KG_WINDOW_LAYOUT_DUPLICATE_BUFFER);
+	check_layout_unchanged(&before);
+	CHECK(win_arrange_grid(2, two_columns, &buffers[2], 2, 0)
+	    == KG_WINDOW_LAYOUT_BUFFER_GONE);
+	check_layout_unchanged(&before);
+	CHECK(win_arrange_grid(2, bad_sum, buffers, 2, 0)
+	    == KG_WINDOW_LAYOUT_INVALID);
+	check_layout_unchanged(&before);
+	CHECK(win_arrange_grid(1, too_many, buffers, 1, 0)
+	    == KG_WINDOW_LAYOUT_WINDOW_CAPACITY);
+	check_layout_unchanged(&before);
+
+	win_total_rows = 2; /* one row/column needs 1 echo + 2 pane rows. */
+	CHECK(win_arrange_grid(2, two_columns, buffers, 2, 0)
+	    == KG_WINDOW_LAYOUT_TOO_SMALL);
+	check_layout_unchanged(&before);
+	win_total_rows = 3;
+	win_total_cols = 2; /* two one-cell columns also need one separator. */
+	CHECK(win_arrange_grid(2, two_columns, buffers, 2, 0)
+	    == KG_WINDOW_LAYOUT_TOO_SMALL);
+	check_layout_unchanged(&before);
+	win_total_cols = 3;
+	kg_event_queue_set_capacity_for_test(2);
+	CHECK(win_arrange_grid(2, two_columns, buffers, 2, 0)
+	    == KG_WINDOW_LAYOUT_EVENT_CAPACITY);
+	check_layout_unchanged(&before);
+	kg_event_queue_init();
+
+	teardown_buffer_session(4, names);
+}
+
+static void test_configuration_rejects_malformed_public_values(void)
+{
+	char *names[2];
+	struct kg_buffer_handle buffers[2];
+	struct kg_window_configuration valid, malformed[6];
+	struct layout_observation before;
+	int rows[] = { 2 };
+
+	session_with_buffers(2, names);
+	fill_buffer_handles(buffers, 2);
+	CHECK(win_arrange_grid(1, rows, buffers, 2, 0) == KG_WINDOW_LAYOUT_OK);
+	win_configuration_save(&valid);
+	for (int i = 0; i < 6; i++) {
+		malformed[i] = valid;
+	}
+	malformed[0].windows[0].buffer.slot = MAX_BUFFERS;
+	malformed[1].windows[1].slot = malformed[1].windows[0].slot;
+	malformed[1].windows[1].window.slot = malformed[1].windows[0].slot;
+	malformed[2].windows[1].slot = malformed[2].windows[0].slot;
+	malformed[2].windows[1].window = malformed[2].windows[0].window;
+	malformed[3].selected_window.id++;
+	malformed[4].windows[0].rowoff = -1;
+	malformed[5].windows[0].rowoff = INT_MAX;
+	malformed[5].windows[0].cy = 1;
+	kg_event_drain_safe();
+	wcur()->vgeom = malloc(1);
+	before = observe_layout();
+	for (int i = 0; i < 6; i++) {
+		CHECK(win_configuration_restore(&malformed[i])
+		    == KG_WINDOW_LAYOUT_INVALID);
+		check_layout_unchanged(&before);
+	}
+	teardown_buffer_session(2, names);
+}
+
 #if KG_DEBUG_STATE
 #include <signal.h>
 #include <sys/wait.h>
@@ -1667,6 +2477,7 @@ int main(void)
 	RUN(test_kill_buffer_shown_twice);
 	RUN(test_kill_shown_in_two_windows_publishes_killing_detach_killed);
 	RUN(test_slot_exhaustion_and_reuse);
+	RUN(test_last_slot_lifecycle);
 	RUN(test_append_to_hidden_buffer_leaves_current_alone);
 	RUN(test_append_to_visible_buffer_follows_that_window);
 	RUN(test_reflow_sizes);
@@ -1676,12 +2487,27 @@ int main(void)
 	RUN(test_check_handles_recovers_an_injected_stale_view);
 	RUN(test_last_buffer_leaves_no_stale_view);
 	RUN(test_special_buffer_reuse_bumps_identity);
+	RUN(test_a_user_buffer_is_not_adopted_as_a_special_one);
 	RUN(test_current_buffer_is_the_selected_window_s);
 	RUN(test_goal_column_belongs_to_the_view);
 	RUN(test_window_handle_resolves_until_slot_released_and_reused);
 	RUN(test_split_gives_the_new_window_a_distinct_identity);
 	RUN(test_open_precedes_attach_when_the_session_starts);
 	RUN(test_split_publishes_view_attached_for_the_new_window);
+	RUN(test_configuration_round_trip_resize_and_reuse);
+	RUN(test_configuration_clamps_after_buffer_shrinks);
+	RUN(test_configuration_clamps_nonselected_visual_offset_after_shrink);
+	RUN(test_configuration_canonicalizes_column_labels_for_split);
+	RUN(test_configuration_events_use_old_then_fresh_handles);
+	RUN(test_configuration_dead_buffer_fallbacks);
+	RUN(test_configuration_dead_handle_does_not_follow_slot_reuse);
+	RUN(test_configuration_none_survive_creates_scratch);
+	RUN(test_configuration_none_survive_reuses_existing_scratch);
+	RUN(test_configuration_scratch_failures_are_atomic);
+	RUN(test_grid_success_minimum_asymmetric_and_live_point);
+	RUN(test_configuration_restore_minimum_geometry);
+	RUN(test_grid_failures_leave_everything_unchanged);
+	RUN(test_configuration_rejects_malformed_public_values);
 #if KG_DEBUG_STATE
 	RUN(test_invariant_seven_fires_on_corrupted_marker_owner);
 #endif

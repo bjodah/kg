@@ -42,11 +42,13 @@ static int editor_saturating_add(int a, int b)
  * two that match mean they did not.  A command that samples it before
  * dispatch and after can tell whether it edited anything -- which the
  * dirty counter could not, because the paths that set it to 1 leave it at
- * 1 when it was already there. */
+ * 1 when it was already there.  `layout_generation` advances with it so
+ * display caches see text changes too. */
 void buffer_note_change(struct editor_buffer *b)
 {
 	b->dirty++;
 	b->content_generation++;
+	b->layout_generation++;
 }
 
 static int editor_virtual_insert_gap_too_large(erow *row, int at)
@@ -104,7 +106,8 @@ int editor_current_filecol_in_row(erow *row)
  * `chars_col` past row's end maps to (row's visual width) plus the
  * virtual offset, so cursors that sit in virtual space (rect mode) get
  * a well-defined visual column too. */
-int editor_visual_col(erow *row, int chars_col)
+int editor_visual_col(
+    erow *row, int chars_col, const struct kg_display_options *options)
 {
 	int j;
 	int64_t vcol = 0;
@@ -116,7 +119,7 @@ int editor_visual_col(erow *row, int chars_col)
 	}
 	for (j = 0; j < limit; j++) {
 		if (row->chars[j] == TAB) {
-			vcol += tab_stop_advance((int)(vcol % KG_TAB_WIDTH));
+			vcol += tab_stop_advance(vcol, options);
 		} else {
 			vcol += utf8_width_at(row->chars, row->size, j);
 		}
@@ -133,7 +136,8 @@ int editor_visual_col(erow *row, int chars_col)
  * multi-byte character counts once.  With no row to measure (empty
  * buffer, cursor past the last row) each byte counts as one column, the
  * same rule editor_visual_col() uses for virtual space. */
-int editor_display_col(erow *rows, int numrows, int filerow, int filecol)
+int editor_display_col(erow *rows, int numrows, int filerow, int filecol,
+    const struct kg_display_options *options)
 {
 	if (filecol < 0) {
 		filecol = 0;
@@ -141,7 +145,7 @@ int editor_display_col(erow *rows, int numrows, int filerow, int filecol)
 	if (!rows || filerow < 0 || filerow >= numrows) {
 		return filecol;
 	}
-	return editor_visual_col(&rows[filerow], filecol);
+	return editor_visual_col(&rows[filerow], filecol, options);
 }
 
 /* Inverse of editor_visual_col(): byte offset into row->chars whose
@@ -152,7 +156,8 @@ int editor_display_col(erow *rows, int numrows, int filerow, int filecol)
  * glyph's start byte by the same rule.  When target is past the row's
  * visual end, returns row->size plus the matching virtual offset (the
  * cursor lives in virtual space). */
-int editor_chars_col_at_visual(erow *row, int target_vcol)
+int editor_chars_col_at_visual(
+    erow *row, int target_vcol, const struct kg_display_options *options)
 {
 	int j = 0, vcol = 0;
 
@@ -162,7 +167,7 @@ int editor_chars_col_at_visual(erow *row, int target_vcol)
 	while (j < row->size) {
 		int next_vcol;
 		if (row->chars[j] == TAB) {
-			next_vcol = vcol + tab_stop_advance(vcol);
+			next_vcol = vcol + tab_stop_advance(vcol, options);
 		} else {
 			next_vcol
 			    = vcol + utf8_width_at(row->chars, row->size, j);
@@ -355,13 +360,13 @@ void editor_render_row(struct editor_buffer *b, erow *row)
 	unsigned int tabs = 0;
 	unsigned long long allocsize;
 	int j, idx, render_cap, vcol;
+	const struct kg_display_options *options = buf_display_options(b);
+	int tab_width = display_tab_width(options);
 
-	/* Rendering is a row-local transformation and needs nothing from the
-	 * buffer; the parameter is here because every caller is holding one
-	 * and because the pair (render, notify) is called through the same
-	 * two-argument shape. */
-	(void)b;
-	row->wrap_cache_win_w = 0;
+	/* Rendering is a row-local transformation except for the buffer's
+	 * display options.  Keeping that value bundled is what lets future
+	 * display rules reach this seam without growing this signature. */
+	row->wrap_cache_key = (struct kg_wrap_cache_key) { 0 };
 	KG_PERF_INC(KG_PERF_ROW_UPDATE);
 	for (j = 0; j < row->size; j++) {
 		if (row->chars[j] == TAB) {
@@ -369,10 +374,11 @@ void editor_render_row(struct editor_buffer *b, erow *row)
 		}
 	}
 
-	/* Worst case a TAB widens to KG_TAB_WIDTH columns, the last byte
-	 * being the terminator. */
+	/* row->size already includes each TAB's original byte, so add only
+	 * the largest possible expansion beyond that byte, then the string
+	 * terminator. */
 	allocsize = (unsigned long long)row->size
-	    + (unsigned long long)tabs * KG_TAB_WIDTH + 1;
+	    + (unsigned long long)tabs * (unsigned int)(tab_width - 1) + 1;
 	if (allocsize > INT_MAX) {
 		editor_set_status_message("Line too long for editor");
 		running = 0;
@@ -387,7 +393,7 @@ void editor_render_row(struct editor_buffer *b, erow *row)
 	vcol = 0;
 	for (j = 0; j < row->size; j++) {
 		if (row->chars[j] == TAB) {
-			int spaces = tab_stop_advance(vcol);
+			int spaces = tab_stop_advance(vcol, options);
 
 			if (idx + spaces >= render_cap) {
 				/* Unreachable -- allocsize is the worst
@@ -413,6 +419,26 @@ void editor_render_row(struct editor_buffer *b, erow *row)
 	}
 	row->rsize = idx;
 	row->render[idx] = '\0';
+}
+
+/* Apply one display-option change at the buffer boundary.  Rendering,
+ * highlighting and geometry caches all derive from the same value, so no
+ * caller can update one and leave another describing the old display. */
+void editor_set_tab_width(struct editor_buffer *b, int width)
+{
+	struct kg_display_options requested = { .tab_width = width };
+	int row;
+
+	width = display_tab_width(&requested);
+	if (display_tab_width(&b->display) == width) {
+		return;
+	}
+	b->display.tab_width = width;
+	b->layout_generation++;
+	for (row = 0; row < b->numrows; row++) {
+		editor_render_row(b, &b->row[row]);
+	}
+	editor_rehighlight_all(b);
 }
 
 /* Render one row and immediately re-highlight it: the row-at-a-time
@@ -1468,6 +1494,7 @@ static void edit_note_change(
     struct editor_buffer *b, enum kg_edit_intent intent)
 {
 	b->content_generation++;
+	b->layout_generation++;
 	b->dirty += edit_policy[intent].marks_modified;
 }
 
@@ -1971,6 +1998,7 @@ void kg_buffer_adopt_rows(
 
 	b->dirty = 0;
 	b->content_generation++;
+	b->layout_generation++;
 	kg_event_queue_broad_change(buf_handle_of(b),
 	    (struct kg_event_buffer_extent) {
 		.old_total_len = old_total,

@@ -1,6 +1,9 @@
 #ifndef KG_LSP_TRANSPORT_H
 #define KG_LSP_TRANSPORT_H
 
+#include "announce.h"
+#include "framed_io.h"
+
 #include <stddef.h>
 #include <sys/types.h> /* pid_t */
 
@@ -11,13 +14,11 @@
  *
  * There are two arrangements the frames can travel on; see `enum lsp_wire`.
  *
- * This module knows nothing about JSON, about requests and responses, or
- * about which server is on the other end (Stages 2 and 3 of
- * doc/plans/2026-08-08-lsp.md).  It knows bytes and frames.  It depends on
- * process.h and POSIX and on nothing else in the editor -- no def.h, no
+ * This module knows nothing about JSON, requests, or responses.  It owns
+ * the child and nbcode announce/connect policy and composes framed_io for
+ * the generic byte framing and line channels.  It depends on framed_io,
+ * process.h and POSIX and on nothing else in the editor -- no def.h and no
  * globals -- so it links into a test binary with the process layer alone.
- * (perf.h too, for one counter, and that is not a dependency in any build
- * that ships: KG_PERF_COUNTERS is off, so every macro from it is nothing.)
  *
  * Both descriptors are non-blocking, so neither sending nor receiving ever
  * stalls the editor: a send that the pipe will not take is queued and
@@ -52,16 +53,16 @@
  * has stopped reading its stdin must not turn kg's requests into unbounded
  * memory.  4 MiB holds several whole-document syncs of the largest file
  * anyone edits interactively. */
-#define LSP_TRANSPORT_MAX_HEADER_BYTES 8192u
-#define LSP_TRANSPORT_MAX_BODY_BYTES (32u * 1024u * 1024u)
-#define LSP_TRANSPORT_MAX_OUTBOX_BYTES (4u * 1024u * 1024u)
+#define LSP_TRANSPORT_MAX_HEADER_BYTES FRAMED_IO_MAX_HEADER_BYTES
+#define LSP_TRANSPORT_MAX_BODY_BYTES FRAMED_IO_MAX_BODY_BYTES
+#define LSP_TRANSPORT_MAX_OUTBOX_BYTES FRAMED_IO_MAX_OUTBOX_BYTES
 
 /* The longest run of stderr bytes with no newline in it that is still
  * called a line.  A server writing a megabyte without a newline is not
  * logging, and the buffer holding it must not grow on its say-so any more
  * than the inbox may; past this the bytes so far are delivered as a line
  * and the rest becomes the next one. */
-#define LSP_TRANSPORT_MAX_STDERR_LINE 4096u
+#define LSP_TRANSPORT_MAX_STDERR_LINE FRAMED_IO_MAX_LINE_BYTES
 
 /* How the frames reach the server.
  *
@@ -100,7 +101,7 @@
  * read): the hash is what makes a line the announce, and a client that
  * matched on the port alone would connect with no secret to send.  And the
  * leading words matter, because the same process announces a
- * `Debug Server Adapter listening at port ... with hash ...` too, and a
+ * `Java Debug Server Adapter listening at port ... with hash ...` too, and a
  * client that took that one would hand its initialize to a debugger. */
 enum lsp_wire {
 	LSP_WIRE_STDIO = 0,
@@ -109,6 +110,13 @@ enum lsp_wire {
 
 #define LSP_TRANSPORT_ANNOUNCE_PREFIX "Java Language Server listening at port "
 #define LSP_TRANSPORT_ANNOUNCE_HASH " with hash "
+#define LSP_TRANSPORT_DEBUG_ANNOUNCE_PREFIX                                    \
+	"Java Debug Server Adapter listening at port "
+
+enum lsp_transport_endpoint_tag {
+	LSP_TRANSPORT_ENDPOINT_LANGUAGE = 1,
+	LSP_TRANSPORT_ENDPOINT_JAVA_DEBUG,
+};
 
 /* Bounds on the announce phase, in the spirit of every other one here: a
  * child that talks instead of announcing must not cost unbounded memory,
@@ -124,6 +132,11 @@ enum lsp_wire {
  * lsp_transport_next_stderr_line() and gone from the buffer, so the bound
  * sees a poll's worth at a time and nothing accumulates.
  *
+ * The same bounded scanner remains active after the language socket opens,
+ * because nbcode may announce its Java Debug Server Adapter later.  Its
+ * endpoint is cached for a late subscriber; the language endpoint alone
+ * drives this transport's connection.
+ *
  * And it is not a deadline either, because the transport keeps no clock:
  * nothing here sleeps, polls or measures time.  A child that stays silent
  * forever, or one that talks for longer than anybody will wait, is the
@@ -136,31 +149,33 @@ enum lsp_wire {
  * announce channel runs at the pipe's speed rather than the editor's idle
  * tick's. */
 #define LSP_TRANSPORT_MAX_ANNOUNCE_BYTES (256u * 1024u)
-#define LSP_TRANSPORT_MAX_HASH_BYTES 256u
+#define LSP_TRANSPORT_MAX_HASH_BYTES KG_ANNOUNCE_MAX_SECRET_BYTES
 
 /* Why a transport is dead.  Reported for the log and for tests; no caller
  * is expected to branch on the distinction between an I/O error and a
  * protocol one, since the remedy for all of them is the same. */
 enum lsp_transport_error {
-	LSP_TRANSPORT_OK = 0,
+	LSP_TRANSPORT_OK = FRAMED_IO_OK,
 	/* read()/write() failed, or the child closed the pipe under a
 	 * write (EPIPE, ECONNRESET).  On the listen-hash wire, a socket
 	 * that could not be made or that refused the connection is this
 	 * too: connecting is a state, but a connect that failed is not. */
-	LSP_TRANSPORT_ERR_IO,
+	LSP_TRANSPORT_ERR_IO = FRAMED_IO_ERR_IO,
 	/* The child's stdout ended.  A server that exited, crashed, or was
 	 * killed looks like this -- including one that exited before it
 	 * announced a port. */
-	LSP_TRANSPORT_ERR_EOF,
+	LSP_TRANSPORT_ERR_EOF = FRAMED_IO_ERR_EOF,
 	/* The bytes are not base-protocol framing: a header line with no
 	 * colon, a header block with no Content-Length, or a length that is
 	 * not a number.  On the listen-hash wire, an announce line with no
-	 * usable port or hash in it is this too. */
-	LSP_TRANSPORT_ERR_PROTOCOL,
+	 * usable port or hash in it is this too.  A stream that ended
+	 * part-way through a frame is this as well, and
+	 * lsp_transport_error_truncated() is which of the two it was. */
+	LSP_TRANSPORT_ERR_PROTOCOL = FRAMED_IO_ERR_PROTOCOL,
 	/* One of the bounds above was exceeded. */
-	LSP_TRANSPORT_ERR_TOO_LARGE,
+	LSP_TRANSPORT_ERR_TOO_LARGE = FRAMED_IO_ERR_TOO_LARGE,
 	/* malloc()/realloc() refused. */
-	LSP_TRANSPORT_ERR_NOMEM,
+	LSP_TRANSPORT_ERR_NOMEM = FRAMED_IO_ERR_NOMEM,
 };
 
 struct kg_spawn_request; /* process.h; only ever pointed at here */
@@ -187,11 +202,12 @@ struct lsp_transport *lsp_transport_start_wire(
     const struct kg_spawn_request *req, enum lsp_wire wire);
 
 #ifdef KG_FUZZ
-/* Fuzz-only: wrap an already-open descriptor as a transport's read side,
- * with no child process and no write side, so a harness can drive the
- * frame parser on bytes it wrote itself.  Only test/fuzz_lsp_frames.c
- * calls it and only the fuzz build defines KG_FUZZ; the editor is compiled
- * without either.  `out_fd` is taken over and closed by
+/* Compatibility seam for fuzz-only users of the pre-extraction API: wrap
+ * an already-open descriptor as a transport's read side, with no child or
+ * write side.  The in-tree test/fuzz_frames.c now drives framed_io
+ * directly.  Allocation failure before the framed object exists leaves
+ * `out_fd` borrowed.  Once it exists, descriptor preparation failure
+ * consumes and closes `out_fd`; success transfers it until
  * lsp_transport_close(). */
 struct lsp_transport *lsp_transport_attach_fuzz_fd(int out_fd);
 #endif
@@ -239,7 +255,9 @@ int lsp_transport_next_message(
  * On the listen-hash wire the child's standard OUTPUT is a log too -- the
  * frames go over the socket, so everything nbcode prints, announce line
  * included, is text somebody may want to read -- and its lines come out of
- * here as well, after whatever standard error has to say.  One accessor
+ * here as well, after whatever standard error has to say.  Announce secrets
+ * are replaced by `<redacted>` on this user-visible path; they exist in the
+ * copy-out endpoint only.  One accessor
  * rather than two because there is exactly one thing above this that reads
  * them (the client's log hook, which puts them in *lsp-log*), and a second
  * accessor would be a second thing for every caller to remember to drain.
@@ -269,10 +287,16 @@ int lsp_transport_next_stderr_line(
  * the server sending too much, and an outbox past
  * LSP_TRANSPORT_MAX_OUTBOX_BYTES is kg queueing faster than the server
  * reads.  Nothing else here can tell them apart, and a client that reports
- * both as the server's doing blames it for kg's own queue. */
+ * both as the server's doing blames it for kg's own queue.
+ *
+ * lsp_transport_error_truncated() splits LSP_TRANSPORT_ERR_PROTOCOL the
+ * same way, for the same reason: a server killed while writing a reply
+ * leaves half a frame behind, and reporting that as malformed framing
+ * blames the server's protocol for its death. */
 bool lsp_transport_failed(const struct lsp_transport *t);
 enum lsp_transport_error lsp_transport_error(const struct lsp_transport *t);
 bool lsp_transport_error_outbound(const struct lsp_transport *t);
+bool lsp_transport_error_truncated(const struct lsp_transport *t);
 
 /* The child, for a caller that owns policy: its pid, and whether a
  * WNOHANG reap says it is still there.  lsp_transport_child_alive() is the
@@ -281,6 +305,15 @@ bool lsp_transport_error_outbound(const struct lsp_transport *t);
  * layer's business. */
 pid_t lsp_transport_pid(const struct lsp_transport *t);
 bool lsp_transport_child_alive(struct lsp_transport *t);
+
+/* Copy a cached nbcode endpoint out only while the producing child is still
+ * alive.  The query performs a WNOHANG reap itself, so a caller cannot get a
+ * stale port merely because the ordinary child-alive poll has not run yet.
+ * The endpoint is tagged with the producing transport's child generation;
+ * replacement and reap invalidate every cached value. */
+bool lsp_transport_announced_endpoint(struct lsp_transport *t,
+    enum lsp_transport_endpoint_tag tag,
+    struct kg_announced_endpoint *endpoint);
 
 /* Bytes queued for the child and not yet written.  Zero means the send
  * queue is empty, which is the only reliable "the request is on its way". */

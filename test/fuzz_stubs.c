@@ -1,6 +1,7 @@
 #include "../src/bufmgr.h"
 #include "../src/cmd.h"
 #include "../src/cmdstate.h"
+#include "../src/dap.h"
 #include "../src/def.h"
 #include "../src/kbd.h"
 #include "../src/marker.h"
@@ -35,6 +36,10 @@ int win_total_rows = 24;
 int win_total_cols = 80;
 
 const struct command_prefix *cmd_active_prefix(void) { return NULL; }
+/* kbd.c asks the debugger facade per keystroke.  dap_keymap.c is not
+ * linked here -- it would drag the command layer and the panes in -- and
+ * a fuzzed editor never has a session, so the maps are never active. */
+bool dap_update_mode_maps(void) { return false; }
 int cmd_prompt_fd(void) { return -1; }
 void cmd_prompt_block(void) { }
 void cmd_prompt_unblock(void) { }
@@ -260,24 +265,30 @@ int get_visual_row(
 	return cy;
 }
 
-int visual_line_cursor_col(erow *row, int chars_col, int win_w)
+int visual_line_cursor_col(erow *row, int chars_col, int win_w,
+    const struct kg_display_options *options)
 {
 	(void)row;
 	(void)chars_col;
 	(void)win_w;
+	(void)options;
 	return chars_col;
 }
 
-int visual_col_to_chars(erow *row, int target_vcol, int win_w)
+int visual_col_to_chars(erow *row, int target_vcol, int win_w,
+    const struct kg_display_options *options)
 {
 	(void)row;
 	(void)win_w;
+	(void)options;
 	return target_vcol;
 }
 
-int visual_line_width(erow *row, int win_w)
+int visual_line_width(
+    erow *row, int win_w, const struct kg_display_options *options)
 {
 	(void)win_w;
+	(void)options;
 	return row ? row->size : 0;
 }
 
@@ -793,6 +804,7 @@ void editor_insert_file(int fd) { (void)fd; }
 
 int compilation_poll(void) { return 0; }
 void compilation_start_pending_restart(void) { }
+void compilation_deliver_completion(void) { }
 void editor_kill_compilation(int fd) { (void)fd; }
 
 /* The buffer-manager and window-manager entry points src/lisp_obj.c reaches

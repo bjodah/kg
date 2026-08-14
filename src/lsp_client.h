@@ -24,9 +24,23 @@
  * moves bytes and runs callbacks.
  */
 
+/* How many sections one `workspace/configuration` request may ask about.
+ *
+ * kg answers that request -- it is the only server-to-client request it
+ * does answer -- with one `null` per requested item, because a server
+ * blocked on it never finishes opening a project (nbcode, measured:
+ * doc/plans/dap/03-java.md).  The array is positional, so its length is
+ * dictated by the server's; this is the point past which kg stops building
+ * one and answers InvalidParams instead.  A real server asks about a
+ * handful of sections at a time -- this is three orders of magnitude above
+ * that, and it is here rather than beside the client's private bounds
+ * because it is the one of them a peer decides and a test has to name. */
+#define LSP_CLIENT_MAX_CONFIGURATION_ITEMS 1024u
+
 struct kg_spawn_request; /* process.h; only ever pointed at here */
 struct lsp_client;
-struct lsp_json_value;
+struct kg_json_value;
+struct kg_announced_endpoint; /* announce.h; only ever pointed at here */
 
 /* An answer, or the failure that replaced it.  Exactly one of `result` and
  * `error` is non-NULL for a reply that arrived -- `result` even when it is
@@ -42,7 +56,7 @@ struct lsp_json_value;
  * belong to the parsed message, which is freed the moment the callback
  * returns.  Copy anything that outlives it. */
 typedef void (*lsp_response_fn)(struct lsp_client *c,
-    const struct lsp_json_value *result, const struct lsp_json_value *error,
+    const struct kg_json_value *result, const struct kg_json_value *error,
     void *ctx);
 
 /* How long a request may go unanswered before the client stops waiting for
@@ -100,7 +114,7 @@ void lsp_client_set_log_hook(lsp_client_log_fn fn);
  * which is what this layer did with every one of them before there was a
  * hook, and what a test binary with no editor in it still wants. */
 typedef void (*lsp_client_notify_fn)(struct lsp_client *c, const char *method,
-    const struct lsp_json_value *params);
+    const struct kg_json_value *params);
 void lsp_client_set_notify_hook(lsp_client_notify_fn fn);
 
 /* Told that `c` has just reached READY, from inside the handshake itself:
@@ -208,17 +222,25 @@ struct lsp_capabilities {
 struct lsp_client *lsp_client_start(
     const struct kg_spawn_request *req, const char *root_path);
 
-/* The same, on `wire` (src/lsp_transport.h).  lsp_client_start() is this
- * with LSP_WIRE_STDIO.
+/* The same, on `wire` (src/lsp_transport.h), and with the server's own
+ * `initializationOptions`.  lsp_client_start() is this with LSP_WIRE_STDIO
+ * and no options.
  *
  * A LSP_WIRE_LISTEN_HASH client is INITIALIZING with its `initialize`
  * queued in the transport, exactly as a stdio one whose server has not
  * answered yet is: the socket comes up inside a later lsp_client_poll(),
  * and the request goes out then.  So a server that never announces a port
  * is not a case for this layer at all -- it is a request that goes
- * unanswered, which the per-request deadline already ends. */
+ * unanswered, which the per-request deadline already ends.
+ *
+ * `init_options` is the bytes of a JSON OBJECT, borrowed for the call and
+ * written into the request raw -- this layer neither parses nor invents
+ * them, because what they mean is a property of one server and not of the
+ * protocol (src/lsp_server.h holds the table that supplies them).  NULL and
+ * "" both mean "no such member", which is what every server but nbcode has
+ * always been sent and must stay being sent. */
 struct lsp_client *lsp_client_start_wire(const struct kg_spawn_request *req,
-    const char *root_path, enum lsp_wire wire);
+    const char *root_path, enum lsp_wire wire, const char *init_options);
 
 /* What this client is called in a message a user reads: the server's own
  * name ("clangd"), set by the registry that knows it (src/lsp_server.c).
@@ -242,7 +264,7 @@ void lsp_client_dispose(struct lsp_client *c, unsigned grace_ms);
 
 /* Ask the server something.  `method` is the JSON-RPC method name;
  * `params`/`params_len` are the pre-encoded JSON value to send as `params`,
- * which the caller built with a struct lsp_jsonw and still owns -- the bytes
+ * which the caller built with a struct kg_jsonw and still owns -- the bytes
  * are copied into the message here -- or NULL to send no params at all.
  *
  * Returns the request id (a positive number) or -1 when the client is DEAD,
@@ -352,6 +374,17 @@ const struct lsp_capabilities *lsp_client_caps(const struct lsp_client *c);
  * without one.  The registry keys on it and Stage 4 will resolve relative
  * paths against it. */
 const char *lsp_client_root(const struct lsp_client *c);
+
+/* A cached endpoint the server announced beside itself, copied out, or
+ * false when there is none -- including when the child that announced it
+ * has died, which the query reaps for itself rather than waiting for the
+ * ordinary poll to notice.  One line of passthrough to the transport that
+ * owns the announce scanner (src/lsp_transport.h), so that the registry
+ * above can answer the debugger's question without reaching through a
+ * client into its wire. */
+bool lsp_client_announced_endpoint(struct lsp_client *c,
+    enum lsp_transport_endpoint_tag tag,
+    struct kg_announced_endpoint *endpoint);
 
 /* How many requests are outstanding.  For tests and for a caller deciding
  * whether a server is busy; not part of any protocol decision. */

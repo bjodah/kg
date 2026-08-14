@@ -18,32 +18,33 @@ name: lsp-listen-hash-dead-port
 # sibling lsp-listen-hash-no-announce.yaml deliberately does NOT test that:
 # it pins the client deadline, which is the same code on either wire.
 #
-# KG_LSP_TIMEOUT_MS is generous on purpose, ten times the wait these keys
-# add up to: if the deadline could fire first the echo area would say
-# "initialize failed" and this case would be the deadline's again rather
-# than the connection's.
+# KG_LSP_TIMEOUT_MS is not generous but UNREACHABLE on purpose, twice the
+# SETTLE budget below: if the deadline could fire first the echo area
+# would say "initialize failed" and this case would be the deadline's
+# again rather than the connection's -- which is exactly how it failed
+# the valgrind lane under eight-way load when this margin was 30 s
+# against a ladder that had grown past it.
 #
-# The C-l are the wait -- a shell has to start, write its line and be read
-# -- and C-l is the one key that repaints without moving point.  The trailer
-# is the proof the editor survived it: an X typed after the failure, saved,
-# is a byte on disk only an editor still taking keys could have written.
+# The SETTLE is the wait -- a shell has to start, write its line, be read,
+# and the refused connect has to reach the echo area -- and a bounded wait
+# on the words themselves costs nothing on a fast build where a
+# key-financed wait would be paid in full every run (and re-sized every
+# time a slower lane appears: this case failed the valgrind lane twice on
+# exactly that).  The trailer is the proof the editor survived it: an X
+# typed after the failure, saved, is a byte on disk only an editor still
+# taking keys could have written.
 requires_feature: lsp
 backend: tmux
-key_delay: 0.35
 env:
   KG_LSP_SERVER_C: "listen-hash: printf 'Java Language Server listening at port 1 with hash 0123456789abcdef\\n'; sleep 60"
-  KG_LSP_TIMEOUT_MS: "30000"
+  KG_LSP_TIMEOUT_MS: "120000"
 filename: xrefdeadport.c
 initial: |
   int target(void) { return 1; }
   int use(void) { return target(); }
 keys:
   - "M-."
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
+  - "SETTLE=60:the connection to the server failed"
 trailer_keys:
   - "X"
   - "C-x"

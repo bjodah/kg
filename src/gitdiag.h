@@ -29,6 +29,7 @@
 
 typedef struct erow erow;
 struct editor_buffer;
+struct kg_display_options;
 
 /* Columns of subject a commit message gets before the rest is marked.
  * Emacs' git-commit-mode calls the same number
@@ -64,8 +65,8 @@ struct kg_gitdiag_span {
  * the same, converted once here.  The caller decides which row is the
  * subject (syntax_buffer_git_commit_subject()); this function believes
  * it. */
-[[nodiscard]] int gitdiag_commit_subject_span(
-    erow *row, struct kg_gitdiag_span *out);
+[[nodiscard]] int gitdiag_commit_subject_span(erow *row,
+    const struct kg_display_options *options, struct kg_gitdiag_span *out);
 
 /* Every word of the rebase todo line `line[0..len)` that git would
  * reject, in order, into `out[0..max)`; returns how many were written.

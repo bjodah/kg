@@ -107,4 +107,128 @@ int compilation_is_running(void);
 void compilation_shutdown(void);
 void editor_kill_compilation(int fd);
 
+/* ------------------------- the programmatic seam ---------------------- */
+
+/* A compilation somebody other than the user asked for, and the one thing
+ * M-x compile never had to answer: what happened.
+ *
+ * It exists for the debugger's optional `build` step
+ * (doc/plans/dap/01-protocol.md stage 4), which must run `make` and then
+ * launch only if it worked -- but it is an EDITOR seam, not a debugger one:
+ * it is compiled in every configuration, it names nothing about debugging,
+ * and any later caller that needs "run this and tell me" gets the same
+ * three properties.
+ *
+ * What makes it different from the interactive entry points, and why it is
+ * a separate function rather than a flag on one of them:
+ *
+ *   - It never prompts.  A compilation already running answers
+ *     COMPILATION_BUSY and nothing else happens; asking a user "kill it?"
+ *     on behalf of a caller who is halfway through starting a debug session
+ *     is a question with no good answer.
+ *   - The completion callback runs EXACTLY ONCE for every accepted call,
+ *     and only at a top-level safe point -- compilation_deliver_completion()
+ *     below, which the main loop calls where it already launches deferred
+ *     restarts.  Never from inside compilation_poll(): that runs underneath
+ *     minibuffer prompts, and a callback that starts a debug session there
+ *     would change buffers and windows under an unrelated question.
+ *   - A caller that has given up says so by generation
+ *     (compilation_cancel_programmatic()), which drops the callback without
+ *     touching the run: the build keeps going and *compilation* keeps its
+ *     output, because the user's compilation is not the caller's to kill.
+ *
+ * Everything else about the run is ordinary: the same *compilation* buffer,
+ * the same header and finish lines, the same diagnostics hooks, the same
+ * C-c C-k. */
+enum compilation_done_status {
+	/* The child exited; `exit_code` says with what.  Zero is the only
+	 * "it worked", and it is the caller's test, not this module's. */
+	COMPILATION_DONE_EXITED = 0,
+	/* A signal ended it, `signal_number` says which -- including the
+	 * SIGINT/SIGKILL of C-c C-k, so a build the user killed is reported
+	 * rather than silently unfinished. */
+	COMPILATION_DONE_SIGNALLED,
+	/* Nothing ever ran: the compilation buffer could not be prepared, or
+	 * the child could not be spawned.  Reported through the callback
+	 * like every other outcome, so a caller has one completion path
+	 * rather than two. */
+	COMPILATION_DONE_SPAWN_FAILED,
+	/* The editor is shutting down and the run is being abandoned.  The
+	 * callback runs so a caller can release what it owns; nothing about
+	 * the build is claimed. */
+	COMPILATION_DONE_CANCELLED,
+};
+
+struct compilation_result {
+	enum compilation_done_status status;
+	int exit_code;
+	int signal_number;
+	/* Whether output hit the retained-output budget.  A build whose
+	 * diagnostics were cut short still succeeded or failed on its exit
+	 * code; this is how a caller knows the buffer is incomplete. */
+	bool truncated;
+};
+
+/* `ctx` is the caller's and is never touched here beyond being handed
+ * back.  It must stay valid until the callback runs or until
+ * compilation_cancel_programmatic() has been called with this run's
+ * generation -- after either, this module holds nothing of the caller's. */
+typedef void (*compilation_done_fn)(
+    const struct compilation_result *result, void *ctx);
+
+enum compilation_start_result {
+	/* The callback will run exactly once, later. */
+	COMPILATION_ACCEPTED = 0,
+	/* A compilation is running, or an accepted one's completion has not
+	 * been delivered yet.  Nothing was started and the callback will
+	 * never run. */
+	COMPILATION_BUSY,
+};
+
+enum compilation_start_result compilation_start_programmatic(
+    const char *command, const char *directory, struct kg_buffer_handle source,
+    compilation_done_fn done_fn, void *ctx, unsigned *generation_out);
+
+/* Abandon the completion of `generation`: its callback will not run and
+ * this module drops its context pointer.  An unknown or already-delivered
+ * generation is ignored, which is what makes it safe to call from a
+ * caller's own teardown without remembering whether it raced the
+ * delivery. */
+void compilation_cancel_programmatic(unsigned generation);
+
+/* Run a completed programmatic run's callback, if there is one waiting.
+ * Called from the top-level input loops beside
+ * compilation_start_pending_restart(), and from nowhere else. */
+void compilation_deliver_completion(void);
+
+/* ----------------------------- the output feed ------------------------ */
+
+/* Bytes somebody else collected, turned into a compilation.
+ *
+ * Everything above this line owns a CHILD as well as its output.  This
+ * seam is the output half alone: the *compilation* buffer, the header, the
+ * CR/ANSI normalisation, the retained-output budget, the line commits and
+ * the diagnostic hooks -- driven by a caller that already has the bytes and
+ * never had a process for this module to start.
+ *
+ * It exists because a debug adapter that BUILDS the program it is about to
+ * debug reports the build's failure as protocol output events, and the
+ * useful text -- `./main.go:14:16: syntax error: ...` -- arrives before the
+ * refusal it explains (doc/plans/dap/04-go.md).  Those are ordinary
+ * compiler diagnostics and belong where every other one goes: in
+ * *compilation*, with C-x ` walking them.  Nothing here names debugging,
+ * and any later caller with bytes and no child gets the same three calls.
+ *
+ * begin() refuses (returns false) while a real compilation is running: the
+ * user's build owns that buffer, and a debugger is not entitled to take it.
+ * `directory` is what the diagnostics are relative to, and for an adapter
+ * that is the ADAPTER's working directory rather than the debuggee's.
+ * bytes() is a stream, not lines.  finish() commits an unterminated final
+ * line, writes the truncation notice if the budget bit, and adds `note`.
+ * A second begin(), and a compilation started by anybody, abandon an open
+ * feed rather than interleaving with it. */
+bool compilation_feed_begin(const char *label, const char *directory);
+void compilation_feed_bytes(const char *bytes, size_t len);
+void compilation_feed_finish(const char *note);
+
 #endif

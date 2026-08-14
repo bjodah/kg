@@ -17,8 +17,10 @@
 
 #include "bufhandle.h"
 #include "bufmgr.h"
+#include "bufmgr_internal.h"
 #include "cmdstate.h"
 #include "compile.h"
+#include "dap.h"
 #include "decor.h"
 #include "def.h"
 #include "edit.h"
@@ -32,6 +34,7 @@
 #include "perf.h"
 #include "process_table.h"
 #include "syntax.h"
+#include "winmgr.h"
 #include "word.h"
 #include "yank.h"
 
@@ -93,6 +96,7 @@ static void buf_apply_local_settings(void);
  * confusion handles exist to prevent.  At 64 bits, one claim per
  * nanosecond runs for 584 years. */
 static uint64_t buf_next_id = 1;
+static int buf_create_named_fail_alloc_once;
 
 /* Hand `slot` to a buffer that is not the one that had it.  This is the only
  * place identity is assigned, so every handle taken before the handover stops
@@ -253,21 +257,19 @@ void buf_remember_view(const struct editor_window *w)
 	b->last_point.rowoff_visual = w->rowoff_visual;
 }
 
-/* Resolve `h` and reserve capacity for the KG_EVENT_VIEW_ATTACHED event
- * buf_attach_view() would publish -- both while a refusal still costs `w`
- * nothing.  NULL when the slot does not resolve, `w` already shows it (no
- * transition to publish), or the queue has no room; `*res` is a live
- * reservation only in the case this returns non-NULL. */
-static struct editor_buffer *buf_attach_prepare(struct editor_window *w,
-    struct kg_buffer_handle h, struct kg_event_reservation *res)
+/* Resolve `h` for a caller that already holds the reservation protecting its
+ * KG_EVENT_VIEW_ATTACHED.  NULL when the slot does not resolve, `w` already
+ * shows it (no transition to publish), or `*res` is not live. */
+static struct editor_buffer *buf_attach_prepare_reserved(
+    struct editor_window *w, struct kg_buffer_handle h,
+    struct kg_event_reservation *res)
 {
 	struct editor_buffer *b = buf_resolve(h);
 
-	if (!b || win_shows_buffer(w, h)) {
+	if (!b || win_shows_buffer(w, h) || !res || !res->valid) {
 		return NULL;
 	}
-	*res = kg_event_reserve_lifecycle();
-	return res->valid ? b : NULL;
+	return b;
 }
 
 /* Point `w` at buffer slot `slot`, resuming where that buffer was last
@@ -276,16 +278,24 @@ static struct editor_buffer *buf_attach_prepare(struct editor_window *w,
  * failure leaves `w` showing whatever it already did. */
 void buf_attach_view(struct editor_window *w, int slot)
 {
+	struct kg_event_reservation res = kg_event_reserve_lifecycle();
+
+	(void)buf_view_attach_reserved_for_transaction(w, slot, &res);
+	kg_event_release_reservation(&res);
+}
+
+int buf_view_attach_reserved_for_transaction(
+    struct editor_window *w, int slot, struct kg_event_reservation *res)
+{
 	struct kg_buffer_handle h = buf_handle(slot);
-	struct kg_event_reservation res = { 0 };
-	struct editor_buffer *b = buf_attach_prepare(w, h, &res);
+	struct editor_buffer *b = buf_attach_prepare_reserved(w, h, res);
 
 	if (!b) {
-		return;
+		return 0;
 	}
 	buf_remember_view(w);
 	/* `w` is provably switching to a different buffer here (see
-	 * buf_attach_prepare()'s win_shows_buffer() check above), so
+	 * buf_attach_prepare_reserved()'s win_shows_buffer() check above), so
 	 * whatever geometry index it had cached is for the buffer it is
 	 * about to stop showing.  buf_detach_view_commit() covers the
 	 * detach-then-attach path; this covers buf_select()'s direct
@@ -299,7 +309,8 @@ void buf_attach_view(struct editor_window *w, int slot)
 	w->rowoff_visual = b->last_point.rowoff_visual;
 	w->desired_visual_col = -1;
 	kg_event_publish_lifecycle(
-	    &res, kg_event_make_view_attached(win_handle_of(w), h));
+	    res, kg_event_make_view_attached(win_handle_of(w), h));
+	return 1;
 }
 
 /* The whole of buf_detach_view(): pulled out so the wrapper stays a single
@@ -308,29 +319,35 @@ void buf_attach_view(struct editor_window *w, int slot)
  * there is no transition to publish, so it just clears `w` as before.  A
  * refused reservation leaves `w` attached -- a state win_check_handles()
  * already recovers from if the buffer it names dies anyway. */
-static void buf_detach_view_commit(struct editor_window *w)
+int buf_view_detach_reserved_for_transaction(
+    struct editor_window *w, struct kg_event_reservation *res)
 {
 	struct kg_buffer_handle old = w->buf;
-	struct kg_event_reservation res;
 
 	if (!buf_resolve(old)) {
 		buf_remember_view(w);
 		w->buf = (struct kg_buffer_handle) { 0, 0, 0 };
 		window_vgeom_reset(w);
-		return;
+		return 0;
 	}
-	res = kg_event_reserve_lifecycle();
-	if (!res.valid) {
-		return;
+	if (!res || !res->valid) {
+		return 0;
 	}
 	buf_remember_view(w);
 	w->buf = (struct kg_buffer_handle) { 0, 0, 0 };
 	window_vgeom_reset(w);
 	kg_event_publish_lifecycle(
-	    &res, kg_event_make_view_detached(win_handle_of(w), old));
+	    res, kg_event_make_view_detached(win_handle_of(w), old));
+	return 1;
 }
 
-void buf_detach_view(struct editor_window *w) { buf_detach_view_commit(w); }
+void buf_detach_view(struct editor_window *w)
+{
+	struct kg_event_reservation res = kg_event_reserve_lifecycle();
+
+	(void)buf_view_detach_reserved_for_transaction(w, &res);
+	kg_event_release_reservation(&res);
+}
 
 /* Show buflist[slot] in the selected window and make it the current buffer.
  * This is the whole of what switching buffers is now: there is no state to
@@ -377,15 +394,15 @@ int buf_select(int slot)
 static void clamp_view_to_buffer(
     struct editor_window *w, const struct editor_buffer *b)
 {
-	int filerow, filecol, rowsize;
+	int64_t filerow = (int64_t)w->rowoff + w->cy;
+	int64_t filecol = (int64_t)w->coloff + w->cx;
+	int rowsize;
 
 	if (b->numrows == 0) {
 		w->cx = w->cy = w->rowoff = w->coloff = 0;
 		return;
 	}
 
-	filerow = w->rowoff + w->cy;
-	filecol = w->coloff + w->cx;
 	if (filerow >= b->numrows) {
 		filerow = b->numrows - 1;
 	}
@@ -401,27 +418,36 @@ static void clamp_view_to_buffer(
 		filecol = 0;
 	}
 
-	if (w->rowoff > filerow) {
-		w->rowoff = filerow;
+	if (w->rowoff > (int)filerow) {
+		w->rowoff = (int)filerow;
 	}
-	if (w->rowoff + w->h <= filerow) {
-		w->rowoff = filerow - w->h + 1;
+	if ((int64_t)w->rowoff + w->h <= filerow) {
+		w->rowoff = (int)filerow - w->h + 1;
 	}
 	if (w->rowoff < 0) {
 		w->rowoff = 0;
 	}
-	w->cy = filerow - w->rowoff;
+	w->cy = (int)filerow - w->rowoff;
 
 	if (w->coloff > filecol) {
-		w->coloff = filecol;
+		w->coloff = (int)filecol;
 	}
-	if (w->coloff + w->w <= filecol) {
-		w->coloff = filecol - w->w + 1;
+	if ((int64_t)w->coloff + w->w <= filecol) {
+		w->coloff = (int)filecol - w->w + 1;
 	}
 	if (w->coloff < 0) {
 		w->coloff = 0;
 	}
-	w->cx = filecol - w->coloff;
+	w->cx = (int)filecol - w->coloff;
+}
+
+void buf_view_clamp_for_transaction(struct editor_window *w)
+{
+	struct editor_buffer *b = win_buffer(w);
+
+	if (b) {
+		clamp_view_to_buffer(w, b);
+	}
 }
 
 /* Reload the current buffer's file from disk and reset undo history.
@@ -570,6 +596,9 @@ static void buf_reset(void)
 	b->syntax = NULL;
 	bcur()->filename = NULL;
 	bcur()->no_file = 0;
+	/* A slot about to hold a file is not a special buffer of kg's,
+	 * whatever the slot held a moment ago. */
+	bcur()->special_owned = 0;
 	kg_mark_clear(bcur());
 	kg_mark_ring_clear(bcur());
 	bcur()->shift_select = 0;
@@ -613,6 +642,19 @@ static int buf_find_by_name(const char *name)
  * would give it one. */
 int buf_find_open(const char *path) { return buf_find_by_name(path); }
 
+/* The slot holding kg's OWN special buffer called `name`, and -1 both when
+ * there is no such buffer and when the buffer wearing that name is one the
+ * user made (C-x b).  A caller that is about to write a special buffer's
+ * content asks this rather than buf_find_open(), for the reason
+ * buf_prepare_special_text() refuses the same case: the name is not the
+ * permission. */
+int buf_find_special(const char *name)
+{
+	int slot = buf_find_by_name(name);
+
+	return (slot >= 0 && buflist[slot].special_owned) ? slot : -1;
+}
+
 /* Lowest unused buffer slot, or -1 when the table is full. */
 static int buf_first_free_slot(void)
 {
@@ -622,6 +664,12 @@ static int buf_first_free_slot(void)
 		}
 	}
 	return -1;
+}
+
+int buf_named_creation_available_for_transaction(void)
+{
+	return buf_count < MAX_BUFFERS && buf_first_free_slot() >= 0
+	    && buf_next_id != UINT64_MAX;
 }
 
 /* Render a unique display name for buflist[idx] into `out`.  If no other
@@ -2430,6 +2478,8 @@ static int buf_kill_commit(int slot, struct kg_buffer_handle dying)
 	buflist[slot].active = 0;
 	buflist[slot].filename = NULL;
 	buflist[slot].no_file = 0;
+	/* The next occupant of this slot has to earn the flag itself. */
+	buflist[slot].special_owned = 0;
 	buflist[slot].dirty = 0;
 	buflist[slot].syntax = NULL;
 	/* Every handle taken on this buffer stops resolving here. */
@@ -2703,38 +2753,50 @@ static void buf_reset_slot(int slot)
  * which is what `no_file` records for every question buf_visits_file()
  * answers.  (Emacs would leave such a buffer in fundamental-mode; taking
  * the syntax from the name is kg's, and predates this call site.) */
-struct kg_buffer_handle buf_create_named(const char *name)
+struct kg_buffer_handle buf_create_named_reserved_for_transaction(
+    const char *name, struct kg_event_reservation *res)
 {
 	struct kg_buffer_handle zeroed = { -1, 0, 0 };
-	struct kg_event_reservation res;
+	char *copy;
 	int slot;
 
-	if (!name || !name[0] || buf_count >= MAX_BUFFERS) {
+	if (!name || !name[0] || !res || !res->valid
+	    || !buf_named_creation_available_for_transaction()) {
 		return zeroed;
 	}
 	slot = buf_first_free_slot();
 	if (slot < 0) {
 		return zeroed;
 	}
-	/* buf_prepare_special_new()'s shape: reserve, reset (which claims
-	 * the identity), publish, name. */
-	res = kg_event_reserve_lifecycle();
-	if (!res.valid) {
+	copy = buf_create_named_fail_alloc_once ? NULL : strdup(name);
+	buf_create_named_fail_alloc_once = 0;
+	if (!copy) {
 		return zeroed;
 	}
 	buf_reset_slot(slot);
-	kg_event_publish_lifecycle(
-	    &res, kg_event_make_buffer_opened(buf_handle(slot)));
-	buflist[slot].filename = strdup(name);
-	if (!buflist[slot].filename) {
-		buflist[slot].active = 0;
-		return zeroed;
-	}
+	buflist[slot].filename = copy;
 	editor_select_syntax_highlight(&buflist[slot], (char *)name);
 	buflist[slot].no_file = 1;
 	buflist[slot].dirty = 0;
 	buf_count++;
+	kg_event_publish_lifecycle(
+	    res, kg_event_make_buffer_opened(buf_handle(slot)));
 	return buf_handle(slot);
+}
+
+struct kg_buffer_handle buf_create_named(const char *name)
+{
+	struct kg_event_reservation res = kg_event_reserve_lifecycle();
+	struct kg_buffer_handle handle
+	    = buf_create_named_reserved_for_transaction(name, &res);
+
+	kg_event_release_reservation(&res);
+	return handle;
+}
+
+void buf_create_named_fail_alloc_once_for_test(void)
+{
+	buf_create_named_fail_alloc_once = 1;
 }
 
 /* buf_prepare_special_text()'s "not already open" path: reserve capacity
@@ -2754,6 +2816,9 @@ static int buf_prepare_special_new(int slot, const char *name)
 	kg_event_publish_lifecycle(
 	    &res, kg_event_make_buffer_opened(buf_handle(slot)));
 	buflist[slot].filename = strdup(name);
+	/* This is where a special buffer becomes kg's: the only place the
+	 * flag is set, and the reason a later prepare may clear it. */
+	buflist[slot].special_owned = 1;
 	buf_count++;
 	return slot;
 }
@@ -2764,6 +2829,16 @@ int buf_prepare_special_text(
 	int target_slot = buf_find_by_name(name);
 
 	if (target_slot >= 0) {
+		/* Only a buffer kg made under this name is kg's to rebuild.
+		 * A buffer of the user's that happens to wear it (C-x b takes
+		 * any name at all) is refused here rather than cleared: its
+		 * rows and its undo chain are the one copy there is. */
+		if (!buflist[target_slot].special_owned) {
+			editor_set_status_message(
+			    "%s is your own buffer; kg will not overwrite it",
+			    name);
+			return -1;
+		}
 		buf_clear_special_text(target_slot);
 	} else {
 		int slot = buf_first_free_slot();
@@ -3042,6 +3117,11 @@ void editor_cleanup(void)
 	 *     here -- and if a later change made it run, it would find an
 	 *     empty document table and send nothing. */
 	lsp_shutdown();
+	/* And the debugger's adapters in the same window, for the reason the
+	 * order above spells out: they are kg-owned children, and a session
+	 * still running when the loop below frees the buffers would be one
+	 * pointing into storage that is gone. */
+	dap_shutdown();
 
 	/* Every window may own a visual-line geometry index (src/vgeom.h);
 	 * freeing it here is what the "session teardown" leg of its

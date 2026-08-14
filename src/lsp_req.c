@@ -8,8 +8,8 @@
 #include "lsp_req.h"
 
 #include "def.h"
+#include "json.h"
 #include "localvars.h"
-#include "lsp_json.h"
 #include "lsp_server.h"
 #include "lsp_sync.h"
 #include "marker.h"
@@ -20,7 +20,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-struct lsp_json_value;
+struct kg_json_value;
 
 /* Only ever pointed at here; lsp_server.h hands one over and
  * lsp_client.h and lsp_sync.h are what take it back. */
@@ -119,29 +119,29 @@ static char *lsp_request_params(struct lsp_client *c,
     const struct lsp_request *req, const struct editor_buffer *b, int row,
     int col, size_t *out_len)
 {
-	struct lsp_jsonw w;
+	struct kg_jsonw w;
 	char *out = NULL;
 
-	lsp_jsonw_init(&w);
-	lsp_jsonw_begin_object(&w);
-	lsp_jsonw_key(&w, "textDocument");
-	lsp_jsonw_begin_object(&w);
-	lsp_jsonw_key(&w, "uri");
-	lsp_jsonw_string(&w, req->uri);
-	lsp_jsonw_end_object(&w);
-	lsp_jsonw_key(&w, "position");
-	lsp_jsonw_begin_object(&w);
-	lsp_jsonw_key(&w, "line");
-	lsp_jsonw_int(&w, row < 0 ? 0 : row);
-	lsp_jsonw_key(&w, "character");
-	lsp_jsonw_int(&w, lsp_request_character(c, b, row, col));
-	lsp_jsonw_end_object(&w);
+	kg_jsonw_init(&w);
+	kg_jsonw_begin_object(&w);
+	kg_jsonw_key(&w, "textDocument");
+	kg_jsonw_begin_object(&w);
+	kg_jsonw_key(&w, "uri");
+	kg_jsonw_string(&w, req->uri);
+	kg_jsonw_end_object(&w);
+	kg_jsonw_key(&w, "position");
+	kg_jsonw_begin_object(&w);
+	kg_jsonw_key(&w, "line");
+	kg_jsonw_int(&w, row < 0 ? 0 : row);
+	kg_jsonw_key(&w, "character");
+	kg_jsonw_int(&w, lsp_request_character(c, b, row, col));
+	kg_jsonw_end_object(&w);
 	if (req->has_extra) {
-		lsp_jsonw_key(&w, req->extra_key);
-		lsp_jsonw_string(&w, req->extra_value);
+		kg_jsonw_key(&w, req->extra_key);
+		kg_jsonw_string(&w, req->extra_value);
 	}
-	lsp_jsonw_end_object(&w);
-	if (lsp_jsonw_finish(&w, &out, out_len) != 0) {
+	kg_jsonw_end_object(&w);
+	if (kg_jsonw_finish(&w, &out, out_len) != 0) {
 		return NULL;
 	}
 	return out;
@@ -173,10 +173,10 @@ static char *lsp_req_build(struct lsp_client *c, void *bctx, size_t *out_len)
 }
 
 static void lsp_req_report_error(
-    const char *who, const struct lsp_json_value *error)
+    const char *who, const struct kg_json_value *error)
 {
-	const struct lsp_json_value *msg = lsp_json_get(error, "message");
-	const char *text = lsp_json_str(msg, NULL);
+	const struct kg_json_value *msg = kg_json_get(error, "message");
+	const char *text = kg_json_str(msg, NULL);
 
 	if (!text || !text[0]) {
 		editor_set_status_message("%s: the server refused", who);
@@ -186,7 +186,7 @@ static void lsp_req_report_error(
 }
 
 static void lsp_req_reply(struct lsp_client *c,
-    const struct lsp_json_value *result, const struct lsp_json_value *error,
+    const struct kg_json_value *result, const struct kg_json_value *error,
     void *ctx)
 {
 	struct lsp_request *req = ctx;

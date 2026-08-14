@@ -43,9 +43,11 @@
 #include <unistd.h>
 #endif
 
+#include "async.h"
 #include "bufhandle.h"
 #include "compile.h"
 #include "compile_nav.h"
+#include "dap.h"
 #include "def.h"
 #include "event.h"
 #include "kbd.h"
@@ -58,6 +60,7 @@
 #include "perf.h"
 #include "process_table.h"
 #include "register.h"
+#include "winmgr.h"
 #include "yank.h"
 
 struct editor_config editor;
@@ -109,6 +112,7 @@ void init_editor(void)
 	compile_nav_install();
 	kg_process_table_init();
 	lsp_init();
+	dap_init();
 	lsp_log_install();
 	lsp_diag_install();
 	atexit(editor_cleanup);
@@ -161,6 +165,15 @@ static int usage(FILE *fp, int rc)
 #define KG_FEATURE_LSP "-lsp"
 #endif
 
+/* The debugger client, for the LSP client's reason exactly: which adapters
+ * are installed is a run-time question, whether this build can drive one is
+ * not. */
+#ifdef KG_USE_DAP
+#define KG_FEATURE_DAP "+dap"
+#else
+#define KG_FEATURE_DAP "-dap"
+#endif
+
 /* Whether the user turned the startup screen off.  Emacs decides this
  * once, after the init file has had its say, and so does kg -- main()
  * calls this between loading init.el and painting the first frame, and
@@ -197,9 +210,10 @@ int main(int argc, char **argv)
 			readonly = 1;
 			break;
 		case 'V':
-			printf("kg %s %s %s %s\n", KG_VERSION,
+			printf("kg %s %s %s %s %s\n", KG_VERSION,
 			    kg_lisp_active() ? "+lisp" : "-lisp",
-			    KG_FEATURE_TREE_SITTER, KG_FEATURE_LSP);
+			    KG_FEATURE_TREE_SITTER, KG_FEATURE_LSP,
+			    KG_FEATURE_DAP);
 			return 0;
 		case 'h':
 			return usage(stdout, 0);
@@ -215,14 +229,39 @@ int main(int argc, char **argv)
 	}
 #endif
 	init_editor();
+	/* Raw mode before anything that takes time.  Until it is on, the
+	 * terminal still has the pty's default line discipline and every key
+	 * typed at kg is termios' rather than kg's: C-c is VINTR and kills
+	 * the editor, C-u is VKILL and erases whatever was queued before it,
+	 * C-s/C-q are XOFF/XON, C-? is VERASE, ICRNL rewrites RET, and
+	 * anything else waits in the canonical line buffer.  TCSADRAIN in
+	 * enable_raw_mode() keeps the type-ahead already queued when the
+	 * switch happens; only being early keeps the keys typed before it
+	 * from being eaten first.  What is left in front of it here is
+	 * execve, the dynamic linker and getopt: 1.7 ms measured, against
+	 * 5.4 ms with the Lisp arena and prelude in front of it and 830 ms
+	 * with a 60 MB file's read.
+	 *
+	 * After init_editor() rather than before it, for the exit path
+	 * rather than this one: this call registers editor_at_exit(), atexit
+	 * handlers are LIFO, and registering last is what makes it run FIRST
+	 * -- the terminal is handed back before the session is torn down
+	 * (src/display.c's out-of-memory exit relies on that order).
+	 * init_editor() is under 0.1 ms, so going in front of it would buy
+	 * nothing to weigh against that. */
+	enable_raw_mode(STDIN_FILENO);
 	if (kg_lisp_active() && kg_lisp_init() != 0) {
+		/* Said on a cooked terminal: raw mode is on by now, and with
+		 * OPOST off the newline below would not return the carriage.
+		 * editor_at_exit() then finds no frame painted and leaves the
+		 * message where the user can read it. */
+		disable_raw_mode(STDIN_FILENO);
 		fprintf(stderr, "kg: cannot initialize Lisp: %s\n",
 		    kg_lisp_last_error());
 		return 1;
 	}
 	kg_lisp_set_interrupt_check(editor_check_quit_pending);
 	buf_load_args(argc - KG_OPTIND, argv + KG_OPTIND, readonly);
-	enable_raw_mode(STDIN_FILENO);
 	/* The greeting is set before init-file loading so a load error is
 	 * not overwritten by it. */
 	editor_set_status_message("Press Ctrl-h for help");
@@ -235,14 +274,15 @@ int main(int argc, char **argv)
 		editor_process_pending_signals();
 		compilation_poll();
 		compilation_start_pending_restart();
+		compilation_deliver_completion();
 		autorevert_poll();
 		kg_process_table_poll();
-		lsp_poll();
+		editor_async_poll();
 		/* Safe point: each of the non-command lifecycle actions
 		 * above (signal-driven resize, compilation polling,
-		 * autorevert, process-table and LSP polling) has either done
-		 * nothing or fully completed -- none of them holds an edit
-		 * transaction or the renderer open across this call.
+		 * autorevert, process-table and asynchronous polling) has
+		 * either done nothing or fully completed -- none of them holds
+		 * an edit transaction or the renderer open across this call.
 		 * kg_process_table_poll() itself never writes a buffer; its
 		 * drain subscriber runs from kg_event_drain_safe() below, not
 		 * from here. */

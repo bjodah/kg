@@ -32,6 +32,21 @@ struct kg_spawn_request {
 	bool stderr_to_output;
 	/* O_NONBLOCK on the read end the caller gets back. */
 	bool nonblocking_output;
+	/* The child gives up kg's controlling terminal, and so does
+	 * everything it starts -- a controlling terminal is inherited, and
+	 * this is the one thing a process group does NOT isolate.  A debug
+	 * adapter is the caller that needs it: its debuggee is spawned into
+	 * whatever kg handed the adapter, and debugpy's launcher hands the
+	 * terminal's foreground process group to that debuggee (measured).
+	 * kg is then a background process group on its own terminal, its
+	 * read() returns EIO the moment the program finishes, and the editor
+	 * treats that as end of input and exits -- at the end of every
+	 * completed debug run.
+	 *
+	 * Off by default: a compilation or a shell command shares the
+	 * editor's terminal deliberately.  On for spawned debug adapters
+	 * (src/dap_transport.c). */
+	bool detach_terminal;
 	/* The child leads its own process group, so a signal reaches the
 	 * command's own children too.  Already the behaviour; named here
 	 * because delete-process depends on it. */

@@ -1913,6 +1913,19 @@ static void test_current_column_tab(void)
 	CHECK(eval_eq("(progn (goto-char 2) (current-column))", "8"));
 	CHECK(eval_eq("(progn (goto-char 3) (current-column))", "9"));
 
+	/* The native must see a setq earlier in the same form; waiting for a
+	 * later repaint left C geometry one evaluation behind. */
+	CHECK(eval_eq(
+	    "(progn (setq tab-width 4) (goto-char 2) (current-column))", "4"));
+	CHECK(strcmp(bcur()->row[0].render, "    x") == 0);
+	CHECK(eval_eq(
+	    "(progn (setq tab-width 9) (goto-char 2) (current-column))", "9"));
+	CHECK(bcur()->row[0].hl_capacity >= bcur()->row[0].rsize);
+	CHECK(eval_eq("(progn (setq tab-width 32) (goto-char 2) "
+		      "(current-column))",
+	    "32"));
+	CHECK(bcur()->row[0].rsize == 33);
+
 	kg_lisp_shutdown();
 	teardown_editor();
 }
@@ -2189,6 +2202,84 @@ static void test_buffer_stale_slot(void)
 	CHECK(eval_error_contains("(set-buffer a)", "buffer is dead"));
 	/* The display buffer's text is untouched by the slot reuse. */
 	CHECK(eval_eq("(buffer-substring (point-min) (point-max))", "KEEP"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+/* setup_editor() resets the display buffer alone, so buffers an earlier
+ * case created still sit in their slots while buf_count says one.  A case
+ * that needs the whole table hands them back first, through the harness's
+ * own kill so their rows, names and stores go with them. */
+static void release_other_buffers(void)
+{
+	int i, active = 0;
+
+	for (i = 0; i < MAX_BUFFERS; i++) {
+		active += buflist[i].active ? 1 : 0;
+	}
+	buf_count = active;
+	for (i = 0; i < MAX_BUFFERS; i++) {
+		if (i == buf_current || !buflist[i].active) {
+			continue;
+		}
+		buflist[i].dirty = 0;
+		CHECK(buf_kill_buffer(buf_handle(i)));
+	}
+	CHECK(buf_count == 1);
+}
+
+/* The runtime point table holds one entry per buffer slot, so its last
+ * entry is only reached when every slot is live and every one of them has
+ * been selected.  Fill it that way: a table that did not grow with
+ * MAX_BUFFERS raises "too many buffers with runtime point" partway, and
+ * the buffer in the last slot is the one whose point proves it did. */
+static void test_point_table_reaches_the_last_slot(void)
+{
+	char form[160];
+	int i;
+
+	setup_editor();
+	release_other_buffers();
+	CHECK(kg_lisp_init() == 0);
+
+	/* Bounded by the iteration count as well as by buf_count, so a
+	 * create that stops taking slots ends the loop instead of spinning.
+	 * Each buffer gets a point of its own, which is what takes a table
+	 * entry; the display buffer takes one at every frame's start. */
+	for (i = 1; i < MAX_BUFFERS && buf_count < MAX_BUFFERS; i++) {
+		(void)snprintf(form, sizeof(form),
+		    "(progn (set-buffer (get-buffer-create \"cap-%d\"))"
+		    " (insert \"abcdef\") (goto-char %d))",
+		    i, 1 + i % 6);
+		CHECK(eval_ok(form));
+	}
+	CHECK(buf_count == MAX_BUFFERS);
+
+	/* One buffer past the table is refused with a message, not a slot. */
+	CHECK(eval_error_contains(
+	    "(get-buffer-create \"one-too-many\")", "too many open buffers"));
+
+	/* The buffer in the last slot kept the point set in it, and so did
+	 * the first one filled: no entry was evicted to make room. */
+	(void)snprintf(form, sizeof(form),
+	    "(progn (set-buffer (get-buffer \"cap-%d\")) (point))",
+	    MAX_BUFFERS - 1);
+	CHECK(eval_eq_int(form, 1 + (MAX_BUFFERS - 1) % 6));
+	CHECK(eval_eq_int(
+	    "(progn (set-buffer (get-buffer \"cap-1\")) (point))", 2));
+
+	/* This suite's teardown only owns the display buffer, so the filled
+	 * slots are handed back here. */
+	for (i = 1; i < MAX_BUFFERS; i++) {
+		(void)snprintf(form, sizeof(form),
+		    "(progn (set-buffer (get-buffer \"cap-%d\"))"
+		    " (set-buffer-modified-p nil)"
+		    " (kill-buffer (current-buffer)))",
+		    i);
+		CHECK(eval_ok(form));
+	}
+	CHECK(buf_count == 1);
 
 	kg_lisp_shutdown();
 	teardown_editor();
@@ -7185,6 +7276,7 @@ int main(void)
 	RUN(test_buffer_objects);
 	RUN(test_kill_buffer);
 	RUN(test_buffer_stale_slot);
+	RUN(test_point_table_reaches_the_last_slot);
 	RUN(test_buffer_point_sync);
 	RUN(test_numeric_argument_seam);
 	RUN(test_point_survives_set_buffer);

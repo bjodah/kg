@@ -10,28 +10,21 @@
  * map with three keys costs three entries rather than a whole table.  A
  * bind that would not fit fails and leaves the map as it was.
  *
- * Fifteen maps: the editor installs eleven of them itself -- one global
- * map, nine mode maps, and the one map keybind.c creates the first time a
- * user binds a C-c key -- and a table with no room past its own built-ins
- * is one where every `(define-key "my-mode-map" ...)` fails to create its
- * map at all, silently, because keymap_create() answering nullptr is how a
- * full table has always been reported.  Fifteen leaves four for
- * configuration; the cost is 15 * sizeof(struct keymap). */
-static constexpr int keymap_max_maps = 15;
+ * Eighteen maps hold the editor's ten built-ins, three optional debugger
+ * maps, the global user map and four maps owned by configuration.
+ *
+ * Exhaustion of any of the three is SILENT, which is why they are sized
+ * with room rather than to fit: a full map table makes keymap_create()
+ * answer nullptr, so a user's `(define-key "my-mode-map" ...)` does not
+ * create its map at all, and a full entry table or name pool makes
+ * keymap_bind() refuse, which leaves that key to the dispatch switch.
+ * Either way the binding simply does not work and nobody is told. */
+static constexpr int keymap_max_maps = 18;
 static constexpr int keymap_max_entries = 256;
 /* The name pool holds every map name AND every command name a binding
- * interns, which is what made it the tightest of the three bounds: at 2048
- * the built-in maps used 2035 of it, and the thirteen bytes left over were
- * exactly the "user" and "my-mode" a configuration test creates.  Adding
- * one global binding (M-, -> xref-go-back, 13 bytes) filled it to the byte,
- * and the first map a user's Lisp asked for then failed to be created --
- * silently, because keymap_create() answering nullptr is how a full table
- * has always been reported.  The failure mode is worth spelling out: a
- * command name that does not fit makes keymap_bind() refuse, which leaves
- * that key to the dispatch switch rather than to an error anybody sees.
- * 2560 leaves ~500 bytes, some 30 names, for configuration -- the same
- * reasoning as the twelve maps above, on the axis that ran out first. */
-static constexpr int keymap_name_pool = 2560;
+ * interns.  It is sized for the same built-in, optional-debugger and user
+ * map budget as the map table; exhaustion refuses the whole operation. */
+static constexpr int keymap_name_pool = 3072;
 
 struct keymap {
 	const char *name;
@@ -61,6 +54,11 @@ void keymap_reset(void)
 	map_count = 0;
 	entry_count = 0;
 	names_used = 0;
+}
+
+struct keymap_usage keymap_test_usage(void)
+{
+	return (struct keymap_usage) { map_count, entry_count, names_used };
 }
 
 static const char *intern(const char *name);
@@ -383,8 +381,13 @@ static int keymap_bind_name(
 		entries[exact].command = name;
 		return 0;
 	}
+	/* Do not intern a command for an entry that cannot be installed: a
+	 * failed bind leaves every shared pool unchanged. */
+	if (entry_count == keymap_max_entries) {
+		return -1;
+	}
 	name = command ? intern(command) : nullptr;
-	if ((command && !name) || entry_count == keymap_max_entries) {
+	if (command && !name) {
 		return -1;
 	}
 	entries[entry_count].map = index;

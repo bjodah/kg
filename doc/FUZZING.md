@@ -43,8 +43,26 @@ Every native target has the same three Make targets:
   that budget with `FUZZ_MAX_TOTAL_TIME`).
 
 The available names are `keypress`, `syntax`, `dirlocals`, `regex`,
-`localvars`, `compile-parse`, `lsp-json`, `width`, and `keybind`.
-`make fuzz-smoke` runs every smoke target;
+`localvars`, `compile-parse`, `lsp-json`, `width`, `keybind`, `frames` and
+`dap-dispatch`.  The last two are wire-protocol targets, and both take one
+input encoding: the raw bytes a server or adapter writes on its side of the
+connection, header block, blank line, body, repeated as often as it likes.
+A seed is therefore literal wire bytes and can be written with `printf(1)`.
+
+- `frames` drives the shared `Content-Length` parser (`src/framed_io.c`)
+  through a real pipe; seeds in `test/fuzz-seeds/frames`, corpus in
+  `test/fuzz-corpus/frames`.  It kept the `frames` name when the framing
+  was extracted from the LSP transport, so the older `fuzz_lsp_frames`
+  binary is only ever something `make clean` removes.
+- `dap-dispatch` drives the debug adapter's message dispatch
+  (`src/dap_client.c`) over a loopback socket, framing included; seeds in
+  `test/fuzz-seeds/dap_dispatch`, corpus in
+  `test/fuzz-corpus/dap_dispatch` -- the directories spell it with an
+  underscore where the Make target uses a dash.  It exists only in a
+  `WITH_DAP=1` build, so `make fuzz-smoke WITH_DAP=0` leaves it out.
+
+`make fuzz-regex-seed-replay` runs every tracked regex seed once with no
+mutation.  `make fuzz-smoke` runs every smoke target;
 `make fuzz-seed` only prepares their corpora.  For a longer campaign, run the
 binary directly after its seed target, for example:
 
@@ -180,7 +198,7 @@ FUZZ_MAX_TOTAL_TIME=300 make fuzz-syntax-smoke
 
 ## LSP JSON fuzzer
 
-`make fuzz-lsp-json` targets `src/lsp_json.c` alone: the parser that eats a
+`make fuzz-lsp-json` targets `src/json.c` alone: the parser that eats a
 language server's stdout, which is the least trusted input kg reads.  The
 whole input is one candidate document.  A rejected document must report an
 error offset inside the input; an accepted one is walked with every

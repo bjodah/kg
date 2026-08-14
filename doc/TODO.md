@@ -131,7 +131,7 @@ This file remains the broader feature and technical-debt inventory.
 The `WITH_LSP=1` client is complete per
 [doc/plans/2026-08-08-lsp.md](plans/2026-08-08-lsp.md)'s definition of
 done: `M-.`, `M-?` and `M-,` over a JSON-RPC stack of its own
-(`lsp_transport`, `lsp_json`, `lsp_client`, `lsp_server`, `lsp_sync`,
+(`lsp_transport`, `json`, `lsp_client`, `lsp_server`, `lsp_sync`,
 `lsp_uri`, `xref`), tested against a scripted fake server and against the
 real `clangd` and `ty`.  Known follow-ups, none blocking:
 
@@ -184,16 +184,15 @@ real `clangd` and `ty`.  Known follow-ups, none blocking:
       the escape-merge window and paste detection measuring what they
       always measured.  Pinned by `KG_PERF_IDLE_*` and four cases in
       `test/test_perf.c`: N pipe-loads cost N wakes and no ticks.
-- [x] **A fuzz target for the frame parser.**  Done 2026-08-10:
-      `test/fuzz_lsp_frames.c` is the sixth libFuzzer target, and its
-      input is the raw byte stream a server writes on its stdout --
+- [x] **A fuzz target for the frame parser.**  Done 2026-08-10, retargeted
+      to the shared framing layer 2026-08-11: `test/fuzz_frames.c` is the
+      frame libFuzzer target, and its input is the raw byte stream a server
+      writes on its stdout --
       written into a pipe whose read end is the real transport's, so what
-      runs is `lsp_transport.c`'s own read-and-frame loop and not a model
-      of it.  The seam is `lsp_transport_attach_fuzz_fd()`, compiled only
-      under `KG_FUZZ`, because the shipped constructor forks a server per
-      input.  Every delivered frame goes on to `lsp_json_parse()`, which
-      is what the client does with it.  Ten tracked seeds under
-      `test/fuzz-seeds/lsp_frames`; `make fuzz-lsp-frames-smoke` is in
+      runs is `framed_io.c`'s own read-and-frame loop and not a model of
+      it.  Every delivered frame goes on to `kg_json_parse()`, which is
+      what a protocol client does with it.  Ten tracked seeds under
+      `test/fuzz-seeds/frames`; `make fuzz-frames-smoke` is in
       the aggregate `fuzz-smoke` that `.ci/ci-09` runs.
 - [x] **More server specs.**  Done 2026-08-10: `gopls` and `rust-analyzer`
       are a row each in `server_specs[]` with a marker predicate

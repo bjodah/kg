@@ -1,6 +1,8 @@
 /* tty.c - Low level terminal handling */
 
+#include <assert.h>
 #include <errno.h>
+#include <limits.h>
 #ifdef _WIN32
 #include "platform.h"
 #else
@@ -17,14 +19,15 @@
 #include <unistd.h>
 #endif
 
+#include "async.h"
 #include "compile.h"
 #include "def.h"
 #include "keyevent.h"
-#include "lsp.h"
 #include "mouse.h"
 #include "perf.h"
 #include "process_table.h"
 #include "tty.h"
+#include "winmgr.h"
 
 #ifndef _WIN32
 static struct termios orig_termios; /* In order to restore at exit.*/
@@ -314,11 +317,19 @@ void editor_at_exit(void)
 	 * down -- so the attributes that frame would have closed itself may
 	 * still be open: the cursor hidden by the "\x1b[?25l" every frame
 	 * starts with, and whatever colour or reverse video the row it died
-	 * on had set. */
-	(void)tty_write("\x1b[0m", 4); /* Close any open attribute */
-	(void)tty_write("\x1b[?25h", 6); /* Show the cursor */
-	(void)tty_write("\x1b[2J", 4); /* Clear entire screen */
-	(void)tty_write("\x1b[H", 3); /* Move cursor to top-left */
+	 * on had set.
+	 *
+	 * All four are a painted frame's to undo, and raw mode is entered
+	 * before the first one is painted (src/main.c), so an exit inside
+	 * that window has nothing here to undo -- and clearing then would
+	 * take the terminal the user was looking at, along with whatever kg
+	 * printed on it on its way out. */
+	if (editor.screen_painted) {
+		(void)tty_write("\x1b[0m", 4); /* Close any open attribute */
+		(void)tty_write("\x1b[?25h", 6); /* Show the cursor */
+		(void)tty_write("\x1b[2J", 4); /* Clear entire screen */
+		(void)tty_write("\x1b[H", 3); /* Move cursor to top-left */
+	}
 
 	disable_raw_mode(STDIN_FILENO);
 }
@@ -439,220 +450,293 @@ static struct key_event parse_mouse_escape(int fd)
 	return bare_esc();
 }
 
-/* ESC O xx: the SS3 sequences an application-mode keypad and some
- * terminals' Home/End/F-keys arrive as. */
-static struct key_event parse_ss3(unsigned char final_byte)
+/* The longest sequence accepted below is ESC [ 24 ; 8 ~ (7 bytes).
+ * Sixteen is a fixed nine-byte margin for terminal variants while still
+ * putting a hard bound on hostile or truncated input.  The collector stops
+ * at the bound without reading byte 17, so a following key stays queued. */
+#define KEY_ESCAPE_BYTES_MAX 16
+#define KEY_ESCAPE_PARAM_MAX 2
+
+struct escape_params {
+	unsigned value[KEY_ESCAPE_PARAM_MAX];
+	unsigned present;
+	unsigned count;
+};
+
+struct terminal_key {
+	unsigned code;
+	int32_t base;
+};
+
+static const struct terminal_key final_keys[] = {
+	{ 'A', KEY_BASE_UP },
+	{ 'B', KEY_BASE_DOWN },
+	{ 'C', KEY_BASE_RIGHT },
+	{ 'D', KEY_BASE_LEFT },
+	{ 'H', KEY_BASE_HOME },
+	{ 'F', KEY_BASE_END },
+	{ 'P', KEY_BASE_F1 },
+	{ 'Q', KEY_BASE_F2 },
+	{ 'R', KEY_BASE_F3 },
+	{ 'S', KEY_BASE_F4 },
+};
+
+static const struct terminal_key tilde_keys[] = {
+	{ 1, KEY_BASE_HOME },
+	{ 2, KEY_BASE_INSERT },
+	{ 3, KEY_BASE_DELETE },
+	{ 4, KEY_BASE_END },
+	{ 5, KEY_BASE_PRIOR },
+	{ 6, KEY_BASE_NEXT },
+	{ 7, KEY_BASE_HOME },
+	{ 8, KEY_BASE_END },
+	{ 11, KEY_BASE_F1 },
+	{ 12, KEY_BASE_F2 },
+	{ 13, KEY_BASE_F3 },
+	{ 14, KEY_BASE_F4 },
+	{ 15, KEY_BASE_F5 },
+	{ 17, KEY_BASE_F6 },
+	{ 18, KEY_BASE_F7 },
+	{ 19, KEY_BASE_F8 },
+	{ 20, KEY_BASE_F9 },
+	{ 21, KEY_BASE_F10 },
+	{ 23, KEY_BASE_F11 },
+	{ 24, KEY_BASE_F12 },
+};
+
+static int32_t terminal_key_lookup(
+    const struct terminal_key *keys, size_t count, unsigned code)
 {
-	switch (final_byte) {
-	case 'H':
-		return (struct key_event) { KEY_BASE_HOME, 0 };
-	case 'F':
-		return (struct key_event) { KEY_BASE_END, 0 };
-	case 'R':
-		return (struct key_event) { KEY_BASE_F3, 0 };
-	case 'S':
-		return (struct key_event) { KEY_BASE_F4, 0 };
+	size_t i;
+
+	for (i = 0; i < count; i++) {
+		if (keys[i].code == code) {
+			return keys[i].base;
+		}
 	}
-	return bare_esc();
+	return 0;
+}
+
+static int escape_param_digit(struct escape_params *params, unsigned digit)
+{
+	unsigned i;
+
+	if (params->count == 0) {
+		params->count = 1;
+	}
+	i = params->count - 1;
+	if (params->value[i] > (UINT_MAX - digit) / 10) {
+		return 0;
+	}
+	params->value[i] = params->value[i] * 10 + digit;
+	params->present |= 1U << i;
+	return 1;
+}
+
+static int escape_param_separator(struct escape_params *params)
+{
+	if (params->count == 0) {
+		params->count = 1;
+	}
+	if (params->count >= KEY_ESCAPE_PARAM_MAX) {
+		return 0;
+	}
+	params->count++;
+	return 1;
+}
+
+static int escape_param_byte(struct escape_params *params, unsigned char c)
+{
+	if (c >= '0' && c <= '9') {
+		return escape_param_digit(params, c - '0');
+	}
+	if (c == ';') {
+		return escape_param_separator(params);
+	}
+	return 0;
+}
+
+/* Collect numeric CSI/SS3 parameters.  `used` includes ESC, the introducer
+ * and `first`.  A final byte belongs to this sequence even when kg does not
+ * implement it.  Once parameter grammar is invalid, consume through that
+ * final within the fixed cap; the byte after the final stays queued. */
+static int read_escape_params(int fd, unsigned char first, unsigned used,
+    struct escape_params *params, unsigned char *final_byte)
+{
+	unsigned char c = first;
+	int valid = 1;
+
+	for (;;) {
+		if (c >= 0x40 && c <= 0x7e) {
+			*final_byte = c;
+			return valid;
+		}
+		if (valid && !escape_param_byte(params, c)) {
+			valid = 0;
+		}
+		if (used >= KEY_ESCAPE_BYTES_MAX
+		    || read_input_byte(fd, &c) != 1) {
+			return 0;
+		}
+		used++;
+	}
+}
+
+/* xterm encodes Shift/Meta/Ctrl in bits 0/1/2 of modifier-1.  key_event's
+ * bits deliberately have a different order, so translate rather than cast. */
+static int xterm_modifier(unsigned value, uint8_t *mods)
+{
+	unsigned bits;
+
+	if (value < 2 || value > 8) {
+		return 0;
+	}
+	bits = value - 1;
+	*mods = (uint8_t)(((bits & 1) ? KEY_MOD_SHIFT : 0)
+	    | ((bits & 2) ? KEY_MOD_META : 0)
+	    | ((bits & 4) ? KEY_MOD_CTRL : 0));
+	return 1;
+}
+
+static int final_key_mods(const struct escape_params *params, int allow_bare,
+    int allow_default, uint8_t *mods)
+{
+	if (params->count == 0) {
+		if (!allow_bare) {
+			return 0;
+		}
+		*mods = 0;
+		return 1;
+	}
+	if (params->count != 2 || !(params->present & 2)
+	    || (!allow_default && !(params->present & 1))
+	    || ((params->present & 1) && params->value[0] != 1)) {
+		return 0;
+	}
+	return xterm_modifier(params->value[1], mods);
+}
+
+static struct key_event decode_final_key(unsigned char final_byte,
+    const struct escape_params *params, int allow_bare, int allow_default)
+{
+	int32_t base;
+	uint8_t mods;
+
+	base = terminal_key_lookup(
+	    final_keys, sizeof(final_keys) / sizeof(*final_keys), final_byte);
+	if (!base
+	    || !final_key_mods(params, allow_bare, allow_default, &mods)) {
+		return bare_esc();
+	}
+	return (struct key_event) { base, mods };
+}
+
+static struct key_event decode_tilde_key(const struct escape_params *params)
+{
+	int32_t base;
+	uint8_t mods = 0;
+
+	if ((params->present & 1) == 0 || params->count < 1) {
+		return bare_esc();
+	}
+	base = terminal_key_lookup(tilde_keys,
+	    sizeof(tilde_keys) / sizeof(*tilde_keys), params->value[0]);
+	if (!base || params->count > 2) {
+		return bare_esc();
+	}
+	if (params->count == 2
+	    && (!(params->present & 2)
+		|| !xterm_modifier(params->value[1], &mods))) {
+		return bare_esc();
+	}
+	return (struct key_event) { base, mods };
+}
+
+static struct key_event decode_csi_key(
+    unsigned char final_byte, const struct escape_params *params)
+{
+	int function_final;
+
+	if (final_byte == '~') {
+		return decode_tilde_key(params);
+	}
+	function_final = final_byte >= 'P' && final_byte <= 'S';
+	return decode_final_key(
+	    final_byte, params, !function_final, !function_final);
+}
+
+static struct key_event decode_ss3_key(
+    unsigned char final_byte, const struct escape_params *params)
+{
+	if (final_byte == '~') {
+		return bare_esc();
+	}
+	return decode_final_key(final_byte, params, 1, 0);
+}
+
+static struct key_event parse_numeric_escape(
+    int fd, unsigned char first, unsigned used, int ss3)
+{
+	struct escape_params params = { 0 };
+	unsigned char final_byte;
+
+	if (!read_escape_params(fd, first, used, &params, &final_byte)) {
+		return bare_esc();
+	}
+	if (ss3) {
+		return decode_ss3_key(final_byte, &params);
+	}
+	return decode_csi_key(final_byte, &params);
+}
+
+static struct key_event parse_csi(int fd)
+{
+	unsigned char first;
+
+	if (read_input_byte(fd, &first) != 1) {
+		return bare_esc();
+	}
+	if (first == '<') {
+		return parse_mouse_escape(fd);
+	}
+	return parse_numeric_escape(fd, first, 3, 0);
+}
+
+/* ESC O: SS3 Home/End/F1-F4, including the parameterized modifier form
+ * emitted by terminals that use SS3 rather than CSI for modified F-keys. */
+static struct key_event parse_ss3(int fd)
+{
+	unsigned char first;
+
+	if (read_input_byte(fd, &first) != 1) {
+		return bare_esc();
+	}
+	return parse_numeric_escape(fd, first, 3, 1);
 }
 
 /* Decode an escape sequence (ESC byte already consumed) into a key_event. */
 static struct key_event parse_escape(int fd)
 {
-	unsigned char seq[6];
+	unsigned char first;
 	struct key_event event;
 
-	if (read_input_byte(fd, seq) != 1) {
+	if (read_input_byte(fd, &first) != 1) {
 		return bare_esc();
 	}
 
 	/* Meta+key: ESC followed by a single character */
-	event = lookup_meta_key((char)seq[0]);
+	event = lookup_meta_key((char)first);
 	if (event.base) {
 		return event;
 	}
-	if (seq[0] >= '0' && seq[0] <= '9') {
-		return (
-		    struct key_event) { '0' + (seq[0] - '0'), KEY_MOD_META };
+	if (first >= '0' && first <= '9') {
+		return (struct key_event) { '0' + (first - '0'), KEY_MOD_META };
 	}
-
-	if (read_input_byte(fd, seq + 1) != 1) {
-		return bare_esc();
+	if (first == '[') {
+		return parse_csi(fd);
 	}
-
-	/* ESC [ sequences */
-	if (seq[0] == '[') {
-		if (seq[1] == '<') {
-			return parse_mouse_escape(fd);
-		}
-		if (seq[1] >= '0' && seq[1] <= '9') {
-			if (read_input_byte(fd, seq + 2) != 1) {
-				return bare_esc();
-			}
-			if (seq[2] == '~') {
-				switch (seq[1]) {
-				case '1':
-				case '7':
-					return (struct key_event) {
-						KEY_BASE_HOME, 0
-					};
-				case '2':
-					return (struct key_event) {
-						KEY_BASE_INSERT, 0
-					};
-				case '3':
-					return (struct key_event) {
-						KEY_BASE_DELETE, 0
-					};
-				case '4':
-				case '8':
-					return (struct key_event) {
-						KEY_BASE_END, 0
-					};
-				case '5':
-					return (struct key_event) {
-						KEY_BASE_PRIOR, 0
-					};
-				case '6':
-					return (struct key_event) {
-						KEY_BASE_NEXT, 0
-					};
-				}
-			} else if (seq[2] >= '0' && seq[2] <= '9') {
-				/* Two-digit: ESC[<d1><d2>~ (F3=ESC[13~,
-				 * F4=ESC[14~) */
-				if (read_input_byte(fd, seq + 3) != 1) {
-					return bare_esc();
-				}
-				if (seq[3] == '~' && seq[1] == '1') {
-					switch (seq[2]) {
-					case '3':
-						return (struct key_event) {
-							KEY_BASE_F3, 0
-						};
-					case '4':
-						return (struct key_event) {
-							KEY_BASE_F4, 0
-						};
-					}
-				}
-			} else if (seq[2] == ';') {
-				/* ESC [ 1 ; N x  modified-key, N=2 Shift, N=5
-				 * Ctrl */
-				if (read_input_byte(fd, seq + 3) != 1) {
-					return bare_esc();
-				}
-				if (read_input_byte(fd, seq + 4) != 1) {
-					return bare_esc();
-				}
-				if (seq[1] == '1' && seq[3] == '5') {
-					switch (seq[4]) {
-					case 'A':
-						return (struct key_event) {
-							KEY_BASE_UP,
-							KEY_MOD_CTRL
-						};
-					case 'B':
-						return (struct key_event) {
-							KEY_BASE_DOWN,
-							KEY_MOD_CTRL
-						};
-					case 'C':
-						return (struct key_event) {
-							KEY_BASE_RIGHT,
-							KEY_MOD_CTRL
-						};
-					case 'D':
-						return (struct key_event) {
-							KEY_BASE_LEFT,
-							KEY_MOD_CTRL
-						};
-					case 'H':
-						return (struct key_event) {
-							KEY_BASE_HOME,
-							KEY_MOD_CTRL
-						};
-					case 'F':
-						return (struct key_event) {
-							KEY_BASE_END,
-							KEY_MOD_CTRL
-						};
-					}
-				} else if (seq[1] == '1' && seq[3] == '2') {
-					switch (seq[4]) {
-					case 'A':
-						return (struct key_event) {
-							KEY_BASE_UP,
-							KEY_MOD_SHIFT
-						};
-					case 'B':
-						return (struct key_event) {
-							KEY_BASE_DOWN,
-							KEY_MOD_SHIFT
-						};
-					case 'C':
-						return (struct key_event) {
-							KEY_BASE_RIGHT,
-							KEY_MOD_SHIFT
-						};
-					case 'D':
-						return (struct key_event) {
-							KEY_BASE_LEFT,
-							KEY_MOD_SHIFT
-						};
-					case 'H':
-						return (struct key_event) {
-							KEY_BASE_HOME,
-							KEY_MOD_SHIFT
-						};
-					case 'F':
-						return (struct key_event) {
-							KEY_BASE_END,
-							KEY_MOD_SHIFT
-						};
-					}
-				} else if (seq[4] == '~') {
-					/* ESC [ N ; M ~  modified Insert/Delete
-					 * (CUA clipboard) */
-					if (seq[1] == '2' && seq[3] == '2') {
-						return (struct key_event) {
-							KEY_BASE_INSERT,
-							KEY_MOD_SHIFT
-						};
-					}
-					if (seq[1] == '2' && seq[3] == '5') {
-						return (struct key_event) {
-							KEY_BASE_INSERT,
-							KEY_MOD_CTRL
-						};
-					}
-					if (seq[1] == '3' && seq[3] == '2') {
-						return (struct key_event) {
-							KEY_BASE_DELETE,
-							KEY_MOD_SHIFT
-						};
-					}
-				}
-			}
-		} else {
-			switch (seq[1]) {
-			case 'A':
-				return (struct key_event) { KEY_BASE_UP, 0 };
-			case 'B':
-				return (struct key_event) { KEY_BASE_DOWN, 0 };
-			case 'C':
-				return (struct key_event) { KEY_BASE_RIGHT, 0 };
-			case 'D':
-				return (struct key_event) { KEY_BASE_LEFT, 0 };
-			case 'H':
-				return (struct key_event) { KEY_BASE_HOME, 0 };
-			case 'F':
-				return (struct key_event) { KEY_BASE_END, 0 };
-			}
-		}
-		/* ESC O sequences */
-	} else if (seq[0] == 'O') {
-		return parse_ss3(seq[1]);
+	if (first == 'O') {
+		return parse_ss3(fd);
 	}
 	return bare_esc();
 }
@@ -660,7 +744,7 @@ static struct key_event parse_escape(int fd)
 enum kg_idle_wake kg_idle_wait(
     int fd, const int *extra, int count, int timeout_ms)
 {
-	struct pollfd pfd[1 + KG_LSP_WAIT_FDS_MAX];
+	struct pollfd pfd[1 + KG_ASYNC_WAIT_FDS_MAX];
 	int nfds = 1;
 	int rc;
 	int i;
@@ -715,8 +799,8 @@ static long long idle_now_ms(void)
 
 /* Everything the editor does between keystrokes, once per tick.  This is
  * the block that used to hang off the 100 ms read timeout, and it still
- * runs at exactly that cadence -- KG_IDLE_FD only ever gets the editor to
- * lsp_poll() sooner, never these. */
+ * runs at exactly that cadence -- KG_IDLE_FD only ever gets the editor's
+ * asynchronous subsystems polled sooner, never these. */
 static void idle_tick_work(void)
 {
 	int changed = 0;
@@ -724,28 +808,29 @@ static void idle_tick_work(void)
 	changed |= autorevert_poll();
 	changed |= compilation_poll();
 	compilation_start_pending_restart();
+	compilation_deliver_completion();
 	/* Not part of `changed`: this only moves bytes fd -> queue and
 	 * publishes events, so there is nothing here yet for a repaint to
 	 * show -- the drain that would change the screen runs from a safe
 	 * point, never from this idle loop. */
 	kg_process_table_poll();
-	/* Part of `changed`, unlike the line above: an LSP response is
-	 * allowed to move point or the echo area from here, the way
-	 * compilation_poll() is, so the frame it changed has to be
-	 * repainted while the editor is still waiting for a key. */
-	changed |= lsp_poll();
+	/* Part of `changed`, unlike the line above: a protocol response may
+	 * move point or the echo area from here, the way compilation_poll()
+	 * may, so the frame it changed has to be repainted while the editor
+	 * is still waiting for a key. */
+	changed |= editor_async_poll();
 	if (changed) {
 		editor_refresh_screen();
 	}
 }
 
-/* The main loop's wait: the terminal, every live language server's
+/* The main loop's wait: the terminal, every asynchronous subsystem's
  * descriptors, and whatever is left of the current tick.
  *
  * The tick is a DEADLINE rather than a duration, and exactly one place
  * moves it.  That is what keeps the pollers in idle_tick_work() at 100 ms
- * however often a chatty server wakes the editor in between -- a wait a
- * descriptor ended early leaves the deadline where it was, so the tick
+ * however often a chatty subsystem wakes the editor in between -- a wait
+ * a descriptor ended early leaves the deadline where it was, so the tick
  * still lands when it would have landed. */
 static enum kg_idle_wake idle_wait(int fd)
 {
@@ -754,19 +839,26 @@ static enum kg_idle_wake idle_wait(int fd)
 	 * platform keeps the wait it always had: the read below blocks with
 	 * the console's own timeout, and a read that comes back empty is its
 	 * tick.  kg_idle_wait() is still here and still works -- on the
-	 * descriptors a language server hands over -- it is just not what
+	 * descriptors asynchronous subsystems hand over -- it is just not what
 	 * paces the loop here. */
 	(void)fd;
 	return KG_IDLE_KEY;
 #else
 	static long long next_tick;
-	int fds[KG_LSP_WAIT_FDS_MAX];
+	int fds[KG_ASYNC_WAIT_FDS_MAX];
 	enum kg_idle_wake wake;
 	long long now = idle_now_ms();
 	int count;
 
 	if (now < next_tick) {
-		count = lsp_wait_fds(fds, KG_LSP_WAIT_FDS_MAX);
+		count = editor_async_wait_fds(fds, KG_ASYNC_WAIT_FDS_MAX);
+		/* The destination is exactly the seam's bound, so the only
+		 * -1 left would be a subsystem breaking its contract, and
+		 * kg_idle_wait() would answer a negative count by waiting on
+		 * the keyboard alone -- every asynchronous descriptor gone
+		 * from the wait, no error anywhere, just an editor that has
+		 * become slow.  It is asserted rather than tolerated. */
+		assert(count >= 0);
 		wake = kg_idle_wait(fd, fds, count, (int)(next_tick - now));
 		if (wake != KG_IDLE_TICK) {
 			return wake;
@@ -803,9 +895,9 @@ static enum idle_next idle_dispatch(enum kg_idle_wake wake)
 	case KG_IDLE_KEY:
 		return IDLE_NEXT_READ;
 	case KG_IDLE_FD:
-		/* A server, and only a server: the pollers in
-		 * idle_tick_work() keep their own cadence. */
-		if (lsp_poll()) {
+		/* An asynchronous subsystem, and only one of those: the pollers
+		 * in idle_tick_work() keep their own cadence. */
+		if (editor_async_poll()) {
 			editor_refresh_screen();
 		}
 		break;
@@ -854,7 +946,7 @@ static int wait_for_input(int fd, int idle)
 
 /* Block until one input byte arrives, servicing signals and the idle
  * polls meanwhile.  `idle` selects the main-loop wait (the tick's pollers,
- * plus every language server's descriptors) over the plain one used by
+ * plus every asynchronous descriptor) over the plain one used by
  * minibuffer prompts, which reads the terminal and nothing else.  Returns
  * the byte, or -1 once the input stream is gone and the editor is shutting
  * down. */

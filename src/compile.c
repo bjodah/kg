@@ -1,7 +1,9 @@
 #include "compile.h"
 #include "def.h"
+#include "event.h"
 #include "kbd.h"
 #include "process.h"
+#include "winmgr.h"
 #include <errno.h>
 #include <signal.h>
 #include <stdio.h>
@@ -17,6 +19,31 @@
 #define COMPILATION_TICK_BUDGET (64 * 1024)
 
 static struct compilation_state g_compilation;
+
+/* The programmatic seam's whole state (see compile.h).  One slot, because
+ * one compilation runs at a time and a caller that asked while another's
+ * answer was still undelivered was told BUSY.
+ *
+ * `generation` is nonzero exactly while a caller is owed a callback: it is
+ * stamped when the call is accepted, compared by
+ * compilation_cancel_programmatic(), and cleared by the delivery.  That one
+ * number is what makes cancellation safe against every race -- an abandoned
+ * caller's generation no longer matches, so the completion it would have
+ * received is dropped rather than delivered into a freed context. */
+static struct {
+	unsigned generation;
+	compilation_done_fn done;
+	void *ctx;
+	bool attached; /* the run in progress is this caller's */
+	bool ready; /* its result is waiting for the safe point */
+	struct compilation_result result;
+} g_programmatic;
+
+static unsigned g_programmatic_next_generation = 1;
+
+/* Called from compilation_poll()'s finalize block, defined with the rest of
+ * the seam below it. */
+static void programmatic_finish(void);
 
 /* Retained-output budget handed to the next compilation.  compilation_start()
  * copies it into the run's own state, so lowering it (tests do) never disturbs
@@ -141,8 +168,15 @@ static void compilation_report_diag_line(
  * last_directory consistent for a later recompile. When from_user is true the
  * caller has just switched into source_buffer, so focus is returned there;
  * for a deferred restart (launched from the top-level loop) we keep whatever
- * buffer the user currently occupies and only show output in another window. */
-static void compilation_start(const char *command, const char *directory,
+ * buffer the user currently occupies and only show output in another window.
+ *
+ * Returns whether a child is now running.  The two false paths -- no
+ * compilation buffer, no child -- already told the user in the echo area;
+ * the return exists for the programmatic seam, which owes its caller a
+ * completion even when nothing ever ran. */
+static void feed_release(void);
+
+static bool compilation_start(const char *command, const char *directory,
     struct kg_buffer_handle source_buffer, bool from_user)
 {
 	int source_slot = buf_handle_slot(source_buffer);
@@ -151,8 +185,13 @@ static void compilation_start(const char *command, const char *directory,
 	if (cidx < 0) {
 		editor_set_status_message(
 		    "Failed to prepare compilation buffer");
-		return;
+		return false;
 	}
+
+	/* A real compilation takes the buffer back from any feed that was
+	 * still open: the user's build wins, and interleaving two writers
+	 * into one buffer would produce a transcript belonging to neither. */
+	feed_release();
 
 	g_compilation.have_last_command = true;
 	strncpy(g_compilation.last_command, command,
@@ -187,7 +226,7 @@ static void compilation_start(const char *command, const char *directory,
 		editor_set_status_message(
 		    "Cannot start compilation: %s", strerror(errno));
 		g_compilation.phase = COMPILATION_IDLE;
-		return;
+		return false;
 	}
 
 	g_compilation.pid = pid;
@@ -211,6 +250,7 @@ static void compilation_start(const char *command, const char *directory,
 	win_position_at_end(cidx);
 
 	editor_set_status_message("Compilation started: %s", command);
+	return true;
 }
 
 /* Run `command` in `dir` on behalf of the buffer `source` names, dealing
@@ -257,7 +297,7 @@ static void compilation_start_or_defer(int fd, const char *command,
 		}
 	}
 
-	compilation_start(command, dir, source, true);
+	(void)compilation_start(command, dir, source, true);
 }
 
 /* Emacs' compile-history: separate from every other prompt's ring. */
@@ -636,15 +676,148 @@ int compilation_poll(void)
 
 		g_compilation.phase = COMPILATION_IDLE;
 		state_changed = 1;
+		programmatic_finish();
 
 		/* A queued restart is only launched from the top-level loop
 		 * (see compilation_start_pending_restart), never from here:
 		 * compilation_poll runs during minibuffer prompts, and starting
 		 * a compilation switches buffers/windows, which must not happen
-		 * underneath an unrelated prompt. */
+		 * underneath an unrelated prompt.  A programmatic completion is
+		 * only DELIVERED from there (compilation_deliver_completion)
+		 * for exactly the same reason -- which is why the call above
+		 * records the result and runs nothing. */
 	}
 
 	return state_changed;
+}
+
+/* ------------------------- the programmatic seam ---------------------- */
+
+/* Turn the run that has just finalized into the result its caller is owed.
+ * Built here, at the end of the run, and delivered later: the callback must
+ * not run from inside a poll, which is compile.h's contract and the reason
+ * this only records. */
+static void programmatic_finish(void)
+{
+	struct compilation_result *r = &g_programmatic.result;
+
+	if (!g_programmatic.attached) {
+		return;
+	}
+	g_programmatic.attached = false;
+	memset(r, 0, sizeof(*r));
+	r->truncated = g_compilation.truncated;
+	if (g_compilation.wait_status.exited) {
+		r->status = COMPILATION_DONE_EXITED;
+		r->exit_code = g_compilation.wait_status.exit_code;
+	} else if (g_compilation.wait_status.signal_number) {
+		r->status = COMPILATION_DONE_SIGNALLED;
+		r->signal_number = g_compilation.wait_status.signal_number;
+	} else {
+		/* Collected with neither an exit code nor a signal: the child
+		 * was already gone (ECHILD) and nothing is known about how it
+		 * went.  Reported as an exit of unknown status rather than as
+		 * a signal kg never saw, and -1 is not a code any child can
+		 * exit with. */
+		r->status = COMPILATION_DONE_EXITED;
+		r->exit_code = -1;
+	}
+	g_programmatic.ready = true;
+}
+
+void compilation_deliver_completion(void)
+{
+	struct compilation_result result = g_programmatic.result;
+	compilation_done_fn done = g_programmatic.done;
+	void *ctx = g_programmatic.ctx;
+
+	if (!g_programmatic.ready) {
+		return;
+	}
+	/* The slot is cleared BEFORE the callback runs, src/lsp_client.c's
+	 * rule for the same reason: a callback may start the next
+	 * compilation, and it must not find this one's answer still standing
+	 * and be told BUSY by an answer that has already been delivered. */
+	g_programmatic.ready = false;
+	g_programmatic.generation = 0;
+	g_programmatic.done = NULL;
+	g_programmatic.ctx = NULL;
+	if (done) {
+		done(&result, ctx);
+	}
+}
+
+enum compilation_start_result compilation_start_programmatic(
+    const char *command, const char *directory, struct kg_buffer_handle source,
+    compilation_done_fn done_fn, void *ctx, unsigned *generation_out)
+{
+	if (generation_out) {
+		*generation_out = 0;
+	}
+	/* Busy is the whole of the "already running" policy: no prompt, no
+	 * SIGINT, no queued restart.  An undelivered completion counts as
+	 * busy too, since accepting now would overwrite an answer somebody is
+	 * still owed. */
+	if (compilation_is_running() || g_programmatic.generation != 0) {
+		return COMPILATION_BUSY;
+	}
+	g_programmatic.generation = g_programmatic_next_generation++;
+	if (g_programmatic_next_generation == 0) {
+		g_programmatic_next_generation = 1;
+	}
+	g_programmatic.done = done_fn;
+	g_programmatic.ctx = ctx;
+	g_programmatic.attached = true;
+	g_programmatic.ready = false;
+	if (generation_out) {
+		*generation_out = g_programmatic.generation;
+	}
+	/* from_user is false: this start belongs to a caller, not to a user
+	 * who has just switched into a buffer, so the window arrangement is
+	 * left as the deferred-restart path leaves it. */
+	if (!compilation_start(command, directory, source, false)) {
+		g_programmatic.attached = false;
+		memset(
+		    &g_programmatic.result, 0, sizeof(g_programmatic.result));
+		g_programmatic.result.status = COMPILATION_DONE_SPAWN_FAILED;
+		g_programmatic.ready = true;
+	}
+	return COMPILATION_ACCEPTED;
+}
+
+void compilation_cancel_programmatic(unsigned generation)
+{
+	if (generation == 0 || g_programmatic.generation != generation) {
+		return;
+	}
+	/* The run itself is left alone: it is the user's compilation now,
+	 * finishing into *compilation* as any other does.  Only the promise
+	 * to call somebody back is dropped. */
+	g_programmatic.generation = 0;
+	g_programmatic.done = NULL;
+	g_programmatic.ctx = NULL;
+	g_programmatic.attached = false;
+	g_programmatic.ready = false;
+}
+
+/* The editor is going away with a callback still owed.  It is delivered
+ * here rather than dropped, so a caller can release what it owns -- and a
+ * result that was already recorded is delivered as itself, since a run that
+ * finished before the editor did has an answer worth more than
+ * "cancelled". */
+static void programmatic_abandon(void)
+{
+	if (g_programmatic.generation == 0) {
+		return;
+	}
+	if (!g_programmatic.ready) {
+		memset(
+		    &g_programmatic.result, 0, sizeof(g_programmatic.result));
+		g_programmatic.result.status = COMPILATION_DONE_CANCELLED;
+		g_programmatic.attached = false;
+		g_programmatic.ready = true;
+	}
+	compilation_deliver_completion();
 }
 
 /* Launch a restart that a previous compile/recompile deferred until the
@@ -655,7 +828,7 @@ void compilation_start_pending_restart(void)
 	if (g_compilation.restart_pending
 	    && g_compilation.phase == COMPILATION_IDLE) {
 		g_compilation.restart_pending = false;
-		compilation_start(g_compilation.pending_command,
+		(void)compilation_start(g_compilation.pending_command,
 		    g_compilation.pending_directory,
 		    g_compilation.pending_source_buffer, false);
 	}
@@ -694,8 +867,99 @@ void editor_kill_compilation(int fd)
 				  "group (repeat to SIGKILL)");
 }
 
+/* ----------------------------- the output feed ------------------------ */
+
+/* One feed at a time, and never beside a real compilation: both write the
+ * same buffer, and compile.h says which one wins. */
+static struct compilation_state g_feed;
+static bool g_feed_open;
+
+static void feed_release(void)
+{
+	free(g_feed.pending_line);
+	memset(&g_feed, 0, sizeof(g_feed));
+	g_feed_open = false;
+}
+
+bool compilation_feed_begin(const char *label, const char *directory)
+{
+	char header[PATH_MAX + KG_COMPILE_COMMAND_MAX + 128];
+	int header_len;
+	int cidx;
+
+	if (compilation_is_running()) {
+		return false;
+	}
+	feed_release();
+	cidx
+	    = buf_prepare_special_text("*compilation*", &compilation_syntax, 1);
+	if (cidx < 0) {
+		return false;
+	}
+	compilation_stream_reset(&g_feed, g_default_maximum_output);
+	g_feed.compilation_buffer = buf_handle(cidx);
+	/* The same header an ordinary compilation writes, because what
+	 * follows is read the same way and the directory line is what makes
+	 * a relative diagnostic resolvable. */
+	header_len = snprintf(header, sizeof(header),
+	    "Compilation started in %s\n\n$ %s\n\n", directory, label);
+	buf_append_special_text(cidx, header, header_len);
+	g_feed.committed_len += (size_t)header_len;
+	compilation_report_diag_reset(g_feed.compilation_buffer, directory);
+	/* A feed arrives from a poll callback, which runs underneath
+	 * minibuffer prompts.  The buffer and the next-error store take the
+	 * diagnostics either way -- C-x ` works from wherever the user is --
+	 * but rearranging windows under an unrelated question is the hazard
+	 * the completion-callback machinery above exists to avoid, so the
+	 * raise is skipped while a prompt is standing. */
+	if (!kg_event_prompt_active()) {
+		win_display_buffer_other_window(cidx);
+		win_position_at_end(cidx);
+	}
+	g_feed_open = true;
+	return true;
+}
+
+void compilation_feed_bytes(const char *bytes, size_t len)
+{
+	if (g_feed_open) {
+		compilation_process_bytes(&g_feed, bytes, len);
+	}
+}
+
+void compilation_feed_finish(const char *note)
+{
+	char msg[192];
+	int msg_len;
+	int slot;
+
+	if (!g_feed_open) {
+		return;
+	}
+	slot = buf_handle_slot(g_feed.compilation_buffer);
+	/* The mirrored copy of the pending line goes before it is committed
+	 * for real, or the last unterminated line appears twice -- the same
+	 * ordering compilation_poll()'s finalize block keeps. */
+	buf_truncate_last_row(slot, g_feed.displayed_pending_length);
+	g_feed.displayed_pending_length = 0;
+	if (g_feed.pending_line_length > 0) {
+		compilation_commit_line(&g_feed);
+	}
+	if (g_feed.truncated && !g_feed.truncation_marker_written) {
+		msg_len = snprintf(msg, sizeof(msg),
+		    "[kg: compilation output truncated after %zu bytes]\n",
+		    g_feed.maximum_output);
+		buf_append_special_text(slot, msg, msg_len);
+		g_feed.truncation_marker_written = true;
+	}
+	msg_len = snprintf(msg, sizeof(msg), "\n%s\n", note ? note : "");
+	buf_append_special_text(slot, msg, msg_len);
+	feed_release();
+}
+
 void compilation_shutdown(void)
 {
+	feed_release();
 	if (g_compilation.phase != COMPILATION_IDLE) {
 		kg_close_fd(&g_compilation.output_fd);
 		if (g_compilation.process_group > 0) {
@@ -720,4 +984,8 @@ void compilation_shutdown(void)
 		g_compilation.phase = COMPILATION_IDLE;
 		g_compilation.restart_pending = false;
 	}
+	/* Outside the branch above: a caller may be owed a completion for a
+	 * run that already finished and has not been delivered yet, and that
+	 * run left the phase idle. */
+	programmatic_abandon();
 }

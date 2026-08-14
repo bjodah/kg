@@ -1,0 +1,3 @@
+Content-Length: 457
+
+{"seq": 1, "type": "response", "request_seq": 1, "success": true, "command": "initialize", "body": {"supportsConfigurationDoneRequest": true, "supportsTerminateRequest": false, "supportsTerminateDebuggee": true, "supportsDelayedStackTraceLoading": true, "exceptionBreakpointFilters": [{"filter": "raised", "label": "Raised", "default": false}, {"filter": "uncaught", "label": "Uncaught", "description": "stop", "default": true, "supportsCondition": true}]}}

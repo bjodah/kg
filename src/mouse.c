@@ -8,6 +8,7 @@
 #include "marker.h"
 #include "mouse.h"
 #include "vgeom.h"
+#include "winmgr.h"
 
 /* DECSET 1000 (button press and release), 1002 (motion reports while a
  * button is held, which is what makes a drag visible) and 1006 (the SGR
@@ -232,8 +233,9 @@ static void mouse_set_point(int row, int col)
 		return;
 	}
 	r = &bcur()->row[filerow];
-	chars = editor_chars_col_at_visual(
-	    r, editor_visual_col(r, w->coloff) + dx);
+	chars = editor_chars_col_at_visual(r,
+	    editor_visual_col(r, w->coloff, buf_display_options(bcur())) + dx,
+	    buf_display_options(bcur()));
 	/* editor_chars_col_at_visual() answers a click past the row's last
 	 * glyph in virtual space; point only lives there in rectangle mark
 	 * mode, so a click past end-of-line lands at end-of-line. */

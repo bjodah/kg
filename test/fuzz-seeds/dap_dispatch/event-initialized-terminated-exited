@@ -1,0 +1,7 @@
+Content-Length: 51
+
+{"seq": 1, "type": "event", "event": "initialized"}Content-Length: 71
+
+{"seq": 2, "type": "event", "event": "exited", "body": {"exitCode": 3}}Content-Length: 87
+
+{"seq": 3, "type": "event", "event": "terminated", "body": {"restart": {"port": 5678}}}

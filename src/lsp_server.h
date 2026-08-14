@@ -3,11 +3,12 @@
 
 #include <stddef.h>
 
+#include "lsp.h" /* enum kg_lsp_sibling_status */
 #include "syntax.h" /* enum kg_mode_id */
 
 /* Which server a buffer's mode wants, where its workspace starts, and which
  * of them are already running.  The one module that knows the names
- * `clangd`, `ty`, `gopls`, `rust-analyzer` and `jdtls`, and the only one
+ * `clangd`, `ty`, `gopls`, `rust-analyzer` and `nbcode`, and the only one
  * above it that will ever need to: every caller asks for a client and gets
  * one, or gets told why not.
  *
@@ -144,6 +145,11 @@ size_t lsp_server_instance_count(void);
  * how a user points kg at a differently named or differently located
  * binary.
  *
+ * An override also says which WIRE its command speaks, and its default is
+ * standard input and output whatever the built-in row it replaces uses --
+ * so `KG_LSP_SERVER_JAVA=jdtls` is jdt.ls on stdio even though Java's own
+ * row is nbcode on a socket.
+ *
  * One spelling means more than the command line.  A value beginning with
  * the token `listen-hash:` followed by whitespace runs the REST of it as
  * the command, and speaks to it over the socket wire instead of over its
@@ -153,9 +159,37 @@ size_t lsp_server_instance_count(void);
  *         --start-java-language-server=listen-hash:0"
  *
  * which is Oracle's nbcode, the one server kg can start that does not
- * speak LSP on stdio.  Nothing built in selects that wire: no spec names
- * nbcode, jdt.ls stays the Java default, and the wire arrives with the
- * command line that needs it or not at all. */
+ * speak LSP on stdio.  That wire is now what Java's own row selects too
+ * (utils/install-nbcode.sh is its installer), so the token is what an
+ * override needs when it points at another nbcode -- and jdt.ls, the
+ * previous Java default, is reached by an override that does NOT use it:
+ *
+ *     KG_LSP_SERVER_JAVA=jdtls
+ *
+ * A build of kg with the debugger in it cannot debug Java through that
+ * one: the Java debug adapter is a socket the nbcode process announces
+ * beside its language server, so a Java session on any other server says
+ * so rather than starting something (doc/plans/dap/03-java.md). */
 #define LSP_SERVER_ENV_PREFIX "KG_LSP_SERVER_"
+
+/* The debug endpoint a language server announced beside itself: src/lsp.h's
+ * lsp_sibling_endpoint(), implemented here because this is the module that
+ * knows which language is which server and which servers are running.
+ *
+ * `language` is a row's own name ("java"), not a mode id, because a
+ * `.kg-dap.json` names it (src/dap_config.h) and a configuration file
+ * cannot spell an enum.  The server is STARTED if one is configured for
+ * that language and nothing is running for `abs_path`'s workspace root,
+ * because a debugger that waited for a server the user had not opened a
+ * file with yet would never begin.  It never blocks: a server still
+ * initializing answers KG_LSP_SIBLING_STARTING and the caller asks again.
+ *
+ * Whether a row HAS a sibling is decided from the wire the instance was
+ * actually started on, not from its name -- an override that did not ask
+ * for the socket wire is not an nbcode whatever it is called, and gets
+ * KG_LSP_SIBLING_UNSUPPORTED rather than being waited on. */
+enum kg_lsp_sibling_status lsp_server_sibling_endpoint(const char *language,
+    const char *abs_path, enum kg_lsp_sibling_intent intent,
+    struct kg_lsp_sibling_endpoint *out);
 
 #endif /* KG_LSP_SERVER_H */

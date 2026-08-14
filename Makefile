@@ -183,6 +183,23 @@ ifeq ($(WITH_LSP),1)
 override CFLAGS += -DKG_USE_LSP=1
 endif
 
+# DAP is the optional debugger client (doc/plans/2026-08-11-dap.md), and it
+# is ON by default for WITH_LSP's reason exactly: adapters are found at run
+# time, so there is nothing to install for it and no prefix or guard file to
+# check, only the 0/1 validation.  .ci/ci-16-with-dap-0.sh keeps the
+# disabled build honest, together with its orthogonality runs against
+# WITH_LSP=0 and WITH_LISP=0.
+WITH_DAP ?= 1
+
+ifneq ($(WITH_DAP),0)
+ifneq ($(WITH_DAP),1)
+$(error WITH_DAP must be 0 or 1)
+endif
+endif
+ifeq ($(WITH_DAP),1)
+override CFLAGS += -DKG_USE_DAP=1
+endif
+
 # One stamp for the whole feature configuration, so an object compiled
 # under one set of -D flags is never mistaken for up to date under another.
 # It replaced LISP_CONFIG when the tree-sitter axis arrived, and gained the
@@ -191,7 +208,7 @@ endif
 # WITH_TREE_SITTER=1` looks unchanged to make.  Lives in $(OBJDIR) beside
 # the objects it guards.
 FEATURE_CONFIG = \
-    $(OBJDIR)/.features-lisp-$(WITH_LISP)-ts-$(WITH_TREE_SITTER)-lsp-$(WITH_LSP)
+    $(OBJDIR)/.features-lisp-$(WITH_LISP)-ts-$(WITH_TREE_SITTER)-lsp-$(WITH_LSP)-dap-$(WITH_DAP)
 
 prefix  = /usr/local
 bindir  = $(prefix)/bin
@@ -268,6 +285,29 @@ LISP_SRCS += lisp_prelude.c lisp_string.c lisp_buffer.c lisp_word.c \
 endif
 LISP_OBJS = $(addprefix $(OBJDIR)/,$(LISP_SRCS:.c=.o))
 
+# Content-Length framing belongs to neither protocol client.  It was
+# extracted for exactly that reason (doc/plans/dap/00-infrastructure.md
+# stage A), and src/dap_transport.c composes it as src/lsp_transport.c
+# does, so it is built whenever EITHER axis is on rather than being named
+# in both lists -- where a WITH_LSP=0 WITH_DAP=1 build would link a
+# debugger with no framing under it.
+#
+# The JSON layer is here for the same reason and since the same stage: it
+# was renamed out of lsp_json.c because both protocols' bodies are JSON,
+# and src/dap_client.c (stage 3) is the second client to parse one, so a
+# WITH_LSP=0 WITH_DAP=1 build needs it as much as the default build does.
+#
+# The endpoint announce scanner joined them when the debugger grew its
+# spawn-port kind: a `dlv dap` prints the port it bound on its own stdout
+# and src/dap_transport.c parses that line with the same bounded scanner
+# nbcode's announcement goes through, so a WITH_LSP=0 WITH_DAP=1 build
+# needs it too.
+PROTOCOL_SRCS =
+ifneq ($(filter 1,$(WITH_LSP) $(WITH_DAP)),)
+PROTOCOL_SRCS += framed_io.c json.c announce.c
+endif
+PROTOCOL_OBJS = $(addprefix $(OBJDIR)/,$(PROTOCOL_SRCS:.c=.o))
+
 # The LSP client's one editor-facing header is src/lsp.h, and lsp_core.c is
 # always built -- the LISP_SRCS shape above, for the same reason: the
 # facade's entry points exist in both configurations, so no caller grows a
@@ -278,7 +318,7 @@ LISP_OBJS = $(addprefix $(OBJDIR)/,$(LISP_SRCS:.c=.o))
 # it: the JSON, client and server-registry files join the same list.
 LSP_SRCS = lsp_core.c
 ifeq ($(WITH_LSP),1)
-LSP_SRCS += lsp_transport.c lsp_json.c lsp_uri.c lsp_client.c lsp_server.c \
+LSP_SRCS += lsp_transport.c lsp_uri.c lsp_client.c lsp_server.c \
             lsp_sync.c
 endif
 # The two WITH_LSP=1 modules that reach the whole editor -- lsp_req.c takes
@@ -317,8 +357,10 @@ LSP_OBJS = $(addprefix $(OBJDIR)/,$(LSP_SRCS:.c=.o))
 # the whole editor: the suite that does link it says so itself, below.
 LSP_ALL = $(TESTDIR)/test_xref $(TESTDIR)/test_lsp_log \
           $(TESTDIR)/test_lsp_diag \
-          $(OBJDIR)/lsp_transport.o $(TESTDIR)/test_lsp_transport \
-          $(OBJDIR)/lsp_json.o $(TESTDIR)/test_lsp_json \
+          $(OBJDIR)/framed_io.o $(OBJDIR)/announce.o $(OBJDIR)/lsp_transport.o \
+          $(TESTDIR)/test_framed_io $(TESTDIR)/test_announce \
+          $(TESTDIR)/test_lsp_transport \
+          $(OBJDIR)/json.o $(TESTDIR)/test_lsp_json \
           $(OBJDIR)/lsp_uri.o \
           $(OBJDIR)/lsp_client.o $(OBJDIR)/lsp_server.o \
           $(TESTDIR)/test_lsp_client \
@@ -326,10 +368,71 @@ LSP_ALL = $(TESTDIR)/test_xref $(TESTDIR)/test_lsp_log \
           $(OBJDIR)/lsp_req.o \
           $(OBJDIR)/lsp_edit.o $(TESTDIR)/test_lsp_edit
 
+# The debugger client's one editor-facing header is src/dap.h, and its
+# implementation is split across two objects by what they may drag into a
+# link, not by what they do:
+#
+#   dap_core.c   dap_shutdown/dap_poll/dap_wait_fds -- the facade legs the
+#                editor calls from editor_cleanup() and from the two poll
+#                sites.  It reaches nothing but the protocol, so it joins
+#                TEST_SRCS_OBJS below, which every test binary links.
+#   dap_keymap.c dap_init(), which creates the three debugger maps.  It
+#                reaches the keymap layer, and keymap.c resolves command
+#                names through cmd.c -- so a test binary linking it would
+#                have to link the whole command table with it.  That is
+#                lsp_req.c/lsp_edit.c's situation exactly, and the reason
+#                those are outside LSP_OBJS.
+#
+# Both are compiled in every configuration, the LISP_SRCS/LSP_SRCS shape:
+# the facade's entry points exist either way, so no caller grows a
+# KG_USE_DAP conditional.  Everything BEHIND the facade (transport, client,
+# session, breakpoints) is WITH_DAP=1 only: dap_transport.c (stage 2),
+# dap_client.c (stage 3), dap_config.c/dap_session.c (stage 4) and
+# dap_breakpoint.c (stage 5).  The first four link against process.o and
+# $(PROTOCOL_OBJS) and against nothing else in the editor; the breakpoint
+# table reaches three more -- marker.o, event.o and the buffer table -- and
+# every one of those is in TEST_SRCS_OBJS or the stub set already, which is
+# what keeps it inside DAP_OBJS too rather than out on DAP_EDITOR_SRCS.
+# dap_core.c reaches dap_session.c for its poll and wait legs and
+# dap_breakpoint.c to drop the table at shutdown, which is why both are on
+# this list and not beside the keymap.
+DAP_SRCS = dap_core.c
+ifeq ($(WITH_DAP),1)
+DAP_SRCS += dap_transport.c dap_client.c dap_config.c dap_session.c \
+            dap_breakpoint.c dap_exec.c dap_decor.c dap_java.c
+endif
+# dap_commands.c joins dap_keymap.c for the same reason and in both
+# configurations: it is the one debugger file that prompts, opens buffers
+# and arranges windows, so a test binary linking it would link the whole
+# editor -- and its WITH_DAP=0 half is what keeps the cmdtable rows honest.
+DAP_EDITOR_SRCS = dap_keymap.c dap_commands.c
+# The panes, the layout and the row metadata join them, and for the same
+# reason: dap_ui.c writes special buffers through the edit gateway and
+# arranges windows.  WITH_DAP=1 only, unlike its two neighbours, because it
+# has no disabled half to compile -- a build whose `kg -V` says `-dap`
+# answers every command in dap_commands.c's own `#else` half and never
+# reaches a pane.
+ifeq ($(WITH_DAP),1)
+DAP_EDITOR_SRCS += dap_ui.c
+endif
+DAP_OBJS = $(addprefix $(OBJDIR)/,$(DAP_SRCS:.c=.o))
+# What `make clean` must remove because THIS configuration did not build
+# it, LSP_ALL's reason exactly: without it a `make; make WITH_DAP=0 clean`
+# leaves src/dap_transport.o and the transport's suite behind.
+DAP_ALL = $(OBJDIR)/dap_transport.o $(TESTDIR)/test_dap_transport \
+          $(OBJDIR)/dap_client.o $(TESTDIR)/test_dap_client \
+          $(OBJDIR)/dap_config.o $(TESTDIR)/test_dap_config \
+          $(OBJDIR)/dap_session.o $(TESTDIR)/test_dap_session \
+          $(OBJDIR)/dap_breakpoint.o $(TESTDIR)/test_dap_breakpoint \
+          $(OBJDIR)/dap_exec.o $(TESTDIR)/test_dap_exec \
+          $(OBJDIR)/dap_java.o $(TESTDIR)/test_dap_java \
+          $(OBJDIR)/dap_decor.o $(TESTDIR)/test_dap_commands \
+          $(OBJDIR)/dap_ui.o $(TESTDIR)/test_dap_ui
+
 # Source files
-SRCS = main.c tty.c syntax.c $(SYNTAX_BACKEND_SRCS) autocomplete.c buffer.c fileio.c \
-       display.c search.c basic.c word.c kbd.c yank.c undo.c help.c describe.c bufmgr.c winmgr.c cmd.c cmdstate.c keyevent.c keymap.c macro.c \
-       shell.c path.c rect.c $(LISP_SRCS) $(LSP_SRCS) keybind.c mode.c vgeom.c localvars.c compile.c compile_parse.c \
+SRCS = main.c tty.c async.c syntax.c $(SYNTAX_BACKEND_SRCS) autocomplete.c buffer.c fileio.c \
+       display.c search.c basic.c word.c kbd.c yank.c undo.c help.c describe.c bufmgr.c winmgr.c winconfig.c cmd.c cmdstate.c keyevent.c keymap.c macro.c \
+       shell.c path.c rect.c $(LISP_SRCS) $(PROTOCOL_SRCS) $(LSP_SRCS) $(DAP_SRCS) $(DAP_EDITOR_SRCS) keybind.c mode.c vgeom.c localvars.c compile.c compile_parse.c \
        compile_nav.c next_error.c occur.c register.c visit.c fileline.c xref.c lsp_log.c \
        lsp_diag.c lsp_hover.c $(LSP_EDITOR_SRCS) lsp_rename.c lsp_complete.c \
        dabbrev.c \
@@ -365,7 +468,7 @@ TESTBINS = $(TESTDIR)/test_undo $(TESTDIR)/test_buffer \
            $(TESTDIR)/test_lisp $(TESTDIR)/test_regex \
            $(TESTDIR)/test_localvars $(TESTDIR)/test_compile \
            $(TESTDIR)/test_compile_parse $(TESTDIR)/test_compile_nav \
-           $(TESTDIR)/test_tty $(TESTDIR)/test_minibuf \
+           $(TESTDIR)/test_tty $(TESTDIR)/test_async $(TESTDIR)/test_minibuf \
            $(TESTDIR)/test_dired $(TESTDIR)/test_winmgr \
            $(TESTDIR)/test_cmd $(TESTDIR)/test_keys \
            $(TESTDIR)/test_keyevent $(TESTDIR)/test_keymap \
@@ -397,15 +500,35 @@ TESTBINS += $(TESTDIR)/test_syntax_legacy
 else
 TESTBINS += $(TESTDIR)/test_syntax_tree_sitter
 endif
+# The two shared layers' suites exist wherever the layers do, which is
+# either protocol axis: they are those layers' own regression proof and a
+# WITH_LSP=0 WITH_DAP=1 tree needs them as much as the default build does.
+# test_lsp_json keeps its name from before json.c was renamed out of
+# lsp_json.c; the suite is the JSON layer's, whichever client parses with
+# it.
+ifneq ($(PROTOCOL_SRCS),)
+TESTBINS += $(TESTDIR)/test_framed_io $(TESTDIR)/test_lsp_json \
+            $(TESTDIR)/test_announce
+endif
 # Same per-axis rule: the transport's suite links src/lsp_transport.o,
 # which only a WITH_LSP=1 build has.  A WITH_LSP=0 tree has no transport
 # to test -- the facade it does have is three no-ops that every other
 # binary already links.
 ifeq ($(WITH_LSP),1)
-TESTBINS += $(TESTDIR)/test_lsp_transport $(TESTDIR)/test_lsp_json \
+TESTBINS += $(TESTDIR)/test_lsp_transport \
             $(TESTDIR)/test_lsp_client $(TESTDIR)/test_lsp_sync \
             $(TESTDIR)/test_lsp_log $(TESTDIR)/test_xref \
             $(TESTDIR)/test_lsp_diag $(TESTDIR)/test_lsp_edit
+endif
+# And the debugger's, on its own axis for the same reason: they link
+# src/dap_transport.o and src/dap_client.o, which only a WITH_DAP=1 build
+# has.
+ifeq ($(WITH_DAP),1)
+TESTBINS += $(TESTDIR)/test_dap_transport $(TESTDIR)/test_dap_client \
+            $(TESTDIR)/test_dap_config $(TESTDIR)/test_dap_session \
+            $(TESTDIR)/test_dap_breakpoint $(TESTDIR)/test_dap_exec \
+            $(TESTDIR)/test_dap_java \
+            $(TESTDIR)/test_dap_commands $(TESTDIR)/test_dap_ui
 endif
 # test_perf is not built like the other unit tests: it needs the whole
 # editor compiled with -DKG_PERF_COUNTERS=1 (src/perf.h), which must not
@@ -434,9 +557,11 @@ FUZZ_SRCS = $(TESTDIR)/fuzz_keypress.c $(TESTDIR)/fuzz_stubs.c \
 	    $(OBJDIR)/word.c $(OBJDIR)/autocomplete.c $(OBJDIR)/yank.c \
 	    $(OBJDIR)/undo.c $(OBJDIR)/rect.c $(OBJDIR)/syntax.c \
 	    $(addprefix $(OBJDIR)/,$(SYNTAX_BACKEND_SRCS)) \
-	    $(OBJDIR)/tty.c $(OBJDIR)/macro.c $(OBJDIR)/mouse.c \
+	    $(OBJDIR)/tty.c $(OBJDIR)/async.c $(OBJDIR)/macro.c $(OBJDIR)/mouse.c \
 	    $(addprefix $(OBJDIR)/,$(LISP_SRCS)) \
+	    $(addprefix $(OBJDIR)/,$(PROTOCOL_SRCS)) \
 	    $(addprefix $(OBJDIR)/,$(LSP_SRCS)) \
+	    $(addprefix $(OBJDIR)/,$(DAP_SRCS)) \
 	    $(OBJDIR)/keybind.c $(OBJDIR)/width.c $(OBJDIR)/cmdstate.c $(OBJDIR)/keyevent.c \
 	    $(OBJDIR)/keymap.c $(OBJDIR)/marker.c $(OBJDIR)/decor.c \
 	    $(OBJDIR)/event.c $(OBJDIR)/process.c $(OBJDIR)/process_table.c \
@@ -450,8 +575,17 @@ FUZZBIN_COMPILE_PARSE = $(TESTDIR)/fuzz_compile_parse
 FUZZBIN_LSP_JSON = $(TESTDIR)/fuzz_lsp_json
 FUZZBIN_WIDTH = $(TESTDIR)/fuzz_width
 FUZZBIN_KEYBIND = $(TESTDIR)/fuzz_keybind
-FUZZBIN_LSP_FRAMES = $(TESTDIR)/fuzz_lsp_frames
-FUZZBINS = $(FUZZBIN) $(FUZZBIN_SYNTAX) $(FUZZBIN_DIRLOCALS) $(FUZZBIN_REGEX) $(FUZZBIN_LOCALVARS) $(FUZZBIN_COMPILE_PARSE) $(FUZZBIN_LSP_JSON) $(FUZZBIN_WIDTH) $(FUZZBIN_KEYBIND) $(FUZZBIN_LSP_FRAMES)
+FUZZBIN_FRAMES = $(TESTDIR)/fuzz_frames
+FUZZBIN_DAP_DISPATCH = $(TESTDIR)/fuzz_dap_dispatch
+FUZZBINS = $(FUZZBIN) $(FUZZBIN_SYNTAX) $(FUZZBIN_DIRLOCALS) $(FUZZBIN_REGEX) $(FUZZBIN_LOCALVARS) $(FUZZBIN_COMPILE_PARSE) $(FUZZBIN_LSP_JSON) $(FUZZBIN_WIDTH) $(FUZZBIN_KEYBIND) $(FUZZBIN_FRAMES)
+# The debugger's dispatcher exists only on its own axis, so its target
+# joins the aggregates only there -- `make fuzz-smoke WITH_DAP=0` must not
+# ask clang to build a client that configuration does not have.
+DAP_FUZZ_TARGETS =
+ifeq ($(WITH_DAP),1)
+FUZZBINS += $(FUZZBIN_DAP_DISPATCH)
+DAP_FUZZ_TARGETS = dap-dispatch
+endif
 FUZZ_SEEDS = $(TESTDIR)/fuzz-seeds
 FUZZ_SEEDS_REGEX = $(FUZZ_SEEDS)/regex
 # The working corpus is gitignored, so a fresh checkout starts each target
@@ -484,6 +618,10 @@ REGEX_DIFF_BIN = $(TESTDIR)/regex_differential
 REGEX_DIFF_CASES ?= 2000
 REGEX_DIFF_SEED ?= 20260729
 EMACS ?= emacs
+# Prefixed to the one `check' prerequisite that is minutes of CPU and
+# indifferent to when it finishes -- see lisp-gc-stress-check.  Empty
+# disables it, which is also what a box without nice(1) wants.
+NICE ?= nice -n 19
 # The PTY harness needs pexpect and PyYAML, which are not always installed
 # for the same interpreter everywhere: CI images ship them for python3,
 # while the developer box this grew up on has them only for its own
@@ -512,12 +650,19 @@ PTY_TESTS = $(sort $(wildcard $(TESTDIR)/pty/*.yaml))
 # $(LSP_OBJS) is here for the same reason: the LSP facade is called from
 # tty.c's idle poll and from editor_cleanup() (src/bufmgr.c), so every test
 # binary linking either one needs it.  It is one object of no-ops today.
+# $(DAP_OBJS) is here for the same reason and with the same shape: the
+# debugger facade's poll legs are called from src/async.c and its shutdown
+# from editor_cleanup().  dap_keymap.o is deliberately NOT here (see
+# DAP_EDITOR_SRCS above).
+# $(PROTOCOL_OBJS) is what both of those stand on: LSP_OBJS used to carry
+# framed_io.o for everyone, and a WITH_LSP=0 WITH_DAP=1 test binary would
+# otherwise link dap_transport.o with nothing under it.
 TEST_SRCS_OBJS = $(OBJDIR)/undo.o $(OBJDIR)/buffer.o $(OBJDIR)/syntax.o \
                  $(SYNTAX_BACKEND_OBJS) \
                  $(OBJDIR)/width.o $(OBJDIR)/marker.o $(OBJDIR)/decor.o \
                  $(OBJDIR)/cmdstate.o $(OBJDIR)/event.o \
                  $(OBJDIR)/process.o $(OBJDIR)/process_table.o \
-                 $(LSP_OBJS)
+                 $(PROTOCOL_OBJS) $(LSP_OBJS) $(DAP_OBJS)
 # The tree-sitter backend converts a capture's chars-space columns into
 # render-byte offsets with chars_to_render_col() (src/mode.c), so in that
 # configuration every test binary that links a backend needs mode.o too.
@@ -553,6 +698,9 @@ endif
 ifeq ($(WITH_LSP),1)
 override FUZZ_CFLAGS += -DKG_USE_LSP=1
 endif
+ifeq ($(WITH_DAP),1)
+override FUZZ_CFLAGS += -DKG_USE_DAP=1
+endif
 # FUZZ_CFLAGS is a complete flag set of its own rather than CFLAGS plus
 # extras, so the feature defines have to be repeated here; the link side
 # needs nothing, the keypress target already passing $(LDLIBS).
@@ -572,7 +720,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # The whole-tree complexity ceiling.  `make complexity-check` sums scc's
 # per-file complexity over $(SCC_COMPLEXITY_PATHS) and fails above
 # SCC_COMPLEXITY_MAX; a single file above SCC_FILE_COMPLEXITY_MAX fails
-# it too (the worst today is src/bufmgr.c at 509).
+# it too (the worst today is src/bufmgr.c at 519).
 #
 # The ceiling equals the measured actual, with no slack: it is a ratchet,
 # not an allowance, so new complexity has to be paid for rather than
@@ -582,8 +730,8 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 8457
-SCC_FILE_COMPLEXITY_MAX ?= 520
+SCC_COMPLEXITY_MAX ?= 10607
+SCC_FILE_COMPLEXITY_MAX ?= 519
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
 # Per-function backstop for `make pmccabe-check`: no function in the tree
@@ -708,7 +856,7 @@ $(OBJDIR)/fe_run.o: fe/fe_run.c fe/fe.h fe/fe_internal.h
 $(OBJDIR)/fe_unwind.o: fe/fe_unwind.c fe/fe.h fe/fe_internal.h
 	$(CC) $(FE_CFLAGS) -c $< -o $@
 
-check: header-check lisp-include-check docs-check lisp-compat-check lisp-prelude-check lisp-package-check forecast-check lisp-oracle-check lisp-gc-stress-check forecast-init-check check-unit-decoding check-unit check-pty
+check: header-check lisp-include-check docs-check lisp-compat-check lisp-prelude-check lisp-package-check forecast-check lisp-oracle-check lisp-gc-stress-check forecast-init-check check-unit-decoding check-pty-tokens check-unit check-pty
 
 # Cheap documentation drift: every key the built-in help table names has
 # to be spelled somewhere in kg(1).  Not a substitute for reading either
@@ -760,17 +908,15 @@ forecast-check:
 # 15's definition of done requires it to LOAD CLEAN, so it is run rather
 # than read.  `-b' gives the process a buffer, since the file's commands
 # are defined (not called) at load time but `with-current-buffer' resolves
-# a buffer either way.  Ordered after lisp-gc-stress-check for that
-# target's own reason: three `check' prerequisites build test/kgbatch
-# through a sub-make, and a run that links it while another is exec'ing it
-# dies with EACCES.
-forecast-init-check: lisp-gc-stress-check
+# a buffer either way.  kgbatch is a prerequisite, not a sub-make: the one
+# parent instance builds it exactly once, however many of these checks run.
 ifeq ($(WITH_LISP),1)
-	@$(MAKE) --no-print-directory $(TESTDIR)/kgbatch
+forecast-init-check: $(TESTDIR)/kgbatch
 	@$(TESTDIR)/kgbatch -b utils/forecast/target-init.el >/dev/null \
 		&& echo "forecast-init-check: utils/forecast/target-init.el" \
 			"loads clean"
 else
+forecast-init-check:
 	@echo "# forecast-init-check: WITH_LISP=0, no evaluator to load it"
 endif
 
@@ -786,12 +932,12 @@ endif
 # snapshot says 4 where kg answers 3, and requires the run to fail.
 # WITH_LISP=0 has no evaluator to compare, so the whole target reports
 # that and does nothing, exactly as the lisp-gated PTY cases skip.
-lisp-oracle-check:
 ifeq ($(WITH_LISP),1)
-	@$(MAKE) --no-print-directory $(TESTDIR)/kgbatch
+lisp-oracle-check: $(TESTDIR)/kgbatch
 	@$(PYTHON) utils/check_lisp_oracle.py --self-test
 	@$(PYTHON) utils/check_lisp_oracle.py $(LISP_ORACLE_ARGS)
 else
+lisp-oracle-check:
 	@echo "# lisp-oracle-check: WITH_LISP=0, no evaluator to compare"
 endif
 
@@ -862,19 +1008,28 @@ $(GC_STRESS_KGBATCH): test/kgbatch.c $(TESTDIR)/stubs_main.o \
 		$(GC_STRESS_FE_OBJ) $(OBJDIR)/fe_eval.o $(OBJDIR)/fe_run.o \
 		$(OBJDIR)/fe_unwind.o $(REGEX_OBJS) $(LDLIBS)
 
-# Ordered after lisp-oracle-check rather than beside it: `check`'s
-# prerequisites run in parallel under -j, both targets build
-# $(TESTDIR)/kgbatch through a sub-make, and a run that links it while the
-# other is exec'ing it dies with EACCES on the half-written binary.
-# Measured: .ci/ci-03 failed exactly that way.  The dependency is
-# scheduling, not meaning -- neither check needs the other's result.
-lisp-gc-stress-check: lisp-oracle-check
+# Both binaries are prerequisites, so the parent make links each exactly
+# once before any recipe execs it -- there is no recipe-time build left to
+# race another check's exec or the parent's own object builds.
+#
+# Run at the lowest priority, because `check' names this and both test
+# layers as unordered prerequisites and so `make -j' overlaps them.  This
+# is the only prerequisite that is minutes of pure CPU -- 783 s of a 1598 s
+# budget on the hosted three-vCPU box under MSan, measured beside the PTY
+# suite it was sharing those cores with -- and it is also the only one that
+# does not care when it finishes: since its budget is derived from that
+# box's own ordinary run rather than from a constant, being descheduled
+# stretches the budget with the run.  Both runs are inside this one
+# invocation, so nice cannot skew the ratio between them.  The suites are
+# the opposite on both counts, so they win the CPU and this fills the gaps;
+# on an idle box nothing changes.  Set NICE empty to turn it off.
 ifeq ($(WITH_LISP),1)
-	@$(MAKE) --no-print-directory $(TESTDIR)/kgbatch $(GC_STRESS_KGBATCH)
-	@$(PYTHON) utils/check_lisp_gc_stress.py \
+lisp-gc-stress-check: $(TESTDIR)/kgbatch $(GC_STRESS_KGBATCH)
+	@$(NICE) $(PYTHON) utils/check_lisp_gc_stress.py \
 		--kgbatch $(TESTDIR)/kgbatch \
 		--stress-kgbatch $(GC_STRESS_KGBATCH)
 else
+lisp-gc-stress-check:
 	@echo "# lisp-gc-stress-check: WITH_LISP=0, no evaluator to stress"
 endif
 
@@ -956,6 +1111,9 @@ lisp-include-check:
 check-unit: $(TESTBINS)
 	@$(PYTHON) utils/run_unit_tests.py --runner "$(TEST_RUNNER)" \
 		--json $(CHECK_RESULTS_DIR)/unit.json $(TESTBINS)
+
+check-pty-tokens:
+	@$(PYTHON) test/pty_tokens_test.py
 
 # The native layer's report has to survive the bytes a failing test
 # prints.  A test that fails on a fixture prints the fixture, fixtures
@@ -1105,21 +1263,33 @@ fuzz-keybind-smoke: $(FUZZBIN_KEYBIND) fuzz-keybind-seed
 		-artifact_prefix=$(FUZZ_ARTIFACTS)/keybind/ \
 		$(FUZZ_CORPUS)/keybind
 
-fuzz-lsp-frames: $(FUZZBIN_LSP_FRAMES)
+fuzz-frames: $(FUZZBIN_FRAMES)
 
-fuzz-lsp-frames-seed:
-	mkdir -p $(FUZZ_CORPUS)/lsp_frames
-	cp -f $(FUZZ_SEEDS)/lsp_frames/* $(FUZZ_CORPUS)/lsp_frames/
+fuzz-frames-seed:
+	mkdir -p $(FUZZ_CORPUS)/frames
+	cp -f $(FUZZ_SEEDS)/frames/* $(FUZZ_CORPUS)/frames/
 
-fuzz-lsp-frames-smoke: $(FUZZBIN_LSP_FRAMES) fuzz-lsp-frames-seed
-	mkdir -p $(FUZZ_ARTIFACTS)/lsp_frames
-	./$(FUZZBIN_LSP_FRAMES) $(FUZZ_SMOKE_ARGS) \
-		-artifact_prefix=$(FUZZ_ARTIFACTS)/lsp_frames/ \
-		$(FUZZ_CORPUS)/lsp_frames
+fuzz-frames-smoke: $(FUZZBIN_FRAMES) fuzz-frames-seed
+	mkdir -p $(FUZZ_ARTIFACTS)/frames
+	./$(FUZZBIN_FRAMES) $(FUZZ_SMOKE_ARGS) \
+		-artifact_prefix=$(FUZZ_ARTIFACTS)/frames/ \
+		$(FUZZ_CORPUS)/frames
 
-fuzz-seed: fuzz-keypress-seed fuzz-syntax-seed fuzz-dirlocals-seed fuzz-regex-seed fuzz-localvars-seed fuzz-compile-parse-seed fuzz-lsp-json-seed fuzz-width-seed fuzz-keybind-seed fuzz-lsp-frames-seed
+fuzz-dap-dispatch: $(FUZZBIN_DAP_DISPATCH)
 
-fuzz-smoke: fuzz-keypress-smoke fuzz-syntax-smoke fuzz-dirlocals-smoke fuzz-regex-smoke fuzz-localvars-smoke fuzz-compile-parse-smoke fuzz-lsp-json-smoke fuzz-width-smoke fuzz-keybind-smoke fuzz-lsp-frames-smoke
+fuzz-dap-dispatch-seed:
+	mkdir -p $(FUZZ_CORPUS)/dap_dispatch
+	cp -f $(FUZZ_SEEDS)/dap_dispatch/* $(FUZZ_CORPUS)/dap_dispatch/
+
+fuzz-dap-dispatch-smoke: $(FUZZBIN_DAP_DISPATCH) fuzz-dap-dispatch-seed
+	mkdir -p $(FUZZ_ARTIFACTS)/dap_dispatch
+	./$(FUZZBIN_DAP_DISPATCH) $(FUZZ_SMOKE_ARGS) \
+		-artifact_prefix=$(FUZZ_ARTIFACTS)/dap_dispatch/ \
+		$(FUZZ_CORPUS)/dap_dispatch
+
+fuzz-seed: fuzz-keypress-seed fuzz-syntax-seed fuzz-dirlocals-seed fuzz-regex-seed fuzz-localvars-seed fuzz-compile-parse-seed fuzz-lsp-json-seed fuzz-width-seed fuzz-keybind-seed fuzz-frames-seed $(addsuffix -seed,$(addprefix fuzz-,$(DAP_FUZZ_TARGETS)))
+
+fuzz-smoke: fuzz-keypress-smoke fuzz-syntax-smoke fuzz-dirlocals-smoke fuzz-regex-smoke fuzz-localvars-smoke fuzz-compile-parse-smoke fuzz-lsp-json-smoke fuzz-width-smoke fuzz-keybind-smoke fuzz-frames-smoke $(addsuffix -smoke,$(addprefix fuzz-,$(DAP_FUZZ_TARGETS)))
 
 # Randomised differential test against Emacs' own matcher.  Not part of
 # `check`: it needs emacs on PATH, and skips itself with a message when it
@@ -1278,7 +1448,10 @@ EXTRA_compile_parse := $(TESTDIR)/stubs.o       $(OBJDIR)/compile_parse.o $(TEST
 # both no-ops: what this suite observes is the store, the listing's text
 # and the next-error handover, never point moving.
 EXTRA_occur       := $(EXTRA_compile_nav) $(OBJDIR)/occur.o $(REGEX_OBJS)
-EXTRA_tty         := $(TESTDIR)/stubs.o          $(OBJDIR)/tty.o $(OBJDIR)/fileio.o $(OBJDIR)/keyevent.o $(TEST_SRCS_OBJS)
+EXTRA_tty         := $(TESTDIR)/stubs.o          $(OBJDIR)/tty.o $(OBJDIR)/async.o $(OBJDIR)/fileio.o $(OBJDIR)/keyevent.o $(TEST_SRCS_OBJS)
+# The aggregate itself is editor-free: its enabled build drives the real LSP
+# registry and its disabled build reaches the facade's no-op half.
+EXTRA_async       := $(TESTDIR)/stubs.o          $(OBJDIR)/async.o $(TEST_SRCS_OBJS)
 EXTRA_minibuf     := $(TESTDIR)/stubs_buffer.o $(TESTDIR)/stubs_win.o $(OBJDIR)/dired.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(OBJDIR)/fileio.o $(OBJDIR)/bufmgr.o $(OBJDIR)/compile.o $(TEST_SRCS_OBJS) $(OBJDIR)/process.o $(OBJDIR)/cmdstate.o $(OBJDIR)/keyevent.o
 EXTRA_dired       := $(TESTDIR)/stubs_buffer.o $(TESTDIR)/stubs_win.o $(OBJDIR)/dired.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(OBJDIR)/fileio.o $(OBJDIR)/bufmgr.o $(OBJDIR)/compile.o $(TEST_SRCS_OBJS) $(OBJDIR)/process.o $(OBJDIR)/cmdstate.o $(OBJDIR)/keyevent.o
 # The command table is only reachable by linking cmd.o, which reaches
@@ -1296,7 +1469,7 @@ EXTRA_keymap      := $(EXTRA_cmd)
 # the same everything-but-main.c set the command table does.
 EXTRA_describe    := $(EXTRA_cmd)
 EXTRA_keyevent    := $(TESTDIR)/stubs.o $(OBJDIR)/keyevent.o $(TEST_SRCS_OBJS)
-EXTRA_winmgr      := $(TESTDIR)/stubs_buffer.o   $(OBJDIR)/dired.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(OBJDIR)/fileio.o $(OBJDIR)/bufmgr.o $(OBJDIR)/compile.o $(OBJDIR)/winmgr.o $(TEST_SRCS_OBJS) $(OBJDIR)/process.o $(OBJDIR)/cmdstate.o $(OBJDIR)/keyevent.o
+EXTRA_winmgr      := $(TESTDIR)/stubs_buffer.o   $(OBJDIR)/dired.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(OBJDIR)/fileio.o $(OBJDIR)/bufmgr.o $(OBJDIR)/compile.o $(OBJDIR)/winmgr.o $(OBJDIR)/winconfig.o $(OBJDIR)/mode.o $(OBJDIR)/vgeom.o $(TEST_SRCS_OBJS) $(OBJDIR)/process.o $(OBJDIR)/cmdstate.o $(OBJDIR)/keyevent.o
 # The scanner is pure, but the command around it replaces a byte range of
 # a live buffer and reports through the echo area, so this links the same
 # buffer-and-stubs set the word commands do, plus its own object.
@@ -1326,18 +1499,84 @@ EXTRA_register    := $(EXTRA_buffer) $(OBJDIR)/register.o
 # does; process_table.o itself is already pulled in by TEST_SRCS_OBJS (see
 # its comment), named again here only for readability.
 EXTRA_process_table := $(EXTRA_buffer) $(OBJDIR)/event.o $(OBJDIR)/process_table.o
+# The framing layer is pure POSIX byte-stream machinery.  Its own direct
+# suite uses the common harness baseline; framed_io.o also arrives through
+# TEST_SRCS_OBJS' LSP_OBJS and is named here for readability.
+EXTRA_framed_io := $(TESTDIR)/stubs.o $(OBJDIR)/framed_io.o $(TEST_SRCS_OBJS)
+# The endpoint announce scanner is a libc-only parser.  Its direct suite uses
+# the common harness baseline; announce.o also arrives through LSP_OBJS.
+EXTRA_announce := $(TESTDIR)/stubs.o $(OBJDIR)/announce.o $(TEST_SRCS_OBJS)
 # The transport depends on process.h and POSIX and on nothing else in the
 # editor, so this is the minimal link: its own object, plus the baseline
 # every test binary needs for test.o's harness globals.  process.o comes
 # from TEST_SRCS_OBJS.
 EXTRA_lsp_transport := $(TESTDIR)/stubs.o $(OBJDIR)/lsp_transport.o $(TEST_SRCS_OBJS)
+# The debugger's transport is the same minimal link one axis over: its own
+# object plus the baseline test.o's harness globals need.  framed_io.o and
+# process.o both arrive through TEST_SRCS_OBJS (see $(PROTOCOL_OBJS)
+# there); dap_transport.o itself does too, through $(DAP_OBJS), and is
+# named for readability as every suite above does.
+EXTRA_dap_transport := $(TESTDIR)/stubs.o $(OBJDIR)/dap_transport.o $(TEST_SRCS_OBJS)
+# The protocol brain one layer up, and the same minimal link: it holds no
+# editor state at all, so its suite needs the transport, the JSON layer and
+# the baseline test.o's harness globals reach for, and nothing else.  Both
+# dap_*.o arrive through TEST_SRCS_OBJS' $(DAP_OBJS) and json.o through
+# $(LSP_OBJS); all three are named for readability, as the suites above do.
+EXTRA_dap_client := $(TESTDIR)/stubs.o $(OBJDIR)/dap_client.o \
+                    $(OBJDIR)/dap_transport.o $(OBJDIR)/json.o \
+                    $(TEST_SRCS_OBJS)
+# The configuration reader: src/json.o and the C library, which is the whole
+# of what a file parser needs.  The baseline is here for test.o's harness
+# globals, as every suite above.
+EXTRA_dap_config := $(TESTDIR)/stubs.o $(OBJDIR)/dap_config.o \
+                    $(OBJDIR)/json.o $(TEST_SRCS_OBJS)
+# The session on top of both: the client, the transport, the JSON layer and
+# the configuration records it starts an adapter from.  Still no editor
+# object -- a session holds no buffer, window or command -- which is what
+# lets this suite drive a real adapter with no editor linked.
+EXTRA_dap_session := $(TESTDIR)/stubs.o $(OBJDIR)/dap_session.o \
+                     $(OBJDIR)/dap_config.o $(OBJDIR)/dap_client.o \
+                     $(OBJDIR)/dap_transport.o $(OBJDIR)/json.o \
+                     $(TEST_SRCS_OBJS)
+# The breakpoint table is the first DAP module that IS editor state, so its
+# suite is the first that cannot use the minimal baseline above: it needs
+# real buffers with real files behind them (realpath() is the table's key),
+# real markers to anchor to, real buf_open_path()/buf_kill() so the two
+# lifecycle events are published by the editor rather than by the test, and
+# the session stack underneath so a case can drive one against the fake
+# adapter.  That is EXTRA_winmgr's link -- the one other suite that opens
+# and kills real buffers -- plus dap_breakpoint.o, which also arrives
+# through TEST_SRCS_OBJS' $(DAP_OBJS) and is named here for readability as
+# every suite above does.
+EXTRA_dap_breakpoint := $(EXTRA_winmgr) $(OBJDIR)/dap_breakpoint.o
+# The stop model sits on the session and holds no editor state either, so
+# its suite is the session's link plus dap_exec.o and the breakpoint table
+# it routes `breakpoint` events and temporary breakpoints through.  Both
+# arrive through TEST_SRCS_OBJS' $(DAP_OBJS); named here for readability,
+# as every suite above does.
+EXTRA_dap_exec := $(EXTRA_dap_session) $(OBJDIR)/dap_exec.o \
+                  $(OBJDIR)/dap_breakpoint.o
+# nbcode's layer above the stop model: the same link plus dap_java.o and the
+# LSP facade it asks for an endpoint.  lsp_core.o is in $(LSP_OBJS) and so
+# already in TEST_SRCS_OBJS -- in BOTH configurations, which is the point:
+# this suite links, and this module compiles, in the WITH_LSP=0 tree too,
+# where the facade answers "not built" and the Java adapter says so.
+EXTRA_dap_java := $(EXTRA_dap_exec) $(OBJDIR)/dap_java.o
+# The commands are the one debugger file that reaches the command table,
+# so their suite links the same everything-but-main.c set EXTRA_cmd does --
+# which is also the only link in which src/dap_commands.o exists at all.
+EXTRA_dap_commands := $(EXTRA_cmd)
+# The panes are the other file in that link and are reachable only from it:
+# they write special buffers, arrange windows and are bound to keys, so this
+# suite is the everything-but-main.c set too.
+EXTRA_dap_ui := $(EXTRA_cmd)
 # The JSON layer depends on the C library and nothing else -- not even
 # process.h -- so its own object would link on its own; the baseline is
 # here because test.o's harness reaches the editor globals stubs.o and
 # TEST_SRCS_OBJS provide, exactly as the transport's suite does.
-# lsp_json.o itself arrives through TEST_SRCS_OBJS' $(LSP_OBJS), and is
+# json.o itself arrives through TEST_SRCS_OBJS' $(LSP_OBJS), and is
 # named again for readability.
-EXTRA_lsp_json := $(TESTDIR)/stubs.o $(OBJDIR)/lsp_json.o $(TEST_SRCS_OBJS)
+EXTRA_lsp_json := $(TESTDIR)/stubs.o $(OBJDIR)/json.o $(TEST_SRCS_OBJS)
 # The client and the registry above it: the protocol state machine, the
 # server specs and the workspace-root walk, plus the two modules below them.
 # Still no editor object -- lsp_server.c reaches syntax.h for `enum
@@ -1346,7 +1585,7 @@ EXTRA_lsp_json := $(TESTDIR)/stubs.o $(OBJDIR)/lsp_json.o $(TEST_SRCS_OBJS)
 # readability, as the two suites above do.
 EXTRA_lsp_client := $(TESTDIR)/stubs.o $(OBJDIR)/lsp_client.o \
                     $(OBJDIR)/lsp_server.o $(OBJDIR)/lsp_transport.o \
-                    $(OBJDIR)/lsp_json.o $(OBJDIR)/lsp_uri.o \
+                    $(OBJDIR)/json.o $(OBJDIR)/lsp_uri.o \
                     $(TEST_SRCS_OBJS)
 # Document sync is the one LSP module that reads buffers, so its suite is
 # the first that cannot use the minimal baseline above: it builds real
@@ -1358,7 +1597,7 @@ EXTRA_lsp_client := $(TESTDIR)/stubs.o $(OBJDIR)/lsp_client.o \
 # readability as the three suites above do.
 EXTRA_lsp_sync := $(EXTRA_buffer) $(OBJDIR)/lsp_sync.o $(OBJDIR)/lsp_uri.o \
                   $(OBJDIR)/lsp_client.o $(OBJDIR)/lsp_server.o \
-                  $(OBJDIR)/lsp_transport.o $(OBJDIR)/lsp_json.o
+                  $(OBJDIR)/lsp_transport.o $(OBJDIR)/json.o
 # The log buffer is the other LSP module that writes to a buffer, so its
 # suite links what lsp_sync's does and for the same reason: real bufmgr.o,
 # so `*lsp-log*` is a buffer the editor made rather than a stand-in.  Its
@@ -1467,7 +1706,13 @@ bench-lisp-toggle:
 		--json $(BENCH_TOGGLE_OUT)
 	$(MAKE) $(TARGET)
 
-$(TESTDIR)/%.o: $(TESTDIR)/%.c $(HDRS)
+# The feature stamp guards these for $(PERF_SRC_OBJS)' reason exactly: a
+# test object is compiled with CFLAGS, feature defines and all, and the
+# suites that read them (test/test_async.c, test/test_keymap.c) assert
+# DIFFERENT things per configuration.  Without this, `make; make WITH_DAP=0
+# check-unit` links a stale test object against freshly disabled src/*.o
+# and fails in a way that is neither configuration.
+$(TESTDIR)/%.o: $(TESTDIR)/%.c $(HDRS) $(FEATURE_CONFIG)
 	$(CC) $(CFLAGS) -I$(OBJDIR) -c $< -o $@
 
 $(TESTDIR)/test_lisp.o: $(OBJDIR)/lisp.h
@@ -1517,9 +1762,9 @@ $(FUZZBIN_COMPILE_PARSE): $(TESTDIR)/fuzz_compile_parse.c $(OBJDIR)/compile_pars
 	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ \
 		$(TESTDIR)/fuzz_compile_parse.c $(OBJDIR)/compile_parse.c
 
-$(FUZZBIN_LSP_JSON): $(TESTDIR)/fuzz_lsp_json.c $(OBJDIR)/lsp_json.c $(HDRS)
+$(FUZZBIN_LSP_JSON): $(TESTDIR)/fuzz_lsp_json.c $(OBJDIR)/json.c $(HDRS)
 	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ \
-		$(TESTDIR)/fuzz_lsp_json.c $(OBJDIR)/lsp_json.c -lm
+		$(TESTDIR)/fuzz_lsp_json.c $(OBJDIR)/json.c -lm
 
 $(FUZZBIN_WIDTH): $(TESTDIR)/fuzz_width.c $(OBJDIR)/width.c $(HDRS)
 	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ \
@@ -1530,14 +1775,29 @@ $(FUZZBIN_KEYBIND): $(TESTDIR)/fuzz_keybind.c $(OBJDIR)/keybind.c $(OBJDIR)/keym
 		$(TESTDIR)/fuzz_keybind.c $(OBJDIR)/keybind.c \
 		$(OBJDIR)/keymap.c $(OBJDIR)/keyevent.c $(OBJDIR)/width.c
 
-# The transport depends on the process layer and on nothing else in the
-# editor, and the harness hands each frame it delivers to the JSON parser
-# the client would call: four translation units, no stubs, no def.h.
-$(FUZZBIN_LSP_FRAMES): $(TESTDIR)/fuzz_lsp_frames.c $(OBJDIR)/lsp_transport.c \
-                       $(OBJDIR)/lsp_json.c $(OBJDIR)/process.c $(HDRS)
+# framed_io is independent of LSP policy; process.c supplies only the pipe
+# helper used by the harness.  Each delivered frame goes to the same JSON
+# parser a protocol client calls: four translation units, no stubs or def.h.
+$(FUZZBIN_FRAMES): $(TESTDIR)/fuzz_frames.c $(OBJDIR)/framed_io.c \
+                   $(OBJDIR)/json.c $(OBJDIR)/process.c $(HDRS)
 	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ \
-		$(TESTDIR)/fuzz_lsp_frames.c $(OBJDIR)/lsp_transport.c \
-		$(OBJDIR)/lsp_json.c $(OBJDIR)/process.c
+		$(TESTDIR)/fuzz_frames.c $(OBJDIR)/framed_io.c \
+		$(OBJDIR)/json.c $(OBJDIR)/process.c
+
+# The whole protocol stack under the harness, and nothing else: the client
+# holds no editor state, so this is the same four files its unit suite
+# links.
+# announce.c is linked rather than stubbed: the transport's spawn-port kind
+# composes the real scanner, and a stub would make the fuzzer's transport a
+# different object from the editor's.
+$(FUZZBIN_DAP_DISPATCH): $(TESTDIR)/fuzz_dap_dispatch.c \
+                   $(OBJDIR)/dap_client.c $(OBJDIR)/dap_transport.c \
+                   $(OBJDIR)/announce.c $(OBJDIR)/framed_io.c \
+                   $(OBJDIR)/json.c $(OBJDIR)/process.c $(HDRS)
+	$(FUZZ_CC) $(FUZZ_CFLAGS) -I$(OBJDIR) -o $@ \
+		$(TESTDIR)/fuzz_dap_dispatch.c $(OBJDIR)/dap_client.c \
+		$(OBJDIR)/dap_transport.c $(OBJDIR)/announce.c \
+		$(OBJDIR)/framed_io.c $(OBJDIR)/json.c $(OBJDIR)/process.c
 
 $(TESTDIR)/fe_fuzz.o: fe/fe.c fe/fe.h fe/fe_internal.h
 	$(FUZZ_CC) $(FE_FUZZ_CFLAGS) -c $< -o $@
@@ -1553,9 +1813,11 @@ $(TESTDIR)/fe_unwind_fuzz.o: fe/fe_unwind.c fe/fe.h fe/fe_internal.h
 
 clean:
 	rm -f $(OBJS) $(FE_OBJ) $(REGEX_OBJS) $(SYNTAX_BACKEND_ALL) $(LSP_ALL) \
+	      $(DAP_ALL) \
 	      $(OBJDIR)/.features-* $(OBJDIR)/.with-lisp-* $(TESTDIR)/*.o \
 	      $(TESTBINS) $(TESTDIR)/kgbatch $(GC_STRESS_KGBATCH) \
-	      $(FUZZBINS) $(REGEX_DIFF_BIN)
+	      $(FUZZBINS) $(TESTDIR)/fuzz_lsp_frames \
+	      $(FUZZBIN_DAP_DISPATCH) $(REGEX_DIFF_BIN)
 	rm -rf $(PERFOBJDIR) $(TS_FAKE_GRAMMAR_DIR)
 
 distclean: clean
@@ -1584,7 +1846,7 @@ uninstall:
 	rm -f $(addprefix $(DESTDIR)$(lispdir)/,$(notdir $(LISP_PACKAGES)))
 	-rmdir $(DESTDIR)$(lispdir) $(DESTDIR)$(datadir)/kg
 
-.PHONY: all clean distclean check header-check lisp-include-check docs-check lisp-compat-check lisp-compat-oracle lisp-prelude-generate lisp-prelude-check lisp-package-check lisp-oracle-check forecast-audit forecast-check forecast-init-check check-unit check-pty check-regex-differential \
+.PHONY: all clean distclean check header-check lisp-include-check docs-check lisp-compat-check lisp-compat-oracle lisp-prelude-generate lisp-prelude-check lisp-package-check lisp-oracle-check forecast-audit forecast-check forecast-init-check check-unit check-pty-tokens check-pty check-regex-differential \
 	bench bench-lisp-toggle complexity complexity-check \
 	pmccabe pmccabe-check pmccabe-baseline gateway-check gateway-baseline coverage coverage-check coverage-baseline coverage-clean format format-check compile-db iwyu \
 	fuzz-keypress fuzz-keypress-seed fuzz-keypress-smoke \
@@ -1596,6 +1858,7 @@ uninstall:
 	fuzz-regex fuzz-regex-seed fuzz-regex-smoke fuzz-regex-seed-replay \
 	fuzz-localvars fuzz-localvars-seed fuzz-localvars-smoke \
 	fuzz-compile-parse fuzz-compile-parse-seed fuzz-compile-parse-smoke \
-	fuzz-lsp-frames fuzz-lsp-frames-seed fuzz-lsp-frames-smoke \
+	fuzz-frames fuzz-frames-seed fuzz-frames-smoke \
+	fuzz-dap-dispatch fuzz-dap-dispatch-seed fuzz-dap-dispatch-smoke \
 	fuzz-seed fuzz-smoke \
 	deb release install uninstall

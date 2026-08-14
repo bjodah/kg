@@ -242,17 +242,26 @@ static void test_visual_rows_use_glyph_columns_and_tab_stops(void)
 	setup(0);
 	editor_insert_row(bcur(), 0, "a\xe2\x80\xa6\tb", 6); /* a…<tab>b */
 
-	CHECK(editor_visual_col(&bcur()->row[0], 4) == 2);
-	CHECK(editor_visual_col(&bcur()->row[0], 5) == 8);
-	CHECK(editor_visual_col(&bcur()->row[0], 6) == 9);
-	CHECK(chars_to_render_col(&bcur()->row[0], 4) == 4);
-	CHECK(chars_to_render_col(&bcur()->row[0], 5) == 10);
+	CHECK(editor_visual_col(&bcur()->row[0], 4, buf_display_options(bcur()))
+	    == 2);
+	CHECK(editor_visual_col(&bcur()->row[0], 5, buf_display_options(bcur()))
+	    == 8);
+	CHECK(editor_visual_col(&bcur()->row[0], 6, buf_display_options(bcur()))
+	    == 9);
+	CHECK(
+	    chars_to_render_col(&bcur()->row[0], 4, buf_display_options(bcur()))
+	    == 4);
+	CHECK(
+	    chars_to_render_col(&bcur()->row[0], 5, buf_display_options(bcur()))
+	    == 10);
 	wcur()->w = 4;
 	CHECK(get_total_visual_rows(wcur(), bcur()) == 3);
 	find_visual_row(wcur(), bcur(), 0, 1, &logical_row, &render_offset);
 	CHECK(logical_row == 0);
 	CHECK(render_offset == 6);
-	CHECK(visual_col_to_chars(&bcur()->row[0], 4, 4) == 4);
+	CHECK(visual_col_to_chars(
+		  &bcur()->row[0], 4, 4, buf_display_options(bcur()))
+	    == 4);
 	teardown();
 }
 
@@ -269,7 +278,8 @@ static void test_visual_wrap_moves_a_whole_escape_spelling(void)
 	/* Nine columns of text, then a C1 control spelled "\x9b". */
 	editor_insert_row(bcur(), 0, "aaaaaaaaa\xc2\x9bzz", 13);
 
-	CHECK(editor_visual_col(&bcur()->row[0], 9) == 9);
+	CHECK(editor_visual_col(&bcur()->row[0], 9, buf_display_options(bcur()))
+	    == 9);
 	/* At win_w 10 the spelling does not fit in the one column left, so
 	 * it starts the second display row -- and that row starts at it. */
 	wcur()->w = 10;
@@ -297,18 +307,23 @@ static void test_visual_row_exact_width_keeps_eol_on_last_segment(void)
 	wcur()->w = 8;
 	CHECK(get_total_visual_rows(wcur(), bcur()) == 1);
 	CHECK(get_visual_row(wcur(), bcur(), 0, 8) == 0);
-	CHECK(visual_line_cursor_col(&bcur()->row[0], 8, 8) == 7);
+	CHECK(visual_line_cursor_col(
+		  &bcur()->row[0], 8, 8, buf_display_options(bcur()))
+	    == 7);
 	teardown();
 }
 
-/* visual_line_width() must answer the same at a given (row, win_w)
+/* visual_line_width() must answer the same at fixed row, window width and
+ * display options
  * whether it scans (cold) or reads plan 07 phase 1's per-row cache
  * (warm): the second call here always lands on the cache the first call
  * just filled.  One case per edge the plan names for phase 1. */
 static void check_width_cache_agrees(erow *row, int win_w, int expect_width)
 {
-	CHECK(visual_line_width(row, win_w) == expect_width); /* cold */
-	CHECK(visual_line_width(row, win_w) == expect_width); /* warm */
+	CHECK(visual_line_width(row, win_w, buf_display_options(bcur()))
+	    == expect_width); /* cold */
+	CHECK(visual_line_width(row, win_w, buf_display_options(bcur()))
+	    == expect_width); /* warm */
 }
 
 static void test_visual_width_cache_matches_uncached_edge_cases(void)
@@ -367,9 +382,11 @@ static void test_visual_width_cache_matches_uncached_edge_cases(void)
 	setup(0);
 	editor_insert_row(bcur(), 0, "ab", 2);
 	row = &bcur()->row[0];
-	CHECK(visual_line_width(row, 80) == 2);
-	CHECK(visual_line_cursor_col(row, 5, 80) == 5); /* 2 + (5 - 2) */
-	CHECK(visual_line_cursor_col(row, 2, 80) == 2); /* exactly at EOL */
+	CHECK(visual_line_width(row, 80, buf_display_options(bcur())) == 2);
+	CHECK(visual_line_cursor_col(row, 5, 80, buf_display_options(bcur()))
+	    == 5); /* 2 + (5 - 2) */
+	CHECK(visual_line_cursor_col(row, 2, 80, buf_display_options(bcur()))
+	    == 2); /* exactly at EOL */
 	teardown();
 
 	/* Nonpositive window width: win_cells() normalizes both 0 and a
@@ -379,8 +396,23 @@ static void test_visual_width_cache_matches_uncached_edge_cases(void)
 	setup(0);
 	editor_insert_row(bcur(), 0, "ab", 2);
 	row = &bcur()->row[0];
-	CHECK(visual_line_width(row, 0) == 2);
-	CHECK(visual_line_width(row, -5) == 2);
+	CHECK(visual_line_width(row, 0, buf_display_options(bcur())) == 2);
+	CHECK(visual_line_width(row, -5, buf_display_options(bcur())) == 2);
+	teardown();
+
+	/* The display options are part of the key, not an assumption made by
+	 * the setter: pure geometry callers may measure the same row under a
+	 * prospective configuration. */
+	setup(0);
+	editor_insert_row(bcur(), 0, "\tX", 2);
+	row = &bcur()->row[0];
+	CHECK(visual_line_width(row, 80, buf_display_options(bcur())) == 9);
+	{
+		const struct kg_display_options four = { .tab_width = 4 };
+
+		CHECK(visual_line_width(row, 80, &four) == 5);
+		CHECK(visual_line_width(row, 80, &four) == 5); /* warm */
+	}
 	teardown();
 }
 
@@ -397,16 +429,21 @@ static void check_round_trips(const char *text, int len, int win_w)
 	editor_insert_row(bcur(), 0, (char *)text, len);
 	row = &bcur()->row[0];
 
-	CHECK(chars_to_render_col(row, 0) == 0);
-	CHECK(chars_to_render_col(row, row->size) == row->rsize);
+	CHECK(chars_to_render_col(row, 0, buf_display_options(bcur())) == 0);
+	CHECK(chars_to_render_col(row, row->size, buf_display_options(bcur()))
+	    == row->rsize);
 
 	for (c = 0; c <= row->size; c += (c < row->size)
 		? utf8_glyph_span_at(row->chars, row->size, c)
 		: 1) {
-		int r = chars_to_render_col(row, c);
+		int r
+		    = chars_to_render_col(row, c, buf_display_options(bcur()));
 
 		/* chars -> display column -> chars, at glyph starts. */
-		CHECK(editor_chars_col_at_visual(row, editor_visual_col(row, c))
+		CHECK(
+		    editor_chars_col_at_visual(row,
+			editor_visual_col(row, c, buf_display_options(bcur())),
+			buf_display_options(bcur()))
 		    == c);
 		/* The render offset moves forward and names the same byte
 		 * for anything that is not a tab expansion. */
@@ -417,8 +454,10 @@ static void check_round_trips(const char *text, int len, int win_w)
 		prev_r = r;
 		/* The visual-line pair: visual_col_to_chars() consumes what
 		 * visual_line_cursor_col() produces, which is a column. */
-		CHECK(visual_col_to_chars(
-			  row, visual_line_cursor_col(row, c, win_w), win_w)
+		CHECK(visual_col_to_chars(row,
+			  visual_line_cursor_col(
+			      row, c, win_w, buf_display_options(bcur())),
+			  win_w, buf_display_options(bcur()))
 		    == c);
 	}
 	teardown();
@@ -450,13 +489,17 @@ static void test_render_offset_is_not_a_display_column(void)
 	row = &bcur()->row[0];
 
 	CHECK(row->size == 7 && row->rsize == 7);
-	CHECK(chars_to_render_col(row, 6) == 6); /* render byte of "z" */
-	CHECK(editor_visual_col(row, 6) == 4); /* display column of "z" */
+	CHECK(chars_to_render_col(row, 6, buf_display_options(bcur()))
+	    == 6); /* render byte of "z" */
+	CHECK(editor_visual_col(row, 6, buf_display_options(bcur()))
+	    == 4); /* display column of "z" */
 	/* Correct pairing: a column goes back to its byte. */
-	CHECK(visual_col_to_chars(row, 4, 80) == 6);
+	CHECK(
+	    visual_col_to_chars(row, 4, 80, buf_display_options(bcur())) == 6);
 	/* Wrong pairing: the render offset reads as a column past the end
 	 * of a row only five columns wide, and clamps to EOL. */
-	CHECK(visual_col_to_chars(row, 6, 80) == 7);
+	CHECK(
+	    visual_col_to_chars(row, 6, 80, buf_display_options(bcur())) == 7);
 	teardown();
 }
 

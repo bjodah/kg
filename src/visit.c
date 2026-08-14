@@ -4,6 +4,7 @@
 
 #include "bufhandle.h"
 #include "def.h"
+#include "winmgr.h"
 
 #include <errno.h>
 #include <string.h>

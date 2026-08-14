@@ -34,6 +34,16 @@ enum kg_decor_face {
 	KG_DECOR_FACE_WARNING = 1, /* A parsed diagnostic, e.g. compile. */
 	KG_DECOR_FACE_PAREN_MATCH = 2, /* show-paren's matched pair. */
 	KG_DECOR_FACE_PAREN_MISMATCH = 3, /* show-paren's unmatched paren. */
+	/* The debugger's three (doc/plans/dap/01-protocol.md stage 6).  They
+	 * are faces rather than reuses of KG_DECOR_FACE_WARNING because
+	 * their COLOURS are genuinely new -- src/lsp_diag.c:363-364 is the
+	 * precedent that says otherwise reuse -- and because a breakpoint,
+	 * an unverified breakpoint and the line the program is stopped on
+	 * must be distinguishable at a glance when all three are on one
+	 * screen. */
+	KG_DECOR_FACE_BREAKPOINT = 4,
+	KG_DECOR_FACE_BREAKPOINT_PENDING = 5, /* set, not verified. */
+	KG_DECOR_FACE_DEBUG_CURRENT = 6, /* where the program is stopped. */
 };
 
 enum kg_decor_result {

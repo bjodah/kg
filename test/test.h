@@ -65,9 +65,15 @@ static inline int test_mark_col(const struct editor_buffer *b)
 		}                                                              \
 	} while (0)
 
+/* The flush is load-bearing for any test that forks: a child inherits this
+ * buffer, and a run that tears libc down in the child (valgrind's
+ * __libc_freeres) flushes it into whatever the child put on fd 1 -- for a
+ * spawn-transport test, the frame pipe.  An empty buffer has nothing to
+ * leak. */
 #define RUN(fn)                                                                \
 	do {                                                                   \
 		printf("  %s\n", #fn);                                         \
+		fflush(stdout);                                                \
 		fn();                                                          \
 	} while (0)
 

@@ -2,23 +2,19 @@
 # metacharacters in an argument survive as literal bytes in the child's
 # output, and no shell ever gets a chance to interpret the ";".
 #
-# The five C-e keys after the RET are the case's only cover for an
-# *asynchronous* delivery: the child has to run and its output has to
-# reach the buffer before the trailer's C-x C-s writes the file, and
-# nothing in the harness waits for that.  key_delay is what buys the
-# time, and 0.15 was too little -- it failed the ci-15 valgrind lane of a
-# six-lane parallel run with an empty saved file, and the mechanism was
-# then reproduced on demand (1 of 5 runs at key_delay 0.05 under valgrind
-# with 24 busy loops on this 32-core box, same empty-file diff).  0.4
-# gives 2.0 s of cover for 4.4 s of wall time, sized like the exhaustion
-# cases beside it: against the slowest lane under load, not the fastest
-# on an idle box.
+# The SETTLE after the RET is the case's only cover for an *asynchronous*
+# delivery: the child has to run and its output has to reach the buffer
+# before the trailer's C-x C-s writes the file, and nothing else in the
+# harness waits for that.  This wait used to be financed with key_delay
+# and re-sized twice against ever-slower lanes (0.15 failed a six-lane
+# parallel valgrind run, 0.4 failed a CI_EXPENSIVE=1 four-lane one); a
+# bounded wait on the text itself ends that arms race and costs a fast
+# build nothing.
 name: lisp-process-argv-not-shell
 filename: argv.txt
 requires_feature: lisp
 backend: tmux
 dimensions: [24, 80]
-key_delay: 0.4
 initial: ""
 keys:
   - M-x
@@ -26,10 +22,6 @@ keys:
   - RET
   - (start-process "e" (current-buffer) "/bin/echo" "a; touch pwned")
   - RET
-  - C-e
-  - C-e
-  - C-e
-  - C-e
-  - C-e
+  - "SETTLE=60:a; touch pwned"
 expected_saved: |
   a; touch pwned

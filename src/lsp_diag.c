@@ -16,8 +16,8 @@
 #include "decor.h"
 #include "def.h"
 #include "event.h"
+#include "json.h"
 #include "localvars.h"
-#include "lsp_json.h"
 #include "lsp_server.h"
 #include "lsp_sync.h"
 #include "lsp_uri.h"
@@ -25,6 +25,7 @@
 #include "next_error.h"
 #include "syntax.h"
 #include "visit.h"
+#include "winmgr.h"
 
 #include <limits.h>
 #include <stdarg.h>
@@ -208,15 +209,15 @@ static char *diag_message_copy(const char *text, size_t len)
  * a diagnostic kg cannot place; a character that is not one is column
  * zero, which is what a server omitting it means. */
 static bool diag_read_position(
-    const struct lsp_json_value *pos, int *line, long long *character)
+    const struct kg_json_value *pos, int *line, long long *character)
 {
-	long long n = lsp_json_int(lsp_json_get(pos, "line"), -1);
+	long long n = kg_json_int(kg_json_get(pos, "line"), -1);
 
-	if (lsp_json_kind_of(pos) != LSP_JSON_OBJECT || n < 0 || n > INT_MAX) {
+	if (kg_json_kind_of(pos) != KG_JSON_OBJECT || n < 0 || n > INT_MAX) {
 		return false;
 	}
 	*line = (int)n;
-	*character = lsp_json_int(lsp_json_get(pos, "character"), 0);
+	*character = kg_json_int(kg_json_get(pos, "character"), 0);
 	if (*character < 0) {
 		*character = 0;
 	}
@@ -228,25 +229,24 @@ static bool diag_read_position(
  * listing one line wide has nowhere to put.  A severity the protocol does
  * not name is kept as it arrived rather than corrected -- see
  * diag_severity_text(). */
-static bool diag_read_item(
-    const struct lsp_json_value *v, struct diag_item *out)
+static bool diag_read_item(const struct kg_json_value *v, struct diag_item *out)
 {
-	const struct lsp_json_value *range = lsp_json_get(v, "range");
+	const struct kg_json_value *range = kg_json_get(v, "range");
 	const char *message;
 	size_t len = 0;
 
 	if (!diag_read_position(
-		lsp_json_get(range, "start"), &out->line, &out->character)) {
+		kg_json_get(range, "start"), &out->line, &out->character)) {
 		return false;
 	}
-	if (!diag_read_position(lsp_json_get(range, "end"), &out->end_line,
+	if (!diag_read_position(kg_json_get(range, "end"), &out->end_line,
 		&out->end_character)) {
 		out->end_line = out->line;
 		out->end_character = out->character;
 	}
 	out->severity
-	    = (int)lsp_json_int(lsp_json_get(v, "severity"), LSP_DIAG_ERROR);
-	message = lsp_json_str(lsp_json_get(v, "message"), &len);
+	    = (int)kg_json_int(kg_json_get(v, "severity"), LSP_DIAG_ERROR);
+	message = kg_json_str(kg_json_get(v, "message"), &len);
 	out->message
 	    = diag_message_copy(message ? message : "", message ? len : 0);
 	return out->message != NULL;
@@ -403,15 +403,15 @@ static void diag_paint(struct diag_file *f)
  * cap are counted and dropped; an element kg cannot place is dropped and
  * not counted, since `reported` is what the listing's truncation notice
  * counts against. */
-static void diag_fill(struct diag_file *f, const struct lsp_json_value *list)
+static void diag_fill(struct diag_file *f, const struct kg_json_value *list)
 {
-	size_t n = lsp_json_len(list);
+	size_t n = kg_json_len(list);
 	size_t i;
 
 	for (i = 0; i < n; i++) {
 		struct diag_item item = { 0 };
 
-		if (!diag_read_item(lsp_json_at(list, i), &item)) {
+		if (!diag_read_item(kg_json_at(list, i), &item)) {
 			free(item.message);
 			continue;
 		}
@@ -428,20 +428,20 @@ static void diag_fill(struct diag_file *f, const struct lsp_json_value *list)
 /* The path a publish is about, or false for a URI naming something kg
  * cannot open -- another host, another scheme -- which is a server to
  * ignore rather than a file to guess at. */
-static bool diag_publish_path(const struct lsp_json_value *params, char *out,
+static bool diag_publish_path(const struct kg_json_value *params, char *out,
     size_t out_size, long long *version)
 {
-	const struct lsp_json_value *uri = lsp_json_get(params, "uri");
+	const struct kg_json_value *uri = kg_json_get(params, "uri");
 
-	if (lsp_json_kind_of(uri) != LSP_JSON_STRING) {
+	if (kg_json_kind_of(uri) != KG_JSON_STRING) {
 		return false;
 	}
-	*version = lsp_json_int(lsp_json_get(params, "version"), -1);
-	return lsp_uri_to_path(lsp_json_str(uri, NULL), out, out_size);
+	*version = kg_json_int(kg_json_get(params, "version"), -1);
+	return lsp_uri_to_path(kg_json_str(uri, NULL), out, out_size);
 }
 
 void lsp_diag_publish(
-    const struct lsp_json_value *params, enum lsp_position_encoding enc)
+    const struct kg_json_value *params, enum lsp_position_encoding enc)
 {
 	char path[PATH_MAX];
 	long long version = -1;
@@ -470,7 +470,7 @@ void lsp_diag_publish(
 	f->path = owned;
 	f->version = version;
 	f->encoding = enc;
-	diag_fill(f, lsp_json_get(params, "diagnostics"));
+	diag_fill(f, kg_json_get(params, "diagnostics"));
 	diag_paint(f);
 	diag_rows_build();
 	g_generation++;
@@ -480,7 +480,7 @@ void lsp_diag_publish(
 /* ------------------------------ the wiring ---------------------------- */
 
 static void diag_on_notification(struct lsp_client *c, const char *method,
-    const struct lsp_json_value *params)
+    const struct kg_json_value *params)
 {
 	if (strcmp(method, "textDocument/publishDiagnostics") != 0) {
 		return;
@@ -806,7 +806,7 @@ void lsp_diag_test_reset(void)
 void lsp_diag_install(void) { }
 
 void lsp_diag_publish(
-    const struct lsp_json_value *params, enum lsp_position_encoding enc)
+    const struct kg_json_value *params, enum lsp_position_encoding enc)
 {
 	(void)params;
 	(void)enc;

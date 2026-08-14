@@ -15,9 +15,9 @@
 #include "def.h"
 #include "event.h"
 #include "fileline.h"
+#include "json.h"
 #include "localvars.h"
 #include "lsp_client.h"
-#include "lsp_json.h"
 #include "lsp_server.h"
 #include "lsp_sync.h"
 #include "lsp_uri.h"
@@ -182,47 +182,47 @@ static void xref_request_free(struct xref_request *req)
 /* The `range`-shaped half of both answer shapes: a Position under
  * `start`. */
 static bool xref_read_range(
-    const struct lsp_json_value *range, struct xref_location *out)
+    const struct kg_json_value *range, struct xref_location *out)
 {
-	const struct lsp_json_value *start = lsp_json_get(range, "start");
+	const struct kg_json_value *start = kg_json_get(range, "start");
 	long long line;
 
-	if (lsp_json_kind_of(start) != LSP_JSON_OBJECT) {
+	if (kg_json_kind_of(start) != KG_JSON_OBJECT) {
 		return false;
 	}
-	line = lsp_json_int(lsp_json_get(start, "line"), -1);
+	line = kg_json_int(kg_json_get(start, "line"), -1);
 	if (line < 0 || line > INT_MAX) {
 		return false;
 	}
 	out->line = (int)line;
-	out->character = lsp_json_int(lsp_json_get(start, "character"), 0);
+	out->character = kg_json_int(kg_json_get(start, "character"), 0);
 	if (out->character < 0) {
 		out->character = 0;
 	}
 	return true;
 }
 
-bool xref_location_of(const struct lsp_json_value *v, struct xref_location *out)
+bool xref_location_of(const struct kg_json_value *v, struct xref_location *out)
 {
-	const struct lsp_json_value *uri = lsp_json_get(v, "uri");
-	const struct lsp_json_value *range = lsp_json_get(v, "range");
+	const struct kg_json_value *uri = kg_json_get(v, "uri");
+	const struct kg_json_value *range = kg_json_get(v, "range");
 
 	if (!uri) {
 		/* A LocationLink.  The selection range is the identifier;
 		 * the target range is everything that was defined, and
 		 * landing point on the first line of a 40-line function is
 		 * the worse of the two answers. */
-		uri = lsp_json_get(v, "targetUri");
-		range = lsp_json_get(v, "targetSelectionRange");
+		uri = kg_json_get(v, "targetUri");
+		range = kg_json_get(v, "targetSelectionRange");
 		if (!range) {
-			range = lsp_json_get(v, "targetRange");
+			range = kg_json_get(v, "targetRange");
 		}
 	}
-	if (lsp_json_kind_of(uri) != LSP_JSON_STRING) {
+	if (kg_json_kind_of(uri) != KG_JSON_STRING) {
 		return false;
 	}
 	if (!lsp_uri_to_path(
-		lsp_json_str(uri, NULL), out->path, sizeof(out->path))) {
+		kg_json_str(uri, NULL), out->path, sizeof(out->path))) {
 		return false;
 	}
 	return xref_read_range(range, out);
@@ -393,26 +393,26 @@ static bool xref_entry_location(size_t index, struct xref_location *out)
  * three land here; `null` is how a server says it looked and found
  * nothing. */
 static void xref_collect(
-    struct lsp_client *c, const struct lsp_json_value *result)
+    struct lsp_client *c, const struct kg_json_value *result)
 {
 	struct xref_location loc;
 	size_t i;
 
 	xref_results_clear();
 	g_result_encoding = lsp_client_caps(c)->position_encoding;
-	if (lsp_json_kind_of(result) == LSP_JSON_OBJECT) {
+	if (kg_json_kind_of(result) == KG_JSON_OBJECT) {
 		g_result_raw = 1;
 		if (xref_location_of(result, &loc)) {
 			(void)xref_results_add(&loc);
 		}
 		return;
 	}
-	if (lsp_json_kind_of(result) != LSP_JSON_ARRAY) {
+	if (kg_json_kind_of(result) != KG_JSON_ARRAY) {
 		return;
 	}
-	g_result_raw = lsp_json_len(result);
+	g_result_raw = kg_json_len(result);
 	for (i = 0; i < g_result_raw; i++) {
-		if (xref_location_of(lsp_json_at(result, i), &loc)
+		if (xref_location_of(kg_json_at(result, i), &loc)
 		    && !xref_results_add(&loc)) {
 			return;
 		}
@@ -511,12 +511,12 @@ static int xref_render(struct lsp_client *c, const char *what)
 
 /* Show the listing.
  *
- * Not while a minibuffer prompt is up.  This runs from lsp_poll(), which
- * the key reader re-enters on every idle timeout, so the answer to a
- * command typed before C-x C-f can arrive while the user is halfway
- * through a filename -- and selecting a buffer under a prompt would leave
- * that prompt editing a different buffer than the one it was opened over.
- * The listing is still built, so C-x b reaches it; only the switch waits.
+ * Not while a minibuffer prompt is up.  The editor's ordinary prompt reader
+ * does not poll asynchronous protocols, so an answer normally remains on
+ * its fd until the prompt closes.  The guard belongs at the action anyway:
+ * a caller may service a client directly, and a future prompt-safe poll
+ * must not make selecting a buffer under a half-typed filename legal.  The
+ * listing is still built, so C-x b reaches it; only the switch waits.
  *
  * Point starts on the first result rather than the header, so RET, n and p
  * all mean something the moment the buffer appears. */
@@ -543,10 +543,10 @@ static void xref_show(struct lsp_client *c, const char *what, const char *who)
 /* ------------------------------- the reply ---------------------------- */
 
 static void xref_report_error(
-    const char *who, const struct lsp_json_value *error)
+    const char *who, const struct kg_json_value *error)
 {
-	const struct lsp_json_value *msg = lsp_json_get(error, "message");
-	const char *text = lsp_json_str(msg, NULL);
+	const struct kg_json_value *msg = kg_json_get(error, "message");
+	const char *text = kg_json_str(msg, NULL);
 
 	if (!text || !text[0]) {
 		editor_set_status_message("%s: the server refused", who);
@@ -591,7 +591,7 @@ static void xref_answer_one(struct xref_request *req)
  * set and not by one member of it; a definition lists only when the server
  * offered a choice. */
 static void xref_answer(struct lsp_client *c, struct xref_request *req,
-    const struct lsp_json_value *result)
+    const struct kg_json_value *result)
 {
 	const char *what = req->references ? "references" : "definitions";
 
@@ -627,9 +627,8 @@ static void xref_answer(struct lsp_client *c, struct xref_request *req,
 	req->origin.valid = false;
 }
 
-static void xref_reply(struct lsp_client *c,
-    const struct lsp_json_value *result, const struct lsp_json_value *error,
-    void *ctx)
+static void xref_reply(struct lsp_client *c, const struct kg_json_value *result,
+    const struct kg_json_value *error, void *ctx)
 {
 	struct xref_request *req = ctx;
 
@@ -732,32 +731,32 @@ static char *xref_position_params(struct lsp_client *c, const char *uri,
     const struct editor_buffer *b, int row, int col, bool references,
     size_t *out_len)
 {
-	struct lsp_jsonw w;
+	struct kg_jsonw w;
 	char *out = NULL;
 
-	lsp_jsonw_init(&w);
-	lsp_jsonw_begin_object(&w);
-	lsp_jsonw_key(&w, "textDocument");
-	lsp_jsonw_begin_object(&w);
-	lsp_jsonw_key(&w, "uri");
-	lsp_jsonw_string(&w, uri);
-	lsp_jsonw_end_object(&w);
-	lsp_jsonw_key(&w, "position");
-	lsp_jsonw_begin_object(&w);
-	lsp_jsonw_key(&w, "line");
-	lsp_jsonw_int(&w, row < 0 ? 0 : row);
-	lsp_jsonw_key(&w, "character");
-	lsp_jsonw_int(&w, xref_encode_character(c, b, row, col));
-	lsp_jsonw_end_object(&w);
+	kg_jsonw_init(&w);
+	kg_jsonw_begin_object(&w);
+	kg_jsonw_key(&w, "textDocument");
+	kg_jsonw_begin_object(&w);
+	kg_jsonw_key(&w, "uri");
+	kg_jsonw_string(&w, uri);
+	kg_jsonw_end_object(&w);
+	kg_jsonw_key(&w, "position");
+	kg_jsonw_begin_object(&w);
+	kg_jsonw_key(&w, "line");
+	kg_jsonw_int(&w, row < 0 ? 0 : row);
+	kg_jsonw_key(&w, "character");
+	kg_jsonw_int(&w, xref_encode_character(c, b, row, col));
+	kg_jsonw_end_object(&w);
 	if (references) {
-		lsp_jsonw_key(&w, "context");
-		lsp_jsonw_begin_object(&w);
-		lsp_jsonw_key(&w, "includeDeclaration");
-		lsp_jsonw_bool(&w, true);
-		lsp_jsonw_end_object(&w);
+		kg_jsonw_key(&w, "context");
+		kg_jsonw_begin_object(&w);
+		kg_jsonw_key(&w, "includeDeclaration");
+		kg_jsonw_bool(&w, true);
+		kg_jsonw_end_object(&w);
 	}
-	lsp_jsonw_end_object(&w);
-	if (lsp_jsonw_finish(&w, &out, out_len) != 0) {
+	kg_jsonw_end_object(&w);
+	if (kg_jsonw_finish(&w, &out, out_len) != 0) {
 		return NULL;
 	}
 	return out;
@@ -905,7 +904,7 @@ void editor_xref_find_references(int fd)
 
 #include "def.h"
 
-bool xref_location_of(const struct lsp_json_value *v, struct xref_location *out)
+bool xref_location_of(const struct kg_json_value *v, struct xref_location *out)
 {
 	(void)v;
 	(void)out;

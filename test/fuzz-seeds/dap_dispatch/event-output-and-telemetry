@@ -1,0 +1,7 @@
+Content-Length: 98
+
+{"seq": 1, "type": "event", "event": "output", "body": {"category": "stdout", "output": "hello "}}Content-Length: 99
+
+{"seq": 2, "type": "event", "event": "output", "body": {"category": "stdout", "output": "world\n"}}Content-Length: 96
+
+{"seq": 3, "type": "event", "event": "output", "body": {"category": "telemetry", "output": "x"}}

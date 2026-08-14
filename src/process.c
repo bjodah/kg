@@ -262,6 +262,7 @@ void kg_process_signal_group(pid_t group, int sig)
 #include <fcntl.h>
 #include <signal.h>
 #include <stddef.h>
+#include <sys/ioctl.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -306,6 +307,22 @@ static void exec_spawn_request(const struct kg_spawn_request *req)
  * because only kg_process_spawn_bidi() makes such a pipe, and a field
  * defaulting to 0 in a designated initializer would silently mean kg's own
  * stdin -- the exact trap `stdin_fd` documents. */
+/* Give up the controlling terminal, for a child that must not be able to
+ * touch kg's (`detach_terminal`).  Between fork() and exec, so nothing here
+ * may allocate.  A child with none already opens nothing and returns. */
+static void detach_controlling_terminal(void)
+{
+	int tty = open("/dev/tty", O_RDWR | O_NOCTTY | O_CLOEXEC);
+
+	if (tty < 0) {
+		return;
+	}
+#ifdef TIOCNOTTY
+	(void)ioctl(tty, TIOCNOTTY);
+#endif
+	(void)close(tty);
+}
+
 [[noreturn]] static void spawn_child(
     const struct kg_spawn_request *req, const int p[2], int stderr_fd)
 {
@@ -313,6 +330,17 @@ static void exec_spawn_request(const struct kg_spawn_request *req)
 	 * race: the child is a group leader before it can exec, and before
 	 * the parent can signal the group. */
 	setpgid(0, 0);
+
+	/* And, for a caller that asked, no controlling terminal either.
+	 * setsid() would say the same thing in one call, but it is refused
+	 * to a process group leader -- which this one may already be, since
+	 * the parent races it to setpgid() above -- so the terminal is given
+	 * up directly instead.  There is nothing left to reach it through
+	 * afterwards: every descriptor this child keeps is a pipe or
+	 * /dev/null, and the rest are CLOEXEC. */
+	if (req->detach_terminal) {
+		detach_controlling_terminal();
+	}
 
 	if (req->directory && chdir(req->directory) < 0) {
 		_exit(127);

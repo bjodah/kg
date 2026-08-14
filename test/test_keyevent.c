@@ -114,10 +114,11 @@ static void test_characters_round_trip(void)
  * back.  Shift is only for the named keys the terminal reports it on. */
 static void test_every_base_and_modifier_round_trips(void)
 {
-	static const char *const bases[]
-	    = { "RET", "TAB", "ESC", "DEL", "SPC", "<left>", "<right>", "<up>",
-		      "<down>", "<home>", "<end>", "<prior>", "<next>",
-		      "<insert>", "<delete>", "<f3>", "<f4>", "a", "9", ";" };
+	static const char *const bases[] = { "RET", "TAB", "ESC", "DEL", "SPC",
+		"<left>", "<right>", "<up>", "<down>", "<home>", "<end>",
+		"<prior>", "<next>", "<insert>", "<delete>", "<f1>", "<f2>",
+		"<f3>", "<f4>", "<f5>", "<f6>", "<f7>", "<f8>", "<f9>", "<f10>",
+		"<f11>", "<f12>", "a", "9", ";" };
 	size_t i;
 	unsigned mods;
 

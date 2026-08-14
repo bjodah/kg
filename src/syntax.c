@@ -644,6 +644,18 @@ int editor_syntax_to_color(int hl)
 		return 96; /* bright cyan */
 	case HL_PAREN_MISMATCH:
 		return 91; /* bright red */
+	/* The debugger's three.  Same one-foreground-number constraint, so
+	 * the rule is the same: the nearest colours no other HL_* already
+	 * uses.  A verified breakpoint is bright magenta against HL_STRING's
+	 * plain magenta; an unverified one is grey, which reads as "kg has
+	 * asked and does not know yet"; the stopped line is bright yellow
+	 * against HL_KEYWORD1's plain yellow. */
+	case HL_BREAKPOINT:
+		return 95; /* bright magenta */
+	case HL_BREAKPOINT_PENDING:
+		return 90; /* bright black, i.e. grey */
+	case HL_DEBUG_CURRENT:
+		return 93; /* bright yellow */
 	default:
 		return 37; /* white */
 	}

@@ -93,6 +93,7 @@
 #include "keyevent.h"
 #include "marker.h"
 #include "perf.h"
+#include "winmgr.h"
 
 /* Key action codes */
 enum KEY_ACTION {
@@ -160,6 +161,29 @@ enum KEY_ACTION {
 	 * KEY_MOD_META set.  tty.c's decoder builds that directly. */
 };
 
+/* Display geometry travels as one value, rather than growing another
+ * scalar argument each time a user-visible width rule becomes configurable.
+ * A zero-initialized instance is the default display. */
+#define KG_TAB_WIDTH 8
+#define KG_TAB_WIDTH_MAX 1000
+struct kg_display_options {
+	int tab_width;
+};
+
+struct kg_wrap_cache_key {
+	int win_w;
+	int tab_width;
+};
+static_assert(sizeof(struct kg_wrap_cache_key) == 2 * sizeof(int),
+    "wrap cache key must have no padding");
+
+static inline int display_tab_width(const struct kg_display_options *options)
+{
+	int width = options ? options->tab_width : 0;
+
+	return width >= 1 && width <= KG_TAB_WIDTH_MAX ? width : KG_TAB_WIDTH;
+}
+
 /* This structure represents a single line of the file we are editing. */
 typedef struct erow {
 	int idx; /* Row index in the file, zero-based. */
@@ -174,14 +198,12 @@ typedef struct erow {
 	int hl_oc; /* Row had open comment at end in last syntax highlight
 		      check. */
 	/* Visual-line wrapped-width cache (src/mode.c), plan 07 phase 1.
-	 * wrap_cache_win_w is the normalized window width (win_cells()'s
-	 * output, always >= 1) the cache was computed for; 0 -- never a
-	 * valid width -- means "invalid" and doubles as the cache's own
-	 * valid bit, so there is nothing else to keep in sync.  Fresh rows
-	 * zero-initialize to invalid.  wrap_cache_vcols is the row's total
-	 * wrapped display width at that window width; wrap (segment) count
-	 * derives from it and win_w rather than being stored again. */
-	int wrap_cache_win_w;
+	 * wrap_cache_key.win_w is the normalized window width (win_cells()'s
+	 * output, always >= 1); zero means "invalid", so fresh rows begin
+	 * invalid.  The key travels as one value so another display option
+	 * does not add another condition to the cache lookup.
+	 * wrap_cache_vcols is the row's total wrapped display width. */
+	struct kg_wrap_cache_key wrap_cache_key;
 	int wrap_cache_vcols;
 } erow;
 
@@ -226,6 +248,12 @@ enum file_change_state {
 /* Editor configuration state */
 struct editor_config {
 	int rawmode; /* Is terminal raw mode enabled? */
+	/* Has a frame reached the terminal?  Everything editor_at_exit()
+	 * undoes -- an attribute left open, the cursor left hidden, the frame
+	 * itself -- only a painted frame can have done, and raw mode is
+	 * entered before the first one, so an exit in that window leaves the
+	 * screen and anything printed on it alone. */
+	int screen_painted;
 	char statusmsg[512];
 	time_t statusmsg_time;
 	/* Half-open byte range of statusmsg[] the echo area draws
@@ -292,7 +320,6 @@ struct kg_point {
 struct kg_vgeom_index;
 
 /* Per-window viewport state. */
-#define MAX_WINDOWS 8
 struct editor_window {
 	/* Which buffer this window shows, by identity rather than by slot:
 	 * a slot is reused, so a window left on a killed buffer would
@@ -326,8 +353,11 @@ struct editor_window {
 	struct kg_vgeom_index *vgeom;
 };
 
-/* Per-buffer state saved when switching away from a buffer. */
-#define MAX_BUFFERS 20
+/* Per-buffer state saved when switching away from a buffer.  The bound
+ * sizes buflist[] and every sibling table indexed by a buffer slot, so a
+ * user's own files, the special buffers kg opens for them and the
+ * debugger's transcript and console all come out of the same 32. */
+#define MAX_BUFFERS 32
 struct editor_buffer {
 	/* Identity of whatever buffer currently occupies this slot.  `id` is
 	 * drawn from a counter that never repeats, so it names one buffer for
@@ -347,6 +377,10 @@ struct editor_buffer {
 	 * sample it before and after and know whether it edited anything.
 	 * See buffer_note_change(). */
 	uint64_t content_generation;
+	/* Bumped for text changes and display-option changes.  Caches whose
+	 * answer depends on both key on this one stamp rather than growing a
+	 * condition for every new display option. */
+	uint64_t layout_generation;
 	char *filename;
 	struct editor_syntax *syntax;
 	/* What the compiled-in highlighting backend derived from this
@@ -382,6 +416,7 @@ struct editor_buffer {
 	int auto_revert;
 	int visual_line_mode;
 	int overwrite_mode;
+	struct kg_display_options display;
 	/* 1 when `filename` is this buffer's name and not a path: C-x b to a
 	 * name nothing answers to makes such a buffer, as Emacs'
 	 * switch-to-buffer does.  It is what kg has in place of Emacs'
@@ -389,6 +424,15 @@ struct editor_buffer {
 	 * kg's own *special* buffers answer the same question through the
 	 * leading asterisk, so ask buf_visits_file() rather than this flag. */
 	int no_file;
+	/* 1 when kg MADE this buffer as one of its own, through
+	 * buf_prepare_special_text(), and may therefore rebuild it from
+	 * scratch.  C-x b creates a buffer with ANY name the user types,
+	 * including `*compilation*` or a debugger pane's, and adopting one of
+	 * those by name would drop somebody's unsaved rows and their undo
+	 * chain with them.  So the name is not the permission; this is.
+	 * Cleared with the slot, so killing a pane and letting kg make it
+	 * again works. */
+	int special_owned;
 };
 
 /* Global editor state */
@@ -412,6 +456,11 @@ extern int global_auto_revert; /* Default auto-revert flag for all buffers. */
  * buffer.  Code that may mean a *different* buffer must take a
  * struct editor_buffer * instead — that is the whole point of the split. */
 static inline struct editor_buffer *bcur(void) { return &buflist[buf_current]; }
+static inline const struct kg_display_options *buf_display_options(
+    const struct editor_buffer *b)
+{
+	return b ? &b->display : nullptr;
+}
 extern int electric_pairs; /* 1 when typing an opener inserts its closer. */
 
 extern struct editor_window winlist[MAX_WINDOWS];
@@ -525,28 +574,6 @@ void buf_ibuffer_select(void);
 void buf_display_name(int idx, char *out, size_t outsize);
 void editor_cleanup(void);
 
-/* winmgr.c */
-void win_init(void);
-void win_reflow(void);
-void win_split_horizontal(void);
-void win_split_vertical(void);
-void win_cycle_next(void);
-void win_delete_current(void);
-void win_delete_others(void);
-void win_display_buffer_other_window(int buffer_index);
-/* The other direction: stop showing this buffer, without killing it.
- * Declines when the buffer is not on screen, when its window is the only
- * one, or when its window is the current one. */
-void win_undisplay_buffer(int buffer_index);
-int win_can_display_buffer_other_window(int buffer_index);
-void win_position_at_end(int buffer_index);
-/* Put point on `row` (0-based) in every window showing this buffer,
- * scrolling as little as it takes to bring it into view.  win_position_at_end()
- * with a row of the caller's choosing: for a results buffer whose cursor
- * has to follow a walk driven from somewhere else (M-g n over *Occur*),
- * which is a window that is not the current one. */
-void win_position_at_row(int buffer_index, int row);
-
 /* autocomplete.c */
 int editor_find_close_char(int open_char);
 void editor_insert_char_auto_complete(int c);
@@ -569,13 +596,17 @@ int editor_current_filerow(void);
 int editor_current_filecol(void);
 int editor_current_filecol_in_row(erow *row);
 void editor_snap_cx_to_row(void);
-int editor_visual_col(erow *row, int chars_col);
-int editor_display_col(erow *rows, int numrows, int filerow, int filecol);
-int editor_chars_col_at_visual(erow *row, int target_vcol);
+int editor_visual_col(
+    erow *row, int chars_col, const struct kg_display_options *options);
+int editor_display_col(erow *rows, int numrows, int filerow, int filecol,
+    const struct kg_display_options *options);
+int editor_chars_col_at_visual(
+    erow *row, int target_vcol, const struct kg_display_options *options);
 
 /* buffer.c */
 void editor_render_row(struct editor_buffer *b, erow *row);
 void editor_update_row(struct editor_buffer *b, erow *row);
+void editor_set_tab_width(struct editor_buffer *b, int width);
 int editor_rows_reserve(erow **rows, int *capacity, int need);
 int editor_row_grown_capacity(int need);
 void editor_insert_row(
@@ -713,10 +744,6 @@ static inline int ascii_is_space(int c)
 	return c == ' ' || (c >= '\t' && c <= '\r');
 }
 
-/* Tab stops sit every KG_TAB_WIDTH display columns, matching Emacs'
- * default tab-width, cat(1) and the terminal itself. */
-#define KG_TAB_WIDTH 8
-
 /* Coordinate-space checks, doc/coordinates.md's table turned into
  * something a build can fail on: KG_ASSERT_CHARS_OFF takes a byte offset
  * into row->chars, KG_ASSERT_RENDER_OFF one into row->render (which is
@@ -739,11 +766,14 @@ static inline int ascii_is_space(int c)
 #endif
 
 /* Columns a TAB occupies when it starts at visual column `vcol`: enough
- * to reach the next tab stop, i.e. 1..KG_TAB_WIDTH columns.  Every
- * module that models tab geometry must go through this. */
-static inline int tab_stop_advance(int vcol)
+ * to reach the next configured tab stop.  Every module that models tab
+ * geometry must go through this. */
+static inline int tab_stop_advance(
+    int64_t vcol, const struct kg_display_options *options)
 {
-	return KG_TAB_WIDTH - (vcol % KG_TAB_WIDTH);
+	int width = display_tab_width(options);
+
+	return width - (vcol % width);
 }
 
 /* Continuation bytes that must follow the UTF-8 lead byte `lead`, or 0

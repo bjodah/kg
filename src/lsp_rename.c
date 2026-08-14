@@ -13,9 +13,9 @@
 #include "dabbrev.h"
 #include "def.h"
 #include "event.h"
+#include "json.h"
 #include "localvars.h"
 #include "lsp_edit.h"
-#include "lsp_json.h"
 #include "lsp_req.h"
 #include "lsp_sync.h"
 
@@ -186,7 +186,7 @@ static void lsp_rename_answer(const struct lsp_req_answer *answer)
 	}
 	/* `null` is how a server says the position cannot be renamed at
 	 * all, which is an answer rather than a failure. */
-	if (lsp_json_kind_of(answer->result) == LSP_JSON_NULL) {
+	if (kg_json_kind_of(answer->result) == KG_JSON_NULL) {
 		editor_set_status_message(
 		    RENAME_WHO ": the server will not rename this");
 		return;

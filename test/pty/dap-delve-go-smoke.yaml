@@ -1,0 +1,180 @@
+# A real delve, on a real Go package kg's own configuration builds.
+#
+# Everything the fake adapter cannot be evidence for lives here: the
+# spawn-then-scrape-port-then-connect wire (`dlv dap` is TCP-only and there
+# is no stdio mode to fall back to), delve's own launch ordering, its
+# synchronous breakpoint verification, goroutines rendered as threads -- and
+# the two Go-shaped behaviours the plan measured: the debuggee's stdout and
+# stderr arrive on DELVE's own standard error rather than as `output`
+# events, and the adapter's working directory is what `program` and the
+# build artefact resolve against.
+#
+# The workspace is self-contained -- a `go.mod` with no requirements, so
+# nothing is fetched and no module cache is needed.  The program prints in
+# the four shapes a byte-stream transcript can get wrong (no trailing
+# newline, standard error, CRLF, one long line), starts a goroutine that
+# ENDS before main does (one thread exiting is not the session ending), and
+# has a scalar and a nested local to read at the stop.
+#
+# It SKIPS with a reason where either `dlv` or `go` is missing -- the list
+# form of `requires_tool:` -- and `--require-tools` turns that into an
+# upfront failure naming the one that is absent.
+#
+# Timing is a bounded WAIT and not a key delay.  The cold `go build` delve
+# runs for `mode:"debug"` measured 1.53 s cold and 0.32 s warm, and that
+# belongs in the launch allowance rather than in the settle floor every
+# other case pays: `SETTLE=<seconds>:<text>` waits for the screen to say the
+# program stopped where the case says, at most that long.  25 s covers a
+# cold Go toolchain on a loaded lane; a quiet box gets there in about two
+# seconds.
+name: dap-delve-go-smoke
+filename: main.go
+requires_feature: dap
+requires_tool: [dlv, go]
+backend: tmux
+dimensions: [30, 100]
+initial: |
+  package main
+
+  import (
+  	"fmt"
+  	"os"
+  	"sync"
+  )
+
+  type point struct {
+  	X int
+  	Y int
+  }
+
+  func compute(n int) int {
+  	p := point{X: n, Y: n + 1}
+  	total := p.X + p.Y
+  	return total
+  }
+
+  func main() {
+  	var wg sync.WaitGroup
+  	wg.Add(1)
+  	go func() {
+  		defer wg.Done()
+  		fmt.Fprint(os.Stderr, "goroutine done\n")
+  	}()
+  	wg.Wait()
+  	answer := compute(20)
+  	fmt.Print("no newline here")
+  	fmt.Print("\r\ncarriage return\r\n")
+  	fmt.Println("a long line: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+  	fmt.Println(answer)
+  }
+workspace_files:
+  go.mod: |
+    module example/m
+
+    go 1.21
+  .kg-dap.json: |
+    { "version": 1,
+      "configurations": [
+        { "name": "Go package",
+          "adapter": "delve",
+          "request": "launch",
+          "arguments": { "mode": "debug",
+                         "program": "${workspaceRoot}",
+                         "cwd": "${workspaceRoot}",
+                         "stopOnEntry": false } } ] }
+keys:
+  # Line 17, `return total`: the scalar `n` and the nested `p` are both
+  # live there, and so is `total`, which the line before it computed.
+  - C-n
+  - C-n
+  - C-n
+  - C-n
+  - C-n
+  - C-n
+  - C-n
+  - C-n
+  - C-n
+  - C-n
+  - C-n
+  - C-n
+  - C-n
+  - C-n
+  - C-n
+  - C-n
+  - M-x
+  - dap-breakpoint-toggle
+  - RET
+  # Away from the breakpoint's line, so the stop's navigation is a change
+  # on screen rather than a coincidence.
+  - M-<
+  - M-x
+  - dap-debug
+  - RET
+  - RET
+  # The build and the launch, together and once: the mode line reading
+  # line 17 is the stop having landed.
+  - SETTLE=25:(17,
+  # Where the real adapter stopped, written into the file.
+  - C-e
+  - "//stopped"
+  # A nested local, read through the adapter rather than off the source.
+  - M-x
+  - dap-evaluate
+  - RET
+  - p.Y
+  - RET
+  - SETTLE=10:21
+  # Let it run to its natural end: the goroutine has already exited, the
+  # program prints and returns 0, and delve reports `exited` then
+  # `terminated` (twice -- the lattice is idempotent).
+  - M-x
+  - dap-continue
+  - RET
+  - SETTLE=20:no newline here
+trailer_keys:
+  - C-x
+  - C-s
+  - C-x
+  - C-c
+expected_saved: |
+  package main
+
+  import (
+  	"fmt"
+  	"os"
+  	"sync"
+  )
+
+  type point struct {
+  	X int
+  	Y int
+  }
+
+  func compute(n int) int {
+  	p := point{X: n, Y: n + 1}
+  	total := p.X + p.Y
+  	return total//stopped
+  }
+
+  func main() {
+  	var wg sync.WaitGroup
+  	wg.Add(1)
+  	go func() {
+  		defer wg.Done()
+  		fmt.Fprint(os.Stderr, "goroutine done\n")
+  	}()
+  	wg.Wait()
+  	answer := compute(20)
+  	fmt.Print("no newline here")
+  	fmt.Print("\r\ncarriage return\r\n")
+  	fmt.Println("a long line: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+  	fmt.Println(answer)
+  }
+expected_screen_contains:
+  # The debuggee's own output, which came off delve's standard error and
+  # not out of an `output` event -- including the piece with no newline
+  # after it, which a line-shaped reader would have held or terminated.
+  - "no newline here"
+  # And the goroutine's own line, printed by a thread that had already
+  # exited when the program finished.
+  - "goroutine done"

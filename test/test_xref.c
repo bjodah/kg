@@ -19,7 +19,7 @@
  */
 
 #include "../src/def.h"
-#include "../src/lsp_json.h"
+#include "../src/json.h"
 #include "../src/xref.h"
 #include "test.h"
 
@@ -29,14 +29,14 @@
  * the JSON a server would send. */
 static bool location_of(const char *json, struct xref_location *out)
 {
-	struct lsp_json *doc = lsp_json_parse(json, strlen(json), NULL);
+	struct kg_json *doc = kg_json_parse(json, strlen(json), NULL);
 	bool ok;
 
 	if (!doc) {
 		return false;
 	}
-	ok = xref_location_of(lsp_json_root(doc), out);
-	lsp_json_free(doc);
+	ok = xref_location_of(kg_json_root(doc), out);
+	kg_json_free(doc);
 	return ok;
 }
 

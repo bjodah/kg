@@ -17,6 +17,7 @@
  * test_cmd does. */
 
 #include "../src/cmd.h"
+#include "../src/dap.h"
 #include "../src/def.h"
 #include "../src/kbd.h"
 #include "../src/keybind.h"
@@ -171,9 +172,10 @@ static void test_unresolved_names(void)
 	keymap_reset();
 }
 
-static void test_precedence(void)
+static void test_minor_precedence_and_activation_churn(void)
 {
 	struct keymap *global, *major, *minor, *newer;
+	int i;
 
 	keymap_reset();
 	global = keymap_create("global", KEYMAP_LAYER_GLOBAL);
@@ -205,6 +207,21 @@ static void test_precedence(void)
 	CHECK(strcmp(lookup("M-f").command, "forward-word") == 0);
 	keymap_set_active(major, 1);
 	CHECK(strcmp(lookup("M-f").command, "forward-char") == 0);
+
+	/* Activation does not change recency: creation order remains the
+	 * tiebreaker through repeated session-like on/off churn. */
+	for (i = 0; i < 32; i++) {
+		keymap_set_active(minor, 1);
+		keymap_set_active(newer, 1);
+		CHECK(lookup("M-f").map == newer);
+		keymap_set_active(newer, 0);
+		CHECK(lookup("M-f").map == minor);
+		keymap_set_active(minor, 0);
+		CHECK(lookup("M-f").map == major);
+		keymap_set_active(newer, 1);
+		keymap_set_active(minor, 1);
+		CHECK(lookup("M-f").map == newer);
+	}
 	keymap_reset();
 }
 
@@ -425,6 +442,7 @@ static void test_prefix_without_a_leaf(void)
 static void test_storage_is_bounded(void)
 {
 	struct keymap *map;
+	struct keymap_usage before, after;
 	int i, bound = 0, maps = 0;
 	char sequence[32];
 
@@ -436,11 +454,17 @@ static void test_storage_is_bounded(void)
 	/* Bounded above, and bounded below by what one session needs at
 	 * once: kbd.c installs ten maps (the global one and nine mode
 	 * maps), keybind.c creates an eleventh the first time a user binds
-	 * a C-c key, and configuration may define its own after that.  A
-	 * table with no room past the built-ins is the state this was in
-	 * before the xref map; test_configuration_maps_fit_the_builtins()
-	 * below is the same claim made against the real maps. */
-	CHECKF(maps >= 15, "only %d maps fit; the editor's own need 11", maps);
+	 * a C-c key, the optional debugger reserves three, and configuration
+	 * may define four after that.  The final test below makes the useful
+	 * pre-debugger half of that claim against the real maps. */
+	CHECKF(maps == 18, "map capacity is %d, expected 18", maps);
+	before = keymap_test_usage();
+	CHECK(
+	    keymap_create("must-not-be-interned", KEYMAP_LAYER_MINOR) == NULL);
+	after = keymap_test_usage();
+	CHECK(after.maps == before.maps);
+	CHECK(after.entries == before.entries);
+	CHECK(after.name_bytes == before.name_bytes);
 	keymap_reset();
 
 	map = keymap_create("test-global", KEYMAP_LAYER_GLOBAL);
@@ -453,10 +477,60 @@ static void test_storage_is_bounded(void)
 			bound++;
 		}
 	}
-	CHECKF(bound > 0, "nothing could be bound at all");
-	CHECKF(bound < 4096, "the entry table is unbounded");
+	CHECKF(bound == 256, "entry capacity is %d, expected 256", bound);
 	/* A refused bind for lack of room still leaves the map usable. */
 	CHECK(lookup("a a a").result == KEYMAP_COMMAND);
+	before = keymap_test_usage();
+	CHECK(keymap_bind(map, "z z z", "must-not-be-interned") != 0);
+	after = keymap_test_usage();
+	CHECK(after.maps == before.maps);
+	CHECK(after.entries == before.entries);
+	CHECK(after.name_bytes == before.name_bytes);
+	keymap_reset();
+}
+
+static void test_name_pool_full_refusals_are_atomic(void)
+{
+	char command[3070];
+	struct keymap_usage full, after;
+	struct keymap_match match;
+	struct keymap *map;
+
+	keymap_reset();
+	map = keymap_create("m", KEYMAP_LAYER_GLOBAL);
+	CHECK(map != NULL);
+	memset(command, 'a', sizeof(command) - 1);
+	command[sizeof(command) - 1] = '\0';
+	CHECK(strlen(command) == 3069);
+	CHECK(keymap_bind(map, "M-a", command) == 0);
+
+	/* "m" costs two bytes including its terminator, and the unique
+	 * command costs 3070: this is the exact name-pool boundary. */
+	full = keymap_test_usage();
+	CHECK(full.maps == 1);
+	CHECK(full.entries == 1);
+	CHECK(full.name_bytes == 3072);
+	match = lookup("M-a");
+	CHECK(match.result == KEYMAP_UNRESOLVED);
+	CHECK(strcmp(match.command, command) == 0);
+
+	/* A new entry cannot leak either its entry or its rejected name. */
+	CHECK(keymap_bind(map, "M-b", "new-command") != 0);
+	after = keymap_test_usage();
+	CHECK(after.maps == full.maps);
+	CHECK(after.entries == full.entries);
+	CHECK(after.name_bytes == full.name_bytes);
+	CHECK(lookup("M-b").result == KEYMAP_NO_MATCH);
+
+	/* Nor may a failed exact rebind discard the old leaf. */
+	CHECK(keymap_bind(map, "M-a", "replacement-command") != 0);
+	after = keymap_test_usage();
+	CHECK(after.maps == full.maps);
+	CHECK(after.entries == full.entries);
+	CHECK(after.name_bytes == full.name_bytes);
+	match = lookup("M-a");
+	CHECK(match.result == KEYMAP_UNRESOLVED);
+	CHECK(strcmp(match.command, command) == 0);
 	keymap_reset();
 }
 
@@ -465,6 +539,7 @@ static void test_storage_is_bounded(void)
  * asks kbd.c to install it and then reads the result. */
 static void test_builtin_global_map_resolves(void)
 {
+	struct keymap_usage usage;
 	static const char *const sequences[]
 	    = { "C-f", "C-b", "C-n", "C-p", "C-a", "C-e", "M-f", "M-b", "M-<",
 		      "M->", "C-v", "M-v", "C-l", "M-r", "M-g g", "M-g M-g",
@@ -482,6 +557,13 @@ static void test_builtin_global_map_resolves(void)
 
 	keymap_reset();
 	key_install_builtin_maps();
+	usage = keymap_test_usage();
+	CHECKF(
+	    usage.maps == 10, "built-ins use %d maps, expected 10", usage.maps);
+	CHECKF(usage.entries == 168, "built-ins use %d entries, expected 168",
+	    usage.entries);
+	CHECKF(usage.name_bytes == 2165,
+	    "built-ins use %d name bytes, expected 2165", usage.name_bytes);
 	for (i = 0; i < sizeof(sequences) / sizeof(*sequences); i++) {
 		struct keymap_match match = lookup(sequences[i]);
 
@@ -509,24 +591,149 @@ static void test_builtin_global_map_resolves(void)
 	keymap_reset();
 }
 
-/* The editor's own maps and a user's do not compete for the table.
+#ifdef KG_USE_DAP
+/* dap_init() runs before the init file is read, and what it leaves behind
+ * is three maps that are switched OFF: `define-key` creates a map it cannot
+ * find at KEYMAP_LAYER_MAJOR (src/lisp_cmd.c), so an init.el that ran first
+ * would claim `dap` and `dap-breakpoint` in the wrong layer permanently,
+ * and a map that was active from startup would shadow global keys before a
+ * session exists.  Both halves of that rule are asserted here, together
+ * with the layer each map was created in -- asked by what the layers do,
+ * since a map does not report its own.
  *
- * This is a regression, not a hypothetical.  With keymap_max_maps at 8,
- * kbd.c's global map plus six mode maps used seven and keybind.c's lazily
- * created "user" map used the eighth, so the table was full before any
- * configuration ran: a `(define-key "my-mode-map" ...)` got no map at all,
- * and the seventh mode map this stage adds would have taken the user's
- * slot outright -- C-c bindings would simply have stopped working.
+ * Since subplan 02 the maps arrive with their default table in them
+ * (doc/plans/dap/02-ui.md): the gud-style F-keys, the arrows and the four
+ * keys of the info panes.  The counts below are what that costs, measured,
+ * and they are here because the name pool is historically the tightest of
+ * the three keymap bounds -- a table that grew past it would leave the
+ * debugger's keys silently unbound. */
+static void test_dap_maps_are_created_inactive(void)
+{
+	static const char *const names[]
+	    = { "dap-breakpoint", "dap", "dap-info" };
+	struct keymap *info, *session, *breakpoints;
+	struct keymap_usage usage;
+	size_t i;
+
+	keymap_reset();
+	dap_init();
+	usage = keymap_test_usage();
+	CHECKF(usage.maps == 3, "dap_init() created %d maps, expected 3",
+	    usage.maps);
+	CHECKF(usage.entries == 22, "dap_init() bound %d keys, expected 22",
+	    usage.entries);
+	/* The three map names plus every command name they interned. */
+	CHECKF(usage.name_bytes == 364,
+	    "the debugger's maps cost %d name bytes, expected 364",
+	    usage.name_bytes);
+	CHECKF(keymap_unresolved_count() == 0,
+	    "%d debugger bindings name a command that does not exist",
+	    keymap_unresolved_count());
+	for (i = 0; i < sizeof(names) / sizeof(*names); i++) {
+		struct keymap *map = keymap_find(names[i]);
+
+		CHECKF(map != NULL, "%s was not created", names[i]);
+		CHECKF(!keymap_is_active(map), "%s is active before a session",
+		    names[i]);
+	}
+
+	/* dap-info is the major map of the debugger's own buffers: activate
+	 * it and it is the major map in effect. */
+	info = keymap_find("dap-info");
+	CHECK(keymap_active_major() == NULL);
+	keymap_set_active(info, 1);
+	CHECK(keymap_active_major() == info);
+	CHECK(keymap_bind(info, "M-a", "forward-word") == 0);
+
+	/* The other two are minor, which is what makes them win over the
+	 * active major's binding of the same sequence. */
+	session = keymap_find("dap");
+	breakpoints = keymap_find("dap-breakpoint");
+	keymap_set_active(session, 1);
+	CHECK(keymap_bind(session, "M-a", "forward-char") == 0);
+	CHECK(lookup("M-a").map == session);
+	keymap_set_active(session, 0);
+	keymap_set_active(breakpoints, 1);
+	CHECK(keymap_bind(breakpoints, "M-a", "backward-char") == 0);
+	CHECK(lookup("M-a").map == breakpoints);
+	keymap_reset();
+}
+#else
+/* The disabled build creates nothing: a map is a claim on key sequences and
+ * on the map table, and `kg -V` says -dap.  An init.el binding into a dap
+ * map in this build gets what define-key makes for any unknown name, a
+ * major map nothing activates. */
+static void test_dap_stub_creates_no_maps(void)
+{
+	struct keymap *fallback;
+
+	keymap_reset();
+	dap_init();
+	CHECK(keymap_test_usage().maps == 0);
+	CHECK(keymap_find("dap") == NULL);
+	CHECK(keymap_find("dap-breakpoint") == NULL);
+	CHECK(keymap_find("dap-info") == NULL);
+	/* What `(define-key "dap" ...)` falls back to here: an ordinary major
+	 * map, in the layer src/lisp_cmd.c creates unknown names in.  Nothing
+	 * else in this build claims the name or the layer, which is the whole
+	 * of why it is harmless. */
+	fallback = keymap_create("dap", KEYMAP_LAYER_MAJOR);
+	CHECK(fallback != NULL);
+	CHECK(keymap_bind(fallback, "M-a", "forward-char") == 0);
+	CHECK(keymap_active_major() == fallback);
+	CHECK(lookup("M-a").map == fallback);
+	keymap_reset();
+}
+#endif /* KG_USE_DAP */
+
+/* The minor map the headroom case exercises: the real one when the
+ * debugger is built -- `dap` is KEYMAP_LAYER_MINOR's first shipped
+ * consumer, and dap_init() leaves it switched off -- and a stand-in
+ * otherwise. */
+static struct keymap *session_minor_map(void)
+{
+#ifdef KG_USE_DAP
+	struct keymap *map = keymap_find("dap");
+
+	keymap_set_active(map, 1);
+	return map;
+#else
+	return keymap_create("session-minor", KEYMAP_LAYER_MINOR);
+#endif
+}
+
+/* Ten built-ins, the debugger's three, keybind.c's lazy global user map and
+ * four configuration maps is exactly the map table; the build without a
+ * debugger creates its own minor map instead and stops two short. */
+#ifdef KG_USE_DAP
+#define KEYMAP_HEADROOM_MAPS 18
+#else
+#define KEYMAP_HEADROOM_MAPS 16
+#endif
+
+/* The ten production maps, the debugger's three, keybind.c's lazy global
+ * user map and four configuration maps all coexist, and the four are bound
+ * in: capacity exists for user configuration, not merely for kg to start.
+ * The case also exercises how a minor prefix meets the user's C-c map.
  *
  * Run last, and deliberately: keybind.c caches its map in a static that
  * keymap_reset() cannot clear, so nothing may bind a C-c key after the
  * reset this ends with. */
-static void test_configuration_maps_fit_the_builtins(void)
+static void test_minor_prefix_and_configuration_headroom(void)
 {
+	static const char *const names[]
+	    = { "my-one", "my-two", "my-three", "my-four" };
+	static const char *const keys[] = { "M-a", "M-b", "M-c", "M-d" };
+	struct keymap *minor, *configured[4];
 	struct keymap_match match;
+	struct key_event quit[]
+	    = { { 'c', KEY_MOD_CTRL }, { 'g', KEY_MOD_CTRL } };
+	struct keymap_usage usage;
+	size_t i;
 
 	keymap_reset();
 	key_install_builtin_maps();
+	dap_init();
 	CHECKF(
 	    keymap_find("xref") != NULL, "the xref mode map was not created");
 	CHECKF(keymap_find("diagnostics") != NULL,
@@ -537,9 +744,35 @@ static void test_configuration_maps_fit_the_builtins(void)
 	CHECKF(match.result == KEYMAP_COMMAND,
 	    "C-c x does not resolve (result %d)", (int)match.result);
 	CHECK(match.command && strcmp(match.command, "forward-char") == 0);
-	/* And a map for configuration to define after that. */
-	CHECKF(keymap_create("my-mode", KEYMAP_LAYER_MAJOR) != NULL,
-	    "no room for a configuration map");
+
+	/* A minor prefix may shadow one C-c branch without swallowing a
+	 * different branch in the global user map. */
+	minor = session_minor_map();
+	CHECK(minor != NULL);
+	CHECK(keymap_bind(minor, "C-c C-k", "kill-compilation") == 0);
+	CHECK(lookup("C-c").result == KEYMAP_PREFIX);
+	CHECK(lookup("C-c C-k").map == minor);
+	CHECK(lookup("C-c x").map == keymap_find("user"));
+	keymap_set_active(minor, 0);
+	CHECK(lookup("C-c x").map == keymap_find("user"));
+	keymap_set_active(minor, 1);
+
+	/* The emergency key remains unbindable inside a minor prefix. */
+	CHECK(keymap_is_reserved(quit, 2));
+	CHECK(keymap_bind(minor, "C-c C-g", "forward-char") != 0);
+	CHECK(lookup("C-c C-g").result == KEYMAP_NO_MATCH);
+
+	for (i = 0; i < sizeof(configured) / sizeof(*configured); i++) {
+		configured[i] = keymap_create(names[i], KEYMAP_LAYER_MAJOR);
+		CHECKF(
+		    configured[i] != NULL, "no room for user map %s", names[i]);
+		CHECKF(keymap_bind(configured[i], keys[i], "forward-char") == 0,
+		    "no room for a binding in user map %s", names[i]);
+	}
+	usage = keymap_test_usage();
+	CHECKF(usage.maps == KEYMAP_HEADROOM_MAPS,
+	    "built-ins, debugger, user, minor and four maps use %d maps",
+	    usage.maps);
 	CHECK(keybind_unbind("C-c x") == 0);
 	keymap_reset();
 }
@@ -551,7 +784,7 @@ int main(void)
 	RUN(test_a_node_is_a_command_or_a_prefix);
 	RUN(test_bind_refuses_and_changes_nothing);
 	RUN(test_unresolved_names);
-	RUN(test_precedence);
+	RUN(test_minor_precedence_and_activation_churn);
 	RUN(test_format_sequence);
 	RUN(test_enumerate_bindings);
 	RUN(test_lookup_shadowed);
@@ -559,7 +792,13 @@ int main(void)
 	RUN(test_ambiguous_configuration);
 	RUN(test_prefix_without_a_leaf);
 	RUN(test_storage_is_bounded);
+	RUN(test_name_pool_full_refusals_are_atomic);
 	RUN(test_builtin_global_map_resolves);
-	RUN(test_configuration_maps_fit_the_builtins);
+#ifdef KG_USE_DAP
+	RUN(test_dap_maps_are_created_inactive);
+#else
+	RUN(test_dap_stub_creates_no_maps);
+#endif
+	RUN(test_minor_prefix_and_configuration_headroom);
 	return test_summary();
 }

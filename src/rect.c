@@ -69,10 +69,12 @@ static int rect_bounds(int *s_row, int *s_vcol, int *e_row, int *e_vcol)
 	p_row = wcur()->rowoff + wcur()->cy;
 	p_col = wcur()->coloff + wcur()->cx;
 	p_vcol = (p_row < bcur()->numrows)
-	    ? editor_visual_col(&bcur()->row[p_row], p_col)
+	    ? editor_visual_col(
+		  &bcur()->row[p_row], p_col, buf_display_options(bcur()))
 	    : p_col;
 	m_vcol = (m_row < bcur()->numrows)
-	    ? editor_visual_col(&bcur()->row[m_row], m_col)
+	    ? editor_visual_col(
+		  &bcur()->row[m_row], m_col, buf_display_options(bcur()))
 	    : m_col;
 	*s_row = (p_row < m_row) ? p_row : m_row;
 	*e_row = (p_row > m_row) ? p_row : m_row;
@@ -87,8 +89,10 @@ static int rect_bounds(int *s_row, int *s_vcol, int *e_row, int *e_vcol)
 static void rect_row_byte_range(
     erow *row, int s_vcol, int e_vcol, int *byte_lo, int *byte_hi)
 {
-	int lo = editor_chars_col_at_visual(row, s_vcol);
-	int hi = editor_chars_col_at_visual(row, e_vcol);
+	int lo = editor_chars_col_at_visual(
+	    row, s_vcol, buf_display_options(bcur()));
+	int hi = editor_chars_col_at_visual(
+	    row, e_vcol, buf_display_options(bcur()));
 	if (lo > row->size) {
 		lo = row->size;
 	}
@@ -177,7 +181,8 @@ static void rect_append_spaces(struct rect_block *t, int n)
 /* How many spaces `row` needs to reach visual column `target_vcol`. */
 static int rect_pad_to_visual(erow *row, int target_vcol)
 {
-	int end_vcol = editor_visual_col(row, row->size);
+	int end_vcol
+	    = editor_visual_col(row, row->size, buf_display_options(bcur()));
 
 	return end_vcol < target_vcol ? target_vcol - end_vcol : 0;
 }

@@ -73,15 +73,37 @@ DEFAULT_JOBS = 8
 # check.
 TOOL_PROBE_ARGS = {"rust-analyzer": ("--version",)}
 TOOL_PROBE_TIMEOUT = 2.0
+# The interpreter `requires_python_module:` asks.  It is a literal rather
+# than $PYTHON because the predicate answers one question only -- can the
+# interpreter kg itself spawns import this module -- and kg's Python debug
+# adapter is spelled `python3 -m debugpy.adapter` in src/dap_config.c.
+PYTHON_MODULE_INTERPRETER = "python3"
 # kg's mode line: "----  name  All (1,0)  (Fundamental)" ("-**-" when dirty).
 KG_READY_PATTERN = r"(?:----|-\*\*-)  "
 KG_READY = re.compile(KG_READY_PATTERN)
 KG_READY_BYTES = re.compile(KG_READY_PATTERN.encode())
+# kg's mouse-report request (src/mouse.c's MOUSE_ON), which enable_raw_mode()
+# sends as its last act -- so this is the first thing kg says on a terminal
+# it has just taken over, and saying it MEANS the line discipline is kg's.
+# Matched exactly rather than "the first byte that arrives", because argv[0]
+# need not be kg: a --kg-runner wrapper writes to the same pty, and a
+# valgrind without --quiet would otherwise have its banner mistaken for kg
+# reaching raw mode.
+KG_RAW_BYTES = re.compile(rb"\x1b\[\?1000;1002;1006h")
 READY_POLL = 0.005
-# Only reached when the mode line never shows up, so it can be generous:
-# polling normally returns in a few milliseconds on a plain build and about
-# 0.35 s under valgrind.
+# Floor under the readiness budget; the budget itself is the case's own
+# --timeout.  Waiting longer costs a healthy editor nothing -- the wait ends
+# on the mode line, in a few milliseconds on a plain build and about 0.35 s
+# under valgrind -- so only an editor that never paints spends it, and for
+# that one PTY_TIMEOUT is the knob .ci/ci-env.sh already sizes per box.  A
+# second, separate, unsized budget here is not free: see EditorNotReady for
+# what expiring one used to do.
 READY_DEADLINE = 2.0
+# What the tmux backend allows the session to take to disappear after the
+# trailer's C-x C-c.  Unrelated to READY_DEADLINE, whose value it used to
+# borrow: cases that deliberately leave kg running must not pay the per-run
+# timeout here (see wait_exit_tmux).
+EXIT_DEADLINE = 2.0
 # A frame can be painted from inside init-file evaluation, so the mode line
 # alone does not mean kg has reached its input loop.  Wait for output to
 # stop as well.
@@ -96,6 +118,34 @@ EMACS_FALLBACK = "/opt-3/emacs-31-lucid/bin/emacs"
 ROOT = Path(__file__).resolve().parent.parent
 
 
+class EditorNotReady(Exception):
+	"""The editor never painted a first frame, so its terminal is still
+	the pty's DEFAULT line discipline -- and the case's keys must not be
+	typed into that.
+
+	Both wait_ready_* used to swallow an expired wait and start sending
+	anyway, on the theory that a slow editor merely fails late.  It does
+	not: a key sent before kg reaches enable_raw_mode() (src/tty.c) is
+	interpreted by the cooked line discipline instead of by kg.  C-c is
+	VINTR, so kg dies of SIGINT and the harness reports its own
+	128+2=130.  C-u is VKILL, so it silently erases every key queued
+	before it.  C-s/C-q are XOFF/XON, C-? is VERASE, C-w VWERASE, C-o
+	VDISCARD, C-v VLNEXT, and ICRNL rewrites RET.  What comes out is not
+	a late case but a fabricated one, and it is indistinguishable in the
+	log from a real editor defect: one hosted MSan run spent 212 FAILs
+	and 54 ERRORs -- saved-file diffs, missing screen text, nine `kg
+	exited 130` -- on nothing but this, in a lane where kg tripped no
+	sanitizer at all.  A case whose editor never started has no
+	measurement to report, so it says so and stops.
+	"""
+
+	def __init__(self, budget: float, what: str = "first frame") -> None:
+		super().__init__(
+			f"no {what} within {budget:g}s; the editor's "
+			"terminal is still in the pty's default cooked mode, "
+			"where C-c is VINTR and C-u is VKILL")
+
+
 @dataclass
 class Case:
 	name: str
@@ -105,8 +155,10 @@ class Case:
 	initial: str
 	file_mode: int | None
 	keys: list[str]
-	requires_feature: str | None
-	requires_tool: str | None
+	typeahead_keys: list[str]
+	requires_feature: tuple[str, ...]
+	requires_tool: tuple[str, ...]
+	requires_python_module: str | None
 	config_files: dict[str, str]
 	workspace_files: dict[str, str]
 	env: dict[str, str]
@@ -153,10 +205,39 @@ def resolve_emacs(explicit: str | None) -> str | None:
 	return None
 
 
+def python_module_unavailable(module: str) -> str | None:
+	"""Return a skip reason when `python3` cannot import `module`.
+
+	The interpreter is spelled `python3` on purpose, and is not $PYTHON:
+	the only thing this predicate exists for is an adapter or server kg
+	spawns as `python3 -m something` (debugpy is the one), and a probe run
+	by a different interpreter would answer a question nobody asked.  The
+	harness's own interpreter may well be another one.
+	"""
+	try:
+		probe = subprocess.run(
+			[PYTHON_MODULE_INTERPRETER, "-c", f"import {module}"],
+			stdin=subprocess.DEVNULL,
+			stdout=subprocess.DEVNULL,
+			stderr=subprocess.DEVNULL,
+			timeout=TOOL_PROBE_TIMEOUT,
+			check=False,
+		)
+	except (OSError, subprocess.TimeoutExpired):
+		return f"{PYTHON_MODULE_INTERPRETER} cannot import {module}"
+	if probe.returncode != 0:
+		return f"{PYTHON_MODULE_INTERPRETER} cannot import {module}"
+	return None
+
+
 def case_missing_tool(case: "Case") -> str | None:
 	"""The executable this case needs and this box has not got, or None.
 
 	`requires_tool:` is the general form of the tmux and Emacs rules below:
+	one bare name, or a LIST of them for a case that needs more than one --
+	kg's Go cases need both `dlv` and `go`, since `mode:"debug"` has delve
+	build the package before it debugs it, and a box with only one of the
+	two skips naming the one it lacks.
 	a case that drives a real language server names the binary, and a box
 	without a usable one skips with a reason rather than failing.  The normal
 	case is still a plain PATH lookup -- the case says `clangd`, kg spawns
@@ -165,9 +246,20 @@ def case_missing_tool(case: "Case") -> str | None:
 	`rust-analyzer` proxy, which can be present on PATH while its component is
 	missing.
 	"""
-	if case.requires_tool is None:
-		return None
-	return tool_unavailable(case.requires_tool)
+	if case.requires_python_module is not None:
+		# A module is not an executable and cannot be spelled as one:
+		# kg's Python adapter is `python3 -m debugpy.adapter`, so there
+		# is nothing on PATH called debugpy for `requires_tool:` to
+		# find.  Asked first, since it is the cheaper failure to
+		# explain.
+		missing = python_module_unavailable(case.requires_python_module)
+		if missing:
+			return missing
+	for tool in case.requires_tool:
+		missing = tool_unavailable(tool)
+		if missing:
+			return missing
+	return None
 
 
 def tool_unavailable(tool: str) -> str | None:
@@ -193,6 +285,29 @@ def tool_unavailable(tool: str) -> str | None:
 	return None
 
 
+def feature_mismatch(case: "Case", features: set[str]) -> bool:
+	"""Whether this build is the wrong one for this case.
+
+	`requires_feature: dap` needs the feature; `requires_feature: -dap`
+	needs its ABSENCE, which is the only way to write a case about what a
+	build without an optional subsystem does.  Such a case runs in the
+	lane that makes that build (.ci/ci-16 for DAP) and skips in every
+	other, which is the same bargain the positive form already makes.
+
+	A LIST needs all of them, which is not a convenience: the Java
+	debugger's adapter is a socket the LANGUAGE server announces, so its
+	case is about a build that has both subsystems and must skip rather
+	than fail in the lane that drops either one.
+	"""
+	for want in case.requires_feature:
+		if want.startswith("-"):
+			if want[1:] in features:
+				return True
+		elif want not in features:
+			return True
+	return False
+
+
 def case_needs_tmux(case: "Case") -> bool:
 	if case.backend == "tmux":
 		return True
@@ -212,6 +327,66 @@ def ctrl_byte(ch: str) -> bytes:
 	return bytes([ord(ch.upper()) & 0x1f])
 
 
+# Exact terminal bytes for named keys.  Both PTY backends consume this one
+# table: pexpect writes the bytes, while tmux receives each byte through
+# `send-keys -H`.  Keeping aliases here too prevents one backend from gaining
+# a spelling whose other backend silently types the token's literal letters.
+NAMED_KEY_BYTES = {
+	"ESC": b"\x1b",
+	"RET": b"\r",
+	"ENTER": b"\r",
+	"M-RET": b"\x1b\r",
+	"M-ENTER": b"\x1b\r",
+	"TAB": b"\t",
+	"M-TAB": b"\x1b\t",
+	"C-M-I": b"\x1b\t",
+	"M-DEL": b"\x1b\x7f",
+	"M-BACKSPACE": b"\x1b\x7f",
+	"SPC": b" ",
+	"SPACE": b" ",
+	"M-SPC": b"\x1b ",
+	"M-SPACE": b"\x1b ",
+	"C-SPC": b"\x00",
+	"C-SPACE": b"\x00",
+	"C-@": b"\x00",
+	"INSERT": b"\x1b[2~",
+	"INS": b"\x1b[2~",
+	"HOME": b"\x1b[1~",
+	"END": b"\x1b[4~",
+	"UP": b"\x1b[A",
+	"DOWN": b"\x1b[B",
+	"PAGEUP": b"\x1b[5~",
+	"PAGEDOWN": b"\x1b[6~",
+	"C-HOME": b"\x1b[1;5H",
+	"C-END": b"\x1b[1;5F",
+	"S-HOME": b"\x1b[1;2H",
+	"S-END": b"\x1b[1;2F",
+	"M-UP": b"\x1b[1;3A",
+	"M-DOWN": b"\x1b[1;3B",
+	"F1": b"\x1bOP",
+	"F2": b"\x1bOQ",
+	"F3": b"\x1bOR",
+	"F4": b"\x1bOS",
+	"F5": b"\x1b[15~",
+	"F6": b"\x1b[17~",
+	"F7": b"\x1b[18~",
+	"F8": b"\x1b[19~",
+	"F9": b"\x1b[20~",
+	"F10": b"\x1b[21~",
+	"F11": b"\x1b[23~",
+	"F12": b"\x1b[24~",
+	"C-F5": b"\x1b[15;5~",
+	"C-F9": b"\x1b[20;5~",
+	"M-F10": b"\x1b[21;3~",
+	"M-F11": b"\x1b[23;3~",
+}
+
+
+# What a modifier token's payload looks like when it names a key rather
+# than typing one: two or more characters, all letters and digits.
+NAMED_KEY_SHAPE = re.compile(r"^[A-Za-z][A-Za-z0-9]+$")
+
+
 def token_to_bytes(token: str) -> bytes:
 	if not isinstance(token, str) or not token:
 		raise ValueError(f"invalid key token: {token!r}")
@@ -228,49 +403,28 @@ def token_to_bytes(token: str) -> bytes:
 			raise ValueError(f"BYTE= takes exactly two hex digits: {token!r}")
 		return bytes([int(digits, 16)])
 
-	if upper in ("ESC",):
-		return b"\x1b"
-	if upper in ("RET", "ENTER"):
-		return b"\r"
-	# Sent as one token so the two bytes arrive together: kg gives an
-	# escape sequence 100 ms to complete, and a lone ESC cancels a prompt.
-	if upper in ("M-RET", "M-ENTER"):
-		return b"\x1b\r"
-	if upper == "TAB":
-		return b"\t"
-	# M-TAB is completion-at-point, and needs a token of its own for the
-	# reason M-RET does and one more: "M-" plus a NAMED key falls through
-	# to the generic Meta rule below, which would send the three letters
-	# T, A, B after the escape.
-	if upper in ("M-TAB", "C-M-I"):
-		return b"\x1b\t"
-	if upper in ("SPC", "SPACE"):
-		return b" "
-	if upper in ("C-SPC", "C-SPACE", "C-@"):
-		return b"\x00"
+	if upper in NAMED_KEY_BYTES:
+		return NAMED_KEY_BYTES[upper]
 
-	if upper in ("INSERT", "INS"):
-		return b"\x1b[2~"
-	if upper == "HOME":
-		return b"\x1b[1~"
-	if upper == "END":
-		return b"\x1b[4~"
-	if upper == "UP":
-		return b"\x1b[A"
-	if upper == "DOWN":
-		return b"\x1b[B"
-	if upper == "C-HOME":
-		return b"\x1b[1;5H"
-	if upper == "C-END":
-		return b"\x1b[1;5F"
-	if upper == "S-HOME":
-		return b"\x1b[1;2H"
-	if upper == "S-END":
-		return b"\x1b[1;2F"
-
+	# A modifier spelling whose payload NAMES a key rather than typing one
+	# -- M-F12, S-Up, C-PageDown -- has no byte sequence unless the table
+	# above holds it, and the fallthrough below would type the token's own
+	# letters: ESC then "F12".  A case that asserts on a key it never sent
+	# is worse than one that fails, so this is refused; the fix is the
+	# key's exact bytes in NAMED_KEY_BYTES.
+	#
+	# The rule is deliberately "looks like a name": a multi-character
+	# payload of letters and digits.  M-[<0;14;2M is not one, and must
+	# keep working, because an SGR mouse report is parametrised by button
+	# and cell and so cannot be a fixed table entry.
 	if len(token) >= 3 and token[1] == "-":
 		prefix = token[0].upper()
 		payload = token[2:]
+		if prefix in ("C", "M", "S") and NAMED_KEY_SHAPE.match(payload):
+			raise ValueError(
+				f"unknown named key token: {token!r} "
+				f"(add it to NAMED_KEY_BYTES with its exact bytes)"
+			)
 		if prefix == "C":
 			return ctrl_byte(payload)
 		if prefix == "M":
@@ -288,118 +442,110 @@ def drain_pexpect(child: pexpect.spawn) -> None:
 		pass
 
 
+def settle_token(token: str) -> tuple[float, str] | None:
+	"""`SETTLE=<seconds>` or `SETTLE=<seconds>:<text>`: not a key, but one
+	bounded wait.
+
+	A key_delay is paid by every key of a case, so buying the time a real
+	debug adapter takes to reach its first stop that way costs the case
+	its own length times its number of keys -- and the measured figure is
+	6.8 s to the first stop for a real Python program.  This spends it
+	once, where it is owed: after the key that started the session.
+
+	The budget is a MAXIMUM, never a sleep.  Without `<text>` the wait
+	ends when the editor has painted something and gone quiet again; with
+	it, when the pane SAYS the thing the case is waiting for -- a mode
+	line reading the line the program stopped on -- which is what keeps a
+	case that also has a slow step in it from paying its whole budget
+	twice.  An expired wait is not itself a failure: what fails is the
+	assertion the case then makes, and it says what was on screen.
+	"""
+	if not token.startswith("SETTLE="):
+		return None
+	budget, _, text = token.split("=", 1)[1].partition(":")
+	return (float(budget), text)
+
+
+def wait_change_pexpect(child: pexpect.spawn, budget: float) -> None:
+	"""Wait for kg to write something and then stop, within `budget`."""
+	deadline = time.monotonic() + budget
+	painted = False
+	while time.monotonic() < deadline:
+		try:
+			data = child.read_nonblocking(size=1 << 20,
+						      timeout=READY_SETTLE)
+		except Exception:
+			data = b""
+		if data:
+			painted = True
+		elif painted:
+			return
+		time.sleep(READY_POLL)
+
+
+def wait_change_tmux(sock: str, pane: str, budget: float, text: str = "",
+		     floor: float = 0.0) -> None:
+	"""tmux counterpart: wait for the pane to change -- or to say `text` --
+	and then settle.
+
+	`floor` widens the quiet window the same way the end-of-case settle
+	floor does, and for the same reason: the condition appearing is not
+	the editor being DONE.  A debugger stop paints its line (the text a
+	SETTLE names) and then keeps painting as the stack waterfall answers,
+	ending with a point re-focus -- and a quiet gap between those repaints
+	is longer than READY_SETTLE on a slow enough runner, so the wait
+	returned mid-waterfall and the next key raced the re-focus.  The
+	budget still bounds everything."""
+	deadline = time.monotonic() + budget
+	start = run_tmux_cmd(sock, "capture-pane", "-t", pane, "-p",
+			     check=False).stdout
+	prev = start
+	quiet_since = time.monotonic()
+	quiet_needed = max(READY_SETTLE, floor)
+	while time.monotonic() < deadline:
+		now = run_tmux_cmd(sock, "capture-pane", "-t", pane, "-p",
+				   check=False).stdout
+		moment = time.monotonic()
+		if now != prev:
+			prev = now
+			quiet_since = moment
+		happened = (text in now) if text else (now != start)
+		if happened and moment - quiet_since >= quiet_needed:
+			return
+		time.sleep(READY_POLL)
+
+
 def send_token_pexpect(child: pexpect.spawn, token: str) -> None:
 	if token.startswith("RESIZE="):
 		r, c = map(int, token.split("=")[1].split(","))
 		child.setwinsize(r, c)
 		return
 
-	upper = token.upper()
-
-	if upper in ("C-SPC", "C-SPACE", "C-@"):
-		child.sendcontrol("@")
+	payload = token_to_bytes(token)
+	# Escape-prefixed and named sequences are one terminal key.  Keep their
+	# bytes in one write so a loaded runner cannot stretch ESC past kg's
+	# 100 ms completion window.  Ordinary multi-character YAML tokens keep
+	# the per-byte drain that prevents PTY output backpressure on FreeBSD.
+	if payload.startswith(b"\x1b") or token.upper() in NAMED_KEY_BYTES:
+		child.send(payload)
+		drain_pexpect(child)
 		return
-
-	if upper in ("M-TAB", "C-M-I"):
-		child.send("\x1b")
-		child.send("\t")
-		return
-	if upper in ("INSERT", "INS"):
-		child.send("\x1b[2~")
-		return
-	if upper == "HOME":
-		child.send("\x1b[1~")
-		return
-	if upper == "END":
-		child.send("\x1b[4~")
-		return
-	if upper == "UP":
-		child.send("\x1b[A")
-		return
-	if upper == "DOWN":
-		child.send("\x1b[B")
-		return
-	if upper == "C-HOME":
-		child.send("\x1b[1;5H")
-		return
-	if upper == "C-END":
-		child.send("\x1b[1;5F")
-		return
-	if upper == "S-HOME":
-		child.send("\x1b[1;2H")
-		return
-	if upper == "S-END":
-		child.send("\x1b[1;2F")
-		return
-
-	if len(token) >= 3 and token[1] == "-":
-		prefix = token[0].upper()
-		payload = token[2:]
-		if prefix == "C" and len(payload) == 1:
-			child.sendcontrol(payload)
-			return
-		if prefix == "M" and len(payload) == 1:
-			child.send("\x1b")
-			child.send(payload)
-			return
-
-	for b in token_to_bytes(token):
+	for b in payload:
 		child.send(bytes([b]))
 		drain_pexpect(child)
 
 
-def tmux_key_name(token: str) -> tuple[str, str]:
-	upper = token.upper()
-
-	# tmux send-keys has no raw-byte form this harness uses, and its -l
-	# payload is a string that gets UTF-8 encoded like any other.
-	if upper.startswith("BYTE="):
+def tmux_token_hex(token: str) -> tuple[str, ...]:
+	# Preserve the documented backend restriction even though -H could send
+	# arbitrary bytes: BYTE= fixtures intentionally exercise pexpect's raw
+	# path and tmux remains a UTF-8 terminal backend for ordinary tokens.
+	if token.upper().startswith("BYTE="):
 		raise ValueError(f"{token!r}: BYTE= needs backend: pexpect")
+	return tuple(f"{byte:02x}" for byte in token_to_bytes(token))
 
-	if upper == "ESC":
-		return ("key", "Escape")
-	if upper in ("RET", "ENTER"):
-		return ("key", "Enter")
-	if upper in ("M-RET", "M-ENTER"):
-		return ("key", "M-Enter")
-	if upper == "TAB":
-		return ("key", "Tab")
-	if upper in ("M-TAB", "C-M-I"):
-		return ("key", "M-Tab")
-	if upper in ("SPC", "SPACE"):
-		return ("key", "Space")
-	if upper in ("C-SPC", "C-SPACE", "C-@"):
-		return ("key", "C-Space")
 
-	if upper in ("INSERT", "INS"):
-		return ("key", "IC")
-	if upper == "HOME":
-		return ("key", "Home")
-	if upper == "END":
-		return ("key", "End")
-	if upper == "UP":
-		return ("key", "Up")
-	if upper == "DOWN":
-		return ("key", "Down")
-	if upper == "C-HOME":
-		return ("key", "C-Home")
-	if upper == "C-END":
-		return ("key", "C-End")
-	if upper == "S-HOME":
-		return ("key", "S-Home")
-	if upper == "S-END":
-		return ("key", "S-End")
-
-	if len(token) >= 3 and token[1] == "-":
-		prefix = token[0].upper()
-		payload = token[2:]
-		if len(payload) == 1:
-			if prefix == "C":
-				return ("key", f"C-{payload}")
-			if prefix == "M":
-				return ("key", f"M-{payload}")
-
-	return ("literal", token)
+def send_token_tmux(sock: str, pane: str, token: str) -> None:
+	run_tmux_cmd(sock, "send-keys", "-t", pane, "-H", *tmux_token_hex(token))
 
 
 def decode_text(data: bytes) -> str:
@@ -464,18 +610,56 @@ def load_case(path: Path) -> Case:
 	editor_args = data.get("args", [])
 	if not isinstance(editor_args, list) or not all(isinstance(v, str) for v in editor_args):
 		raise ValueError(f"{path}: args must be a list of strings")
+	# The word `kg -V` prints, and in `kg -V`'s own vocabulary: `dap` is
+	# "this build has it", `-dap` is "this build has NOT got it".  The
+	# second is what an absence case needs -- the one asserting that a
+	# WITH_DAP=0 editor still answers every dap-* command with a sentence
+	# -- and it can only run in a build the ordinary lanes do not make, so
+	# it skips everywhere else exactly as a feature case does.
 	requires_feature = data.get("requires_feature")
-	if requires_feature is not None and (
-		not isinstance(requires_feature, str) or not requires_feature
+	if requires_feature is None:
+		requires_feature = ()
+	elif isinstance(requires_feature, str):
+		requires_feature = (requires_feature,)
+	elif isinstance(requires_feature, list):
+		requires_feature = tuple(requires_feature)
+	else:
+		raise ValueError(
+			f"{path}: requires_feature must be a string or a list of them"
+		)
+	if not all(
+		isinstance(want, str) and want.lstrip("-") for want in requires_feature
 	):
-		raise ValueError(f"{path}: requires_feature must be a non-empty string")
+		raise ValueError(f"{path}: requires_feature must be non-empty strings")
 	requires_tool = data.get("requires_tool")
-	if requires_tool is not None and (
-		not isinstance(requires_tool, str) or not requires_tool or
-		"/" in requires_tool
+	if requires_tool is None:
+		requires_tool = ()
+	elif isinstance(requires_tool, str):
+		requires_tool = (requires_tool,)
+	elif isinstance(requires_tool, list):
+		requires_tool = tuple(requires_tool)
+	else:
+		raise ValueError(
+			f"{path}: requires_tool must be a name or a list of them")
+	if not all(
+		isinstance(tool, str) and tool and "/" not in tool
+		for tool in requires_tool
 	):
 		raise ValueError(
-			f"{path}: requires_tool must be a bare executable name")
+			f"{path}: requires_tool must be bare executable names")
+	# A module the interpreter kg spawns must be able to import.  Distinct
+	# from `requires_tool:` because it is not an executable: kg's Python
+	# debug adapter is `python3 -m debugpy.adapter`, and no file called
+	# debugpy is on PATH to look for.
+	requires_python_module = data.get("requires_python_module")
+	if requires_python_module is not None and (
+		not isinstance(requires_python_module, str) or
+		not requires_python_module or
+		not all(part.isidentifier()
+			for part in requires_python_module.split("."))
+	):
+		raise ValueError(
+			f"{path}: requires_python_module must be a module name")
 	# `config_files:` plants files under the case's throwaway HOME (an
 	# init.el, a package); `workspace_files:` plants them beside the file
 	# under test, which is the case's working directory, for the fixtures a
@@ -491,8 +675,13 @@ def load_case(path: Path) -> Case:
 	#
 	# `{REPO}` in a value expands to this checkout's root, because a case
 	# runs with its working directory in a fresh temporary directory and
-	# has no other way to name a file in the repository.  It is the only
-	# substitution: anything more is a template language nobody asked for.
+	# has no other way to name a file in the repository.  `{CWD}` expands
+	# to that directory once the run starts (see expand_case_env), as it
+	# does in `workspace_files:` and for the same reason: a debug
+	# adapter's canned answers name the source file they stopped in, in
+	# absolute terms, and the directory is a fresh mkdtemp nobody could
+	# have written into the YAML.  Those two, and nothing else: more would
+	# be a template language nobody asked for.
 	#
 	# The Emacs oracle deliberately does not get it.  A case that sets
 	# KG_LSP_SERVER_C is a case about kg's own client, and handing Emacs a
@@ -510,6 +699,25 @@ def load_case(path: Path) -> Case:
 		raise ValueError(f"{path}: specify exactly one of expected_saved, expected_saved_any, or oracle")
 	if not isinstance(data["keys"], list) or not all(isinstance(k, str) for k in data["keys"]):
 		raise ValueError(f"{path}: keys must be a list of strings")
+	# `typeahead_keys:` is the opt-in past the readiness wait, and the
+	# only one: `keys:` is typed at an editor that has painted, and
+	# EditorNotReady is what happens to a case that never gets one.  These
+	# are typed at an editor that is raw but has not painted yet -- the
+	# window kg loads its files and its init file in.  See
+	# send_typeahead_pexpect() for what triggers them.
+	typeahead_keys = data.get("typeahead_keys", [])
+	if (not isinstance(typeahead_keys, list) or
+	    not all(isinstance(k, str) for k in typeahead_keys)):
+		raise ValueError(
+			f"{path}: typeahead_keys must be a list of strings")
+	if typeahead_keys and any(
+		settle_token(t) is not None or t.startswith("RESIZE=")
+		for t in typeahead_keys
+	):
+		raise ValueError(
+			f"{path}: typeahead_keys takes keys only; SETTLE= and "
+			"RESIZE= are waits, and there is nothing to wait for "
+			"before the first frame")
 	if "expected_saved_any" in data:
 		if (not isinstance(data["expected_saved_any"], list) or
 		    not data["expected_saved_any"] or
@@ -521,9 +729,35 @@ def load_case(path: Path) -> Case:
 	backend = data.get("backend", "pexpect")
 	if backend not in ("pexpect", "tmux"):
 		raise ValueError(f"{path}: backend must be pexpect or tmux")
-	if expected_exit_code is not None and backend == "tmux":
-		raise ValueError(f"{path}: expected_exit_code is not supported with backend: tmux "
-				 "(the tmux runner hardcodes exit code 0 since the process runs detached)")
+	# `SETTLE=<seconds>:<text>` reads the screen, and only the tmux backend
+	# has one to read: a pexpect transcript is raw output with escape
+	# sequences in it, where "contains" would answer a different question.
+	# Refused at load time rather than silently degraded.
+	if backend != "tmux":
+		for token in [*data["keys"], *data.get("trailer_keys", [])]:
+			settle = settle_token(token)
+			if settle is not None and settle[1]:
+				raise ValueError(
+					f"{path}: {token} needs backend: tmux "
+					"(the text form reads the screen)")
+	# `typeahead_keys:` is pexpect-only, and for the mirror image of the
+	# reason `SETTLE=<n>:<text>` is tmux-only: it fires on the
+	# mouse-report request, and a tmux pane is read with capture-pane,
+	# which shows the SCREEN.  That escape paints nothing, so there would
+	# be nothing to fire on and the keys would fall back to racing kg's
+	# startup in cooked mode.
+	if backend != "pexpect" and data.get("typeahead_keys"):
+		raise ValueError(f"{path}: typeahead_keys needs backend: pexpect "
+				 "(it fires on an escape kg writes, which "
+				 "capture-pane cannot see)")
+	# Nor with the Emacs oracle: KG_READY describes kg's mode line, so the
+	# oracle's run has no readiness signal to be "before" and takes a
+	# fixed sleep instead.  Type-ahead typed into that sleep would measure
+	# Emacs' startup, which is not a question any case here asks.
+	if "oracle" in data and data.get("typeahead_keys"):
+		raise ValueError(f"{path}: typeahead_keys and oracle: are "
+				 "exclusive (the oracle has no readiness "
+				 "signal to type ahead of)")
 	oracle_backend = data.get("oracle_backend")
 	if oracle_backend is not None and oracle_backend not in ("pexpect", "tmux"):
 		raise ValueError(f"{path}: oracle_backend must be pexpect or tmux")
@@ -552,8 +786,10 @@ def load_case(path: Path) -> Case:
 		initial=data["initial"],
 		file_mode=file_mode,
 		keys=data["keys"],
+		typeahead_keys=typeahead_keys,
 		requires_feature=requires_feature,
 		requires_tool=requires_tool,
+		requires_python_module=requires_python_module,
 		config_files=config_files,
 		workspace_files=workspace_files,
 		env=env,
@@ -594,6 +830,15 @@ def write_config_files(home: Path, config_files: dict[str, str]) -> None:
 		target.write_text(content)
 
 
+def expand_case_env(case_env: dict[str, str], cwd: Path) -> dict[str, str]:
+	"""`{CWD}` in an `env:` value, once the directory exists.
+
+	`{REPO}` was expanded at load time; this one cannot be, for the same
+	reason `workspace_files:` expands its own at write time.
+	"""
+	return {k: v.replace("{CWD}", str(cwd)) for k, v in case_env.items()}
+
+
 def write_workspace_files(cwd: Path, workspace_files: dict[str, str]) -> None:
 	"""Plant `workspace_files:` beside the file under test.
 
@@ -611,33 +856,71 @@ def write_workspace_files(cwd: Path, workspace_files: dict[str, str]) -> None:
 		target.write_text(content.replace("{CWD}", str(cwd)))
 
 
-def wait_ready_pexpect(child: pexpect.spawn, ready: bool, budget: float) -> None:
-	"""Wait for the editor's first painted frame, or sleep the budget.
+def wait_ready_pexpect(child: pexpect.spawn, ready: bool,
+		       startup_delay: float, budget: float) -> None:
+	"""Wait for the editor's first painted frame, or sleep `startup_delay`.
 
 	`budget` is a deadline rather than a cost: a plain build is ready in a
 	few milliseconds where the same binary under valgrind needs ~0.3 s, and
-	polling charges each runner only what it actually takes.  When the
-	pattern never shows up (unknown editor, immediate exit) this degrades
-	to the fixed sleep it replaced.
+	polling charges each runner only what it actually takes.  An editor
+	whose readiness cannot be recognised (the Emacs oracle) takes the
+	fixed sleep this replaced instead.
+
+	An expired budget raises: see EditorNotReady for why sending keys
+	anyway is worse than reporting nothing.
 	"""
 	if not ready:
-		time.sleep(budget)
+		time.sleep(startup_delay)
 		return
 	budget = max(budget, READY_DEADLINE)
 	deadline = time.monotonic() + budget
 	try:
 		child.expect(KG_READY_BYTES, timeout=budget)
-		last = time.monotonic()
-		while time.monotonic() < deadline:
-			try:
-				if child.read_nonblocking(4096, READY_POLL):
-					last = time.monotonic()
-			except pexpect.TIMEOUT:
-				pass
-			if time.monotonic() - last >= READY_SETTLE:
-				return
-	except (pexpect.TIMEOUT, pexpect.EOF):
-		pass
+	except (pexpect.TIMEOUT, pexpect.EOF) as exc:
+		raise EditorNotReady(budget) from exc
+	last = time.monotonic()
+	while time.monotonic() < deadline:
+		try:
+			if child.read_nonblocking(4096, READY_POLL):
+				last = time.monotonic()
+		except (pexpect.TIMEOUT, pexpect.EOF):
+			pass
+		if time.monotonic() - last >= READY_SETTLE:
+			return
+
+
+def send_typeahead_pexpect(child: pexpect.spawn, typeahead_keys: list[str],
+			   budget: float) -> None:
+	"""Type `typeahead_keys:` into the window between raw mode and the
+	first painted frame, and nowhere else.
+
+	The window is real -- kg enters raw mode, then loads the files, then
+	loads init.el, and only then paints -- and it is the one place a key
+	is queued rather than acted on.  Keys sent into it are the harness's
+	only way to ask what happens to type-ahead.
+
+	The trigger is KG_RAW_BYTES, not the spawn, and it is not a stand-in
+	for a sleep: kg sends the mouse-report request from inside
+	enable_raw_mode(), so seeing it MEANS the line discipline is kg's, on
+	any box and under any sanitizer, which no wall-clock delay can mean.
+	Sending at spawn instead races execve and the dynamic linker -- 1.7 ms
+	measured on this box, and lost every time at delaybeforesend 0 -- and
+	what it would measure is that race, in the cooked mode EditorNotReady
+	exists to keep cases out of.
+
+	One write, no key_delay: type-ahead is by definition what arrives
+	faster than the editor reads it, and the pty queues it whole.  kg
+	reads the burst as a paste (under 30 ms between keys), so a case
+	written here gets no auto-indent and no autocompletion.
+	"""
+	if not typeahead_keys:
+		return
+	budget = max(budget, READY_DEADLINE)
+	try:
+		child.expect(KG_RAW_BYTES, timeout=budget)
+	except (pexpect.TIMEOUT, pexpect.EOF) as exc:
+		raise EditorNotReady(budget, "raw mode") from exc
+	child.send(b"".join(token_to_bytes(t) for t in typeahead_keys))
 
 
 def run_editor_pexpect(argv: list[str], filename: str, initial: str, keys: list[str],
@@ -646,7 +929,8 @@ def run_editor_pexpect(argv: list[str], filename: str, initial: str, keys: list[
 		       timeout: float, config_files: dict[str, str],
 		       ready: bool, case_env: dict[str, str],
 		       workspace_files: dict[str, str] | None = None,
-		       file_mode: int | None = None) -> RunResult:
+		       file_mode: int | None = None,
+		       typeahead_keys: list[str] | None = None) -> RunResult:
 	with tempfile.TemporaryDirectory(prefix="kg-pty-") as td:
 		file_path = Path(td) / filename
 		write_file_under_test(file_path, initial, file_mode)
@@ -658,7 +942,7 @@ def run_editor_pexpect(argv: list[str], filename: str, initial: str, keys: list[
 		env.pop("XDG_CONFIG_HOME", None)
 		env["TERM"] = env.get("TERM", "xterm-256color")
 		env.setdefault("LC_ALL", "C.UTF-8")
-		env.update(case_env)
+		env.update(expand_case_env(case_env, Path(td)))
 
 		log = io.BytesIO()
 		child = pexpect.spawn(
@@ -675,8 +959,15 @@ def run_editor_pexpect(argv: list[str], filename: str, initial: str, keys: list[
 		child.logfile_read = log
 
 		try:
-			wait_ready_pexpect(child, ready, startup_delay)
+			send_typeahead_pexpect(child, typeahead_keys or [],
+					       max(startup_delay, timeout))
+			wait_ready_pexpect(child, ready, startup_delay,
+					   max(startup_delay, timeout))
 			for token in [*keys, *trailer_keys]:
+				settle = settle_token(token)
+				if settle is not None:
+					wait_change_pexpect(child, settle[0])
+					continue
 				send_token_pexpect(child, token)
 				time.sleep(key_delay)
 				drain_pexpect(child)
@@ -697,10 +988,15 @@ def run_tmux_cmd(sock: str, *args: str, check: bool = True) -> subprocess.Comple
 	return subprocess.run(["tmux", "-S", sock, *args], check=check, capture_output=True, text=True)
 
 
-def wait_ready_tmux(sock: str, pane: str, ready: bool, budget: float) -> None:
-	"""tmux counterpart of wait_ready_pexpect; see that docstring."""
+def wait_ready_tmux(sock: str, pane: str, ready: bool,
+		    startup_delay: float, budget: float) -> None:
+	"""tmux counterpart of wait_ready_pexpect; see that docstring.
+
+	The pane's pty is the editor's own, so an expired wait here means
+	exactly what it means there, and raises for the same reason.
+	"""
 	if not ready:
-		time.sleep(budget)
+		time.sleep(startup_delay)
 		return
 	budget = max(budget, READY_DEADLINE)
 	deadline = time.monotonic() + budget
@@ -715,6 +1011,7 @@ def wait_ready_tmux(sock: str, pane: str, ready: bool, budget: float) -> None:
 		elif KG_READY.search(cp.stdout) and now - last >= READY_SETTLE:
 			return
 		time.sleep(READY_POLL)
+	raise EditorNotReady(budget)
 
 
 def settle_tmux(sock: str, pane: str, budget: float, floor: float = 0.0) -> None:
@@ -770,6 +1067,21 @@ def wait_exit_tmux(sock: str, session: str, budget: float) -> None:
 		time.sleep(READY_POLL)
 
 
+def read_status_tmux(status_path: Path) -> int | None:
+	"""kg's exit status from the sidecar the pane's shell wrote, or None.
+
+	None means "not observed", which is what the evaluator already does
+	nothing about: a case that deliberately leaves kg running has no status
+	to read, and the pane is killed out from under the shell instead.  A
+	shell that reports a signal death as 128+n matches what
+	run_editor_pexpect() synthesizes from signalstatus.
+	"""
+	try:
+		return int(status_path.read_text().strip())
+	except (OSError, ValueError):
+		return None
+
+
 def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str],
 		    trailer_keys: list[str], startup_delay: float,
 		    key_delay: float, dimensions: tuple[int, int],
@@ -781,7 +1093,11 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 	if shutil.which("tmux") is None:
 		return RunResult(None, None, "tmux not found", b"")
 
-	with tempfile.TemporaryDirectory(prefix="kg-tmux-") as td:
+	# The status sidecar gets a directory of its own rather than a file in
+	# `td`: `td` is the case's working directory, and a case that completes
+	# or lists a file name there would see the harness's own bookkeeping.
+	with tempfile.TemporaryDirectory(prefix="kg-tmux-") as td, \
+	     tempfile.TemporaryDirectory(prefix="kg-tmux-status-") as sd:
 		file_path = Path(td) / filename
 		write_file_under_test(file_path, initial, file_mode)
 		write_workspace_files(Path(td), workspace_files or {})
@@ -790,31 +1106,43 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 		home.mkdir()
 		write_config_files(home, config_files)
 		sock = str(Path(td) / "tmux.sock")
+		status_path = Path(sd) / "status"
 		session = "ptyaccept"
 		pane = f"{session}:0.0"
 		rows, cols = dimensions
-		cmd = "env -u XDG_CONFIG_HOME " + \
+		run = "env -u XDG_CONFIG_HOME " + \
 		      f"HOME={shlex.quote(str(home))} " + \
 		      "TERM=xterm-256color LC_ALL=C.UTF-8 " + \
-		      "".join(f"{k}={shlex.quote(v)} " for k, v in case_env.items()) + \
+		      "".join(f"{k}={shlex.quote(v)} " for k, v in
+			      expand_case_env(case_env, Path(td)).items()) + \
 		      " ".join(shlex.quote(a) for a in argv + [str(file_path)])
+		# kg's exit status, which the pane itself does not keep: tmux
+		# destroys the session as the pane's command exits and there is
+		# nothing left to ask.  The shell that ran kg writes it to a
+		# sidecar before it exits, so "session gone" (wait_exit_tmux)
+		# still means the status is on disk.  /bin/sh is named
+		# explicitly because `$?` is POSIX and tmux would otherwise pick
+		# the box's login shell, which need not be.
+		cmd = "/bin/sh -c " + shlex.quote(
+			f"{run}; printf %s $? > {shlex.quote(str(status_path))}")
 		transcript = io.StringIO()
 
 		try:
 			run_tmux_cmd(sock, "new-session", "-d", "-s", session,
 				     "-x", str(cols), "-y", str(rows), cmd)
-			wait_ready_tmux(sock, pane, ready, startup_delay)
+			wait_ready_tmux(sock, pane, ready, startup_delay,
+					max(startup_delay, timeout))
 			for token in keys:
 				if token.startswith("RESIZE="):
 					r, c = map(int, token.split("=")[1].split(","))
 					run_tmux_cmd(sock, "resize-window", "-t", session, "-x", str(c), "-y", str(r))
 					time.sleep(key_delay)
 					continue
-				mode, value = tmux_key_name(token)
-				if mode == "key":
-					run_tmux_cmd(sock, "send-keys", "-t", pane, value)
-				else:
-					run_tmux_cmd(sock, "send-keys", "-t", pane, "-l", value)
+				settle = settle_token(token)
+				if settle is not None:
+					wait_change_tmux(sock, pane, *settle, floor=settle_floor)
+					continue
+				send_token_tmux(sock, pane, token)
 				time.sleep(key_delay)
 			settle_tmux(sock, pane, startup_delay, settle_floor)
 			cp = run_tmux_cmd(sock, "capture-pane", "-t", pane, "-p", "-S", "-50",
@@ -826,15 +1154,15 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 					run_tmux_cmd(sock, "resize-window", "-t", session, "-x", str(c), "-y", str(r))
 					time.sleep(key_delay)
 					continue
-				mode, value = tmux_key_name(token)
-				if mode == "key":
-					run_tmux_cmd(sock, "send-keys", "-t", pane, value)
-				else:
-					run_tmux_cmd(sock, "send-keys", "-t", pane, "-l", value)
+				settle = settle_token(token)
+				if settle is not None:
+					wait_change_tmux(sock, pane, *settle, floor=settle_floor)
+					continue
+				send_token_tmux(sock, pane, token)
 				time.sleep(key_delay)
 			if trailer_keys:
 				wait_exit_tmux(sock, session,
-					       min(timeout, READY_DEADLINE))
+					       min(timeout, EXIT_DEADLINE))
 			else:
 				time.sleep(min(key_delay, timeout))
 		except Exception as exc:
@@ -852,7 +1180,8 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 				pass
 			run_tmux_cmd(sock, "kill-server", check=False)
 
-		return RunResult(file_path.read_bytes(), 0, None, transcript.getvalue().encode())
+		return RunResult(file_path.read_bytes(), read_status_tmux(status_path),
+				 None, transcript.getvalue().encode())
 
 
 def run_editor(argv: list[str], filename: str, initial: str, keys: list[str],
@@ -862,9 +1191,13 @@ def run_editor(argv: list[str], filename: str, initial: str, keys: list[str],
 	       ready: bool = True, settle_floor: float = 0.0,
 	       case_env: dict[str, str] | None = None,
 	       workspace_files: dict[str, str] | None = None,
-	       file_mode: int | None = None) -> RunResult:
+	       file_mode: int | None = None,
+	       typeahead_keys: list[str] | None = None) -> RunResult:
 	case_env = case_env or {}
 	if backend == "tmux":
+		# load_case() refuses the combination, so there is nothing to
+		# forward: the escape the trigger watches for paints nothing,
+		# and capture-pane only shows what was painted.
 		return run_editor_tmux(argv, filename, initial, keys, trailer_keys,
 				       startup_delay, key_delay, dimensions,
 				       timeout, config_files, ready, case_env,
@@ -872,7 +1205,7 @@ def run_editor(argv: list[str], filename: str, initial: str, keys: list[str],
 	return run_editor_pexpect(argv, filename, initial, keys, trailer_keys,
 				  startup_delay, key_delay, dimensions,
 				  timeout, config_files, ready, case_env,
-				  workspace_files, file_mode)
+				  workspace_files, file_mode, typeahead_keys)
 
 
 def evaluate_case(case: Case, **kwargs) -> tuple[str, str | None, float]:
@@ -889,7 +1222,7 @@ def evaluate_case_status(case: Case, kg_argv: list[str], features: set[str],
 			 key_delay_add: float, emacs: str | None,
 			 have_tmux: bool,
 			 settle_floor: float = 0.0) -> tuple[str, str | None]:
-	if case.requires_feature is not None and case.requires_feature not in features:
+	if feature_mismatch(case, features):
 		return ("SKIP", None)
 	# A missing tool is a skip here and a hard failure in main() under
 	# --require-tools; either way it is counted and named, never silent.
@@ -908,7 +1241,8 @@ def evaluate_case_status(case: Case, kg_argv: list[str], features: set[str],
 			    case.config_files, settle_floor=settle_floor,
 			    case_env=case.env,
 			    workspace_files=case.workspace_files,
-			    file_mode=case.file_mode)
+			    file_mode=case.file_mode,
+			    typeahead_keys=case.typeahead_keys)
 	if kg_run.error:
 		return ("XFAIL" if case.xfail else "ERROR",
 		        f"{case.name}: kg run error: {kg_run.error}")
@@ -947,6 +1281,15 @@ def evaluate_case_status(case: Case, kg_argv: list[str], features: set[str],
 		details = None if passed else diff_text(expected, kg_run.saved,
 							"expected", "actual")
 
+	if not passed and details and kg_run.transcript:
+		# Same evidence rule as the screen assertions below: a saved-file
+		# diff from a run that only fails under lane load is undebuggable
+		# without what the editor was showing when it saved.
+		shown = "\n".join(
+			l for l in decode_text(kg_run.transcript).splitlines()
+			if l.strip())
+		details += "\nfinal screen was:\n" + shown
+
 	if passed and (case.expected_screen_contains or case.expected_screen_not_contains):
 		screen = decode_text(kg_run.transcript)
 		missing = []
@@ -962,6 +1305,11 @@ def evaluate_case_status(case: Case, kg_argv: list[str], features: set[str],
 				msg.append("missing screen text: " + ", ".join(repr(s) for s in missing))
 			if unexpected:
 				msg.append("unexpected screen text: " + ", ".join(repr(s) for s in unexpected))
+			# The captured pane is the evidence; without it a failure
+			# that only reproduces under lane load is undebuggable
+			# from the log.
+			shown = "\n".join(l for l in screen.splitlines() if l.strip())
+			msg.append("captured screen was:\n" + shown)
 			details = "; ".join(msg)
 
 	if passed and case.expected_exit_code is not None:
@@ -978,11 +1326,11 @@ def evaluate_case_status(case: Case, kg_argv: list[str], features: set[str],
 		# a heap leak on the interactive error paths that ASan had
 		# found and nothing was reading.
 		#
-		# The tmux backend cannot participate: it drives kg inside a
-		# tmux pane and never waits on kg itself, so run_editor_tmux
-		# reports 0 unconditionally -- which is why
-		# expected_exit_code is refused for that backend too. Cases
-		# that must observe a status use backend: pexpect.
+		# Both backends participate.  The tmux one has no process of
+		# its own to wait on, so the shell that ran kg inside the pane
+		# writes the status to a sidecar (read_status_tmux); a case
+		# that deliberately leaves kg running reports None, which is
+		# "not observed" and not a failure.
 		passed = 0
 		details = (f"kg exited {kg_run.exit_code}; a sanitizer or "
 			   "assertion failure reports through the exit "
@@ -1016,7 +1364,8 @@ def main() -> int:
 	parser.add_argument("--require-tools", action="store_true",
 	                    help="Fail instead of skipping when a tool some case "
 	                         "needs (tmux, the Emacs oracle, a case's "
-	                         "requires_tool) is missing")
+	                         "requires_tool or requires_python_module) is "
+	                         "missing")
 	parser.add_argument("--json", dest="json_path", default="",
 	                    help="Write per-case results (status, wall time, "
 	                         "backend, oracle) to this file")
@@ -1037,8 +1386,15 @@ def main() -> int:
 	# green summary means the same thing everywhere it is read.
 	emacs = resolve_emacs(args.emacs)
 	have_tmux = shutil.which("tmux") is not None
-	oracle_cases = sum(1 for c in cases if c.oracle == "emacs")
-	tmux_cases = sum(1 for c in cases if case_needs_tmux(c))
+	# Only the cases this build can run at all.  A case ruled out by
+	# `requires_feature:` is skipped by evaluate_case_status() before it ever
+	# looks at a tool, so counting its tools here would report a tool nothing
+	# needs -- and under --require-tools abort the run over it, naming a
+	# tool for a case this build cannot reach.  A `requires_feature: -dap`
+	# case that wanted debugpy would do exactly that to every +dap lane.
+	runnable = [c for c in cases if not feature_mismatch(c, features)]
+	oracle_cases = sum(1 for c in runnable if c.oracle == "emacs")
+	tmux_cases = sum(1 for c in runnable if case_needs_tmux(c))
 	missing = []
 	if oracle_cases and emacs is None:
 		missing.append(f"emacs ({oracle_cases} oracle case(s); set --emacs "
@@ -1046,13 +1402,23 @@ def main() -> int:
 	if tmux_cases and not have_tmux:
 		missing.append(f"tmux ({tmux_cases} case(s) need it)")
 	tool_cases: dict[str, int] = {}
-	for case in cases:
-		if case.requires_tool:
-			tool_cases[case.requires_tool] = tool_cases.get(case.requires_tool, 0) + 1
+	for case in runnable:
+		for tool in case.requires_tool:
+			tool_cases[tool] = tool_cases.get(tool, 0) + 1
 	for tool in sorted(tool_cases):
 		unavailable = tool_unavailable(tool)
 		if unavailable:
 			missing.append(f"{unavailable} ({tool_cases[tool]} case(s) need it)")
+	module_cases: dict[str, int] = {}
+	for case in runnable:
+		if case.requires_python_module:
+			module_cases[case.requires_python_module] = \
+				module_cases.get(case.requires_python_module, 0) + 1
+	for module in sorted(module_cases):
+		unavailable = python_module_unavailable(module)
+		if unavailable:
+			missing.append(
+				f"{unavailable} ({module_cases[module]} case(s) need it)")
 	for item in missing:
 		print(f"{'FAIL' if args.require_tools else 'warning'}: missing tool: {item}",
 		      file=sys.stderr)
@@ -1085,8 +1451,9 @@ def main() -> int:
 				"seconds": seconds,
 				"backend": case.backend,
 				"oracle": case.oracle,
-				"requires_feature": case.requires_feature,
-				"requires_tool": case.requires_tool,
+				"requires_feature": list(case.requires_feature),
+				"requires_tool": list(case.requires_tool),
+				"requires_python_module": case.requires_python_module,
 				"xfail": case.xfail,
 			})
 

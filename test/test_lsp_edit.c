@@ -18,9 +18,9 @@
  */
 
 #include "../src/def.h"
+#include "../src/json.h"
 #include "../src/lsp_complete.h"
 #include "../src/lsp_edit.h"
-#include "../src/lsp_json.h"
 #include "../src/marker.h"
 #include "test.h"
 
@@ -97,14 +97,14 @@ static const char *buffer_text(void)
  * depends on. */
 static struct lsp_workspace_edit *read_edit(const char *json)
 {
-	struct lsp_json *doc = lsp_json_parse(json, strlen(json), NULL);
+	struct kg_json *doc = kg_json_parse(json, strlen(json), NULL);
 	struct lsp_workspace_edit *edit;
 
 	if (!doc) {
 		return NULL;
 	}
-	edit = lsp_workspace_edit_read(lsp_json_root(doc));
-	lsp_json_free(doc);
+	edit = lsp_workspace_edit_read(kg_json_root(doc));
+	kg_json_free(doc);
 	return edit;
 }
 
@@ -280,7 +280,7 @@ static void test_reading_refusals(void)
 {
 	struct lsp_workspace_edit *edit;
 	struct lsp_edit_range range;
-	struct lsp_json *doc;
+	struct kg_json *doc;
 
 	CHECK(read_edit("null") == NULL);
 	CHECK(read_edit("[]") == NULL);
@@ -296,12 +296,12 @@ static void test_reading_refusals(void)
 		const char *bad = "{\"start\":{\"line\":-1,\"character\":0},"
 				  "\"end\":{\"line\":0,\"character\":0}}";
 
-		doc = lsp_json_parse(bad, strlen(bad), NULL);
+		doc = kg_json_parse(bad, strlen(bad), NULL);
 	}
 	CHECK(doc != NULL);
 	if (doc) {
-		CHECK(!lsp_edit_range_read(lsp_json_root(doc), &range));
-		lsp_json_free(doc);
+		CHECK(!lsp_edit_range_read(kg_json_root(doc), &range));
+		kg_json_free(doc);
 	}
 }
 

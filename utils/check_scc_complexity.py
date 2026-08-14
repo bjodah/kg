@@ -32,8 +32,12 @@ def main():
 		reverse=True,
 	)
 
+	max_file = files[0].get("Complexity", 0) if files else 0
+
 	print(f"scc total complexity: {total} (limit {args.max_total})")
-	print(f"scc max file complexity: {args.max_file}")
+	# The MEASURED maximum, then the limit -- printing the limit alone read
+	# as a measurement, and hid the drift between the two.
+	print(f"scc max file complexity: {max_file} (limit {args.max_file})")
 	print("scc most complex files:")
 	for file_info in files[:args.top]:
 		location = file_info.get("Location", file_info.get("Filename", "<unknown>"))

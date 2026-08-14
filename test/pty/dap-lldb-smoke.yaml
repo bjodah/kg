@@ -1,0 +1,101 @@
+# A real adapter, on a real program kg compiled itself.  Everything the
+# fake adapter cannot be evidence for lives here: lldb-dap's own ordering
+# (it answers `launch` before `initialized`), its own `seq: 0` on every
+# message, its breakpoint verification against real debug information, and
+# its own idea of how long a program takes to start
+# (doc/plans/dap/01-protocol.md stage 7).
+#
+# The fixture is built by the configuration's own `build` step -- `cc -g
+# -O0`, since a stripped or optimised binary has no line to stop at -- so
+# this case tests the seam a C or C++ user actually goes through rather
+# than a binary somebody checked in.
+#
+# It SKIPS with a reason where `lldb-dap` is not on PATH, exactly as the
+# real-server LSP cases do for clangd, and `--require-tools` turns that
+# into an upfront failure naming it.
+#
+# Timing is a bounded WAIT and not a key delay: `SETTLE=<seconds>:<text>`
+# waits for the screen to say the program stopped where the case says, at
+# most that long, and is paid once where it is owed -- the build plus the
+# launch -- rather than by every key in the case.  25 s covers a cold
+# compiler and an lldb-dap reading debug information on a loaded lane; a
+# quiet box gets there in about a second.
+name: dap-lldb-smoke
+filename: main.c
+requires_feature: dap
+requires_tool: lldb-dap
+backend: tmux
+dimensions: [30, 100]
+initial: |
+  #include <stdio.h>
+
+  int main(void)
+  {
+  	int answer = 21 + 21;
+  	printf("%d\n", answer);
+  	return 0;
+  }
+workspace_files:
+  .kg-dap.json: |
+    { "version": 1,
+      "configurations": [
+        { "name": "lldb",
+          "adapter": "lldb-dap",
+          "request": "launch",
+          "build": { "command": "cc -g -O0 -o prog main.c",
+                     "cwd": "${workspaceRoot}" },
+          "arguments": { "program": "${workspaceRoot}/prog",
+                         "cwd": "${workspaceRoot}" } } ] }
+keys:
+  # Line 6, the printf: `answer` is live there whatever the compiler did
+  # with line 5.
+  - C-n
+  - C-n
+  - C-n
+  - C-n
+  - C-n
+  - M-x
+  - dap-breakpoint-toggle
+  - RET
+  # Away from the breakpoint's line, so that the stop's navigation is a
+  # change on screen and not a coincidence.
+  - M-<
+  - M-x
+  - dap-debug
+  - RET
+  - RET
+  # The build and the launch, together, once, and no longer than they take:
+  # the mode line reading line 6 is the stop having landed.
+  - SETTLE=25:(6,
+  # Where the real adapter stopped, written into the file.
+  - C-e
+  - //stopped
+  - M-x
+  - dap-evaluate
+  - RET
+  - answer
+  - RET
+  # The value, not the source: the program computes 42 and no line of it
+  # says so.
+  - SETTLE=10:42
+trailer_keys:
+  - M-x
+  - dap-terminate
+  - RET
+  - C-x
+  - C-s
+  - C-x
+  - C-c
+expected_saved: |
+  #include <stdio.h>
+
+  int main(void)
+  {
+  	int answer = 21 + 21;
+  	printf("%d\n", answer);//stopped
+  	return 0;
+  }
+expected_screen_contains:
+  # `hover`, not `repl`: lldb-dap's repl context answers "(int) $0 = 42"
+  # and leaves a `$0` behind, where hover answers the bare value [M-14].
+  - "42"

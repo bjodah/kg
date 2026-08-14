@@ -1,17 +1,24 @@
 name: lsp-java-definition-fake
 # The Java half of the mode -> spec -> environment wiring, end to end and
-# without jdt.ls: a .java file selects Java mode, Java mode selects the
-# jdtls spec, and the spec reads KG_LSP_SERVER_JAVA -- which points at
-# test/fake_lsp_server.py here, so what is under test is kg's table rather
-# than a language server.  A wrong environment name would exec the built-in
-# `jdtls` instead, and on a box without one that is a dead client and no
-# jump at all.
+# without a real Java server: a .java file selects Java mode, Java mode
+# selects the Java spec, and the spec reads KG_LSP_SERVER_JAVA -- which
+# points at test/fake_lsp_server.py here, so what is under test is kg's
+# table rather than a language server.  A wrong environment name would exec
+# the built-in `nbcode` instead, and on a box without one that is a dead
+# client and no jump at all.
+#
+# It is also the OVERRIDE half of the Java default swap
+# (doc/plans/dap/03-java.md): Java's built-in row is nbcode on the socket
+# wire, and this override says nothing about a wire, so kg speaks the
+# protocol on the fake's standard input and output.  An override that
+# inherited the row's wire would write a hash handshake at this fake and
+# the case would hang.
 #
 # The pom.xml is planted by `workspace_files:` so the root walk has a marker
 # to find in the case's own temporary directory, which is the root kg then
 # starts the server in.  It is the marker that decides, not the .git the
-# temporary directory does not have.  jdt.ls's own Maven importer looks for
-# exactly this file, which is why it is the marker.
+# temporary directory does not have.  Both Java servers' own Maven
+# importers look for exactly this file, which is why it is the marker.
 #
 # The assertion is the saved file, as in lsp-definition-basic.yaml: the fake
 # answers --definition-self 2:15, a Location in the document kg itself

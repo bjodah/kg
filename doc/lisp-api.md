@@ -654,18 +654,47 @@ key — while `define-key` takes any sequence the built-in maps could
 hold, so it *can* shadow a built-in binding; `C-g` and `C-x C-c` are the
 keys to leave alone.
 
+### Rebinding the debugger's keys
+
+The debugger's three maps — `dap-breakpoint` (`F9`, `C-F9`, live in any
+buffer visiting a file), `dap` (everything else, live only while a session
+exists) and `dap-info` (the six `*dap-*` panes) — are created in C before
+`init.el` runs, so `define-key` finds them rather than creating a new map
+of its own in the wrong layer:
+
+```elisp
+;; VS Code habits.
+(define-key 'dap-mode-map "<f5>" 'dap-continue)
+(define-key 'dap-mode-map "<f11>" 'dap-step-in)
+(define-key 'dap-mode-map "S-<f11>" 'dap-step-out)
+;; Or somewhere entirely your own.
+(define-key 'dap-breakpoint-mode-map "C-c b" 'dap-breakpoint-toggle)
+(define-key 'dap-info-mode-map "x" 'dap-info-delete-breakpoint)
+```
+
+The `-mode-map` suffix is `keymap-find`'s ordinary aliasing, so
+`'dap-mode-map` and `'dap` name the same map. `global-set-key` cannot bind
+an F-key by design; that these are real native maps is exactly what makes
+`define-key` able to. A binding is a command *name*, so it may be a Lisp
+command you defined yourself — a `defun` marked as a command is bindable
+here like any built-in one.
+
+Which map to put a binding in is the question worth a moment: a key in
+`dap` is dead outside a session and cannot shadow anything you use while
+editing, while a key in `dap-breakpoint` is live in every file buffer.
+
 ## Variables the editor reads
 
 Most of what kg does is reached by calling a command, not by setting a
 variable. The exceptions are listed here, and the list is short on
-purpose: an editor module reads a variable through exactly one channel,
-`kg_lisp_variable_non_nil()` in `src/lisp.h`, which answers "non-nil or
-not" and nothing else.
+purpose. Editor modules use the narrow accessors in `src/lisp.h` rather
+than evaluating Lisp themselves.
 
 | Variable | Default | Read | Effect |
 | ---- | ---- | ---- | ---- |
 | `inhibit-startup-screen` | `nil` | once, after `init.el` has run | Non-nil draws no startup screen — the centred logo an empty buffer otherwise shows |
 | `inhibit-startup-message` | `nil` | same | Emacs' other spelling of the above; either name suppresses the screen |
+| `tab-width` | `8` | after Lisp evaluation and before repaint | Display columns between tab stops; an integer from 1 through 1000 |
 
 Both are `defvar`'d by the prelude, so they are `boundp` and
 `special-variable-p` before any init file runs, and `-Q` (no init file)
@@ -679,6 +708,14 @@ so setting either reads back through both. kg has no variable aliases;
 these are two ordinary variables, and what makes both spellings work is
 that the startup path asks for both. Setting one leaves the other `nil`.
 Emacs' third alias, `inhibit-splash-screen`, is not provided.
+
+`tab-width` participates in the buffer-local machinery above. A plain
+`setq` changes the default and therefore every buffer without a local
+binding; `(setq-local tab-width N)` changes only the current buffer. kg
+does not have Emacs' automatically-buffer-local variables, so unlike
+Emacs a plain `setq` does not create a local binding. Changing the value
+rebuilds rendered rows, syntax faces and visual-line geometry without
+marking the file modified.
 
 The `Press Ctrl-h for help` greeting in the status area is a separate
 thing and neither variable suppresses it: Emacs gives that its own

@@ -5,13 +5,17 @@ name: lsp-nbcode-definition
 # printed reason (`--require-tools` turns that into an upfront FAIL), and
 # utils/install-nbcode.sh is what puts that `nbcode` on PATH.
 #
-# The `env:` line IS the case.  nbcode is not a row in server_specs[] --
-# jdtls is the built-in Java default -- so it is reached the way any other
-# server is: by naming it in KG_LSP_SERVER_JAVA.  The `listen-hash:` token
-# in front of the command line is what asks for the socket wire: kg spawns
+# THERE IS NO `env:` LINE, and its absence IS the case.  nbcode is the
+# built-in Java row in server_specs[] -- kg's default Java server since
+# doc/plans/dap/03-java.md's LSP stage -- so what is under test here is the
+# whole default path: a .java file selects Java mode, Java mode selects the
+# nbcode spec, and the spec brings the socket wire, both server flags and
+# the `initializationOptions.nbcodeCapabilities` payload with it.  kg spawns
 # the command, scrapes its stdout for
 #     Java Language Server listening at port <N> with hash <H>
 # connects to 127.0.0.1:<N>, writes <H> and speaks LSP over that socket.
+# (jdt.ls, the previous default, is now the override: KG_LSP_SERVER_JAVA
+# =jdtls, which test_lsp_client.c's registry cases cover.)
 # Measured by hand against this very server (utils/ has no copy; the driver
 # lives with the campaign notes): the hash is 128 lowercase hex characters
 # and is written with no trailing newline and nothing after it.
@@ -58,17 +62,25 @@ name: lsp-nbcode-definition
 # (measured), and kg leaves point alone on an empty result.  Either way
 # point ends on the "l" of the declaration.
 #
-# The waits are 40 repaints (12.0 s) for the load and 16 (4.8 s) for the
-# answer.  Measured spawn-to-Location on this box: 3.2-3.5 s idle, and
-# 8.0-10.8 s with eight nbcode instances started at once, which is worse
-# than this suite ever does to it -- there is one nbcode case.  So the load
-# wait alone covers the loaded worst case, and the total is ~4.8x the idle
-# measurement, which is the same margin the jdtls and rust-analyzer cases
-# carry: a CI box running five sanitizer lanes and starting a JVM is not
-# this box, and the failure mode of being too quick is a case that flakes
-# rather than one that fails.  C-l is the key because it repaints without
-# moving point, so it costs a key_delay and changes nothing whether the
-# answer has arrived yet or not.
+# Each M-. is followed by `SETTLE=<budget>:(2,15)`, a BUDGET and not a
+# sleep: the harness polls the pane until the mode line reads the
+# definition's position -- which is on screen only once the answer has been
+# applied, the mode line reading `(5,8)` until then -- and gives up after
+# the budget, leaving the assertion after it to fail rather than the expiry
+# itself.  So the first M-. pays only what it needs and the second SETTLE
+# returns at once when the first already landed; the 45 s is spent in full
+# only in the `[]`-then-answer case the paragraph above describes.  Reading
+# a pane needs one to read, which is why this case is `backend: tmux` (a
+# box without tmux SKIPs it, the same way a box without nbcode does) and
+# why it no longer carries a key_delay: the delay used to BE the wait.
+#
+# Measured spawn-to-Location: 3.2-3.5 s idle on the development box, and
+# 8.0-10.8 s with eight nbcode instances started at once.  The waits this
+# replaced were 40 repaints (12.0 s) and 16 (4.8 s), sized on those
+# numbers, and they were not enough on the CI box: three cores against
+# thirty-two, where this case passes when run alone and fails at the
+# suite's own eight-way concurrency.  A fixed sleep cannot be sized for
+# both boxes at once, which is what the budgets here stop trying to do.
 #
 # Point is walked to the reference rather than searched to it: four Down
 # and eight C-f put it on the "l" of the indented `localTarget(1);`, and an
@@ -76,11 +88,8 @@ name: lsp-nbcode-definition
 # (measured at that exact byte, not one past it).
 requires_feature: lsp
 requires_tool: nbcode
-backend: pexpect
-key_delay: 0.3
+backend: tmux
 filename: Fixture.java
-env:
-  KG_LSP_SERVER_JAVA: "listen-hash: nbcode --start-java-language-server=listen-hash:0"
 workspace_files:
   pom.xml: |
     <project xmlns="http://maven.apache.org/POM/4.0.0">
@@ -118,63 +127,9 @@ keys:
   - "C-f"
   - "C-f"
   - "M-."
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
+  - "SETTLE=45:(2,15)"
   - "M-."
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
-  - "C-l"
+  - "SETTLE=90:(2,15)"
   - "X"
 expected_saved: |
   class Fixture {

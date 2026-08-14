@@ -35,9 +35,9 @@
 
 #include "lsp_client.h" /* enum lsp_position_encoding */
 
-/* Declared, not included: src/lsp_json.h defines it, and the one caller
+/* Declared, not included: src/json.h defines it, and the one caller
  * that has one to pass has already included that. */
-struct lsp_json_value;
+struct kg_json_value;
 
 /* The listing buffer.  Named here rather than spelled again in kbd.c, for
  * the reason OCCUR_BUFFER_NAME is: the mode map that gives it RET, n, p
@@ -96,7 +96,7 @@ void lsp_diag_install(void);
  * Public because it is the interesting half and a unit test can drive it
  * with a parsed document and no server in the way. */
 void lsp_diag_publish(
-    const struct lsp_json_value *params, enum lsp_position_encoding enc);
+    const struct kg_json_value *params, enum lsp_position_encoding enc);
 
 /* `M-x lsp-diagnostics`.  Brings the current buffer to its server's
  * attention (which is what makes a first publish happen at all -- kg opens

@@ -45,8 +45,18 @@ enum key_base {
 	KEY_BASE_NEXT, /* PageDown */
 	KEY_BASE_INSERT,
 	KEY_BASE_DELETE, /* the forward-delete key */
+	KEY_BASE_F1,
+	KEY_BASE_F2,
 	KEY_BASE_F3,
 	KEY_BASE_F4,
+	KEY_BASE_F5,
+	KEY_BASE_F6,
+	KEY_BASE_F7,
+	KEY_BASE_F8,
+	KEY_BASE_F9,
+	KEY_BASE_F10,
+	KEY_BASE_F11,
+	KEY_BASE_F12,
 	/* Not a key: "a mouse report was decoded and is waiting", the event
 	 * src/tty.c hands back for an SGR report so exactly one reader --
 	 * the main loop's keypress step -- acts on it.  It has no spelling,

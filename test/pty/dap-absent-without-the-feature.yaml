@@ -1,0 +1,115 @@
+# The other build.  `make WITH_DAP=0` keeps every `dap-*` row in the command
+# table -- a row that vanished with the build would leave `M-x dap-continue`
+# reporting a command nobody has heard of, which tells a user nothing about
+# why -- and each of them answers the one sentence that does
+# (src/dap_commands.c, doc/plans/dap/01-protocol.md stage 1).  Nothing is
+# spawned, no breakpoint is taken, and the buffer is untouched.
+#
+# EVERY name, not a sample of two: the promise is about all of them, and a
+# stub that forgot the sentence -- or a new command whose disabled half was
+# never written -- is invisible to a case that only tries the two it thought
+# of.  The list is `grep -o '"dap-[a-z-]*"' src/cmd.c | sort -u`, and
+# test/test_cmd.c asserts the count so this case cannot silently fall behind
+# the table.  kg has no *Messages* buffer, so the echo area only ever holds
+# the LAST command's answer: what the earlier 22 are checked against is the
+# buffer staying untouched -- a stub that fell through to a real handler
+# edits it -- and the run reaching the end at all.
+#
+# `requires_feature: -dap` is the absence form: this case runs only in a
+# build whose `kg -V` says `-dap`, which is .ci/ci-16's, and skips in every
+# other lane exactly as `requires_feature: dap` does in that one.
+name: dap-absent-without-the-feature
+filename: dap-absent.c
+requires_feature: -dap
+backend: tmux
+initial: |
+  int main(void)
+  {
+  	return 0;
+  }
+keys:
+  # On a line a breakpoint could plausibly be set on.
+  - C-n
+  - C-n
+  - M-x
+  - dap-breakpoint-temporary
+  - RET
+  - M-x
+  - dap-breakpoint-toggle
+  - RET
+  - M-x
+  - dap-continue
+  - RET
+  - M-x
+  - dap-debug
+  - RET
+  - M-x
+  - dap-disconnect
+  - RET
+  - M-x
+  - dap-evaluate
+  - RET
+  - M-x
+  - dap-frame-down
+  - RET
+  - M-x
+  - dap-frame-up
+  - RET
+  - M-x
+  - dap-goto
+  - RET
+  - M-x
+  - dap-info-delete-breakpoint
+  - RET
+  - M-x
+  - dap-info-select
+  - RET
+  - M-x
+  - dap-info-toggle-breakpoint
+  - RET
+  - M-x
+  - dap-info-toggle-breakpoints-threads
+  - RET
+  - M-x
+  - dap-many-windows
+  - RET
+  - M-x
+  - dap-next
+  - RET
+  - M-x
+  - dap-pause
+  - RET
+  - M-x
+  - dap-repl
+  - RET
+  - M-x
+  - dap-restart
+  - RET
+  - M-x
+  - dap-step-in
+  - RET
+  - M-x
+  - dap-step-instruction
+  - RET
+  - M-x
+  - dap-step-out
+  - RET
+  - M-x
+  - dap-terminate
+  - RET
+  - M-x
+  - dap-until
+  - RET
+  - SETTLE=5
+expected_saved: |
+  int main(void)
+  {
+  	return 0;
+  }
+expected_screen_contains:
+  - kg was built without DAP support
+expected_screen_not_contains:
+  # Nothing a real session would have said, and nothing a table missing
+  # the row would have said either (`M-x nosuch` answers "No command:").
+  - Breakpoint on line
+  - "No command:"

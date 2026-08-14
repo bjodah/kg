@@ -1,0 +1,16 @@
+# Widening a tab must grow both the rendered row and its render-indexed
+# highlight array.  The sanitizer lane turns the final repaint into the
+# regression check for the old one-byte heap over-read.
+name: tab-width-widen-safe
+filename: widen.c
+requires_feature: lisp
+backend: tmux
+dimensions: [12, 40]
+initial: "\tX\n0123456789\n"
+keys:
+  - "M-:"
+  - "(setq tab-width 9)"
+  - RET
+expected_saved: "\tX\n0123456789\n"
+expected_screen_contains:
+  - "         X"

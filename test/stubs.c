@@ -196,3 +196,6 @@ struct editor_buffer *win_buffer(const struct editor_window *w)
 }
 
 int win_buffer_slot(const struct editor_window *w) { return w->buf.slot; }
+
+int kg_lisp_active(void) { return 0; }
+void kg_lisp_sync_display_options(void) { }

@@ -116,7 +116,8 @@ static struct show_paren_result at(int row, int col)
 {
 	struct show_paren_result res;
 
-	show_paren_compute(bcur()->row, bcur()->numrows, row, col, &res);
+	show_paren_compute(
+	    bcur()->row, bcur()->numrows, row, col, &bcur()->display, &res);
 	return res;
 }
 
@@ -356,9 +357,9 @@ static void test_edges_do_not_reach_outside_the_buffer(void)
 	struct show_paren_result res;
 
 	setup();
-	show_paren_compute(NULL, 0, 0, 0, &res);
+	show_paren_compute(NULL, 0, 0, 0, &bcur()->display, &res);
 	CHECK(res.status == SHOW_PAREN_NONE);
-	show_paren_compute(bcur()->row, 0, 0, 0, &res);
+	show_paren_compute(bcur()->row, 0, 0, 0, &bcur()->display, &res);
 	CHECK(res.status == SHOW_PAREN_NONE);
 
 	fill_one("()");

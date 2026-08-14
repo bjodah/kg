@@ -463,6 +463,22 @@ FeObject *native_set_default(FeContext *context, FeObject *args)
 	return value;
 }
 
+FeObject *lisp_locals_buffer_value(
+    FeContext *ctx, FeObject *symbol, struct kg_buffer_handle buffer)
+{
+	struct kg_lisp_local_var *v = var_find(symbol);
+	struct kg_lisp_local_binding *b
+	    = v != nullptr ? binding_find(v, buffer) : nullptr;
+
+	if (b == nullptr) {
+		return cell_read(ctx, default_cell(symbol));
+	}
+	if (handle_eq(buffer, state.locals.swapped)) {
+		return cell_read(ctx, symbol);
+	}
+	return cell_read(ctx, b->cell);
+}
+
 /* (buffer-local-value SYMBOL BUFFER): read another buffer's binding
  * without selecting it, falling through to the default when it has none.
  * The swapped-in buffer is asked through the value cell rather than
@@ -475,23 +491,13 @@ FeObject *native_buffer_local_value(FeContext *context, FeObject *args)
 	    = symbol_argument(context, FeGetNextArgument(context, &args));
 	FeObject *buffer = FeGetNextArgument(context, &args);
 	struct kg_buffer_handle handle;
-	struct kg_lisp_local_var *v;
-	struct kg_lisp_local_binding *b;
 	FeObject *value;
 
 	FeRequireNoArguments(context, args);
 	sync_swap(context);
 	handle = buf_handle_of(
 	    lisp_buffer_resolve(context, buffer, "buffer-local-value"));
-	v = var_find(symbol);
-	b = v != nullptr ? binding_find(v, handle) : nullptr;
-	if (b == nullptr) {
-		value = cell_read(context, default_cell(symbol));
-	} else if (handle_eq(handle, state.locals.swapped)) {
-		value = cell_read(context, symbol);
-	} else {
-		value = cell_read(context, b->cell);
-	}
+	value = lisp_locals_buffer_value(context, symbol, handle);
 	if (value == nullptr) {
 		lisp_raise_void_variable(context, symbol);
 	}

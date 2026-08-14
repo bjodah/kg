@@ -1208,18 +1208,15 @@ static void test_visual_line_new_width_scans_each_row_once(void)
 	teardown();
 }
 
-/* Phase 1's RSS cost, recorded rather than left to be inferred: erow
- * (def.h) gained wrap_cache_win_w and wrap_cache_vcols, two int fields.
- * On a 64-bit build that lands exactly in the struct's existing trailing
- * padding after hl_oc (56 bytes rounded up to 64 for the pointers'
- * 8-byte alignment either way), so the cache costs 8 bytes/row here and
- * adds no padding of its own; a build where int and pointer alignment
- * differ could see up to 16. */
+/* The row cache's RSS cost, recorded rather than left to be inferred:
+ * window width, tab width and measured width are three int fields.  On a
+ * 64-bit build they fill the struct through byte 64, so adding tab width
+ * to the cache key consumes padding and does not enlarge erow. */
 static void test_erow_wrap_cache_size_cost(void)
 {
 	erow r;
 
-	CHECK(sizeof(r.wrap_cache_win_w) == sizeof(int));
+	CHECK(sizeof(r.wrap_cache_key) == 2 * sizeof(int));
 	CHECK(sizeof(r.wrap_cache_vcols) == sizeof(int));
 	CHECK(sizeof(erow) <= 64);
 }

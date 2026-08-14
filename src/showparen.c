@@ -248,7 +248,7 @@ static int paren_kinds_agree(const erow *a, int a_off, const erow *b, int b_off)
  * it is what text mode gets.
  */
 void show_paren_compute(struct erow *rows, int numrows, int row, int col,
-    struct show_paren_result *out)
+    const struct kg_display_options *options, struct show_paren_result *out)
 {
 	long budget = KG_SHOW_PAREN_MAX_SCAN;
 	int here_col = 0, dir = 0, here_off, frow = 0, foff = 0;
@@ -272,7 +272,7 @@ void show_paren_compute(struct erow *rows, int numrows, int row, int col,
 	out->here_col = here_col;
 	out->status = SHOW_PAREN_UNMATCHED;
 
-	here_off = chars_to_render_col(r, here_col);
+	here_off = chars_to_render_col(r, here_col, options);
 	cls = paren_class_at(r, here_off);
 	if (paren_scan_dir(rows, numrows, row, here_off, dir, cls, &budget,
 		&frow, &foff)) {
@@ -281,7 +281,8 @@ void show_paren_compute(struct erow *rows, int numrows, int row, int col,
 		 * exact for any render offset that starts a chars byte,
 		 * which a paren always does -- only a TAB expands, and a
 		 * TAB is not a paren. */
-		out->there_col = render_to_chars_col(&rows[frow], foff);
+		out->there_col
+		    = render_to_chars_col(&rows[frow], foff, options);
 		out->status = paren_kinds_agree(r, here_off, &rows[frow], foff)
 		    ? SHOW_PAREN_MATCH
 		    : SHOW_PAREN_MISMATCH;
@@ -307,7 +308,7 @@ static struct kg_decor_handle paren_decor[2];
  * and a scan when nothing moved. */
 static struct {
 	uint64_t buffer_id;
-	uint64_t content_generation;
+	uint64_t layout_generation;
 	int row;
 	int col;
 	int valid;
@@ -337,7 +338,7 @@ static void paren_decor_add(int slot, struct editor_buffer *b, int row, int col,
 static int paren_state_current(struct editor_buffer *b, int row, int col)
 {
 	return paren_state.valid && paren_state.buffer_id == b->id
-	    && paren_state.content_generation == b->content_generation
+	    && paren_state.layout_generation == b->layout_generation
 	    && paren_state.row == row && paren_state.col == col;
 }
 
@@ -359,9 +360,9 @@ void show_paren_update(void)
 		return;
 	}
 	paren_decor_drop();
-	show_paren_compute(b->row, b->numrows, row, col, &res);
+	show_paren_compute(b->row, b->numrows, row, col, &b->display, &res);
 	paren_state.buffer_id = b->id;
-	paren_state.content_generation = b->content_generation;
+	paren_state.layout_generation = b->layout_generation;
 	paren_state.row = row;
 	paren_state.col = col;
 	paren_state.valid = 1;

@@ -90,7 +90,8 @@ static void fill_len(const char *text, int len)
 static int subject_span(int *start, int *end)
 {
 	struct kg_gitdiag_span span = { -1, -1 };
-	int hit = gitdiag_commit_subject_span(&bcur()->row[0], &span);
+	int hit = gitdiag_commit_subject_span(
+	    &bcur()->row[0], &bcur()->display, &span);
 
 	*start = span.start;
 	*end = span.end;

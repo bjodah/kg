@@ -354,6 +354,27 @@ static void test_vgeom_edit_invalidates_stale_index(void)
 	teardown();
 }
 
+/* Display options are a second generation in the index key.  A tab-width
+ * change does not edit text, but it can still change how many visual rows
+ * that text occupies. */
+static void test_vgeom_display_change_invalidates_stale_index(void)
+{
+	uint64_t generation;
+
+	setup();
+	editor_insert_row(bcur(), 0, "\tX", 2);
+	wcur()->w = 6;
+
+	CHECK(get_total_visual_rows(wcur(), bcur()) == 2);
+	CHECK(wcur()->vgeom != NULL);
+	generation = bcur()->layout_generation;
+
+	editor_set_tab_width(bcur(), 4);
+	CHECK(bcur()->layout_generation != generation);
+	CHECK(get_total_visual_rows(wcur(), bcur()) == 1);
+	teardown();
+}
+
 /* Sub-plan D (doc/plans/2026-07-31-follow-ups/07-subplans/
  * 07d-window-text-width-seam.md): win_text_width() subsumes win_cells()'s
  * normalization for every window-width-reading caller, so a raw 0 or -5
@@ -397,7 +418,8 @@ static void test_win_text_width_is_the_single_geometry_key(void)
 	CHECK(win_w == 1);
 
 	for (expect_total = 0, r = 0; r < bcur()->numrows; r++) {
-		expect_total += visual_segments(&bcur()->row[r], win_w);
+		expect_total += visual_segments(
+		    &bcur()->row[r], win_w, buf_display_options(bcur()));
 	}
 	CHECK(get_total_visual_rows(wcur(), bcur()) == expect_total);
 	teardown();
@@ -413,6 +435,7 @@ int main(void)
 	RUN(test_vgeom_iterator_starts_mid_buffer);
 	RUN(test_vgeom_window_free_is_safe_on_no_index);
 	RUN(test_vgeom_edit_invalidates_stale_index);
+	RUN(test_vgeom_display_change_invalidates_stale_index);
 	RUN(test_win_text_width_normalizes_nonpositive);
 	RUN(test_win_text_width_is_the_single_geometry_key);
 	return test_summary();

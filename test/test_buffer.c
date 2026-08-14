@@ -333,9 +333,12 @@ static void test_visual_col_ascii(void)
 	setup();
 	editor_insert_row(bcur(), 0, "hello", 5);
 
-	CHECK(editor_visual_col(&bcur()->row[0], 0) == 0);
-	CHECK(editor_visual_col(&bcur()->row[0], 3) == 3);
-	CHECK(editor_visual_col(&bcur()->row[0], 5) == 5);
+	CHECK(editor_visual_col(&bcur()->row[0], 0, buf_display_options(bcur()))
+	    == 0);
+	CHECK(editor_visual_col(&bcur()->row[0], 3, buf_display_options(bcur()))
+	    == 3);
+	CHECK(editor_visual_col(&bcur()->row[0], 5, buf_display_options(bcur()))
+	    == 5);
 	teardown();
 }
 
@@ -345,10 +348,44 @@ static void test_visual_col_tab(void)
 	setup();
 	editor_insert_row(bcur(), 0, "\tabc", 4);
 
-	CHECK(editor_visual_col(&bcur()->row[0], 0) == 0);
-	CHECK(editor_visual_col(&bcur()->row[0], 1) == 8); /* past tab */
-	CHECK(editor_visual_col(&bcur()->row[0], 2) == 9); /* +'a' */
-	CHECK(editor_visual_col(&bcur()->row[0], 4) == 11); /* past 'abc' */
+	CHECK(editor_visual_col(&bcur()->row[0], 0, buf_display_options(bcur()))
+	    == 0);
+	CHECK(editor_visual_col(&bcur()->row[0], 1, buf_display_options(bcur()))
+	    == 8); /* past tab */
+	CHECK(editor_visual_col(&bcur()->row[0], 2, buf_display_options(bcur()))
+	    == 9); /* +'a' */
+	CHECK(editor_visual_col(&bcur()->row[0], 4, buf_display_options(bcur()))
+	    == 11); /* past 'abc' */
+	teardown();
+}
+
+/* A display-option change rebuilds render and render-indexed highlight
+ * storage together; widening used to leave hl one byte short and made the
+ * next repaint read past it. */
+static void test_tab_width_change_rebuilds_derived_rows(void)
+{
+	setup();
+	editor_insert_row(bcur(), 0, "\tabc", 4);
+	editor_set_tab_width(bcur(), 4);
+
+	CHECK(display_tab_width(&bcur()->display) == 4);
+	CHECK(editor_visual_col(&bcur()->row[0], 0, &bcur()->display) == 0);
+	CHECK(editor_visual_col(&bcur()->row[0], 1, &bcur()->display)
+	    == 4); /* past tab */
+	CHECK(editor_visual_col(&bcur()->row[0], 2, &bcur()->display)
+	    == 5); /* +'a' */
+	CHECK(editor_visual_col(&bcur()->row[0], 4, &bcur()->display)
+	    == 7); /* past 'abc' */
+	CHECK(strcmp(bcur()->row[0].render, "    abc") == 0);
+
+	editor_set_tab_width(bcur(), 9);
+	CHECK(strcmp(bcur()->row[0].render, "         abc") == 0);
+	CHECK(bcur()->row[0].rsize == 12);
+	CHECK(bcur()->row[0].hl_capacity >= bcur()->row[0].rsize);
+
+	editor_set_tab_width(bcur(), 32);
+	CHECK(bcur()->row[0].rsize == 35);
+	CHECK(bcur()->row[0].hl_capacity >= bcur()->row[0].rsize);
 	teardown();
 }
 
@@ -362,10 +399,14 @@ static void test_visual_col_utf8(void)
 	    "b",
 	    5);
 
-	CHECK(editor_visual_col(&bcur()->row[0], 0) == 0);
-	CHECK(editor_visual_col(&bcur()->row[0], 1) == 1); /* past 'a' */
-	CHECK(editor_visual_col(&bcur()->row[0], 4) == 2); /* past '…' */
-	CHECK(editor_visual_col(&bcur()->row[0], 5) == 3); /* past 'b' */
+	CHECK(editor_visual_col(&bcur()->row[0], 0, buf_display_options(bcur()))
+	    == 0);
+	CHECK(editor_visual_col(&bcur()->row[0], 1, buf_display_options(bcur()))
+	    == 1); /* past 'a' */
+	CHECK(editor_visual_col(&bcur()->row[0], 4, buf_display_options(bcur()))
+	    == 2); /* past '…' */
+	CHECK(editor_visual_col(&bcur()->row[0], 5, buf_display_options(bcur()))
+	    == 3); /* past 'b' */
 	teardown();
 }
 
@@ -375,8 +416,11 @@ static void test_visual_col_past_eol(void)
 	setup();
 	editor_insert_row(bcur(), 0, "abc", 3);
 
-	CHECK(editor_visual_col(&bcur()->row[0], 5) == 5); /* 3 + 2 virtual */
-	CHECK(editor_visual_col(&bcur()->row[0], 10) == 10);
+	CHECK(editor_visual_col(&bcur()->row[0], 5, buf_display_options(bcur()))
+	    == 5); /* 3 + 2 virtual */
+	CHECK(
+	    editor_visual_col(&bcur()->row[0], 10, buf_display_options(bcur()))
+	    == 10);
 	teardown();
 }
 
@@ -385,7 +429,9 @@ static void test_visual_col_huge_past_eol_saturates(void)
 	setup();
 	editor_insert_row(bcur(), 0, "\t", 1);
 
-	CHECK(editor_visual_col(&bcur()->row[0], INT_MAX) == INT_MAX);
+	CHECK(editor_visual_col(
+		  &bcur()->row[0], INT_MAX, buf_display_options(bcur()))
+	    == INT_MAX);
 	teardown();
 }
 
@@ -400,9 +446,11 @@ static void test_chars_col_round_trip(void)
 	/* For each byte boundary in the row, visual_col→chars_col_at_visual
 	 * round-trips back to the same byte. */
 	for (byte = 0; byte <= 3; byte++) {
-		int vcol = editor_visual_col(&bcur()->row[0], byte);
-		CHECK(
-		    editor_chars_col_at_visual(&bcur()->row[0], vcol) == byte);
+		int vcol = editor_visual_col(
+		    &bcur()->row[0], byte, buf_display_options(bcur()));
+		CHECK(editor_chars_col_at_visual(
+			  &bcur()->row[0], vcol, buf_display_options(bcur()))
+		    == byte);
 	}
 	teardown();
 }
@@ -415,12 +463,18 @@ static void test_chars_col_inside_tab(void)
 	editor_insert_row(
 	    bcur(), 0, "\tabc", 4); /* tab fills vcols 0..7, 'a' at 8 */
 
-	CHECK(editor_chars_col_at_visual(&bcur()->row[0], 0)
+	CHECK(editor_chars_col_at_visual(
+		  &bcur()->row[0], 0, buf_display_options(bcur()))
 	    == 0); /* tab start */
-	CHECK(editor_chars_col_at_visual(&bcur()->row[0], 3)
+	CHECK(editor_chars_col_at_visual(
+		  &bcur()->row[0], 3, buf_display_options(bcur()))
 	    == 0); /* mid-tab → start */
-	CHECK(editor_chars_col_at_visual(&bcur()->row[0], 8) == 1); /* 'a' */
-	CHECK(editor_chars_col_at_visual(&bcur()->row[0], 9) == 2); /* 'b' */
+	CHECK(editor_chars_col_at_visual(
+		  &bcur()->row[0], 8, buf_display_options(bcur()))
+	    == 1); /* 'a' */
+	CHECK(editor_chars_col_at_visual(
+		  &bcur()->row[0], 9, buf_display_options(bcur()))
+	    == 2); /* 'b' */
 	teardown();
 }
 
@@ -432,10 +486,15 @@ static void test_chars_col_past_eol(void)
 	setup();
 	editor_insert_row(bcur(), 0, "abc", 3);
 
-	CHECK(editor_chars_col_at_visual(&bcur()->row[0], 3) == 3);
-	CHECK(editor_chars_col_at_visual(&bcur()->row[0], 5)
+	CHECK(editor_chars_col_at_visual(
+		  &bcur()->row[0], 3, buf_display_options(bcur()))
+	    == 3);
+	CHECK(editor_chars_col_at_visual(
+		  &bcur()->row[0], 5, buf_display_options(bcur()))
 	    == 5); /* +2 virtual */
-	CHECK(editor_chars_col_at_visual(&bcur()->row[0], 10) == 10);
+	CHECK(editor_chars_col_at_visual(
+		  &bcur()->row[0], 10, buf_display_options(bcur()))
+	    == 10);
 	teardown();
 }
 
@@ -618,10 +677,14 @@ static void test_visual_col_double_width(void)
 	editor_insert_row(
 	    bcur(), 0, "\xE6\xBC\xA2\xE5\xAD\x97x", 7); /* 漢字x */
 
-	CHECK(editor_visual_col(&bcur()->row[0], 0) == 0);
-	CHECK(editor_visual_col(&bcur()->row[0], 3) == 2); /* past 漢 */
-	CHECK(editor_visual_col(&bcur()->row[0], 6) == 4); /* past 字 */
-	CHECK(editor_visual_col(&bcur()->row[0], 7) == 5); /* past 'x' */
+	CHECK(editor_visual_col(&bcur()->row[0], 0, buf_display_options(bcur()))
+	    == 0);
+	CHECK(editor_visual_col(&bcur()->row[0], 3, buf_display_options(bcur()))
+	    == 2); /* past 漢 */
+	CHECK(editor_visual_col(&bcur()->row[0], 6, buf_display_options(bcur()))
+	    == 4); /* past 字 */
+	CHECK(editor_visual_col(&bcur()->row[0], 7, buf_display_options(bcur()))
+	    == 5); /* past 'x' */
 	teardown();
 }
 
@@ -632,9 +695,12 @@ static void test_visual_col_tab_after_double_width(void)
 	setup();
 	editor_insert_row(bcur(), 0, "\xE6\xBC\xA2\tx", 5); /* 漢<tab>x */
 
-	CHECK(editor_visual_col(&bcur()->row[0], 3) == 2); /* past 漢 */
-	CHECK(editor_visual_col(&bcur()->row[0], 4) == 8); /* tab stop */
-	CHECK(editor_visual_col(&bcur()->row[0], 5) == 9);
+	CHECK(editor_visual_col(&bcur()->row[0], 3, buf_display_options(bcur()))
+	    == 2); /* past 漢 */
+	CHECK(editor_visual_col(&bcur()->row[0], 4, buf_display_options(bcur()))
+	    == 8); /* tab stop */
+	CHECK(editor_visual_col(&bcur()->row[0], 5, buf_display_options(bcur()))
+	    == 9);
 	/* The render expands the tab to 6 spaces, not 7. */
 	CHECK(bcur()->row[0].rsize == 3 + 6 + 1);
 	teardown();
@@ -647,9 +713,12 @@ static void test_visual_col_combining_mark(void)
 	setup();
 	editor_insert_row(bcur(), 0, "e\xCC\x81z", 4); /* e + U+0301 + z */
 
-	CHECK(editor_visual_col(&bcur()->row[0], 1) == 1);
-	CHECK(editor_visual_col(&bcur()->row[0], 3) == 1); /* mark adds none */
-	CHECK(editor_visual_col(&bcur()->row[0], 4) == 2);
+	CHECK(editor_visual_col(&bcur()->row[0], 1, buf_display_options(bcur()))
+	    == 1);
+	CHECK(editor_visual_col(&bcur()->row[0], 3, buf_display_options(bcur()))
+	    == 1); /* mark adds none */
+	CHECK(editor_visual_col(&bcur()->row[0], 4, buf_display_options(bcur()))
+	    == 2);
 	teardown();
 }
 
@@ -671,18 +740,22 @@ static void test_chars_col_round_trip_wide(void)
 
 	for (i = 0; i < sizeof(glyph_starts) / sizeof(*glyph_starts); i++) {
 		int byte = glyph_starts[i];
-		int vcol = editor_visual_col(&bcur()->row[0], byte);
+		int vcol = editor_visual_col(
+		    &bcur()->row[0], byte, buf_display_options(bcur()));
 
 		/* Zero-width glyphs share a column with their base, so the
 		 * inverse lands on the last byte offset holding that column. */
 		if (byte == 9) {
 			continue;
 		}
-		CHECK(
-		    editor_chars_col_at_visual(&bcur()->row[0], vcol) == byte);
+		CHECK(editor_chars_col_at_visual(
+			  &bcur()->row[0], vcol, buf_display_options(bcur()))
+		    == byte);
 	}
 	/* tab→8, 漢→10, a→11, 字→13, e→14, mark→14, b→15. */
-	CHECK(editor_visual_col(&bcur()->row[0], (int)sizeof(row) - 1) == 15);
+	CHECK(editor_visual_col(&bcur()->row[0], (int)sizeof(row) - 1,
+		  buf_display_options(bcur()))
+	    == 15);
 	teardown();
 }
 
@@ -694,14 +767,24 @@ static void test_chars_col_inside_double_width(void)
 	editor_insert_row(
 	    bcur(), 0, "\xE6\xBC\xA2\xE5\xAD\x97x", 7); /* 漢字x */
 
-	CHECK(editor_chars_col_at_visual(&bcur()->row[0], 0) == 0);
-	CHECK(editor_chars_col_at_visual(&bcur()->row[0], 1)
+	CHECK(editor_chars_col_at_visual(
+		  &bcur()->row[0], 0, buf_display_options(bcur()))
+	    == 0);
+	CHECK(editor_chars_col_at_visual(
+		  &bcur()->row[0], 1, buf_display_options(bcur()))
 	    == 0); /* 漢 cell 2 */
-	CHECK(editor_chars_col_at_visual(&bcur()->row[0], 2) == 3);
-	CHECK(editor_chars_col_at_visual(&bcur()->row[0], 3)
+	CHECK(editor_chars_col_at_visual(
+		  &bcur()->row[0], 2, buf_display_options(bcur()))
+	    == 3);
+	CHECK(editor_chars_col_at_visual(
+		  &bcur()->row[0], 3, buf_display_options(bcur()))
 	    == 3); /* 字 cell 2 */
-	CHECK(editor_chars_col_at_visual(&bcur()->row[0], 4) == 6);
-	CHECK(editor_chars_col_at_visual(&bcur()->row[0], 5) == 7);
+	CHECK(editor_chars_col_at_visual(
+		  &bcur()->row[0], 4, buf_display_options(bcur()))
+	    == 6);
+	CHECK(editor_chars_col_at_visual(
+		  &bcur()->row[0], 5, buf_display_options(bcur()))
+	    == 7);
 	teardown();
 }
 
@@ -1402,7 +1485,9 @@ static void test_backspace_deletes_whole_glyph(void)
 		CHECK(bcur()->row[0].chars[0] == 'a');
 		CHECK(bcur()->row[0].chars[1] == '\0');
 		CHECK(wcur()->coloff + wcur()->cx == 1);
-		CHECK(editor_visual_col(&bcur()->row[0], 1) == 1);
+		CHECK(editor_visual_col(
+			  &bcur()->row[0], 1, buf_display_options(bcur()))
+		    == 1);
 
 		editor_undo();
 
@@ -1446,12 +1531,15 @@ static void test_backspace_double_width_glyph_visual_col(void)
 	setup();
 	editor_insert_row(bcur(), 0, "a\xE4\xB8\xAD", 4);
 	editor_cursor_goto(0, 4);
-	CHECK(editor_visual_col(&bcur()->row[0], 4) == 3);
+	CHECK(editor_visual_col(&bcur()->row[0], 4, buf_display_options(bcur()))
+	    == 3);
 
 	editor_del_char();
 
 	CHECK(bcur()->row[0].size == 1);
-	CHECK(editor_visual_col(&bcur()->row[0], bcur()->row[0].size) == 1);
+	CHECK(editor_visual_col(&bcur()->row[0], bcur()->row[0].size,
+		  buf_display_options(bcur()))
+	    == 1);
 	teardown();
 }
 
@@ -3367,6 +3455,7 @@ int main(void)
 	RUN(test_update_row_no_tabs);
 	RUN(test_visual_col_ascii);
 	RUN(test_visual_col_tab);
+	RUN(test_tab_width_change_rebuilds_derived_rows);
 	RUN(test_visual_col_utf8);
 	RUN(test_visual_col_past_eol);
 	RUN(test_visual_col_huge_past_eol_saturates);

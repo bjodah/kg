@@ -13,6 +13,7 @@
 #include "def.h"
 #include "event.h"
 #include "gitdiag.h"
+#include "lisp.h"
 #include "marker.h"
 #include "perf.h"
 #include "showparen.h"
@@ -263,8 +264,10 @@ static int row_decor_spans(struct editor_buffer *b, erow *r, size_t row_start,
 
 		KG_ASSERT_CHARS_OFF(r, chars_start);
 		KG_ASSERT_CHARS_OFF(r, chars_end);
-		spans[n].render_start = chars_to_render_col(r, chars_start);
-		spans[n].render_end = chars_to_render_col(r, chars_end);
+		spans[n].render_start
+		    = chars_to_render_col(r, chars_start, &b->display);
+		spans[n].render_end
+		    = chars_to_render_col(r, chars_end, &b->display);
 		KG_ASSERT_RENDER_OFF(r, spans[n].render_start);
 		KG_ASSERT_RENDER_OFF(r, spans[n].render_end);
 		spans[n].face = s.face;
@@ -374,6 +377,7 @@ static void draw_window_rows(struct abuf *ab, struct editor_window *w,
 	int region_active = 0;
 	int region_s_row = 0, region_s_col = 0;
 	int region_e_row = 0, region_e_col = 0;
+	const struct kg_display_options *options = &b->display;
 	/* The flat-byte position of buffer row `flat_row_idx`, kept current
 	 * as `fr` advances through the loop below by adding
 	 * `rows[flat_row_idx].size + 1` per row -- never by calling
@@ -405,10 +409,10 @@ static void draw_window_rows(struct abuf *ab, struct editor_window *w,
 			 * operations cut, and stays rectangular across rows
 			 * with different tab and UTF-8 content. */
 			int p_vcol = (p_row < numrows)
-			    ? editor_visual_col(&rows[p_row], p_col)
+			    ? editor_visual_col(&rows[p_row], p_col, options)
 			    : p_col;
 			int m_vcol = (m_row < numrows)
-			    ? editor_visual_col(&rows[m_row], m_col)
+			    ? editor_visual_col(&rows[m_row], m_col, options)
 			    : m_col;
 			region_s_row = (p_row < m_row) ? p_row : m_row;
 			region_e_row = (p_row > m_row) ? p_row : m_row;
@@ -451,7 +455,7 @@ static void draw_window_rows(struct abuf *ab, struct editor_window *w,
 			 * offset drew a window that did not contain point on
 			 * any horizontally scrolled row holding a tab. */
 			offset = fr < numrows
-			    ? chars_to_render_col(&rows[fr], coloff)
+			    ? chars_to_render_col(&rows[fr], coloff, options)
 			    : 0;
 		}
 		int current_color = -1;
@@ -564,26 +568,28 @@ static void draw_window_rows(struct abuf *ab, struct editor_window *w,
 				if (bcur()->rect_mode) {
 					int byte_lo
 					    = editor_chars_col_at_visual(
-						r, region_s_col);
+						r, region_s_col, options);
 					int byte_hi
 					    = editor_chars_col_at_visual(
-						r, region_e_col);
+						r, region_e_col, options);
 					if (byte_lo > r->size) {
 						byte_lo = r->size;
 					}
 					if (byte_hi > r->size) {
 						byte_hi = r->size;
 					}
-					hi_lo = chars_to_render_col(r, byte_lo);
-					hi_hi = chars_to_render_col(r, byte_hi);
+					hi_lo = chars_to_render_col(
+					    r, byte_lo, options);
+					hi_hi = chars_to_render_col(
+					    r, byte_hi, options);
 				} else {
 					hi_lo = (fr == region_s_row)
 					    ? chars_to_render_col(
-						  r, region_s_col)
+						  r, region_s_col, options)
 					    : 0;
 					hi_hi = (fr == region_e_row)
 					    ? chars_to_render_col(
-						  r, region_e_col)
+						  r, region_e_col, options)
 					    : r->rsize;
 				}
 			}
@@ -646,7 +652,8 @@ static void draw_window_rows(struct abuf *ab, struct editor_window *w,
 			 */
 			if (bcur()->rect_mode && region_active
 			    && fr >= region_s_row && fr <= region_e_row) {
-				int row_vwidth = editor_visual_col(r, r->size);
+				int row_vwidth
+				    = editor_visual_col(r, r->size, options);
 
 				if (region_e_col > row_vwidth) {
 					int virt_e = region_e_col - row_vwidth;
@@ -799,6 +806,7 @@ void editor_refresh_screen(void)
 	 * never returns to the caller -- there is no "after" for this flag to
 	 * be stuck across. */
 	KG_EVENT_DEBUG_ENTER(KG_EVENT_UNSAFE_RENDER);
+	kg_lisp_sync_display_options();
 	if (bcur()->visual_line_mode) {
 		struct editor_window *w_act = &winlist[win_current];
 		int filerow = wcur()->rowoff + wcur()->cy;
@@ -870,7 +878,7 @@ void editor_refresh_screen(void)
 				cur_row = filerow + 1;
 			}
 			int cur_col = editor_display_col(
-			    rows, numrows, filerow, filecol);
+			    rows, numrows, filerow, filecol, &b->display);
 			int total_rows
 			    = vline ? get_total_visual_rows(w, b) : b->numrows;
 			draw_mode_line(&ab, ml_row, w->x, w->w, bidx, is_active,
@@ -954,17 +962,19 @@ void editor_refresh_screen(void)
 			 * display width, virtual space past EOL one cell per
 			 * byte -- and it is what the row above was rendered
 			 * with. */
-			cx += editor_visual_col(
-				  row, wcur()->cx + wcur()->coloff)
-			    - editor_visual_col(row, wcur()->coloff);
+			cx += editor_visual_col(row,
+				  wcur()->cx + wcur()->coloff,
+				  buf_display_options(bcur()))
+			    - editor_visual_col(row, wcur()->coloff,
+				buf_display_options(bcur()));
 		}
 		if (bcur()->visual_line_mode) {
 			int filerow = wcur()->rowoff + wcur()->cy;
 			int filecol = wcur()->coloff + wcur()->cx;
 			int win_w = win_text_width(w);
-			int rcol = row
-			    ? visual_line_cursor_col(row, filecol, win_w)
-			    : 0;
+			int rcol = row ? visual_line_cursor_col(row, filecol,
+					     win_w, buf_display_options(bcur()))
+				       : 0;
 			int cursor_vrow
 			    = get_visual_row(w, bcur(), filerow, filecol);
 			int screen_y = cursor_vrow - wcur()->rowoff_visual;

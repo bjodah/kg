@@ -105,36 +105,42 @@ static bool move_visual_line(int key, int filerow, erow *row, int filecol)
 {
 	struct editor_window *w = &winlist[win_current];
 	int win_w = win_text_width(w);
+	const struct kg_display_options *options = buf_display_options(bcur());
 	int rcol, char_idx, cur_vrow;
 
 	switch (key) {
 	case HOME_KEY:
 		if (row) {
-			rcol = visual_line_cursor_col(row, filecol, win_w);
+			rcol = visual_line_cursor_col(
+			    row, filecol, win_w, options);
 			char_idx = visual_col_to_chars(
-			    row, (rcol / win_w) * win_w, win_w);
+			    row, (rcol / win_w) * win_w, win_w, options);
 			editor_cursor_goto(filerow, char_idx);
 		}
 		return true;
 	case END_KEY:
 		if (row) {
-			int max_rcol = visual_line_width(row, win_w);
+			int max_rcol = visual_line_width(row, win_w, options);
 			int target_rcol;
 
-			rcol = visual_line_cursor_col(row, filecol, win_w);
+			rcol = visual_line_cursor_col(
+			    row, filecol, win_w, options);
 			target_rcol = filecol == row->size
 			    ? max_rcol
 			    : ((rcol / win_w) + 1) * win_w - 1;
 			if (target_rcol > max_rcol) {
 				target_rcol = max_rcol;
 			}
-			char_idx = visual_col_to_chars(row, target_rcol, win_w);
+			char_idx = visual_col_to_chars(
+			    row, target_rcol, win_w, options);
 			editor_cursor_goto(filerow, char_idx);
 		}
 		return true;
 	case ARROW_UP:
 	case ARROW_DOWN:
-		rcol = row ? visual_line_cursor_col(row, filecol, win_w) : 0;
+		rcol = row
+		    ? visual_line_cursor_col(row, filecol, win_w, options)
+		    : 0;
 		cur_vrow = get_visual_row(w, bcur(), filerow, filecol);
 		if (key == ARROW_DOWN) {
 			goto_visual_row_col(cur_vrow + 1, rcol % win_w);
@@ -238,7 +244,8 @@ static void snap_to_desired_visual_col(erow *row)
 	if (!row || wcur()->desired_visual_col < 0) {
 		return;
 	}
-	target = editor_chars_col_at_visual(row, wcur()->desired_visual_col);
+	target = editor_chars_col_at_visual(
+	    row, wcur()->desired_visual_col, buf_display_options(bcur()));
 
 	wcur()->cx = target - wcur()->coloff;
 	if (wcur()->cx < 0) {
@@ -285,7 +292,8 @@ void editor_move_cursor(int key)
 	 * run of C-n/C-p stays at the same visible column across rows of
 	 * mixed UTF-8/tab content. */
 	if (is_vertical && wcur()->desired_visual_col < 0 && row) {
-		wcur()->desired_visual_col = editor_visual_col(row, filecol);
+		wcur()->desired_visual_col = editor_visual_col(
+		    row, filecol, buf_display_options(bcur()));
 	}
 
 	if (bcur()->visual_line_mode

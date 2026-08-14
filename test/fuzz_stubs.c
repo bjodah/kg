@@ -265,24 +265,30 @@ int get_visual_row(
 	return cy;
 }
 
-int visual_line_cursor_col(erow *row, int chars_col, int win_w)
+int visual_line_cursor_col(erow *row, int chars_col, int win_w,
+    const struct kg_display_options *options)
 {
 	(void)row;
 	(void)chars_col;
 	(void)win_w;
+	(void)options;
 	return chars_col;
 }
 
-int visual_col_to_chars(erow *row, int target_vcol, int win_w)
+int visual_col_to_chars(erow *row, int target_vcol, int win_w,
+    const struct kg_display_options *options)
 {
 	(void)row;
 	(void)win_w;
+	(void)options;
 	return target_vcol;
 }
 
-int visual_line_width(erow *row, int win_w)
+int visual_line_width(
+    erow *row, int win_w, const struct kg_display_options *options)
 {
 	(void)win_w;
+	(void)options;
 	return row ? row->size : 0;
 }
 

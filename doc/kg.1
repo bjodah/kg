@@ -30,13 +30,20 @@ kill ring, and undo/redo.
 .Nm
 does not depend on curses; it uses VT100 escape sequences directly.
 .Pp
-Tabs are displayed with tab stops every eight columns, the same
+Tabs are displayed with tab stops every eight columns by default, the same
 convention as Emacs'
 .Li tab-width
 default,
 .Xr cat 1
-and the terminal itself; a tab therefore advances point to the next
-multiple of eight.
+and the terminal itself.
+The Lisp variable
+.Li tab-width
+accepts values from 1 through 1000;
+.Li setq
+changes the default seen by buffers without a local value, while
+.Li setq-local
+changes the current buffer only.
+A tab advances point to the next multiple of that value.
 .Pp
 Display columns are counted the way the terminal draws them.
 East-Asian-Wide and Fullwidth characters (CJK, Hangul, kana, fullwidth

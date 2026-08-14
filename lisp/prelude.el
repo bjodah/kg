@@ -906,6 +906,8 @@
   "Non-nil means do not show the startup screen.")
 (defvar inhibit-startup-message nil
   "Emacs' other name for `inhibit-startup-screen'; either one suppresses it.")
+(defvar tab-width 8
+  "Distance between tab stops (for display of tab characters), in columns.")
 
 ;; --- editor helpers ---
 (defalias 'string-empty-p (lambda (s) (string= s "")))

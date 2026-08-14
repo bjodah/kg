@@ -1913,6 +1913,19 @@ static void test_current_column_tab(void)
 	CHECK(eval_eq("(progn (goto-char 2) (current-column))", "8"));
 	CHECK(eval_eq("(progn (goto-char 3) (current-column))", "9"));
 
+	/* The native must see a setq earlier in the same form; waiting for a
+	 * later repaint left C geometry one evaluation behind. */
+	CHECK(eval_eq(
+	    "(progn (setq tab-width 4) (goto-char 2) (current-column))", "4"));
+	CHECK(strcmp(bcur()->row[0].render, "    x") == 0);
+	CHECK(eval_eq(
+	    "(progn (setq tab-width 9) (goto-char 2) (current-column))", "9"));
+	CHECK(bcur()->row[0].hl_capacity >= bcur()->row[0].rsize);
+	CHECK(eval_eq("(progn (setq tab-width 32) (goto-char 2) "
+		      "(current-column))",
+	    "32"));
+	CHECK(bcur()->row[0].rsize == 33);
+
 	kg_lisp_shutdown();
 	teardown_editor();
 }

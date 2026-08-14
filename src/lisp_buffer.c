@@ -6,6 +6,7 @@
 #include "../fe/fe.h"
 #include "bufhandle.h"
 #include "def.h"
+#include "lisp.h"
 #include "lisp_internal.h"
 #include "lisp_obj.h"
 #include "localvars.h"
@@ -291,16 +292,18 @@ FeObject *native_line_number(FeContext *context, FeObject *arguments)
 /* Emacs' current-column is a display column, so tabs expand. */
 FeObject *native_current_column(FeContext *context, FeObject *arguments)
 {
-	struct editor_buffer *b = lisp_exec_buffer(context);
+	struct editor_buffer *b;
 	int col_out = 0;
 
 	FeRequireNoArguments(context, arguments);
+	kg_lisp_sync_display_options();
+	b = lisp_exec_buffer(context);
 	if (b->numrows > 0) {
 		int row, col;
 
 		buffer_position_to_row_col(
 		    b, lisp_exec_point_byte(context), &row, &col);
-		col_out = editor_visual_col(&b->row[row], col);
+		col_out = editor_visual_col(&b->row[row], col, &b->display);
 	}
 	return FeMakeInteger(context, (int64_t)col_out);
 }

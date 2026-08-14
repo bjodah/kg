@@ -22,12 +22,14 @@
 
 /* ---- The pure half ---- */
 
-int gitdiag_commit_subject_span(erow *row, struct kg_gitdiag_span *out)
+int gitdiag_commit_subject_span(erow *row,
+    const struct kg_display_options *options, struct kg_gitdiag_span *out)
 {
 	if (row->rsize <= KG_GITDIAG_SUBJECT_LIMIT) {
 		return 0;
 	}
-	out->start = render_to_chars_col(row, KG_GITDIAG_SUBJECT_LIMIT);
+	out->start
+	    = render_to_chars_col(row, KG_GITDIAG_SUBJECT_LIMIT, options);
 	out->end = row->size;
 	/* A subject that is over the limit only because a TAB expands past
 	 * it has no character of its own out there to mark, and an empty
@@ -113,7 +115,7 @@ static int diag_count;
 
 static struct {
 	uint64_t buffer_id;
-	uint64_t content_generation;
+	uint64_t layout_generation;
 	const struct editor_syntax *syntax;
 	int valid;
 } diag_state;
@@ -179,7 +181,7 @@ static void gitdiag_publish_commit(struct editor_buffer *b)
 	if (row < 0) {
 		return;
 	}
-	if (gitdiag_commit_subject_span(&b->row[row], &span)) {
+	if (gitdiag_commit_subject_span(&b->row[row], &b->display, &span)) {
 		gitdiag_publish(b, row, &span);
 	}
 }
@@ -205,7 +207,7 @@ static void gitdiag_publish_rebase(struct editor_buffer *b)
 static int gitdiag_state_current(const struct editor_buffer *b)
 {
 	return diag_state.valid && diag_state.buffer_id == b->id
-	    && diag_state.content_generation == b->content_generation
+	    && diag_state.layout_generation == b->layout_generation
 	    && diag_state.syntax == b->syntax;
 }
 
@@ -235,7 +237,7 @@ void gitdiag_update(struct editor_buffer *b)
 		gitdiag_publish_rebase(b);
 	}
 	diag_state.buffer_id = b->id;
-	diag_state.content_generation = b->content_generation;
+	diag_state.layout_generation = b->layout_generation;
 	diag_state.syntax = b->syntax;
 	diag_state.valid = 1;
 }

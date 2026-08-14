@@ -230,7 +230,8 @@ standard VT100 escape sequences.
   keystroke rather than at the save
 - No dependencies (not even curses)
 - Uses standard VT100 escape sequences
-- Tab stops every 8 columns, like Emacs' default `tab-width`
+- Tab stops every 8 columns by default, configurable from Lisp with
+  `tab-width` (`setq` changes the default; `setq-local` changes one buffer)
 - Display columns measured the way the terminal draws them: East-Asian-Wide
   and Fullwidth characters take two columns, combining marks none (Unicode
   15.1 width table, no libc locale required)

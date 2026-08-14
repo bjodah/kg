@@ -44,7 +44,7 @@ void kg_lisp_set_interrupt_check(int (*check)(void));
 [[nodiscard]] int kg_lisp_active(void);
 
 /* Whether the Lisp variable `name` currently holds a non-nil value: the
- * one channel by which an editor module consults a user-settable
+ * boolean channel by which an editor module consults a user-settable
  * variable, so nothing outside the adapter needs to spell a Lisp form.
  * Zero -- "not asked for" -- for an unbound name, a nil value, an
  * interpreter that is not initialized or is mid-evaluation, and every
@@ -53,6 +53,12 @@ void kg_lisp_set_interrupt_check(int (*check)(void));
  * plain variable spelling supplied by kg itself, not by anything it
  * reads. */
 [[nodiscard]] int kg_lisp_variable_non_nil(const char *name);
+
+/* Bring C's buffer-owned display options up to date with their Lisp
+ * variables.  Safe both inside an active Lisp frame (for a native that
+ * immediately needs geometry) and at repaint time.  WITH_LISP=0 is a
+ * no-op. */
+void kg_lisp_sync_display_options(void);
 
 /* Run `kill-buffer-hook' in the buffer `handle` names, which is about to
  * be killed.  Called from bufmgr's one commit point, after every refusal

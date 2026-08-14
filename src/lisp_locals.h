@@ -146,5 +146,9 @@ void lisp_locals_buffer_killed(
 uintptr_t lisp_locals_bind_tag(struct FeContext *ctx, struct FeObject *symbol);
 struct FeObject *lisp_locals_bind_target(
     struct FeContext *ctx, struct FeObject *symbol, uintptr_t tag);
+/* Read BUFFER's binding, or its default, without selecting the buffer.
+ * Returns nullptr for an unbound value and performs no evaluation. */
+struct FeObject *lisp_locals_buffer_value(struct FeContext *ctx,
+    struct FeObject *symbol, struct kg_buffer_handle buffer);
 
 #endif /* KG_LISP_LOCALS_H */

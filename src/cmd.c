@@ -88,7 +88,7 @@ static void cmd_what_cursor_position(int fd)
 	/* Zero-based display column, as Emacs' C-x = reports and as the
 	 * mode line shows, so the two never disagree. */
 	int col = editor_display_col(bcur()->row, bcur()->numrows, line - 1,
-	    wcur()->coloff + wcur()->cx);
+	    wcur()->coloff + wcur()->cx, buf_display_options(bcur()));
 	int pct = bcur()->numrows ? (line * 100) / bcur()->numrows : 100;
 
 	(void)fd;

@@ -8,6 +8,7 @@
 #include "keybind.h"
 #include "keyevent.h"
 #include "keymap.h"
+#include "lisp.h"
 #include "lisp_internal.h"
 #include "lisp_obj.h"
 
@@ -207,6 +208,7 @@ FeObject *native_command(FeContext *context, FeObject *arguments)
 	 * halves are no-ops when the exec buffer is not the one on screen --
 	 * a command reached from Lisp acts on the window's buffer, which is
 	 * a divergence recorded in doc/lisp-api.md and not one this fixes. */
+	kg_lisp_sync_display_options();
 	lisp_exec_point_to_window();
 	rc = cmd_invoke(name, &ctx);
 	lisp_exec_point_from_window(context);

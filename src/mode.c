@@ -1,8 +1,11 @@
+#include <string.h>
+
 #include "def.h"
 #include "perf.h"
 #include "vgeom.h"
 
-int chars_to_render_col(erow *row, int chars_col)
+int chars_to_render_col(
+    erow *row, int chars_col, const struct kg_display_options *options)
 {
 	int j, render_col = 0, visual_col = 0;
 
@@ -11,7 +14,7 @@ int chars_to_render_col(erow *row, int chars_col)
 	}
 	for (j = 0; j < chars_col; j++) {
 		if (row->chars[j] == TAB) {
-			int spaces = tab_stop_advance(visual_col);
+			int spaces = tab_stop_advance(visual_col, options);
 
 			render_col += spaces;
 			visual_col += spaces;
@@ -28,13 +31,14 @@ int chars_to_render_col(erow *row, int chars_col)
  * before it can be a buffer position.  Kept beside chars_to_render_col()
  * rather than copied into each such caller: the two walks have to agree
  * about what a TAB expands to, and they cannot disagree from here. */
-int render_to_chars_col(erow *row, int render_col)
+int render_to_chars_col(
+    erow *row, int render_col, const struct kg_display_options *options)
 {
 	int j, render = 0, visual_col = 0;
 
 	for (j = 0; j < row->size && render < render_col; j++) {
 		if (row->chars[j] == TAB) {
-			int spaces = tab_stop_advance(visual_col);
+			int spaces = tab_stop_advance(visual_col, options);
 
 			render += spaces;
 			visual_col += spaces;
@@ -78,14 +82,15 @@ static int wrap_pad(int vcol, int width, int win_w)
  * double-width glyph lands on a wrap boundary; those gain one blank
  * column per bumped glyph so this model matches what the terminal draws.
  * Callers pass win_w > 0. */
-static int wrapped_visual_col(erow *row, int chars_col, int win_w)
+static int wrapped_visual_col(erow *row, int chars_col, int win_w,
+    const struct kg_display_options *options)
 {
 	int j, vcol = 0;
 	int limit = chars_col < row->size ? chars_col : row->size;
 
 	for (j = 0; j < limit; j++) {
 		if (row->chars[j] == TAB) {
-			vcol += tab_stop_advance(vcol);
+			vcol += tab_stop_advance(vcol, options);
 		} else {
 			int w = utf8_width_at(row->chars, row->size, j);
 
@@ -101,7 +106,8 @@ static int wrapped_visual_col(erow *row, int chars_col, int win_w)
 /* Inverse of wrapped_visual_col(): byte offset whose wrapped display
  * column lands at or just before `target_vcol`.  Targets past the row's
  * end clamp to row->size; callers clamp beforehand anyway. */
-static int wrapped_chars_col(erow *row, int target_vcol, int win_w)
+static int wrapped_chars_col(erow *row, int target_vcol, int win_w,
+    const struct kg_display_options *options)
 {
 	int j = 0, vcol = 0;
 
@@ -109,7 +115,7 @@ static int wrapped_chars_col(erow *row, int target_vcol, int win_w)
 		int next;
 
 		if (row->chars[j] == TAB) {
-			next = vcol + tab_stop_advance(vcol);
+			next = vcol + tab_stop_advance(vcol, options);
 		} else {
 			int w = utf8_width_at(row->chars, row->size, j);
 
@@ -127,27 +133,34 @@ static int wrapped_chars_col(erow *row, int target_vcol, int win_w)
 /* Total display columns `row` occupies when wrapped every win_w cells,
  * including any blank cells left by glyphs bumped off a wrap boundary.
  *
- * Window width is the row's wrapped-width cache key (def.h's erow): a
- * row's text and the tab/Unicode width tables it is measured against are
- * otherwise unchanged between calls, so the same win_w always reproduces
- * the same answer.  A cache hit costs no row-byte scan at all, which is
- * what lets an unchanged repaint stay off the buffer's total size; a
- * miss rescans and refills the cache for next time. */
-int visual_line_width(erow *row, int win_w)
+ * Window width and display options are the row's wrapped-width cache key
+ * (def.h's erow).  A cache hit costs no row-byte scan at all, which is
+ * what lets an unchanged repaint stay off the buffer's total size; a miss
+ * rescans and refills the cache for next time. */
+int visual_line_width(
+    erow *row, int win_w, const struct kg_display_options *options)
 {
+	struct kg_wrap_cache_key key;
+
 	win_w = win_cells(win_w);
-	if (row->wrap_cache_win_w == win_w) {
+	key = (struct kg_wrap_cache_key) {
+		.win_w = win_w,
+		.tab_width = display_tab_width(options),
+	};
+	if (memcmp(&row->wrap_cache_key, &key, sizeof(key)) == 0) {
 		KG_PERF_INC(KG_PERF_VISUAL_WIDTH_CACHE_HIT);
 		return row->wrap_cache_vcols;
 	}
 	KG_PERF_INC(KG_PERF_VISUAL_ROW_SCAN);
 	KG_PERF_ADD(KG_PERF_VISUAL_BYTE_SCAN, row->size);
-	row->wrap_cache_vcols = wrapped_visual_col(row, row->size, win_w);
-	row->wrap_cache_win_w = win_w;
+	row->wrap_cache_vcols
+	    = wrapped_visual_col(row, row->size, win_w, options);
+	row->wrap_cache_key = key;
 	return row->wrap_cache_vcols;
 }
 
-int visual_line_cursor_col(erow *row, int chars_col, int win_w)
+int visual_line_cursor_col(erow *row, int chars_col, int win_w,
+    const struct kg_display_options *options)
 {
 	int rcol, width;
 
@@ -156,9 +169,10 @@ int visual_line_cursor_col(erow *row, int chars_col, int win_w)
 	 * asking wrapped_visual_col() to redo that same walk when point
 	 * sits at or past EOL (end-of-line motions, appends, a cursor
 	 * parked past a short line) would query the row's width twice. */
-	width = visual_line_width(row, win_w);
-	rcol = chars_col < row->size ? wrapped_visual_col(row, chars_col, win_w)
-				     : width + (chars_col - row->size);
+	width = visual_line_width(row, win_w, options);
+	rcol = chars_col < row->size
+	    ? wrapped_visual_col(row, chars_col, win_w, options)
+	    : width + (chars_col - row->size);
 	/* Point at EOL on an exact-width line remains on the final display
 	 * row.  Treat its screen cell as the last cell of that segment. */
 	if (rcol > 0 && rcol == width && rcol % win_w == 0) {
@@ -182,11 +196,13 @@ static int visual_segments_for_width(int width, int win_w)
  * here -- still mean "a row the O(rows) side of the geometry API
  * visited" once that rebuild, rather than a per-screen-row walk, is the
  * thing incrementing it. */
-int visual_segments(erow *row, int win_w)
+int visual_segments(
+    erow *row, int win_w, const struct kg_display_options *options)
 {
 	win_w = win_cells(win_w);
 	KG_PERF_INC(KG_PERF_VISUAL_PREFIX_VISIT);
-	return visual_segments_for_width(visual_line_width(row, win_w), win_w);
+	return visual_segments_for_width(
+	    visual_line_width(row, win_w, options), win_w);
 }
 
 /* Byte offset in row->render where the display column `target_vcol`
@@ -218,12 +234,13 @@ int render_offset_at_visual(erow *row, int target_vcol, int win_w)
  * The argument is a display column -- what visual_line_cursor_col() and
  * a segment boundary produce -- and never the render byte offset
  * chars_to_render_col() returns; see doc/coordinates.md row 5. */
-int visual_col_to_chars(erow *row, int target_vcol, int win_w)
+int visual_col_to_chars(erow *row, int target_vcol, int win_w,
+    const struct kg_display_options *options)
 {
 	int width;
 
 	win_w = win_cells(win_w);
-	width = visual_line_width(row, win_w);
+	width = visual_line_width(row, win_w, options);
 	if (target_vcol > width) {
 		target_vcol = width;
 	}
@@ -231,7 +248,8 @@ int visual_col_to_chars(erow *row, int target_vcol, int win_w)
 		target_vcol = 0;
 	}
 	{
-		int chars_col = wrapped_chars_col(row, target_vcol, win_w);
+		int chars_col
+		    = wrapped_chars_col(row, target_vcol, win_w, options);
 
 		KG_ASSERT_CHARS_OFF(row, chars_col);
 		return chars_col;

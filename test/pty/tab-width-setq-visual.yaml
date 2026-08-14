@@ -1,0 +1,19 @@
+# (setq tab-width 4) must change the visual width of a TAB from 8 to 4
+# display columns, the same as Emacs.  The ruler line '0123X' makes the
+# screen assertion unambiguous: after the setq, the TAB+X line must
+# visually align X above the '4', not above the '8'.
+name: tab-width-setq-visual
+filename: tw-test.txt
+requires_feature: lisp
+backend: tmux
+dimensions: [12, 40]
+initial: "\tX\n01234567X\n"
+keys:
+  - "M-:"
+  - "(setq tab-width 4)"
+  - RET
+expected_saved: "\tX\n01234567X\n"
+expected_screen_contains:
+  - "    X"
+expected_screen_not_contains:
+  - "        X"

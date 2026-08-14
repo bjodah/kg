@@ -59,14 +59,13 @@
  * would need its own free(), which needs the struct's layout, which
  * needs this file. */
 struct kg_vgeom_index {
-	/* Buffer handle (not slot: a slot is reused) + content_generation
-	 * (src/def.h, bumped by buffer_note_change()) is "which text, as of
-	 * which edit".  win_w is win_cells()'s normalized window width, so
-	 * a raw 0 and a raw -5 -- geometrically identical -- share an
-	 * entry.  numrows is belt-and-braces against a content_generation
-	 * bump this index somehow missed. */
+	/* Buffer handle (not slot: a slot is reused) + layout_generation is
+	 * "which text and display options".  win_w is win_cells()'s
+	 * normalized window width, so a raw 0 and a raw -5 -- geometrically
+	 * identical -- share an entry.  numrows is belt-and-braces against a
+	 * generation bump this index somehow missed. */
 	struct kg_buffer_handle buf;
-	uint64_t content_generation;
+	uint64_t layout_generation;
 	int win_w;
 	int row_count;
 	/* Length numrows + 1; entry i is the visual rows before logical row
@@ -104,7 +103,7 @@ static bool vgeom_key_matches(const struct kg_vgeom_index *idx,
 {
 	return idx && idx->buf.slot == h.slot && idx->buf.id == h.id
 	    && idx->buf.generation == h.generation
-	    && idx->content_generation == b->content_generation
+	    && idx->layout_generation == b->layout_generation
 	    && idx->win_w == win_w && idx->row_count == b->numrows;
 }
 
@@ -135,7 +134,7 @@ static void vgeom_rebuild(
 
 	idx->prefix[0] = 0;
 	for (i = 0; i < b->numrows; i++) {
-		int segs = visual_segments(&b->row[i], win_w);
+		int segs = visual_segments(&b->row[i], win_w, &b->display);
 		size_t next;
 
 		if (ckd_add(&next, total, (size_t)segs)
@@ -149,7 +148,7 @@ static void vgeom_rebuild(
 	}
 
 	idx->buf = buf_handle_of(b);
-	idx->content_generation = b->content_generation;
+	idx->layout_generation = b->layout_generation;
 	idx->win_w = win_w;
 	idx->row_count = b->numrows;
 	w->vgeom = idx;
@@ -201,7 +200,7 @@ static void row_segment_scan(struct editor_buffer *b, int win_w,
 	int r;
 
 	for (r = 0; r < b->numrows; r++) {
-		int segments = visual_segments(&b->row[r], win_w);
+		int segments = visual_segments(&b->row[r], win_w, &b->display);
 
 		if (visual_row_count + segments > target_vrow) {
 			*out_row = r;
@@ -284,7 +283,7 @@ int get_total_visual_rows(struct editor_window *w, struct editor_buffer *b)
 		return idx->prefix[idx->row_count];
 	}
 	for (r = 0, total = 0; r < b->numrows; r++) {
-		total += visual_segments(&b->row[r], win_w);
+		total += visual_segments(&b->row[r], win_w, &b->display);
 	}
 	return total;
 }
@@ -311,11 +310,12 @@ int get_visual_row(
 		int r;
 
 		for (vrow = 0, r = 0; r < cy && r < b->numrows; r++) {
-			vrow += visual_segments(&b->row[r], win_w);
+			vrow += visual_segments(&b->row[r], win_w, &b->display);
 		}
 	}
 	if (cy >= 0 && cy < b->numrows) {
-		int rcol = visual_line_cursor_col(&b->row[cy], cx, win_w);
+		int rcol = visual_line_cursor_col(
+		    &b->row[cy], cx, win_w, &b->display);
 
 		vrow += rcol / win_w;
 	}
@@ -356,15 +356,15 @@ void goto_visual_row_col(int target_vrow, int target_rcol_in_segment)
 	}
 
 	{
-		int width = visual_line_width(&b->row[row], win_w);
+		int width = visual_line_width(&b->row[row], win_w, &b->display);
 		int target_rcol = segment * win_w + target_rcol_in_segment;
 		int char_idx;
 
 		if (target_rcol > width) {
 			target_rcol = width;
 		}
-		char_idx
-		    = visual_col_to_chars(&b->row[row], target_rcol, win_w);
+		char_idx = visual_col_to_chars(
+		    &b->row[row], target_rcol, win_w, &b->display);
 		editor_cursor_goto(row, char_idx);
 	}
 }
@@ -416,7 +416,8 @@ bool vgeom_iter_next(
 	 * mid-loop. */
 	segs = it->idx ? (int)(it->idx->prefix[it->cur_row + 1]
 			     - it->idx->prefix[it->cur_row])
-		       : visual_segments(&it->b->row[it->cur_row], it->win_w);
+		       : visual_segments(&it->b->row[it->cur_row], it->win_w,
+			     &it->b->display);
 	it->segment++;
 	if (it->segment >= segs) {
 		it->cur_row++;

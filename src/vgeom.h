@@ -24,6 +24,7 @@
 typedef struct erow erow;
 struct editor_window;
 struct editor_buffer;
+struct kg_display_options;
 /* struct kg_vgeom_index is deliberately *not* forward-declared here: the
  * pointer member in struct vgeom_iter below declares the tag on its own,
  * and IWYU (.ci/ci-06) flags the redundant declaration. */
@@ -48,36 +49,42 @@ int win_cells(int win_w);
 /* Render-byte offset in row->render (not a display column; see
  * doc/coordinates.md row 4) where chars-space offset `chars_col` lands,
  * expanding tabs as it walks. */
-int chars_to_render_col(erow *row, int chars_col);
+int chars_to_render_col(
+    erow *row, int chars_col, const struct kg_display_options *options);
 
 /* The chars-space offset render byte `render_col` of `row` lands on:
  * chars_to_render_col()'s walk in the other direction, and its inverse
  * for any render offset that starts a chars byte.  An offset inside an
  * expanded TAB names no chars byte at all, and answers the offset just
  * past that TAB -- the first chars byte a caller could address. */
-int render_to_chars_col(erow *row, int render_col);
+int render_to_chars_col(
+    erow *row, int render_col, const struct kg_display_options *options);
 
 /* Total display columns `row` occupies when wrapped every win_w cells,
  * including any blank cells a glyph bumped off a wrap boundary leaves
- * behind.  Cached per row at its last-seen window width (src/def.h's
- * erow); a cache hit costs no byte scan. */
-int visual_line_width(erow *row, int win_w);
+ * behind.  Cached per row at its last-seen window width and display
+ * options (src/def.h's erow); a cache hit costs no byte scan. */
+int visual_line_width(
+    erow *row, int win_w, const struct kg_display_options *options);
 
 /* Display column of chars-space offset `chars_col` once `row` is wrapped
  * every win_w cells; the wrapped-cursor-column counterpart of
  * editor_visual_col(). */
-int visual_line_cursor_col(erow *row, int chars_col, int win_w);
+int visual_line_cursor_col(erow *row, int chars_col, int win_w,
+    const struct kg_display_options *options);
 
 /* Inverse of visual_line_cursor_col(): the chars-space offset whose
  * wrapped display column lands at or just before `target_vcol` -- a
  * display column, never the render-byte offset chars_to_render_col()
  * returns (doc/coordinates.md row 5). */
-int visual_col_to_chars(erow *row, int target_vcol, int win_w);
+int visual_col_to_chars(erow *row, int target_vcol, int win_w,
+    const struct kg_display_options *options);
 
 /* Wrap segments `row` occupies at `win_w`: 1 + how many times a wrap
  * boundary was crossed.  Every visit KG_PERF_VISUAL_PREFIX_VISIT counts
  * is one call to this. */
-int visual_segments(erow *row, int win_w);
+int visual_segments(
+    erow *row, int win_w, const struct kg_display_options *options);
 
 /* Render-byte offset in row->render where the wrapped display column
  * `target_vcol` begins, advancing a whole glyph at a time so a wrap never
@@ -87,7 +94,7 @@ int render_offset_at_visual(erow *row, int target_vcol, int win_w);
 /* ---- The persistent per-window index (src/vgeom.c) ----------------------
  *
  * Lazily built the first time a window asks a geometry question, keyed by
- * the buffer it shows (handle + content_generation), the window's own
+ * the buffer it shows (handle + layout_generation), the window's own
  * normalized text width, and the buffer's row count -- see
  * struct editor_window's `vgeom` field.  A key mismatch rebuilds in
  * O(rows); an allocation failure, or a running total that would not fit

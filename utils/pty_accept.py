@@ -82,11 +82,28 @@ PYTHON_MODULE_INTERPRETER = "python3"
 KG_READY_PATTERN = r"(?:----|-\*\*-)  "
 KG_READY = re.compile(KG_READY_PATTERN)
 KG_READY_BYTES = re.compile(KG_READY_PATTERN.encode())
+# kg's mouse-report request (src/mouse.c's MOUSE_ON), which enable_raw_mode()
+# sends as its last act -- so this is the first thing kg says on a terminal
+# it has just taken over, and saying it MEANS the line discipline is kg's.
+# Matched exactly rather than "the first byte that arrives", because argv[0]
+# need not be kg: a --kg-runner wrapper writes to the same pty, and a
+# valgrind without --quiet would otherwise have its banner mistaken for kg
+# reaching raw mode.
+KG_RAW_BYTES = re.compile(rb"\x1b\[\?1000;1002;1006h")
 READY_POLL = 0.005
-# Only reached when the mode line never shows up, so it can be generous:
-# polling normally returns in a few milliseconds on a plain build and about
-# 0.35 s under valgrind.
+# Floor under the readiness budget; the budget itself is the case's own
+# --timeout.  Waiting longer costs a healthy editor nothing -- the wait ends
+# on the mode line, in a few milliseconds on a plain build and about 0.35 s
+# under valgrind -- so only an editor that never paints spends it, and for
+# that one PTY_TIMEOUT is the knob .ci/ci-env.sh already sizes per box.  A
+# second, separate, unsized budget here is not free: see EditorNotReady for
+# what expiring one used to do.
 READY_DEADLINE = 2.0
+# What the tmux backend allows the session to take to disappear after the
+# trailer's C-x C-c.  Unrelated to READY_DEADLINE, whose value it used to
+# borrow: cases that deliberately leave kg running must not pay the per-run
+# timeout here (see wait_exit_tmux).
+EXIT_DEADLINE = 2.0
 # A frame can be painted from inside init-file evaluation, so the mode line
 # alone does not mean kg has reached its input loop.  Wait for output to
 # stop as well.
@@ -101,6 +118,34 @@ EMACS_FALLBACK = "/opt-3/emacs-31-lucid/bin/emacs"
 ROOT = Path(__file__).resolve().parent.parent
 
 
+class EditorNotReady(Exception):
+	"""The editor never painted a first frame, so its terminal is still
+	the pty's DEFAULT line discipline -- and the case's keys must not be
+	typed into that.
+
+	Both wait_ready_* used to swallow an expired wait and start sending
+	anyway, on the theory that a slow editor merely fails late.  It does
+	not: a key sent before kg reaches enable_raw_mode() (src/tty.c) is
+	interpreted by the cooked line discipline instead of by kg.  C-c is
+	VINTR, so kg dies of SIGINT and the harness reports its own
+	128+2=130.  C-u is VKILL, so it silently erases every key queued
+	before it.  C-s/C-q are XOFF/XON, C-? is VERASE, C-w VWERASE, C-o
+	VDISCARD, C-v VLNEXT, and ICRNL rewrites RET.  What comes out is not
+	a late case but a fabricated one, and it is indistinguishable in the
+	log from a real editor defect: one hosted MSan run spent 212 FAILs
+	and 54 ERRORs -- saved-file diffs, missing screen text, nine `kg
+	exited 130` -- on nothing but this, in a lane where kg tripped no
+	sanitizer at all.  A case whose editor never started has no
+	measurement to report, so it says so and stops.
+	"""
+
+	def __init__(self, budget: float, what: str = "first frame") -> None:
+		super().__init__(
+			f"no {what} within {budget:g}s; the editor's "
+			"terminal is still in the pty's default cooked mode, "
+			"where C-c is VINTR and C-u is VKILL")
+
+
 @dataclass
 class Case:
 	name: str
@@ -110,6 +155,7 @@ class Case:
 	initial: str
 	file_mode: int | None
 	keys: list[str]
+	typeahead_keys: list[str]
 	requires_feature: tuple[str, ...]
 	requires_tool: tuple[str, ...]
 	requires_python_module: str | None
@@ -653,6 +699,25 @@ def load_case(path: Path) -> Case:
 		raise ValueError(f"{path}: specify exactly one of expected_saved, expected_saved_any, or oracle")
 	if not isinstance(data["keys"], list) or not all(isinstance(k, str) for k in data["keys"]):
 		raise ValueError(f"{path}: keys must be a list of strings")
+	# `typeahead_keys:` is the opt-in past the readiness wait, and the
+	# only one: `keys:` is typed at an editor that has painted, and
+	# EditorNotReady is what happens to a case that never gets one.  These
+	# are typed at an editor that is raw but has not painted yet -- the
+	# window kg loads its files and its init file in.  See
+	# send_typeahead_pexpect() for what triggers them.
+	typeahead_keys = data.get("typeahead_keys", [])
+	if (not isinstance(typeahead_keys, list) or
+	    not all(isinstance(k, str) for k in typeahead_keys)):
+		raise ValueError(
+			f"{path}: typeahead_keys must be a list of strings")
+	if typeahead_keys and any(
+		settle_token(t) is not None or t.startswith("RESIZE=")
+		for t in typeahead_keys
+	):
+		raise ValueError(
+			f"{path}: typeahead_keys takes keys only; SETTLE= and "
+			"RESIZE= are waits, and there is nothing to wait for "
+			"before the first frame")
 	if "expected_saved_any" in data:
 		if (not isinstance(data["expected_saved_any"], list) or
 		    not data["expected_saved_any"] or
@@ -675,6 +740,24 @@ def load_case(path: Path) -> Case:
 				raise ValueError(
 					f"{path}: {token} needs backend: tmux "
 					"(the text form reads the screen)")
+	# `typeahead_keys:` is pexpect-only, and for the mirror image of the
+	# reason `SETTLE=<n>:<text>` is tmux-only: it fires on the
+	# mouse-report request, and a tmux pane is read with capture-pane,
+	# which shows the SCREEN.  That escape paints nothing, so there would
+	# be nothing to fire on and the keys would fall back to racing kg's
+	# startup in cooked mode.
+	if backend != "pexpect" and data.get("typeahead_keys"):
+		raise ValueError(f"{path}: typeahead_keys needs backend: pexpect "
+				 "(it fires on an escape kg writes, which "
+				 "capture-pane cannot see)")
+	# Nor with the Emacs oracle: KG_READY describes kg's mode line, so the
+	# oracle's run has no readiness signal to be "before" and takes a
+	# fixed sleep instead.  Type-ahead typed into that sleep would measure
+	# Emacs' startup, which is not a question any case here asks.
+	if "oracle" in data and data.get("typeahead_keys"):
+		raise ValueError(f"{path}: typeahead_keys and oracle: are "
+				 "exclusive (the oracle has no readiness "
+				 "signal to type ahead of)")
 	oracle_backend = data.get("oracle_backend")
 	if oracle_backend is not None and oracle_backend not in ("pexpect", "tmux"):
 		raise ValueError(f"{path}: oracle_backend must be pexpect or tmux")
@@ -703,6 +786,7 @@ def load_case(path: Path) -> Case:
 		initial=data["initial"],
 		file_mode=file_mode,
 		keys=data["keys"],
+		typeahead_keys=typeahead_keys,
 		requires_feature=requires_feature,
 		requires_tool=requires_tool,
 		requires_python_module=requires_python_module,
@@ -772,33 +856,71 @@ def write_workspace_files(cwd: Path, workspace_files: dict[str, str]) -> None:
 		target.write_text(content.replace("{CWD}", str(cwd)))
 
 
-def wait_ready_pexpect(child: pexpect.spawn, ready: bool, budget: float) -> None:
-	"""Wait for the editor's first painted frame, or sleep the budget.
+def wait_ready_pexpect(child: pexpect.spawn, ready: bool,
+		       startup_delay: float, budget: float) -> None:
+	"""Wait for the editor's first painted frame, or sleep `startup_delay`.
 
 	`budget` is a deadline rather than a cost: a plain build is ready in a
 	few milliseconds where the same binary under valgrind needs ~0.3 s, and
-	polling charges each runner only what it actually takes.  When the
-	pattern never shows up (unknown editor, immediate exit) this degrades
-	to the fixed sleep it replaced.
+	polling charges each runner only what it actually takes.  An editor
+	whose readiness cannot be recognised (the Emacs oracle) takes the
+	fixed sleep this replaced instead.
+
+	An expired budget raises: see EditorNotReady for why sending keys
+	anyway is worse than reporting nothing.
 	"""
 	if not ready:
-		time.sleep(budget)
+		time.sleep(startup_delay)
 		return
 	budget = max(budget, READY_DEADLINE)
 	deadline = time.monotonic() + budget
 	try:
 		child.expect(KG_READY_BYTES, timeout=budget)
-		last = time.monotonic()
-		while time.monotonic() < deadline:
-			try:
-				if child.read_nonblocking(4096, READY_POLL):
-					last = time.monotonic()
-			except pexpect.TIMEOUT:
-				pass
-			if time.monotonic() - last >= READY_SETTLE:
-				return
-	except (pexpect.TIMEOUT, pexpect.EOF):
-		pass
+	except (pexpect.TIMEOUT, pexpect.EOF) as exc:
+		raise EditorNotReady(budget) from exc
+	last = time.monotonic()
+	while time.monotonic() < deadline:
+		try:
+			if child.read_nonblocking(4096, READY_POLL):
+				last = time.monotonic()
+		except (pexpect.TIMEOUT, pexpect.EOF):
+			pass
+		if time.monotonic() - last >= READY_SETTLE:
+			return
+
+
+def send_typeahead_pexpect(child: pexpect.spawn, typeahead_keys: list[str],
+			   budget: float) -> None:
+	"""Type `typeahead_keys:` into the window between raw mode and the
+	first painted frame, and nowhere else.
+
+	The window is real -- kg enters raw mode, then loads the files, then
+	loads init.el, and only then paints -- and it is the one place a key
+	is queued rather than acted on.  Keys sent into it are the harness's
+	only way to ask what happens to type-ahead.
+
+	The trigger is KG_RAW_BYTES, not the spawn, and it is not a stand-in
+	for a sleep: kg sends the mouse-report request from inside
+	enable_raw_mode(), so seeing it MEANS the line discipline is kg's, on
+	any box and under any sanitizer, which no wall-clock delay can mean.
+	Sending at spawn instead races execve and the dynamic linker -- 1.7 ms
+	measured on this box, and lost every time at delaybeforesend 0 -- and
+	what it would measure is that race, in the cooked mode EditorNotReady
+	exists to keep cases out of.
+
+	One write, no key_delay: type-ahead is by definition what arrives
+	faster than the editor reads it, and the pty queues it whole.  kg
+	reads the burst as a paste (under 30 ms between keys), so a case
+	written here gets no auto-indent and no autocompletion.
+	"""
+	if not typeahead_keys:
+		return
+	budget = max(budget, READY_DEADLINE)
+	try:
+		child.expect(KG_RAW_BYTES, timeout=budget)
+	except (pexpect.TIMEOUT, pexpect.EOF) as exc:
+		raise EditorNotReady(budget, "raw mode") from exc
+	child.send(b"".join(token_to_bytes(t) for t in typeahead_keys))
 
 
 def run_editor_pexpect(argv: list[str], filename: str, initial: str, keys: list[str],
@@ -807,7 +929,8 @@ def run_editor_pexpect(argv: list[str], filename: str, initial: str, keys: list[
 		       timeout: float, config_files: dict[str, str],
 		       ready: bool, case_env: dict[str, str],
 		       workspace_files: dict[str, str] | None = None,
-		       file_mode: int | None = None) -> RunResult:
+		       file_mode: int | None = None,
+		       typeahead_keys: list[str] | None = None) -> RunResult:
 	with tempfile.TemporaryDirectory(prefix="kg-pty-") as td:
 		file_path = Path(td) / filename
 		write_file_under_test(file_path, initial, file_mode)
@@ -836,7 +959,10 @@ def run_editor_pexpect(argv: list[str], filename: str, initial: str, keys: list[
 		child.logfile_read = log
 
 		try:
-			wait_ready_pexpect(child, ready, startup_delay)
+			send_typeahead_pexpect(child, typeahead_keys or [],
+					       max(startup_delay, timeout))
+			wait_ready_pexpect(child, ready, startup_delay,
+					   max(startup_delay, timeout))
 			for token in [*keys, *trailer_keys]:
 				settle = settle_token(token)
 				if settle is not None:
@@ -862,10 +988,15 @@ def run_tmux_cmd(sock: str, *args: str, check: bool = True) -> subprocess.Comple
 	return subprocess.run(["tmux", "-S", sock, *args], check=check, capture_output=True, text=True)
 
 
-def wait_ready_tmux(sock: str, pane: str, ready: bool, budget: float) -> None:
-	"""tmux counterpart of wait_ready_pexpect; see that docstring."""
+def wait_ready_tmux(sock: str, pane: str, ready: bool,
+		    startup_delay: float, budget: float) -> None:
+	"""tmux counterpart of wait_ready_pexpect; see that docstring.
+
+	The pane's pty is the editor's own, so an expired wait here means
+	exactly what it means there, and raises for the same reason.
+	"""
 	if not ready:
-		time.sleep(budget)
+		time.sleep(startup_delay)
 		return
 	budget = max(budget, READY_DEADLINE)
 	deadline = time.monotonic() + budget
@@ -880,6 +1011,7 @@ def wait_ready_tmux(sock: str, pane: str, ready: bool, budget: float) -> None:
 		elif KG_READY.search(cp.stdout) and now - last >= READY_SETTLE:
 			return
 		time.sleep(READY_POLL)
+	raise EditorNotReady(budget)
 
 
 def settle_tmux(sock: str, pane: str, budget: float, floor: float = 0.0) -> None:
@@ -998,7 +1130,8 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 		try:
 			run_tmux_cmd(sock, "new-session", "-d", "-s", session,
 				     "-x", str(cols), "-y", str(rows), cmd)
-			wait_ready_tmux(sock, pane, ready, startup_delay)
+			wait_ready_tmux(sock, pane, ready, startup_delay,
+					max(startup_delay, timeout))
 			for token in keys:
 				if token.startswith("RESIZE="):
 					r, c = map(int, token.split("=")[1].split(","))
@@ -1029,7 +1162,7 @@ def run_editor_tmux(argv: list[str], filename: str, initial: str, keys: list[str
 				time.sleep(key_delay)
 			if trailer_keys:
 				wait_exit_tmux(sock, session,
-					       min(timeout, READY_DEADLINE))
+					       min(timeout, EXIT_DEADLINE))
 			else:
 				time.sleep(min(key_delay, timeout))
 		except Exception as exc:
@@ -1058,9 +1191,13 @@ def run_editor(argv: list[str], filename: str, initial: str, keys: list[str],
 	       ready: bool = True, settle_floor: float = 0.0,
 	       case_env: dict[str, str] | None = None,
 	       workspace_files: dict[str, str] | None = None,
-	       file_mode: int | None = None) -> RunResult:
+	       file_mode: int | None = None,
+	       typeahead_keys: list[str] | None = None) -> RunResult:
 	case_env = case_env or {}
 	if backend == "tmux":
+		# load_case() refuses the combination, so there is nothing to
+		# forward: the escape the trigger watches for paints nothing,
+		# and capture-pane only shows what was painted.
 		return run_editor_tmux(argv, filename, initial, keys, trailer_keys,
 				       startup_delay, key_delay, dimensions,
 				       timeout, config_files, ready, case_env,
@@ -1068,7 +1205,7 @@ def run_editor(argv: list[str], filename: str, initial: str, keys: list[str],
 	return run_editor_pexpect(argv, filename, initial, keys, trailer_keys,
 				  startup_delay, key_delay, dimensions,
 				  timeout, config_files, ready, case_env,
-				  workspace_files, file_mode)
+				  workspace_files, file_mode, typeahead_keys)
 
 
 def evaluate_case(case: Case, **kwargs) -> tuple[str, str | None, float]:
@@ -1104,7 +1241,8 @@ def evaluate_case_status(case: Case, kg_argv: list[str], features: set[str],
 			    case.config_files, settle_floor=settle_floor,
 			    case_env=case.env,
 			    workspace_files=case.workspace_files,
-			    file_mode=case.file_mode)
+			    file_mode=case.file_mode,
+			    typeahead_keys=case.typeahead_keys)
 	if kg_run.error:
 		return ("XFAIL" if case.xfail else "ERROR",
 		        f"{case.name}: kg run error: {kg_run.error}")

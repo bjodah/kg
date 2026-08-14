@@ -340,13 +340,44 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
 - `startup_delay` and `key_delay` exist for timing-sensitive interactive cases; keep them explicit and case-local.
 - kg's runs no longer sleep `startup_delay`: the harness polls until kg has
   painted its first frame and gone quiet, so a plain build waits ~3 ms and
-  the same binary under valgrind waits ~0.33 s. `startup_delay` is now the
-  fallback deadline, and the sleep the Emacs oracle still takes.
+  the same binary under valgrind waits ~0.33 s. `startup_delay` is the sleep
+  the Emacs oracle still takes -- its readiness cannot be recognised -- and
+  a floor under kg's own budget, which is otherwise the case's `--timeout`
+  (`PTY_TIMEOUT`). Budget, not cost: the wait ends on the mode line, so only
+  an editor that never paints spends it.
+- A readiness wait that expires is an ERROR naming the reason, never a case
+  that goes ahead and types. Until kg reaches `enable_raw_mode()`
+  (`src/tty.c`) the pty is still in its DEFAULT cooked line discipline, and
+  a key sent into that one is interpreted by termios rather than by kg:
+  `C-c` is VINTR, so kg dies of SIGINT and the harness reports its own
+  128+2=130; `C-u` is VKILL, so it erases every key queued behind it;
+  `C-s`/`C-q` are XOFF/XON, `C-?` is VERASE, and ICRNL rewrites RET. The
+  failures that come out of that name kg: one hosted MSan run, on a box too
+  slow to paint inside the old fixed two seconds, spent 212 FAILs and 54
+  ERRORs -- saved-file diffs, missing screen text, nine `kg exited 130` --
+  with no sanitizer report anywhere in the log.
 - `key_delay` is not "time for kg to keep up" -- keys queue in the pty. It
   is bounded below by kg semantics: under 30 ms between keys kg decides it
   is seeing a paste (`editor.paste_mode`) and drops auto-indent and
   autocompletion, and a bare `ESC` merges with the next key unless they are
   more than 100 ms apart. Do not take the default below 0.05.
+- `typeahead_keys:` is the one opt-in past that readiness wait, and it does
+  not skip it: the keys go into the window between raw mode and the first
+  painted frame -- where kg loads its files and its init file, and where a
+  key is queued in the pty rather than acted on. It fires on kg's mouse-report
+  request, which is not a stand-in for a sleep: `enable_raw_mode()` sends it
+  as its last act, so seeing it MEANS the line discipline is kg's, on any box
+  and under any sanitizer. Matched exactly rather than "whatever arrives
+  first", because `--kg-runner` puts a wrapper on the same pty and a
+  `valgrind` without `--quiet` greets it. Sending at spawn instead races
+  execve and the dynamic linker -- 1.7 ms here, lost every time -- and would
+  measure that race in the cooked mode the readiness wait exists to keep
+  cases out of. The list is sent as one write with no `key_delay`, since
+  type-ahead is by definition what arrives faster than the editor reads it,
+  so kg sees it as a paste. `backend: pexpect` only (the escape it watches
+  for paints nothing, and `capture-pane` only shows what was painted), and
+  not with `oracle:` (the oracle has no readiness signal to type ahead of);
+  both refused at load time.
 - A tmux case ends when the pane has been *unchanged* for 50 ms, which
   cannot be told apart from "kg has not painted yet" -- a kg still running
   a compilation, a shell command or an arena-filling hook is silent. The

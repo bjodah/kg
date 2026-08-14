@@ -1680,6 +1680,40 @@ static void pump_for(struct lsp_client *c, double seconds)
 	}
 }
 
+/* Poll until the client dispatches a message, or the bound passes.  True
+ * when one arrived: lsp_client_poll() reports a frame it handled, whether
+ * or not anything was waiting for it, so "the reply turned up" is
+ * something to observe rather than a duration to sleep through. */
+static bool pump_until_a_frame_arrives(struct lsp_client *c, double seconds)
+{
+	double deadline = monotonic_seconds() + seconds;
+	struct timespec nap = { 0, 1000000 };
+
+	while (monotonic_seconds() < deadline) {
+		if (lsp_client_poll(c) != 0) {
+			return true;
+		}
+		nanosleep(&nap, NULL);
+	}
+	return false;
+}
+
+/* Poll until the handshake settles either way -- READY, or DEAD because
+ * the budget below ran out on `initialize` -- so an attempt that lost that
+ * race costs its budget rather than the whole pump deadline. */
+static enum lsp_client_state pump_until_handshake_settles(struct lsp_client *c)
+{
+	double deadline = monotonic_seconds() + PUMP_DEADLINE_SECONDS;
+	struct timespec nap = { 0, 1000000 };
+
+	while (lsp_client_state(c) == LSP_CLIENT_INITIALIZING
+	    && monotonic_seconds() < deadline) {
+		(void)lsp_client_poll(c);
+		nanosleep(&nap, NULL);
+	}
+	return lsp_client_state(c);
+}
+
 static void set_timeout_env(const char *value)
 {
 	if (value) {
@@ -1689,6 +1723,92 @@ static void set_timeout_env(const char *value)
 	}
 }
 
+/* The budget the two deadline cases below run on, and why it is a ladder
+ * rather than a number.
+ *
+ * Such a case needs a deadline short enough that a request runs out of it
+ * inside a unit test.  That number is not free to choose: `initialize` is
+ * an ordinary request -- it takes a pending slot and the same deadline,
+ * counted from the spawn (src/lsp_client.c) -- so whatever budget expires
+ * a request quickly is also the budget a python3 interpreter's start-up
+ * and one round trip have to beat.  When they do not, the request that
+ * expires is the handshake: on_initialize() sees an error, the client dies
+ * "initialize failed", and every assertion afterwards reports how loaded
+ * the box was instead of what the client does.
+ *
+ * That is not hypothetical.  It is how this file failed the hosted MSan
+ * lane, where `make -j3 check` runs this suite beside a three-way PTY
+ * suite on three vCPUs, and it reproduces on a fast box by pinning the
+ * binary and 27 competitors to three cores: the handshake measures 24 ms
+ * idle and 200-250 ms under that load, against the 250 ms this used to
+ * ask for, and four runs in six were red.
+ *
+ * A bigger constant only moves the threshold to the next slower box, so
+ * the budget is measured against the only thing it has to beat.  The first
+ * rung is what a quick box pays; a rung is climbed only when the handshake
+ * did not fit inside it, and a box that cannot get one through the last
+ * rung fails, which is a broken handshake rather than a busy afternoon.
+ *
+ * No rung is a whole number of seconds, so wait_text() spells all of them
+ * in milliseconds and the message assertion below stays literal; its
+ * seconds spelling is pinned by test/pty/lsp-request-timeout.yaml. */
+#define DEADLINE_RUNGS 3
+static const long long deadline_rung_ms[DEADLINE_RUNGS] = { 250, 750, 2250 };
+
+/* How many budgets the fake sleeps on before answering the late-reply
+ * case: enough that the deadline fires first with room for a poll that was
+ * descheduled, and expressed in budgets because that is the ratio the case
+ * needs whichever rung the box turned out to want. */
+#define LATE_REPLY_DELAY_BUDGETS 4
+
+/* A READY client whose requests expire quickly, and -- for the case that
+ * quotes it back -- the budget it got.  `delay_budgets` is 0 for a fake
+ * that never answers kg/echo at all, and otherwise how long it sleeps
+ * before doing so.  NULL is no rung having worked, which the caller
+ * reports as the failure it is. */
+static struct lsp_client *start_on_a_short_deadline(
+    int delay_budgets, long long *budget_ms)
+{
+	int rung;
+
+	for (rung = 0; rung < DEADLINE_RUNGS; rung++) {
+		long long ms = deadline_rung_ms[rung];
+		const char *extra[6];
+		char budget[24];
+		char delay[24];
+		struct lsp_client *c;
+		int n = 0;
+
+		if (budget_ms) {
+			*budget_ms = ms;
+		}
+		snprintf(budget, sizeof(budget), "%lld", ms);
+		if (delay_budgets > 0) {
+			snprintf(
+			    delay, sizeof(delay), "%lld", ms * delay_budgets);
+			extra[n++] = "--delay-method";
+			extra[n++] = "kg/echo";
+			extra[n++] = "--delay-ms";
+			extra[n++] = delay;
+		} else {
+			extra[n++] = "--no-reply";
+			extra[n++] = "kg/echo";
+		}
+		extra[n] = NULL;
+		set_timeout_env(budget);
+		c = start_protocol(extra);
+		set_timeout_env(NULL);
+		if (!c) {
+			return NULL;
+		}
+		if (pump_until_handshake_settles(c) == LSP_CLIENT_READY) {
+			return c;
+		}
+		lsp_client_dispose(c, 200);
+	}
+	return NULL;
+}
+
 /* A server that is alive and stuck: it reads the request, answers nothing,
  * and would keep the caller waiting forever.  The deadline is what ends
  * the request -- with an error naming the method, one line in the log, and
@@ -1696,28 +1816,31 @@ static void set_timeout_env(const char *value)
  * answered. */
 static void test_a_stuck_request_is_abandoned_on_its_deadline(void)
 {
-	const char *extra[] = { "--no-reply", "kg/echo", NULL };
 	struct answer stuck = { 0 };
 	struct answer alive = { 0 };
 	struct lsp_client *c;
+	long long budget = 0;
+	char want[64];
+	char logged[80];
 
-	set_timeout_env("250");
-	log_capture_begin();
-	c = start_protocol(extra);
-	set_timeout_env(NULL);
+	c = start_on_a_short_deadline(0, &budget);
 	CHECK(c != NULL);
 	if (!c) {
-		log_capture_end();
 		return;
 	}
-	CHECK(pump_until_state(c, LSP_CLIENT_READY) == LSP_CLIENT_READY);
+	snprintf(
+	    want, sizeof(want), "no reply to kg/echo after %lldms", budget);
+	snprintf(logged, sizeof(logged), "[lsp] %s", want);
+	/* Captured from here rather than from the spawn: a rung that was too
+	 * short logged the handshake it abandoned, and that line is the
+	 * ladder working, not this case's evidence. */
+	log_capture_begin();
 	CHECK(echo_request(c, "stuck", &stuck) > 0);
 	CHECK(pump_until_answered(c) == 0);
 	CHECK(stuck.calls == 1);
 	CHECK(!stuck.had_result && stuck.had_error);
-	CHECK(strcmp(stuck.message, "no reply to kg/echo after 250ms") == 0);
-	CHECK(
-	    strstr(log_seen, "[lsp] no reply to kg/echo after 250ms") != NULL);
+	CHECK(strcmp(stuck.message, want) == 0);
+	CHECK(strstr(log_seen, logged) != NULL);
 	/* Not torn down: only the request was abandoned. */
 	CHECK(lsp_client_state(c) == LSP_CLIENT_READY);
 	CHECK(lsp_client_request(c, "kg/state", NULL, 0, record, &alive) > 0);
@@ -1733,24 +1856,21 @@ static void test_a_stuck_request_is_abandoned_on_its_deadline(void)
  * reply is neither a second call nor a crash. */
 static void test_a_late_reply_after_a_timeout_is_dropped(void)
 {
-	const char *extra[]
-	    = { "--delay-method", "kg/echo", "--delay-ms", "900", NULL };
 	struct answer late = { 0 };
 	struct lsp_client *c;
 
-	set_timeout_env("250");
-	c = start_protocol(extra);
-	set_timeout_env(NULL);
+	c = start_on_a_short_deadline(LATE_REPLY_DELAY_BUDGETS, NULL);
 	CHECK(c != NULL);
 	if (!c) {
 		return;
 	}
-	CHECK(pump_until_state(c, LSP_CLIENT_READY) == LSP_CLIENT_READY);
 	CHECK(echo_request(c, "late", &late) > 0);
 	CHECK(pump_until_answered(c) == 0);
 	CHECK(late.calls == 1 && late.had_error);
-	/* Well past the server's own delay: the reply does arrive. */
-	pump_for(c, 1.5);
+	/* The reply does arrive, and the case waits for the frame rather
+	 * than for a duration: a bound generous enough that only a reply
+	 * that never came trips it costs nothing when one does. */
+	CHECK(pump_until_a_frame_arrives(c, PUMP_DEADLINE_SECONDS));
 	CHECK(late.calls == 1);
 	CHECK(lsp_client_pending_count(c) == 0);
 	CHECK(lsp_client_state(c) == LSP_CLIENT_READY);

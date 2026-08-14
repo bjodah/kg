@@ -192,6 +192,7 @@ static void test_at_exit_hands_the_terminal_back(void)
 {
 	mock_sink_len = 0;
 	editor.rawmode = 0;
+	editor.screen_painted = 1;
 	editor_write_fn = mock_write_capture;
 	editor_at_exit();
 	editor_write_fn = write;
@@ -199,6 +200,23 @@ static void test_at_exit_hands_the_terminal_back(void)
 	mock_sink[mock_sink_len] = '\0';
 	CHECK(strstr(mock_sink, "\x1b[?25h") != NULL); /* cursor visible */
 	CHECK(strstr(mock_sink, "\x1b[0m") != NULL); /* attributes closed */
+}
+
+/* The other side of the same coin.  Raw mode is entered before the first
+ * frame is painted (src/main.c), so kg can exit having drawn nothing --
+ * the one startup error path does exactly that, printing to stderr.  A
+ * screen kg never wrote on is not kg's to clear, and the "\x1b[2J" would
+ * take the message with it. */
+static void test_at_exit_leaves_an_unpainted_screen_alone(void)
+{
+	mock_sink_len = 0;
+	editor.rawmode = 0;
+	editor.screen_painted = 0;
+	editor_write_fn = mock_write_capture;
+	editor_at_exit();
+	editor_write_fn = write;
+
+	CHECK(mock_sink_len == 0);
 }
 
 /* The DSR reply arrives on the wire and is as trustworthy as anything
@@ -544,6 +562,7 @@ int main(void)
 	RUN(test_input_flood_detects_paste_sized_queue);
 	RUN(test_tty_write_completes_or_reports_loss);
 	RUN(test_at_exit_hands_the_terminal_back);
+	RUN(test_at_exit_leaves_an_unpainted_screen_alone);
 	RUN(test_cursor_report_parses_exact_shape_only);
 	RUN(test_window_size_normalises_or_refuses);
 	RUN(test_malformed_utf8_keeps_the_following_key);

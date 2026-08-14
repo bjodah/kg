@@ -148,10 +148,12 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   need `make bench WITH_TREE_SITTER=1`, and a plain `make bench` skips
   them.
 - Hosted CI is one Woodpecker step (`.woodpecker.yaml`): a prebuilt image
-  with the toolchain in it, `apt-get install pmccabe`, then
-  `bash -l .ci/run-ci-steps.sh` -- the same runner, and the same steps
-  discovered from the same glob, as a local run. It sets `CI_EXPENSIVE=1`,
-  so it also runs the expensive steps a local run skips.
+  with the whole toolchain in it, an interpreter activation, then
+  `.ci/run-ci-steps.sh` -- the same runner, and the same steps discovered
+  from the same glob, as a local run. It sets `CI_EXPENSIVE=1`, so it also
+  runs the expensive steps a local run skips. It installs nothing: that
+  box resolves internal names only, so a step that fetches cannot run
+  there at all (`doc/CI-server-peculiarities.md`).
 - The toolchain, and who needs it.  Every one of these is a bare name the
   Makefile or a `.ci` step resolves through `PATH`, overridable by the
   variable in parentheses; nothing is pinned to an absolute path any more.
@@ -190,11 +192,12 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
     and FAILS if it cannot.  A box that has an install --
     `$TREE_SITTER_PREFIX`, `$TREE_SITTER_ROOT`, or the `/opt-2` one this
     development box carries -- fetches nothing.
-  - Hosted CI needs nothing beyond these: the image carries the toolchain
-    and `.woodpecker.yaml` installs only `pmccabe` on top of it.  The
-    runner discovers its steps with a shell glob, so no `jq`.  The one
-    thing the image does not carry yet is a tree-sitter prefix, which is
-    why `ci-13` builds one per run there.
+  - Hosted CI needs nothing beyond these and installs none of them: the
+    image carries the whole toolchain, `pmccabe` and `scc` among it, and a
+    tree-sitter prefix in `$TREE_SITTER_ROOT`, so `ci-13` fetches nothing
+    there.  It could not: that box resolves internal names only
+    (`doc/CI-server-peculiarities.md`).  The runner discovers its steps
+    with a shell glob, so no `jq`.
 - Three optional subsystems are build axes that all default to 1 and all
   cost nothing to have on -- `WITH_LISP`, `WITH_LSP` and `WITH_DAP` (the
   debugger; servers and adapters are found at run time, so none of them has
@@ -389,6 +392,18 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   spawns, not `$PYTHON`) cannot import it. debugpy is why — kg's Python
   adapter is `python3 -m debugpy.adapter`, so there is no file on PATH
   for `requires_tool:` to look for.
+- A FIXTURE MUST NEED NOTHING FETCHED. `requires_tool:` covers what has
+  to be installed and `requires_python_module:` what has to be
+  importable; nothing covers what a tool would download, and the hosted
+  CI box has no route out — `repo.maven.apache.org` does not even
+  resolve there. The measured trap is a `pom.xml`: nbcode debugs a file
+  in a Maven project by running the project, which resolves
+  `exec-maven-plugin` from Maven Central at launch time, so
+  dap-nbcode-java-smoke passed here off a warm `~/.m2` and on CI spent
+  36 s reaching `BUILD FAILURE` and then failed looking exactly like a
+  slow box timing out. Prefer the fixture that keeps the work local (no
+  project: nbcode compiles the single file itself); when only a fetching
+  one will do, the case is not a `make check` case.
 - `requires_feature:` takes `kg -V`'s own vocabulary, and a leading `-`
   is the ABSENCE form: `requires_feature: -dap` runs only in a build
   whose `-V` says `-dap`, which is how the case asserting that a

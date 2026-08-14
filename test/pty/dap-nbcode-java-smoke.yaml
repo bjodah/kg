@@ -39,18 +39,34 @@
 # layer for a port.  Nothing here names a command, a port or a hash --
 # they are the built-in spec's business and not a user's to repeat.
 #
-# The pom.xml is lsp-nbcode-definition.yaml's, for its reasons: it is the
-# marker both kg's root walk and nbcode's project support look for, and
-# <sourceDirectory> points at the project root because the file under test
-# lives beside the pom rather than in Maven's src/main/java layout.
+# THERE IS NO pom.xml, and its absence is load-bearing rather than an
+# omission.  nbcode launches a file that belongs to a Maven project by
+# running the PROJECT -- `mvn ... exec:java`, with org.codehaus.mojo:exec-
+# maven-plugin resolved at launch time -- so a Maven fixture makes this
+# verdict depend on a warm `~/.m2` and a route to Maven Central rather than
+# on kg.  Measured on a box with neither (the hosted CI one): the launch
+# answers `BUILD FAILURE ... exec-maven-plugin:3.5.1 ... could not be
+# resolved` 36 s in, nothing ever stops, and the case fails looking exactly
+# like a timing failure on a slow machine.  With no project nbcode compiles
+# and runs the single file itself (NetBeans' java.file.launcher, which
+# doc/plans/dap/03-java.md measured as a supported launch shape), and that
+# needs nothing this checkout does not carry.
+#
+# kg's own side is unchanged by the absence.  The workspace-root walk finds
+# no Java marker and no `.git` and falls back to the file's own directory,
+# which is the temporary directory the case runs in: one root, one nbcode,
+# one sibling endpoint, exactly what a pom would have produced.  The Maven
+# import path is still covered, by lsp-nbcode-definition.yaml beside this
+# one -- opening a project is offline work, and only RUNNING it is not.
 #
 # TIMING.  Two bounded waits rather than a key delay, and they are sized
 # against measurements on this box: the announces are ~1.4-2.1 s from
 # spawn, the LSP handshake ~0.2 s after that, the DAP initialize ~0.04 s
 # and the launch ~0.35 s, so the whole sequence to the stop is ~10 s cold
-# and idle.  The first wait covers a cold JVM starting, a project importing
-# and the language handshake the DAP connect waits on; the second covers
-# the evaluate.
+# and idle.  The first wait covers a cold JVM starting, the file's own
+# launch and the language handshake the DAP connect waits on; the second
+# covers the evaluate.  The hosted CI box, three slow cores against this
+# one's thirty-two, runs the whole case in ~15 s.
 #
 # 150 s and 60 s is roughly 15x that idle measurement, the margin the
 # nbcode LSP case beside this one carries and for its reason: it records
@@ -93,17 +109,6 @@ initial: |
           System.out.println(answer);
       }
   }
-workspace_files:
-  pom.xml: |
-    <project xmlns="http://maven.apache.org/POM/4.0.0">
-      <modelVersion>4.0.0</modelVersion>
-      <groupId>fixture</groupId>
-      <artifactId>fixture</artifactId>
-      <version>0.1.0</version>
-      <build>
-        <sourceDirectory>${project.basedir}</sourceDirectory>
-      </build>
-    </project>
 keys:
   # Line 8, the println: `answer` is assigned on line 7 and live on 8.
   - C-n

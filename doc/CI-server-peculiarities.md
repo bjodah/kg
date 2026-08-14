@@ -43,10 +43,24 @@ was in the shell's environment and nbcode's Maven is a JVM.
 
 Two further things that mislead here, both measured:
 
-- The PTY harness gives every case a throwaway `HOME`, so a warm
-  `/root/.m2` on a development box is invisible to the tests.  Seeding
-  one would not have helped; a `settings.xml` naming an absolute
-  `<localRepository>` would be needed, planted per case.
+- The PTY harness gives every case a throwaway `HOME`, and that does NOT
+  reach Maven, whatever an earlier note here said.  A JVM on Linux takes
+  `user.home` from the passwd entry rather than from the environment --
+  measured, `java -XshowSettings:properties` prints `/root` under any
+  `HOME` you care to set -- so every case's Maven used
+  `/root/.m2/repository`: warm on the development box, and on this one
+  holding nothing but the failure marker.  `-Dmaven.repo.local=` is the
+  knob that actually moves it, and pre-seeding the image's `/root/.m2`
+  would therefore have been in play (untested).  Not needing Maven at all
+  is still the better fix.
+- Nothing makes that box's Maven fail FAST.  `<offline>true</offline>` in
+  the `conf/settings.xml` of the Maven nbcode ships
+  (`share/nbcode/java/maven`) would: verified on 3.9.15, an offline Maven
+  with an unseeded repository says `Cannot access central ... in offline
+  mode and the artifact ... has not been downloaded from it before`
+  immediately, instead of spending 36 s reaching `(absent)` -- which is
+  the difference between an error a reader believes and one that reads
+  like a slow box.  It is worth having in an image that can never fetch.
 - The development box does not take the Maven path at all.  Straced
   there, `launch` is answered in 110 ms with `User program running` and
   no Maven whatsoever: nbcode's single-file launcher wins a race that a

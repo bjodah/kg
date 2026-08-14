@@ -43,11 +43,13 @@
 # omission.  nbcode launches a file that belongs to a Maven project by
 # running the PROJECT -- `mvn ... exec:java`, with org.codehaus.mojo:exec-
 # maven-plugin resolved at launch time -- so a Maven fixture makes this
-# verdict depend on a warm `~/.m2` and a route to Maven Central rather than
-# on kg.  Measured on a box with neither (the hosted CI one): the launch
-# answers `BUILD FAILURE ... exec-maven-plugin:3.5.1 ... could not be
-# resolved` 36 s in, nothing ever stops, and the case fails looking exactly
-# like a timing failure on a slow machine.  With no project nbcode compiles
+# verdict depend on a warm `/root/.m2` and a route to Maven Central rather
+# than on kg.  (Not the case's own HOME: a JVM reads `user.home` from the
+# passwd entry, so the throwaway one the harness sets never reaches Maven
+# -- doc/CI-server-peculiarities.md.)  Measured on a box with neither: the
+# launch answers `BUILD FAILURE ... exec-maven-plugin:3.5.1 ... could not
+# be resolved` 36 s in, nothing ever stops, and the case fails looking
+# exactly like a timing failure on a slow machine.  With no project nbcode compiles
 # and runs the single file itself (NetBeans' java.file.launcher, which
 # doc/plans/dap/03-java.md measured as a supported launch shape), and that
 # needs nothing this checkout does not carry.

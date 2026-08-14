@@ -2560,7 +2560,7 @@
   "src/tty.c:decode_ss3_key": 2,
   "src/tty.c:decode_tilde_key": 8,
   "src/tty.c:disable_raw_mode": 2,
-  "src/tty.c:editor_at_exit": 1,
+  "src/tty.c:editor_at_exit": 2,
   "src/tty.c:editor_check_quit_pending": 1,
   "src/tty.c:editor_input_flood": 2,
   "src/tty.c:editor_process_pending_signals": 1,

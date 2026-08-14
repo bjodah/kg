@@ -317,11 +317,19 @@ void editor_at_exit(void)
 	 * down -- so the attributes that frame would have closed itself may
 	 * still be open: the cursor hidden by the "\x1b[?25l" every frame
 	 * starts with, and whatever colour or reverse video the row it died
-	 * on had set. */
-	(void)tty_write("\x1b[0m", 4); /* Close any open attribute */
-	(void)tty_write("\x1b[?25h", 6); /* Show the cursor */
-	(void)tty_write("\x1b[2J", 4); /* Clear entire screen */
-	(void)tty_write("\x1b[H", 3); /* Move cursor to top-left */
+	 * on had set.
+	 *
+	 * All four are a painted frame's to undo, and raw mode is entered
+	 * before the first one is painted (src/main.c), so an exit inside
+	 * that window has nothing here to undo -- and clearing then would
+	 * take the terminal the user was looking at, along with whatever kg
+	 * printed on it on its way out. */
+	if (editor.screen_painted) {
+		(void)tty_write("\x1b[0m", 4); /* Close any open attribute */
+		(void)tty_write("\x1b[?25h", 6); /* Show the cursor */
+		(void)tty_write("\x1b[2J", 4); /* Clear entire screen */
+		(void)tty_write("\x1b[H", 3); /* Move cursor to top-left */
+	}
 
 	disable_raw_mode(STDIN_FILENO);
 }

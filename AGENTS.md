@@ -361,6 +361,23 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   is seeing a paste (`editor.paste_mode`) and drops auto-indent and
   autocompletion, and a bare `ESC` merges with the next key unless they are
   more than 100 ms apart. Do not take the default below 0.05.
+- `typeahead_keys:` is the one opt-in past that readiness wait, and it does
+  not skip it: the keys go into the window between raw mode and the first
+  painted frame -- where kg loads its files and its init file, and where a
+  key is queued in the pty rather than acted on. It fires on kg's mouse-report
+  request, which is not a stand-in for a sleep: `enable_raw_mode()` sends it
+  as its last act, so seeing it MEANS the line discipline is kg's, on any box
+  and under any sanitizer. Matched exactly rather than "whatever arrives
+  first", because `--kg-runner` puts a wrapper on the same pty and a
+  `valgrind` without `--quiet` greets it. Sending at spawn instead races
+  execve and the dynamic linker -- 1.7 ms here, lost every time -- and would
+  measure that race in the cooked mode the readiness wait exists to keep
+  cases out of. The list is sent as one write with no `key_delay`, since
+  type-ahead is by definition what arrives faster than the editor reads it,
+  so kg sees it as a paste. `backend: pexpect` only (the escape it watches
+  for paints nothing, and `capture-pane` only shows what was painted), and
+  not with `oracle:` (the oracle has no readiness signal to type ahead of);
+  both refused at load time.
 - A tmux case ends when the pane has been *unchanged* for 50 ms, which
   cannot be told apart from "kg has not painted yet" -- a kg still running
   a compilation, a shell command or an arena-filling hook is silent. The

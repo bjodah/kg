@@ -618,6 +618,10 @@ REGEX_DIFF_BIN = $(TESTDIR)/regex_differential
 REGEX_DIFF_CASES ?= 2000
 REGEX_DIFF_SEED ?= 20260729
 EMACS ?= emacs
+# Prefixed to the one `check' prerequisite that is minutes of CPU and
+# indifferent to when it finishes -- see lisp-gc-stress-check.  Empty
+# disables it, which is also what a box without nice(1) wants.
+NICE ?= nice -n 19
 # The PTY harness needs pexpect and PyYAML, which are not always installed
 # for the same interpreter everywhere: CI images ship them for python3,
 # while the developer box this grew up on has them only for its own
@@ -726,7 +730,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 10591
+SCC_COMPLEXITY_MAX ?= 10592
 SCC_FILE_COMPLEXITY_MAX ?= 519
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -1007,9 +1011,21 @@ $(GC_STRESS_KGBATCH): test/kgbatch.c $(TESTDIR)/stubs_main.o \
 # Both binaries are prerequisites, so the parent make links each exactly
 # once before any recipe execs it -- there is no recipe-time build left to
 # race another check's exec or the parent's own object builds.
+#
+# Run at the lowest priority, because `check' names this and both test
+# layers as unordered prerequisites and so `make -j' overlaps them.  This
+# is the only prerequisite that is minutes of pure CPU -- 783 s of a 1598 s
+# budget on the hosted three-vCPU box under MSan, measured beside the PTY
+# suite it was sharing those cores with -- and it is also the only one that
+# does not care when it finishes: since its budget is derived from that
+# box's own ordinary run rather than from a constant, being descheduled
+# stretches the budget with the run.  Both runs are inside this one
+# invocation, so nice cannot skew the ratio between them.  The suites are
+# the opposite on both counts, so they win the CPU and this fills the gaps;
+# on an idle box nothing changes.  Set NICE empty to turn it off.
 ifeq ($(WITH_LISP),1)
 lisp-gc-stress-check: $(TESTDIR)/kgbatch $(GC_STRESS_KGBATCH)
-	@$(PYTHON) utils/check_lisp_gc_stress.py \
+	@$(NICE) $(PYTHON) utils/check_lisp_gc_stress.py \
 		--kgbatch $(TESTDIR)/kgbatch \
 		--stress-kgbatch $(GC_STRESS_KGBATCH)
 else

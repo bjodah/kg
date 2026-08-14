@@ -990,6 +990,10 @@ void editor_refresh_screen(void)
 		 * so stop the main loop and let the ordinary exit path run. */
 		running = 0;
 	}
+	/* Whether or not every byte of it landed: a frame that stopped
+	 * half-written is exactly the one editor_at_exit() has to close the
+	 * attributes and unhide the cursor for. */
+	editor.screen_painted = 1;
 	ab_free(&ab);
 	KG_EVENT_DEBUG_LEAVE(KG_EVENT_UNSAFE_RENDER);
 }

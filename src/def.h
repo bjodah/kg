@@ -227,6 +227,12 @@ enum file_change_state {
 /* Editor configuration state */
 struct editor_config {
 	int rawmode; /* Is terminal raw mode enabled? */
+	/* Has a frame reached the terminal?  Everything editor_at_exit()
+	 * undoes -- an attribute left open, the cursor left hidden, the frame
+	 * itself -- only a painted frame can have done, and raw mode is
+	 * entered before the first one, so an exit in that window leaves the
+	 * screen and anything printed on it alone. */
+	int screen_painted;
 	char statusmsg[512];
 	time_t statusmsg_time;
 	/* Half-open byte range of statusmsg[] the echo area draws

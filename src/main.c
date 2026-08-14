@@ -229,14 +229,39 @@ int main(int argc, char **argv)
 	}
 #endif
 	init_editor();
+	/* Raw mode before anything that takes time.  Until it is on, the
+	 * terminal still has the pty's default line discipline and every key
+	 * typed at kg is termios' rather than kg's: C-c is VINTR and kills
+	 * the editor, C-u is VKILL and erases whatever was queued before it,
+	 * C-s/C-q are XOFF/XON, C-? is VERASE, ICRNL rewrites RET, and
+	 * anything else waits in the canonical line buffer.  TCSADRAIN in
+	 * enable_raw_mode() keeps the type-ahead already queued when the
+	 * switch happens; only being early keeps the keys typed before it
+	 * from being eaten first.  What is left in front of it here is
+	 * execve, the dynamic linker and getopt: 1.7 ms measured, against
+	 * 5.4 ms with the Lisp arena and prelude in front of it and 830 ms
+	 * with a 60 MB file's read.
+	 *
+	 * After init_editor() rather than before it, for the exit path
+	 * rather than this one: this call registers editor_at_exit(), atexit
+	 * handlers are LIFO, and registering last is what makes it run FIRST
+	 * -- the terminal is handed back before the session is torn down
+	 * (src/display.c's out-of-memory exit relies on that order).
+	 * init_editor() is under 0.1 ms, so going in front of it would buy
+	 * nothing to weigh against that. */
+	enable_raw_mode(STDIN_FILENO);
 	if (kg_lisp_active() && kg_lisp_init() != 0) {
+		/* Said on a cooked terminal: raw mode is on by now, and with
+		 * OPOST off the newline below would not return the carriage.
+		 * editor_at_exit() then finds no frame painted and leaves the
+		 * message where the user can read it. */
+		disable_raw_mode(STDIN_FILENO);
 		fprintf(stderr, "kg: cannot initialize Lisp: %s\n",
 		    kg_lisp_last_error());
 		return 1;
 	}
 	kg_lisp_set_interrupt_check(editor_check_quit_pending);
 	buf_load_args(argc - KG_OPTIND, argv + KG_OPTIND, readonly);
-	enable_raw_mode(STDIN_FILENO);
 	/* The greeting is set before init-file loading so a load error is
 	 * not overwritten by it. */
 	editor_set_status_message("Press Ctrl-h for help");

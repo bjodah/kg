@@ -1208,6 +1208,88 @@ before implementation:
 arena) after deducting stub cost, and no deferred name is a macro or an
 order-sensitive alias.
 
+## Phase 1 — results
+
+Measured at the Phase 1 pin, fe unchanged at
+`3eedbf36419e394fca04d972f1961bdc3171cc3b`, default build.
+
+| | before | after | delta |
+|---|---:|---:|---:|
+| post-prelude `peak_live_objects` | 11428 | **7363** | **−4065** (−7.24% of the arena) |
+| post-collection reachable live | 10190 | **6212** | **−3978** |
+| embedded bytes | 72151 | 74927 | +2776 |
+| prelude definition count | 128 | 129 | +1 |
+| `src` scc complexity | 10607 | 10612 | +5 |
+
+**The saving is 4065 slots against the 5043 Phase 0.2 predicted, and the
+difference is the stub cost the gate told us to deduct: 978 slots for 93
+names, ~10.5 each.**  The plan priced a stub at ~3 slots against ~50 for a
+lambda; the measured figure is three times that, because the stub is a
+*closure over the name* rather than a bare marker — which is precisely
+what buys the property below.  Even at 10.5, the phase clears its ~2000
+gate twice over.
+
+### What the mechanism is
+
+`utils/embed_lisp_split.py` splits `lisp/prelude.el` into the eager array
+`evaluate_prelude()` runs and a second array holding the 93 deferred
+forms, indexed by name and offset.  `lisp/prelude.el` remains the single
+canonical source and `make lisp-prelude-check` still proves both
+generated files reproduce it exactly; the only hand-maintained input is
+`utils/prelude_deferred_names.txt`, the reviewed policy list, and the
+split fails loudly if a name there has no top-level form.
+
+The one new eager prelude name, `internal--make-deferred-stub`, is a
+factory returning the closure each deferred name's function cell holds
+until first call; that call forces the real definition via the
+`internal--force-deferred` native and forwards its own arguments to it.
+**The stub is an ordinary Lisp closure, not a native**, which is what
+makes a deferred name indistinguishable from an eager one to
+`functionp`, `symbol-function`, `apply`, a hook, and a value passed
+around before ever being called — all of which see a real `FeTFn` before
+and after forcing.  `test_deferred_stub_indistinguishable`
+(`test/test_lisp.c`) asserts each of those, including a deferred name
+forced from inside another deferred name's body
+(`internal--qq`/`internal--qq-list`/`internal--qq-dotted`, the prelude's
+own mutual recursion), plus a PTY case
+(`test/pty/lisp-deferred-stub-first-call.yaml`) proving it in a real
+editor session.
+
+### Re-measured, per this document's own ground rule
+
+The rule is that a phase moving peak live re-measures every assertion
+that names it rather than adjusting them by its own delta.  Done, by
+instrumenting each line on this tree:
+
+- `test/test_lisp.c`'s Phase 8 census: prelude-alone **11339 → 7363**,
+  and the post-corpus figure **14817 → 12617 of 56147 (22.47%)**.  The
+  `peak_live * 3 < total_slots` margin holds with far more room than
+  before.  This is the first *fall* in that comment's history.
+- The four PTY exhaustion cases pass unchanged; the suite is 582 cases,
+  the new deferred-stub case included.
+- `.ci/prelude-startup-census.json` re-baselined.  Two of its four
+  numbers **rose** and the ratchet caught them, which is the ratchet
+  working: the mechanism costs +2776 embedded bytes and +1 definition to
+  save 4065 slots.
+
+### Cost, and one piece of debt
+
+The `src` complexity ceiling rose 10607 → 10612, every point of it in
+`src/lisp_prelude.c` (1 → 6): the linear scan over the deferred index and
+the stub-install loop.  pmccabe gained exactly two symbols and no
+existing symbol rose.
+
+`utils/prelude_slot_census.py` (Phase 0.1's per-section census) is **no
+longer meaningful on a split tree** and now says so loudly before
+printing: it regenerates the eager array from a truncated copy while the
+deferred array keeps its full contents, so each deferred name is counted
+twice.  Its restore path was changed to run the `make
+lisp-prelude-generate` target rather than `utils/embed_lisp.py` directly,
+so it cannot leave a half-restored tree now that generation writes two
+files.  Phase 0.1's table stands as the pre-split record.  Making it
+split-aware means splitting each prefix with the subset of the deferred
+names that prefix defines; nothing needs that yet.
+
 ## Phase 2 — Move the small, hot, universal ones into C
 
 The complement of Phase 1: names every session calls have no lazy-loading

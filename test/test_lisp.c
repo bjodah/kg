@@ -5774,8 +5774,95 @@ static void test_quit_uncaught(void)
  * beginning-of-buffer/end-of-buffer pair, +1 for Phase 19's
  * internal--defined-names, and net +1 at Phase 20 (-1 for `string<',
  * which became an fe primitive, +2 for `documentation-property' and its
- * `internal--variable-doc-put' helper). */
-#define PRELUDE_DEFS 128
+ * `internal--variable-doc-put' helper), +1 at prelude-embedding Phase 1
+ * (doc/plans/2026-08-14-embedded-prelude.md): internal--make-deferred-stub,
+ * the one new eager name the split into an eager and a deferred array
+ * buys.  93 of the other 128 names move out of the array evaluate_prelude()
+ * runs and into a second one this test never reads, but their own
+ * `(defalias 'NAME ...)` forms stay in lisp/prelude.el exactly where they
+ * were -- utils/embed_lisp_split.py excises them at BUILD time, not by
+ * editing this file -- so every one of them still counts here, and the
+ * type probe loop below still reads "lambda" for each: the self-replacing
+ * stub install_deferred_stubs() puts in a deferred name's cell is itself
+ * an ordinary FeTFn closure, indistinguishable from the real definition by
+ * type-of before its first call replaces it. */
+#define PRELUDE_DEFS 129
+
+/* Phase 1 of doc/plans/2026-08-14-embedded-prelude.md: a deferred name
+ * must be indistinguishable from an eager one to every caller shape the
+ * plan names -- functionp, symbol-function, apply, funcall, a value
+ * passed around before its first call, a hook, and a deferred name
+ * calling another deferred name from inside its own (real) body.
+ * `mapcar` is deferred and its own body, once forced, calls `funcall` on
+ * whatever it was handed -- here `1+`, itself deferred -- so one call
+ * forces two stubs and exercises the cross-call in the same breath. */
+static void test_deferred_stub_indistinguishable(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	/* Before the first call: still functionp, still fboundp, still a
+	 * real function object by type -- never void. */
+	CHECK(eval_eq("(functionp (symbol-function 'mapcar))", "t"));
+	CHECK(eval_eq("(fboundp 'mapcar)", "t"));
+	CHECK(eval_eq("(type-of (symbol-function 'mapcar))", "lambda"));
+
+	/* A value passed around before ever being called is still callable
+	 * once it is: the stub object itself, not just the name, is a
+	 * function. */
+	CHECK(
+	    eval_ok("(setq phase1-deferred-value (symbol-function 'mapcar))"));
+	CHECK(
+	    eval_eq("(funcall phase1-deferred-value '1+ '(1 2 3))", "(2 3 4)"));
+
+	/* Direct call, apply and funcall by name all force and forward
+	 * correctly -- and `1+' (also deferred) gets forced from INSIDE
+	 * mapcar's own body, via mapcar's `(funcall f (car lst))'. */
+	CHECK(eval_eq("(mapcar '1+ '(1 2 3))", "(2 3 4)"));
+	CHECK(eval_eq("(apply 'mapcar (list '1- '(5 6 7)))", "(4 5 6)"));
+	CHECK(eval_eq("(funcall 'mapcar '1- '(5 6 7))", "(4 5 6)"));
+
+	/* After the first call: still functionp, same type, and calling it
+	 * again reaches the SAME (now real) definition, not a second stub
+	 * and not a re-force -- there is nothing left to force it FROM. */
+	CHECK(eval_eq("(functionp (symbol-function 'mapcar))", "t"));
+	CHECK(eval_eq("(type-of (symbol-function 'mapcar))", "lambda"));
+	CHECK(eval_eq("(mapcar '1+ '(10 20))", "(11 21)"));
+
+	/* A cross-deferred call the prelude itself is built from:
+	 * quasiquote's splice and dotted-tail cases both route through
+	 * internal--qq-list/internal--qq-dotted, both deferred, both
+	 * reached only through internal--qq, also deferred. */
+	CHECK(eval_eq("`(a ,(+ 1 2) ,@(list 3 4))", "(a 3 3 4)"));
+	CHECK(eval_eq("`(1 . ,(list 2 3))", "(1 2 3)"));
+
+	/* A hook resolves a deferred name through its function cell exactly
+	 * as an eager one does, forcing it the first time the hook runs --
+	 * the same designator-resolution path test_hooks pins for eager
+	 * names. */
+	CHECK(eval_ok("(setq phase1-hook-out nil)"));
+	CHECK(eval_ok("(defun phase1-deferred-hook-fn ()"
+		      " (setq phase1-hook-out"
+		      "   (string-join (list \"a\" \"b\") \"-\")))"));
+	CHECK(eval_ok("(add-hook 'before-save-hook 'phase1-deferred-hook-fn)"));
+	CHECK(eval_ok("(run-hooks 'before-save-hook)"));
+	CHECK(eval_eq("phase1-hook-out", "a-b"));
+
+	/* A name nothing above happened to call is still a stub right up to
+	 * this line and behaves identically to one already forced:
+	 * documentation-property is deferred and untouched by anything
+	 * above, and reads back a docstring another deferred-adjacent macro
+	 * expansion (defvar, eager) recorded for it. */
+	CHECK(eval_eq(
+	    "(functionp (symbol-function 'documentation-property))", "t"));
+	CHECK(eval_ok("(defvar phase1-documented-var 1 \"doc\")"));
+	CHECK(eval_eq("(documentation-property 'phase1-documented-var"
+		      " 'variable-documentation)",
+	    "doc"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
 
 static void test_prelude_source_file(void)
 {
@@ -6160,8 +6247,15 @@ static void test_phase8_library(void)
 	 * let-binding-buffer-tag pin's per-cleanup-entry host tag grows it by
 	 * 2064, which the FRAME side pays for this time, 1089 -> 1087 frames
 	 * and -116 objects),
-	 * peak_live 11339 after the prelude alone
-	 * (11281 at the merge that opened Phase 20, 6205 at the Phase 14
+	 * peak_live 7363 after the prelude alone -- the first FALL in this
+	 * series, and not a growth measurement at all: prelude-embedding
+	 * Phase 1 (doc/plans/2026-08-14-embedded-prelude.md) defers 93 of the
+	 * prelude's names to a second embedded array, so evaluate_prelude()
+	 * no longer builds them.  Re-measured by instrumenting the
+	 * kg_lisp_init() at the top of this function on THIS tree, per the
+	 * rule below, not derived from the 11339 it replaces
+	 * (11339 at the let-binding-buffer-tag pin,
+	 * 11281 at the merge that opened Phase 20, 6205 at the Phase 14
 	 * pin, 5301 at the Phase 12 pin, 5295 at the Phase 11 fix cycle's
 	 * pin, 5210 at the Phase 10 pin, 5188 at Phase 9's -- the 9887 this
 	 * comment carried for the Phase 19 pin measures 11281 on the merged
@@ -6206,24 +6300,38 @@ static void test_phase8_library(void)
 	 * lisp/auto-fill.el on top of it"; that figure is dropped rather
 	 * than carried forward, because the method behind it was not
 	 * recorded and evaluating that file's text in a fresh post-prelude
-	 * context measures 5927 here, which is not the same measurement. */
+	 * context measures 5927 here, which is not the same measurement.
+	 *
+	 * Prelude-embedding Phase 1 (doc/plans/2026-08-14-embedded-prelude.md)
+	 * moved this figure for a new reason: not a growth, a deferral.  93
+	 * of the prelude's 128 names are no longer evaluated by
+	 * evaluate_prelude() at all -- their forms move to a second embedded
+	 * array, read only by whichever of them a caller actually reaches --
+	 * so `before` at this pin (still after every Phase 8 form above,
+	 * including several that call one of the 93 and so have already
+	 * forced its real definition back in) is 12503, not a number in the
+	 * 14xxx/11xxx family above; re-measured by instrumenting this exact
+	 * line, on this tree, once. */
 	CHECK(kg_lisp_arena_stats(&before) == 0);
 	CHECK(eval_ok("(mapconcat (lambda (x) x) "
 		      "'(\"1\" \"2\" \"3\" \"4\" \"5\") \":\")"));
 	CHECK(kg_lisp_arena_stats(&after) == 0);
 	CHECK(after.free_slots * 2 > after.total_slots);
-	/* A THIRD of the arena, not a quarter, since Phase 19: the prelude
-	 * now carries a docstring for each of its 102 public definitions,
-	 * which is 5527 bytes of text and +1341 objects, and the figure
-	 * this line bounds -- the high-water mark after the prelude AND
-	 * every form this function evaluated above -- measures 14817 of
-	 * 56147 (26.4%) at the let-binding-buffer-tag pin, where it measured
-	 * 14776 of 56263 (26.3%) at Phase 20's, 14579 of
-	 * 56259 (25.9%) at Phase 19's and 13238 of 56239 (23.5%) before
-	 * that.  The
-	 * claim being made is margin, and a third of a fixed arena for
-	 * everything kg ships plus this file's corpus is still margin;
-	 * what would not be is a bound nobody re-measured. */
+	/* Under a quarter of the arena now, where Phase 19 through the
+	 * let-binding-buffer-tag pin measured a third: the figure this line
+	 * bounds -- the high-water mark after the prelude AND every form
+	 * this function evaluated above -- measures 12617 of 56147 (22.47%)
+	 * at the prelude-embedding Phase 1 pin (doc/plans/2026-08-14-
+	 * embedded-prelude.md), against 14817 of 56147 (26.4%) at the
+	 * let-binding-buffer-tag pin, 14776 of 56263 (26.3%) at Phase 20's,
+	 * 14579 of 56259 (25.9%) at Phase 19's and 13238 of 56239 (23.5%)
+	 * before that -- the first fall in this comment's history, and the
+	 * point of the phase that produced it: fewer of the prelude's own
+	 * names are permanently live, not more docstrings or more library
+	 * added on top.  The claim being made is still margin, and just
+	 * over a fifth of a fixed arena for everything kg ships plus this
+	 * file's corpus is still margin; what would not be is a bound
+	 * nobody re-measured. */
 	CHECK(after.peak_live_objects * 3 < after.total_slots);
 	CHECK(after.free_slots <= before.free_slots);
 	CHECK(after.allocation_failures == 0);
@@ -7367,6 +7475,7 @@ int main(void)
 	RUN(test_phase8_constants_and_keywords);
 	RUN(test_phase8_reader_literals);
 	RUN(test_phase8_library);
+	RUN(test_deferred_stub_indistinguishable);
 	RUN(test_prelude_source_file);
 	return test_summary();
 }

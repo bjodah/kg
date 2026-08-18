@@ -198,22 +198,28 @@ def total_slots() -> int:
 
 
 def restore_real_prelude() -> None:
-	"""Regenerate src/lisp_prelude_generated.inc from the real,
-	untruncated lisp/prelude.el and rebuild test/kgbatch against it --
-	the same two steps `make lisp-prelude-generate` documents -- then
-	confirm with `make lisp-prelude-check` that the tree is back to its
-	committed state. Runs from a `finally`, so it executes even when a
-	slice failed to evaluate."""
-	result = run(
-	    [sys.executable, str(EMBED_SCRIPT), str(PRELUDE), str(GENERATED)])
+	"""Regenerate the checked-in generated prelude file(s) from the real,
+	untruncated lisp/prelude.el and rebuild test/kgbatch against them,
+	then confirm with `make lisp-prelude-check` that the tree is back to
+	its committed state. Runs from a `finally`, so it executes even when
+	a slice failed to evaluate.
+
+	Restoring runs the `make lisp-prelude-generate` TARGET rather than
+	calling utils/embed_lisp.py directly, so that however many files
+	generation writes, and with whichever generator, this puts all of
+	them back. Phase 1's eager/deferred split is why that matters: it
+	made generation write two files through utils/embed_lisp_split.py,
+	and a restore that still wrote only the one this script truncates
+	would leave the other stale."""
+	result = run(["make", "lisp-prelude-generate"])
 	if result.returncode != 0:
 		sys.stderr.write(result.stdout)
 		sys.stderr.write(result.stderr)
 		raise SystemExit(
-		    "prelude_slot_census: FAILED TO RESTORE "
-		    "src/lisp_prelude_generated.inc from the real "
-		    "lisp/prelude.el -- fix by hand with "
-		    "'make lisp-prelude-generate' before doing anything else")
+		    "prelude_slot_census: FAILED TO RESTORE the generated "
+		    "prelude file(s) from the real lisp/prelude.el -- fix by "
+		    "hand with 'make lisp-prelude-generate' before doing "
+		    "anything else")
 	rebuild_kgbatch()
 	check = run(["make", "lisp-prelude-check"])
 	if check.returncode != 0:
@@ -261,6 +267,25 @@ def main(argv: list[str]) -> int:
 	finally:
 		restore_real_prelude()
 		denom = total_slots()
+
+	deferred_names = ROOT / "utils" / "prelude_deferred_names.txt"
+	if deferred_names.is_file() and any(
+	    line.strip() and not line.startswith("#")
+	    for line in deferred_names.read_text().splitlines()):
+		print("WARNING: the tree defers part of the prelude "
+		      "(utils/prelude_deferred_names.txt is non-empty).")
+		print("  This script regenerates the EAGER array from a "
+		      "truncated copy while the deferred array keeps its full")
+		print("  contents, so every figure below counts each deferred "
+		      "name twice over: once evaluated eagerly out of the")
+		print("  truncated copy, and again as the stub "
+		      "install_deferred_stubs() puts in its function cell.")
+		print("  The numbers are therefore NOT comparable with the "
+		      "pre-split table in Phase 0.1's results, which remains")
+		print("  the record for per-section cost.  Making this "
+		      "split-aware means splitting each truncated prefix with")
+		print("  the subset of utils/prelude_deferred_names.txt that "
+		      "prefix actually defines; nothing needs it yet.\n")
 
 	print(f"# Prelude per-section slot census\n")
 	print(f"Source: {PRELUDE.relative_to(ROOT)} "

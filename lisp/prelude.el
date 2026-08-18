@@ -1316,6 +1316,54 @@
       (floor value (expt 2 (- count)))
     (* value (expt 2 count)))))
 
+;; --- lazy loading: the deferred-stub factory ---------------------------
+;;
+;; Phase 1 of doc/plans/2026-08-14-embedded-prelude.md.  93 of this file's
+;; names are never called by any startup path (Phase 0.2's `--deferrable`
+;; census) and are worth 5043 of the arena's 56147 slots -- 9.0% -- kept
+;; permanently live for definitions a given session may never call.  The
+;; build (utils/embed_lisp_split.py, driven by the reviewed policy list
+;; utils/prelude_deferred_names.txt) excises exactly those 93 names' forms
+;; out of the array evaluate_prelude() runs and into a second one,
+;; src/lisp_prelude_deferred_generated.inc, read only by
+;; internal--force-deferred (a native, src/lisp_prelude.c).
+;;
+;; This is the one new EAGER name that split buys: a factory returning
+;; the closure every deferred name's function cell holds until its own
+;; first call.  install_deferred_stubs() (src/lisp_prelude.c) calls this
+;; once per deferred name, right after the eager prelude above has
+;; evaluated -- driven by the generated index table, not by a name list
+;; written here, so this file needs no list of the 93 to keep in step
+;; with that table by hand.
+;;
+;; The returned closure IS the stub, and it is an ordinary Lisp function
+;; -- not a native -- which is what makes a deferred name indistinguishable
+;; from an eager one to functionp, symbol-function, a hook, and a value
+;; passed around before ever being called: every one of those sees a real
+;; FeTFn, both before and after its first call.  That first call:
+;;
+;;   1. forces the real definition (internal--force-deferred evaluates
+;;      the one saved form, which is `(defalias 'NAME (lambda ...))` --
+;;      the very same form this file would have run eagerly -- so it
+;;      replaces NAME's function cell with the real closure); then
+;;   2. forwards THIS call's own arguments to what is now the real
+;;      function, via `apply` over `&rest`, so the caller sees an ordinary
+;;      return value and never sees the stub at all.
+;;
+;; Every later call reaches the real closure directly -- the stub is
+;; reachable from nothing once step 1 above has run -- so the whole
+;; mechanism costs one extra `funcall`-shaped indirection exactly once
+;; per deferred name per session, not once per call.  A deferred name
+;; calling another deferred name (internal--qq's mutual recursion with
+;; internal--qq-list/internal--qq-dotted is the prelude's own example)
+;; works the same way calling any other function does: `funcall`/`apply`
+;; resolve through the function cell, which is either already the stub or
+;; already the real thing, never anything else.
+(defalias 'internal--make-deferred-stub (lambda (name)
+  (lambda (&rest args)
+    (internal--force-deferred name)
+    (apply (symbol-function name) args))))
+
 ;; --- documentation for the definitions above -------------------------
 ;;
 ;; One table rather than a docstring on each `defalias' above, for a

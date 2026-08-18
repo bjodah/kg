@@ -1,4 +1,6 @@
 #include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "../fe/fe.h"
 #include "lisp_internal.h"
@@ -172,6 +174,10 @@ static const struct native_binding native_bindings[] = {
 	{ "set-process-filter", native_set_process_filter },
 	{ "set-process-sentinel", native_set_process_sentinel },
 	{ "process-status", native_process_status },
+	/* Phase 1 of doc/plans/2026-08-14-embedded-prelude.md: the deferred-
+	 * stub lookup. lisp/prelude.el's internal--make-deferred-stub is the
+	 * only caller, once per deferred name, at most once per process. */
+	{ "internal--force-deferred", native_internal_force_deferred },
 };
 
 void register_natives(FeContext *context)
@@ -190,11 +196,27 @@ void register_natives(FeContext *context)
  * init file runs.
  *
  * lisp/prelude.el is the canonical source; the array below is a generated,
- * byte-for-byte copy of it (utils/embed_lisp.py, `make lisp-prelude-check`
- * proves the two agree).  The rules the prelude's definitions must follow
- * -- ordering, recursion, macro-expansion semantics -- are documented once,
- * in that file's own header comment, next to the code they constrain. */
+ * byte-for-byte copy of its EAGER forms -- everything except the 93 names
+ * utils/prelude_deferred_names.txt lists (utils/embed_lisp_split.py, `make
+ * lisp-prelude-check` proves the split still reproduces lisp/prelude.el
+ * exactly).  The rules the prelude's definitions must follow -- ordering,
+ * recursion, macro-expansion semantics -- are documented once, in that
+ * file's own header comment, next to the code they constrain. */
 #include "lisp_prelude_generated.inc"
+
+/* Phase 1 of doc/plans/2026-08-14-embedded-prelude.md: the deferred half
+ * of the split above.  lisp_prelude_deferred_generated[] holds the same
+ * 93 forms' bytes, unchanged, concatenated in their original file order;
+ * lisp_prelude_deferred_generated_index[] (utils/embed_lisp_split.py) is
+ * where each one starts and how long it is.  Both are read by exactly one
+ * function, native_internal_force_deferred() below -- nothing else in
+ * this translation unit, or any other, touches them. */
+struct lisp_prelude_deferred_entry {
+	const char *name;
+	size_t offset;
+	size_t length;
+};
+#include "lisp_prelude_deferred_generated.inc"
 
 /* The prelude gets its own evaluation, so it neither consumes nor shares
  * the budget of later user evaluations. */
@@ -203,4 +225,86 @@ void evaluate_prelude(FeContext *context)
 	(void)FeEvaluateStringWithOptions(context, "prelude",
 	    (const char *)lisp_prelude_generated, lisp_prelude_generated_len,
 	    &eval_options);
+}
+
+/* Evaluate the ONE deferred form named by `arguments' -- a symbol or
+ * string, the same designator copy_fe_string() already accepts for
+ * add-hook/provide/featurep -- replacing its function cell with the real
+ * definition.  lisp/prelude.el's internal--make-deferred-stub is the only
+ * caller: each stub calls this exactly once, on its own first
+ * invocation, before forwarding that call's arguments to the freshly
+ * installed function, which is what makes a deferred name behave the
+ * same as an eager one from its very first call onward (see
+ * install_deferred_stubs() below for the other half).
+ *
+ * A linear scan over 93 entries, not a hash lookup: this runs at most
+ * once per deferred name per process, so the lookup's own cost is
+ * nowhere near what the stub it replaces already saved. */
+FeObject *native_internal_force_deferred(
+    FeContext *context, FeObject *arguments)
+{
+	FeObject *object = FeGetNextArgument(context, &arguments);
+	char *name;
+	size_t length, i;
+
+	FeRequireNoArguments(context, arguments);
+	name = copy_fe_string(context, object, &length);
+	for (i = 0; i < lisp_prelude_deferred_generated_index_len; i++) {
+		if (strcmp(name, lisp_prelude_deferred_generated_index[i].name)
+		    == 0) {
+			free(name);
+			(void)FeEvaluateStringWithOptions(context,
+			    "prelude-deferred",
+			    (const char *)lisp_prelude_deferred_generated
+				+ lisp_prelude_deferred_generated_index[i]
+				    .offset,
+			    lisp_prelude_deferred_generated_index[i].length,
+			    &eval_options);
+			return object;
+		}
+	}
+	free(name);
+	FeHandleError(
+	    context, "internal--force-deferred: unknown deferred name");
+}
+
+/* Install one self-replacing stub per name in
+ * lisp_prelude_deferred_generated_index[], driven from this generated
+ * table rather than from a loop written in lisp/prelude.el -- so the
+ * table is the only place the 93 names are enumerated and nothing needs
+ * to be kept in step with it by hand.  Each stub is an ordinary Lisp
+ * closure (internal--make-deferred-stub's return value, lisp/prelude.el),
+ * not a native: functionp, funcall, apply, a hook, and a recursive or
+ * cross-deferred call all see a real FeTFn, indistinguishable from an
+ * eager definition both before and after its first call replaces it.
+ * Runs once, right after evaluate_prelude() -- so the factory function it
+ * calls is already defined -- inside kg_lisp_init()'s own setjmp, exactly
+ * like evaluate_prelude() itself. */
+void install_deferred_stubs(FeContext *context)
+{
+	FeObject *factory_symbol
+	    = FeMakeSymbol(context, "internal--make-deferred-stub");
+	FeObject *factory;
+	size_t i;
+
+	if (!FeIsFBound(context, factory_symbol)) {
+		/* Not the shipped prelude: a prefix of lisp/prelude.el ending
+		 * before the factory's own definition (utils/
+		 * prelude_slot_census.py's per-section census truncates the
+		 * file at arbitrary points, unaware of the eager/deferred
+		 * split) has nothing to install a stub FROM.  Skipping is the
+		 * same answer every other deferred name's absence from such a
+		 * prefix already gets -- that experiment measures exactly
+		 * this much prelude, no more. */
+		return;
+	}
+	factory = FeGetFunction(context, factory_symbol);
+	for (i = 0; i < lisp_prelude_deferred_generated_index_len; i++) {
+		FeObject *symbol = FeMakeSymbol(
+		    context, lisp_prelude_deferred_generated_index[i].name);
+		FeObject *stub = FeCallWithOptions(
+		    context, factory, &symbol, 1, &eval_options);
+
+		FeSetFunction(context, symbol, stub);
+	}
 }

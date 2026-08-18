@@ -463,6 +463,12 @@ int kg_lisp_init(void)
 #else
 	evaluate_prelude(context);
 #endif
+	/* Phase 1 of doc/plans/2026-08-14-embedded-prelude.md: install the
+	 * deferred names' stubs now that the eager prelude (including the
+	 * factory function they are built from) has evaluated cleanly.
+	 * Still inside the setjmp above, so a raise here is reported the
+	 * same way a raise from evaluate_prelude() itself is. */
+	install_deferred_stubs(context);
 	FeRestoreGC(context, state.frame.gc_checkpoint);
 	state.frame_active = false;
 	return 0;

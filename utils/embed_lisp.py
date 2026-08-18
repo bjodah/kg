@@ -23,12 +23,19 @@ FeEvaluateStringWithOptions(), which already takes an explicit length, so
 nothing here or there depends on NUL termination.
 
 Usage:
-    embed_lisp.py <input.el> <output.inc>
+    embed_lisp.py <input.el> <output.inc> [array-name]
 
 `make lisp-prelude-generate` runs this to refresh the checked-in file;
 `make lisp-prelude-check` (part of `make check`) runs it again into a
 temporary file and fails if that differs from what is checked in --
 regenerating must be a no-op on a clean tree.
+
+The optional third argument names the emitted array (default
+`lisp_prelude_generated`); Phase 1's split (utils/embed_lisp_split.py)
+imports render() directly with a second name for the deferred array, so
+one translation unit can #include both without a symbol clash. Nothing
+about the byte-copying contract above changes: this parameterises the
+identifier only.
 """
 
 from __future__ import annotations
@@ -62,27 +69,28 @@ static const size_t {name}_len = sizeof({name});
 """
 
 
-def render(source: bytes) -> str:
+def render(source: bytes, name: str = ARRAY_NAME) -> str:
 	rows = []
 	for offset in range(0, len(source), BYTES_PER_LINE):
 		chunk = source[offset:offset + BYTES_PER_LINE]
 		rows.append("\t" + ", ".join(f"0x{b:02x}" for b in chunk) + ",")
 	body = "\n".join(rows)
-	return HEADER.format(name=ARRAY_NAME, body=body)
+	return HEADER.format(name=name, body=body)
 
 
 def main(argv: list[str]) -> int:
-	if len(argv) != 3:
-		print(f"usage: {argv[0]} <lisp/prelude.el> <output.inc>",
-		      file=sys.stderr)
+	if len(argv) not in (3, 4):
+		print(f"usage: {argv[0]} <lisp/prelude.el> <output.inc> "
+		      "[array-name]", file=sys.stderr)
 		return 2
 	input_path = Path(argv[1])
 	output_path = Path(argv[2])
+	name = argv[3] if len(argv) == 4 else ARRAY_NAME
 	source = input_path.read_bytes()
 	if len(source) == 0:
 		print(f"embed_lisp.py: {input_path} is empty", file=sys.stderr)
 		return 1
-	output_path.write_text(render(source), encoding="utf-8")
+	output_path.write_text(render(source, name), encoding="utf-8")
 	print(f"embed_lisp.py: wrote {output_path} ({len(source)} bytes from "
 	      f"{input_path})")
 	return 0

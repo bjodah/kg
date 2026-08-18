@@ -22,22 +22,22 @@ that a name which *stops* being covered is a diff and not a silence.
 | `lisp/help-fns.el` | 160 | 10 |
 | `lisp/pipeline-text.el` | 57 | 6 |
 | `lisp/pipeline.el` | 51 | 13 |
-| `lisp/prelude.el` | 1613 | 128 |
+| `lisp/prelude.el` | 1619 | 129 |
 | `utils/forecast/target-init.el` | 75 | 7 |
 | `utils/forecast/forecast-snippet.el` | 112 | 13 |
 | `utils/forecast/forecast-wordcount.el` | 118 | 10 |
-| **total** | **2336** | **202** |
+| **total** | **2342** | **203** |
 
 ## Implemented-name set
 
 | Source | Names |
 | --- | ---: |
-| kg-native | 127 |
-| kg-lisp | 172 |
+| kg-native | 128 |
+| kg-lisp | 173 |
 | fe-primitive | 73 |
 | fe-native | 14 |
 | reader | 6 |
-| corpus (defined by the corpus itself) | 202 |
+| corpus (defined by the corpus itself) | 203 |
 
 ## MISSING (4 names, 4 references)
 
@@ -58,7 +58,7 @@ Measured demand for the three families the plan's Declined section keeps off the
 | vectors | 0 | -- |
 | records | 0 | -- |
 
-## COVERED (246 names, 2332 references)
+## COVERED (247 names, 2338 references)
 
 | Refs | Name | Source |
 | ---: | --- | --- |
@@ -67,8 +67,8 @@ Measured demand for the three families the plan's Declined section keeps off the
 | 148 | `list` | fe-primitive |
 | 146 | `if` | fe-primitive |
 | 136 | `car` | fe-primitive |
-| 132 | `lambda` | fe-primitive |
-| 128 | `defalias` | fe-primitive |
+| 134 | `lambda` | fe-primitive |
+| 129 | `defalias` | fe-primitive |
 | 74 | `cons` | fe-primitive |
 | 71 | `defun` | kg-lisp |
 | 61 | `while` | fe-primitive |
@@ -118,6 +118,7 @@ Measured demand for the three families the plan's Declined section keeps off the
 | 6 | `string-match` | kg-native |
 | 6 | `symbol-name` | fe-primitive |
 | 5 | `*` | fe-primitive |
+| 5 | `apply` | fe-primitive |
 | 5 | `buffer-substring` | kg-native |
 | 5 | `equal` | kg-lisp |
 | 5 | `internal--qq` | kg-lisp |
@@ -126,8 +127,8 @@ Measured demand for the three families the plan's Declined section keeps off the
 | 5 | `match-string` | kg-lisp |
 | 5 | `nreverse` | kg-lisp |
 | 5 | `sort` | kg-lisp |
+| 5 | `symbol-function` | fe-primitive |
 | 4 | `>` | fe-primitive |
-| 4 | `apply` | fe-primitive |
 | 4 | `atom` | fe-primitive |
 | 4 | `commandp` | kg-native |
 | 4 | `cond` | kg-lisp |
@@ -139,7 +140,6 @@ Measured demand for the three families the plan's Declined section keeps off the
 | 4 | `split-string` | kg-lisp |
 | 4 | `string-length` | kg-native |
 | 4 | `string-to-char` | kg-native |
-| 4 | `symbol-function` | fe-primitive |
 | 3 | `alist-get` | kg-lisp |
 | 3 | `assoc` | kg-lisp |
 | 3 | `boundp` | fe-primitive |
@@ -256,6 +256,7 @@ Measured demand for the three families the plan's Declined section keeps off the
 | 1 | `internal--command-names` | kg-native |
 | 1 | `internal--custom-presentation-keyword-p` | kg-lisp |
 | 1 | `internal--custom-semantics-keyword-p` | kg-lisp |
+| 1 | `internal--force-deferred` | kg-native |
 | 1 | `internal--has-interactive` | kg-lisp |
 | 1 | `internal--interactive-p` | kg-lisp |
 | 1 | `internal--load-begin` | kg-native |

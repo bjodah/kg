@@ -55,7 +55,7 @@ void copy_result(char *result, size_t result_size, const char *text)
 #define lisp_free_arena free
 #endif
 
-static_assert(FE_API_VERSION == 11);
+static_assert(FE_API_VERSION == 12);
 static_assert(FE_LANGUAGE_VERSION == 14);
 
 #ifndef KG_LISP_ARENA_SIZE
@@ -470,6 +470,32 @@ int kg_lisp_init(void)
 	 * same way a raise from evaluate_prelude() itself is. */
 	install_deferred_stubs(context);
 	FeRestoreGC(context, state.frame.gc_checkpoint);
+	/* The post-prelude collect (doc/plans/2026-08-14-embedded-prelude.md,
+	 * "Post-prelude collect -- results"): one forced collection, after
+	 * everything the prelude phase does and after the GC-stack restore
+	 * just above -- root safety depends on that order. With zero
+	 * collections during loading, every temporary the reader and the
+	 * macro-expanders produced is still "live" by fe's own accounting;
+	 * this reclaims what of it the restore just made unreachable
+	 * (~860 slots measured at this pin) before a session's own work
+	 * begins, rather than waiting for natural exhaustion to find it.
+	 * Everything still needed is reachable from fe's own roots --
+	 * `symbol_list` for every `defalias`, `defvar` and deferred stub's
+	 * function/value cell -- so nothing kg holds across this call needs
+	 * a root of its own; see the plan section for the per-site audit.
+	 * FeCollectGarbage() cannot raise, so this needs no error handling
+	 * of its own even though it runs inside the setjmp above. */
+#if KG_PERF_COUNTERS
+	{
+		long long before = lisp_monotonic_ns();
+
+		FeCollectGarbage(context);
+		KG_PERF_SET(KG_PERF_LISP_POSTPRELUDE_COLLECT_NS,
+		    lisp_monotonic_ns() - before);
+	}
+#else
+	FeCollectGarbage(context);
+#endif
 	state.frame_active = false;
 	return 0;
 }

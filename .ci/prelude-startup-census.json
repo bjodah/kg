@@ -4,7 +4,7 @@
  "note": "What the embedded Lisp prelude (lisp/prelude.el) costs at startup, in four numbers: post-prelude peak live arena slots, still-reachable slots after a forced collection, embedded byte count, and top-level definition count. No number may rise without a rationale and measured proof in the commit message; regenerating is how a fall is banked.",
  "measured_with": {
   "peak_live_objects": "test/kgbatch -g /dev/null, peak-live=",
-  "reachable_live_objects": "test/prelude_gc_probe, the \"excl. the triggering call's own object\" line",
+  "reachable_live_objects": "test/prelude_gc_probe, the \"reachable-live (total - free)\" line, read right after kg_lisp_init() -- which now runs the one forced collection this needs itself",
   "embedded_bytes": "lisp/prelude.el, byte size on disk",
   "definition_count": "lisp/prelude.el, count of top-level (defalias 'NAME (KIND ...)) forms"
  },

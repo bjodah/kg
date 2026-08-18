@@ -1518,9 +1518,15 @@ static const char lisp_representative_init[]
  * file's convention): a durable margin claim survives an unrelated
  * prelude edit that shifts the exact object count by a few; a collapsed
  * one does not, and that is the failure this guards.  collection_count
- * staying exactly 0 is the one exact-count assertion, because "the
- * prelude and a representative init fit without ever forcing a
- * collection" is itself the property, not an approximation of it. */
+ * staying exactly 1 is the one exact-count assertion -- the post-prelude
+ * collect (doc/plans/2026-08-14-embedded-prelude.md, "Post-prelude
+ * collect -- results") is kg_lisp_init()'s own last act, so it is already
+ * counted by the time this function's first reading happens.  The
+ * property this pins is that nothing AFTER it -- loading auto-fill.el, or
+ * a representative init -- ever needs a collection of its own: "the
+ * prelude and a representative init fit without ever forcing a SECOND
+ * collection" is what survived from the original claim once the first
+ * one stopped being optional. */
 static void test_lisp_prelude_arena_margin(void)
 {
 	struct kg_lisp_arena_stats stats;
@@ -1533,7 +1539,13 @@ static void test_lisp_prelude_arena_margin(void)
 	CHECK(kg_lisp_arena_stats(&stats) == 0);
 	CHECK(stats.total_slots > 0);
 	CHECK(stats.allocation_failures == 0);
-	CHECK(stats.collection_count == 0);
+	CHECK(stats.collection_count == 1);
+	/* The post-prelude collect did something: live objects right after
+	 * kg_lisp_init() returns are strictly fewer than the high-water mark
+	 * it took to get there -- a shape assertion rather than the exact
+	 * 6819/5959 the prelude census manifest pins, so this survives an
+	 * unrelated prelude edit that shifts the exact counts. */
+	CHECK(stats.total_slots - stats.free_slots < stats.peak_live_objects);
 	/* At least half the arena free after the prelude alone -- margin,
 	 * not a tight fit. */
 	CHECK(stats.free_slots * 2 > stats.total_slots);
@@ -1546,7 +1558,9 @@ static void test_lisp_prelude_arena_margin(void)
 
 	CHECK(kg_lisp_load_file("lisp/auto-fill.el") == 0);
 	CHECK(kg_lisp_arena_stats(&stats) == 0);
-	CHECK(stats.collection_count == 0);
+	/* Still 1, not 2: loading a package on top of the prelude needs no
+	 * collection of its own. */
+	CHECK(stats.collection_count == 1);
 	CHECK(stats.free_slots * 2 > stats.total_slots);
 	kg_lisp_shutdown();
 
@@ -1560,7 +1574,9 @@ static void test_lisp_prelude_arena_margin(void)
 		    == 0);
 	}
 	CHECK(kg_lisp_arena_stats(&stats) == 0);
-	CHECK(stats.collection_count == 0);
+	/* Still 1, not 2: a representative init also needs no collection of
+	 * its own. */
+	CHECK(stats.collection_count == 1);
 	CHECK(stats.free_slots * 2 > stats.total_slots);
 	/* A real init evaluates real forms: peak_frame_depth has moved off
 	 * the bare prelude's own baseline (measured at the Phase 12 fix

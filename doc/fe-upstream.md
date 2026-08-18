@@ -9,7 +9,7 @@ superproject's tree stores the SHA the working tree is checked out at, and
 written into prose only goes stale, as it did before this document was
 rewritten.
 
-The supported embedding interface is `FE_API_VERSION 11`; `src/lisp_core.c`
+The supported embedding interface is `FE_API_VERSION 12`; `src/lisp_core.c`
 asserts it at compile time. Fe's *language* — its evaluated behaviour,
 independent of the C embedding contract — is versioned separately as
 `FE_LANGUAGE_VERSION 14`, which `src/lisp_core.c` also asserts at compile
@@ -292,6 +292,44 @@ builds one object with it (`test/fe_gcstress.o`, linked into
 `test/kgbatch-gcstress`, the `make lisp-gc-stress-check` lane); the shipped
 editor's `src/fe.o` is built without it, exactly as `test/perfobj/` keeps
 the counting build out of `src/`.
+
+The pin then moved once more for kg's embedded-prelude program
+(`doc/plans/2026-08-14-embedded-prelude.md`'s "Post-prelude collect" work,
+which the plan itself says sits outside its numbered phases):
+`FE_API_VERSION` 11 → **12** alone, `FE_LANGUAGE_VERSION` staying at **14**.
+The addition is `FeCollectGarbage`, a thin public wrapper — declared in
+`fe.h`, defined in one line in `fe.c` — around the `static` `CollectGarbage`
+that forces an immediate mark-and-sweep, the same one
+`ArenaCanAllocate()`/`MakeObject()`'s exhaustion path and the `FE_GC_STRESS`
+build already run on their own schedule. Nothing removed, nothing an
+existing call's meaning changes, so every host that links against this pin
+keeps compiling unmodified; the bump exists for the reason versions 7, 8, 11
+and 20 above already used for an addition-only change — kg's compile-time
+`static_assert` is the macro's only consumer, and a macro that does not move
+cannot tell kg whether the fe it links against has the new entry point at
+all. Nothing a Lisp program evaluates can observe whether or when a
+collection ran, beyond the arena not running out, so the language macro does
+not move with it. The assertion in `src/lisp_core.c` fired at this pin.
+`FeVersion` is `"17.0"`.
+
+kg's own use of the new entry point is the one call `kg_lisp_init()` makes,
+once, right after `install_deferred_stubs()` and the `FeRestoreGC()` that
+follows it — root safety depends on that order, since the collection has to
+run *after* the GC stack is back at its post-setup checkpoint or it would
+find the prelude's own transient garbage still rooted by the raw stack and
+reclaim none of it. The measured yield is the prelude's own collectable
+footprint (~860 slots at the Phase 2 pin this document's Phase 3 section
+records, unchanged at this one): `peak_live_objects` and
+`reachable_live_objects` read exactly what they did before this pin moved,
+by construction — the former is a high-water mark already reached by the
+time the call runs, the latter is by definition the post-collection figure —
+so this pin moves neither the arena partition (`FeMinimumArenaSize()` adds
+no field to `FeContext`, so `total_slots` stays 56147) nor either census
+number; only a *new* reading, live slots at the moment `kg_lisp_init()`
+returns, shows the change did anything. See
+`doc/plans/2026-08-14-embedded-prelude.md`'s "Post-prelude collect —
+results" for the full measurement, the root-safety audit, and what it does
+not buy.
 
 Fe is MIT licensed. Copyright belongs to rxi and Chris Palmer; the complete
 license text is in `fe/LICENSE`.

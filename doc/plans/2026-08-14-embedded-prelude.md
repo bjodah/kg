@@ -2093,6 +2093,20 @@ make clean && make   # back to the plain default build
   saving this document's own premise section already funded and declined.
   Reverted rather than shipped, per this document's own "reverted; the
   measurement is the deliverable" convention.  See "Phase 3 — results".
+- **"A post-prelude collect makes every subsequent collection mark ~13%
+  fewer objects, permanently, for the life of the session."**  The
+  mechanism itself was built and shipped (below) — this is one specific
+  claim about what it buys, measured and rejected rather than the whole
+  idea.  fe's mark phase visits only the reachable graph; unreachable
+  garbage costs a mark phase nothing whether it has been swept or not, so
+  reclaiming the prelude's 860 slots of it early cannot make a *later*
+  mark phase visit fewer objects — confirmed by forcing a collection at a
+  fixed, matched workload checkpoint with and without this section's call
+  compiled in and reading the identical reachable count (9571) both ways.
+  What the reclaim actually buys is bounded and one-time: the session's
+  first natural collection is delayed by exactly the 860 slots reclaimed,
+  not a standing discount on every collection after it.  See "Post-prelude
+  collect — results" below, finding 3.
 
 ## Sequencing rationale
 
@@ -2106,3 +2120,319 @@ eliminates the pattern the question asks about, and it is last because it
 buys the currency that is *not* scarce (0.82 ms) plus a CI win, at the
 price of an fe pin move; if Phase 0.3 finds the reader dominates, its cheap
 variant gets the CI win with none of that price.
+
+## Post-prelude collect — results
+
+This section sits outside the numbered phases above, the way the "Declined,
+with the reason" list does: it implements the idea Phase 0.3 Part B priced
+without building ("collect once after the prelude") and Phase 3's own
+results section left as "Phase 0.4/later's decision to schedule" — closing
+the one forward reference neither phase resolved.  fe's pin moved for it
+(`FE_API_VERSION` 11 → 12; `doc/fe-upstream.md` records the divergence and
+the version-history reasoning fe's own `fe.h`/`fe/doc/c-api.md` state
+alongside it), which every earlier phase in this document declined to pay
+for the same 2.20%–2.35%-of-arena idea, on the grounds that it competed for
+attention with larger, cheaper-per-slot wins that had already been taken.
+Those wins are taken now (Phases 1–2), so this is what is left of Phase
+0.3 Part B's own idea, priced properly this time rather than argued for.
+
+### The mechanism
+
+`CollectGarbage()` (`fe/fe.c`) stays `static`; the new public entry point is
+a one-line wrapper, `void FeCollectGarbage(FeContext* ctx) { CollectGarbage(ctx); }`,
+declared in `fe.h` beside `FeGetArenaStats`.  `CollectGarbage` already
+guards its own re-entrancy (the `ctx->collecting` check `fe.h`'s new
+version-history paragraph cites), so the wrapper adds no policy of its own.
+
+kg calls it exactly once, in `kg_lisp_init()` (`src/lisp_core.c`), after
+**everything** the prelude phase does — `evaluate_prelude()` *and*
+`install_deferred_stubs()` — and, critically, **after** the
+`FeRestoreGC(context, state.frame.gc_checkpoint)` that already existed at
+that point for an unrelated reason (dropping the raw GC-stack residue
+`register_natives()`/`evaluate_prelude()`/`install_deferred_stubs()` leave
+behind).  That ordering is load-bearing, not cosmetic: if the collect ran
+*before* the restore, every object still sitting on the raw `gc_stack` —
+which is every object any of those three functions allocated and never
+explicitly popped, prelude reader/macro-expansion garbage included — would
+still be rooted by the stack itself, and the collection would reclaim
+nothing.  Restoring first drops that root; only *then* does a collection
+see the prelude's transient garbage as unreachable.  Still inside
+`kg_lisp_init()`'s own `setjmp`, though that turns out not to matter:
+`FeCollectGarbage()` cannot raise (mark and sweep call no host callback
+that is allowed to raise, and the wrapper adds nothing that could), so
+there is no error path to test.
+
+### Root-safety audit
+
+The rule stated in the task this section answers: **a collection is only
+safe if everything live is rooted.**  Grepped across every `src/lisp_*.c`
+for a cached `FeObject*` that survives across `kg_lisp_init()`'s return,
+rather than assumed clean because the prelude defined it:
+
+| Site | What it holds | Root-safe? | Why |
+| --- | --- | --- | --- |
+| `lisp_prelude.c`'s deferred-stub index (`lisp_prelude_deferred_generated_index[]`) | `{name, offset, length}` into a `const char*` byte array | Yes, trivially | Source-text offsets, not `FeObject*` at all — nothing here is a GC reference for the collector to get wrong. Phase 1's own comment already says so; this call site changes nothing about it. |
+| `lisp_prelude.c`'s `install_deferred_stubs()` locals (`factory_symbol`, `factory`, per-name `symbol`/`stub`) | `FeObject*` C locals, on the raw GC stack while the function runs | Yes | Every one is either (a) an interned symbol, permanently rooted via `symbol_list` the instant `FeMakeSymbol`/`FeGetFunction` returns it, or (b) a `stub` closure that `FeSetFunction(context, symbol, stub)` installs into that same symbol's function cell before the loop moves on — rooted by the symbol, not by the C stack frame, before this function returns. The raw stack residue itself is dropped by the `FeRestoreGC()` this call sits after; nothing needed rests on it surviving. |
+| `lisp_obj.h`'s `struct lisp_object_pool` (`state.object_pool`, one `wrapper` per buffer/marker/process object) | A bare `FeObject*` per pool record, no `FeRoot`, and kg registers no `mark_fn` (the header's own comment) | Not applicable at this call site | `wrapper` is populated only when Lisp code names a live buffer, marker or process (`current-buffer`, `make-marker`, …), none of which the prelude — or anything before `kg_lisp_init()` returns — ever calls. Every record is `active = false` at the call. This is the one site whose *general* safety this collect does **not** establish (see "What this does not buy" below); it happens to be moot for THIS call because the pool is provably empty at this point in the program, not because the pool is safe against a collection in general. |
+| `lisp_locals.h`'s `struct lisp_locals_table` (`state.locals`) | Bare `FeObject* symbol`/`cell` per buffer-local variable and binding | Not applicable at this call site | `var_count` is 0 at `kg_lisp_init()` time — the prelude defines no buffer-local variable (`setq-local` is a session-time operation) — so the table is empty. When it is not empty, the header's own design comment explains why it needs no root of its own regardless: the stashed values live in the value cells of *interned* hidden symbols (`internal--local-N`), and an interned symbol is already a permanent root by virtue of the interner. |
+| `lisp_hooks.c`'s `hooks[LISP_MAX_HOOKS]` (hook hooks. entries) | `FeRoot*` per registered hook function | Yes, and would be even if populated | `hook_count` is 0 at the call (no `add-hook` has run yet), but the entries are `FeRoot*`, which fe's own `CollectGarbage()` marks by walking `ctx->root_list` — a real root regardless of when a collection runs. |
+| `lisp_process.c`'s `bindings[KG_PROCESS_TABLE_MAX]` (filter/sentinel) | `FeRoot*` per process callback | Yes, same reason | No process exists yet at the call, and the fields are `FeRoot*` in any case. |
+| `lisp_cmd.c`'s `state.commands[LISP_MAX_COMMANDS]` (`function_root`/`interactive_root`/`documentation_root`/`interactive_form_root`) | `FeRoot*` per Lisp-defined command | Yes, same reason | No `define-command` has run yet (that is session-time, not prelude-time), and every field is a root. |
+| `lisp_internal.h`'s `state.prefix_binding` | A `struct lisp_prefix_binding*` holding a bare `FeObject* symbol` plus `FeRoot* old_root`/`new_root` | Not applicable at this call site | `nullptr` at the call — prefix-argument binding is a command-execution-time structure, and no command has executed yet. |
+| `lisp_internal.h`'s `state.command_value` | A bare `FeObject*`, explicitly documented as "not a root" | Not applicable at this call site | Also `nullptr`/unset at the call — `lisp_take_command_value()`'s own comment (cited by the field's declaration) explains it is set only during a command activation in flight, which cannot exist yet. |
+
+No site in `src/lisp_*.c` holds an unrooted `FeObject*` across this
+specific call.  The two "not applicable" rows are exactly that — not
+proven safe *in general*, but provably inert at THIS call because nothing
+that would populate them has run yet.  A future call site placed anywhere
+other than immediately after `kg_lisp_init()`'s own prelude phase would
+need this table re-derived, not assumed.
+
+`make lisp-gc-stress-check` (`FE_GC_STRESS`, collecting before every single
+allocation) is evidence about the *prelude* — that nothing in
+`register_natives()`/`evaluate_prelude()`/`install_deferred_stubs()`
+depends on garbage surviving — not about the one-statement gap between
+`install_deferred_stubs()` returning and this call: that gap contains
+nothing but the pre-existing `FeRestoreGC()` and the new
+`FeCollectGarbage()` itself, both audited above by direct reading rather
+than by running the stress build across them (nothing new to fuzz — no
+allocation happens in the gap for gcstress to interpose on).  Run anyway,
+as the task asked: `make lisp-gc-stress-check` passes (below), and the
+gcstress build's prelude-alone collection count moved 6819 → **6820** —
+exactly the one extra real `CollectGarbage()` this call adds, on top of
+the stress knob's own per-allocation ones, with no answer-equality failure
+and no new allocation failure.
+
+### The census numbers, unmoved by construction — and the one that could not be
+
+`.ci/prelude-startup-census.json` reads exactly as it did before this
+section's work, confirmed by `make prelude-census-check` before and after:
+
+| quantity | before | after | moved? |
+| --- | ---: | ---: | ---: |
+| `peak_live_objects` | 6819 | 6819 | no |
+| `reachable_live_objects` | 5959 | 5959 | no |
+| `embedded_bytes` | 73730 | 73730 | no (untouched) |
+| `definition_count` | 122 | 122 | no (untouched) |
+
+Neither number *could* have moved without indicating a bug: `peak_live_objects`
+is a high-water mark already reached by the time this call runs (increment-only,
+per Phase 0.3 Part B's own reasoning, restated rather than re-derived here),
+and `reachable_live_objects` is, by the census script's own definition,
+already "after the prelude AND a forced collection" — which is now
+literally what `kg_lisp_init()` itself does, rather than a proxy for it.
+
+**What is new is not a census number but what produces it.**
+`test/prelude_gc_probe.c` used to allocate through the public facade in a
+loop until natural exhaustion forced a collection, then subtract one for
+the triggering call's own allocation (Phase 0.3 Part B's mechanism,
+documented in the file's own header before this section rewrote it).  With
+`FeCollectGarbage()` doing the forcing inside `kg_lisp_init()` itself, the
+probe now just calls `kg_lisp_init()` and reads `kg_lisp_arena_stats()`
+directly — no forcing loop, no correction term.  **It reproduces the same
+number the old mechanism did, exactly** (5959, confirmed by direct
+comparison on this tree before removing the old code): the old trick and
+the new direct call were measuring the same thing, which is worth stating
+rather than assuming, since the task asked to report a mismatch as a
+finding if the two methods had disagreed.  They do not.
+
+### The actual win: not what was asked for, but what is real
+
+The task's framing anticipated three durable wins.  Two hold up under
+measurement; the third does not, and the reason it does not is itself the
+finding worth having.
+
+**1. Live slots at the moment `kg_lisp_init()` returns: 6819 → 5959,
+confirmed.**  This is real and is the number that shows the change did
+anything — `test/prelude_gc_probe`'s own output line, `test/kgbatch -a`'s
+`census:` line, and the two updated assertions in
+`test/test_perf.c:test_lisp_prelude_arena_margin` (`collection_count == 1`,
+and the new shape assertion `total_slots - free_slots < peak_live_objects`)
+all agree.  **It does not need a fifth census field.**
+`reachable_live_objects` was always defined as "reachable after the
+prelude and a forced collection" — Phase 0.3 Part B wrote that definition
+before this section existed to satisfy it directly — so the existing
+second field *is* this number now, measured by the mechanism the
+definition always described rather than by the workaround the definition
+was written to approximate.  Adding a fifth field would duplicate a number
+the manifest already carries under a name that already means it.
+
+**2. Time to first (natural) collection: delayed by exactly 860
+allocations.**  Measured directly, by temporarily disabling this section's
+own call and rebuilding a throwaway `kg_lisp_init()` variant for
+comparison (the same harness finding 3 below re-describes): free slots
+right after `kg_lisp_init()` are 49328 without the post-prelude collect
+(`total_slots − peak_live_objects` = 56147 − 6819, before any collection
+has run at all) and 50188 with it (`total_slots − reachable_live_objects` =
+56147 − 5959).  Either figure is exactly how many *further* allocations
+the arena can absorb before its first natural, exhaustion-triggered
+collection fires — MakeObject() only collects once the free list is
+completely empty — so 50188 − 49328 = 860, exactly the reclaimed count,
+because that first natural collection fires the instant raw occupancy
+(reachable objects plus whatever dead weight has not yet been swept)
+reaches `total_slots` (56147), and this section's call is the reason 860
+fewer of those 56147 slots start the session already spoken for by dead
+prelude garbage.  In relative terms, 1.74% more allocations before the
+session pays its first natural collection at all.  Small, as the task's
+own framing anticipated ("do not
+oversell it").
+
+**3. "Every subsequent collection marks ~13% fewer objects, permanently,
+for the life of the session" — measured, and this is false as stated.**
+The task asked for this to be evidenced; the evidence instead rejects it,
+and the reasoning is worth walking through because the claim is
+plausible-sounding and wrong for a specific, checkable reason.  fe's
+collector is an ordinary, non-generational mark-and-sweep: the mark phase
+starts at the roots and visits exactly the reachable graph, so an
+unreachable object is **never visited by mark, whether it has been sitting
+around uncollected for one allocation or a million.**  Reclaiming the
+prelude's 860 slots of garbage *early* does not make any later mark phase
+visit fewer objects, because that garbage was never something mark visited
+in the first place — it was dead weight occupying a slot, invisible to a
+walk that only follows live pointers.  The sweep phase, separately, is
+`O(total_slots)` unconditionally (`for (i = 0; i < ctx->object_count; i++)`
+in `CollectGarbage`), and `total_slots` (56147) never moves, so sweep cost
+does not change either.
+
+Checked empirically, not just argued: a throwaway harness (built against
+this tree with `lisp_internal.h`'s `state.context` reachable the way
+`test/`'s existing fe.h-in-test/ precedent already established, then
+discarded — not shipped, per this document's own "reverted; the
+measurement is the deliverable" convention) ran `kg_lisp_init()`, then a
+fixed workload (500 iterations building both retained and transient data),
+then forced one more collection at that *controlled* checkpoint — once
+with this section's `FeCollectGarbage()` call compiled in, once with it
+compiled out:
+
+| | with the post-prelude collect | without it | delta |
+| --- | ---: | ---: | ---: |
+| live objects right after `kg_lisp_init()` | 5959 | 6819 | +860 |
+| live objects after the fixed workload (no natural collection fired either side) | 16685 | 17545 | +860 |
+| **reachable after forcing a collection at that same checkpoint** | **9571** | **9571** | **0** |
+
+The +860 offset from `kg_lisp_init()` rides along, unchanged, through the
+whole workload — exactly the "still-unswept dead weight" prediction — and
+then **disappears to exactly zero** the moment a collection actually
+walks the graph, because mark was never visiting those 860 objects to
+begin with.  What Phase 0.3 Part B's own "collect once after the prelude"
+idea is actually worth, precisely: **a one-time, bounded delay of the
+session's first natural collection (finding 2 above), not a permanent
+per-collection saving.**  The task's own third bullet is the one measured
+rejection this section produces, and it is folded into "Declined, with
+the reason" below rather than left as a silent correction, per this
+document's convention.
+
+### Cost
+
+One collection at startup, over the ~5959–6819-object graph the prelude
+leaves behind.  Measured with `test/perfobj/prelude_gc_probe` (the new
+`KG_PERF_LISP_POSTPRELUDE_COLLECT_NS` counter, isolated the same way
+`KG_PERF_LISP_PRELUDE_NS` isolates `evaluate_prelude()`'s own window — a
+counting build only; `perf.h` compiles the counter away otherwise), 11
+runs:
+
+| | median | min | max |
+| --- | ---: | ---: | ---: |
+| `postprelude_collect_ns` | 120.4 µs | 120.0 µs | 124.1 µs |
+
+Stable to within 4 µs across all 11 runs.  Against Phase 0.3 Part A's own
+counting-build reading for the prelude's evaluation window alone (2.880 ms
+median, a different commit's measurement, cited for scale rather than as a
+same-run comparison), one collection costs roughly 4% more on top of the
+prelude's own evaluation time — the "cheap by this tree's own evidence"
+estimate Phase 0.3 Part B made without measuring it (~0.1 ms, reasoned from
+`lisp-gc-stress-check`'s own average) holds up almost exactly (120 µs
+measured against ~100 µs estimated).
+
+### What this does not buy, and the debt it leaves
+
+- **Not a permanent reduction in any future collection's mark cost** — see
+  finding 3 above.  The durable effect is bounded: it delays the first
+  natural collection by 860 allocations and nothing past that point,
+  because both a session that ran this call and one that did not converge
+  to the same reachable-graph trajectory the instant either one first
+  collects.
+- **Does not touch `total_slots`, `FeMinimumArenaSize()`, or the arena
+  partition.**  `FeCollectGarbage` adds no field to `FeContext`; the arena
+  is exactly the size and shape it was, confirmed by `test/kgbatch -a`
+  reporting `total=56147` unchanged.
+- **Does not establish that a collection is safe at any OTHER point in
+  kg's lifecycle** — only at this one, audited above.  In particular
+  `src/lisp_obj.h`'s object pool (`LISP_MAX_OBJECTS`) is root-safe here
+  only because it is empty at this call; its own header comment, which
+  said "nothing here can ask fe to collect (fe publishes no collect-now
+  entry point)" as part of its documented, measured rejection of pool
+  back-pressure, is now factually stale in that one clause — fe *does*
+  publish one as of this section — and has been corrected in place (a
+  comment fix, not a behavior change): the substantive verdict the
+  comment records (forcing a collection at the pool's exhaustion
+  threshold reclaims zero records, because every record is provably live
+  there) never rested on the entry point's absence and does not move now
+  that the absence is gone.  Wiring the pool up to ask for a collection of
+  its own remains unimplemented and out of this section's scope; the
+  audit above only speaks to the one call site this section adds.
+- **The gcstress prelude-alone collection count moved 6819 → 6820**, a
+  side effect of adding one real collection where the stress knob's own
+  per-allocation ones already ran; no assertion in
+  `utils/check_lisp_gc_stress.py` depends on the exact number (confirmed
+  by reading the script before relying on it: only `big_stats[0] == 0` and
+  `stress_stats[0] < MIN_STRESS_COLLECTIONS` gate on a collection count,
+  and both are satisfied by a wide margin), so nothing needed updating
+  there beyond the comment already noting the figures are re-measured
+  elsewhere when they drift.
+
+### Verification
+
+`make -C fe check complexity-check pmccabe-check format-check` and the
+same for `fe/tiny-regex-c`: both green.  fe's `PMCCABE_TOTAL_MAX` moved
+1271 → 1272 for the one new symbol, `FeCollectGarbage` at complexity 1 — no
+existing symbol changed, proved live the same way every earlier move in
+that file's history was (`make pmccabe-check` at 1271 fails with "total
+complexity 1272 exceeds funded budget 1271 (+1)"; at 1272 it passes).  A
+new fe-side test, `TestPublicCollectGarbage` (`fe/test_api.c`), builds a
+rooted pair and 64 unrooted ones directly, calls `FeCollectGarbage`, and
+checks the count moves by exactly one, the 64 come back, the rooted pair
+does not, and a second call is a real, distinct, idempotent collection —
+in place of the allocate-until-exhaustion `ForceCollection` helper every
+other test in that file still needs, since even fe's own test binary could
+not call the `static` `CollectGarbage` before this pin.
+
+On the kg side: `make clean && make` is warning-free; `make check` (run
+alone) is 59/59 native unit tests and 582/587 PTY cases passing with 5
+SKIPs (missing optional tools, unrelated to this change) and zero
+failures; `make complexity-check` (`src` scc 10642/10642, unchanged —
+this section adds no branch to any `src/*.c` function) and
+`make pmccabe-check` (2833/2833 symbols, zero new, zero regressions) both
+pass with no ratchet move needed on the kg side at all; `make format-check`,
+`make prelude-census-check`, `make lisp-prelude-check`, `make forecast-check`
+and `make header-check` all pass; `.ci/ci-08-with-lisp-0.sh`
+(`WITH_LISP=0`) passes (449 PASS, 138 SKIP, 0 FAIL — the disabled
+configuration never reaches this code at all, `src/lisp.h`'s facade
+answering every call with "Lisp not available" as it always has); and
+`make lisp-gc-stress-check` passes.
+
+### Reproduce
+
+```
+make -C fe check complexity-check pmccabe-check format-check
+make -C fe/tiny-regex-c check complexity-check pmccabe-check format-check
+make clean && make
+make check
+make complexity-check pmccabe-check format-check prelude-census-check \
+     lisp-prelude-check forecast-check header-check
+.ci/ci-08-with-lisp-0.sh
+make lisp-gc-stress-check
+
+# the census, directly:
+make test/kgbatch test/prelude_gc_probe
+./test/kgbatch -a /dev/null       # peak-live=6819, unchanged
+./test/prelude_gc_probe           # reachable-live (total - free) = 5959
+
+# the collect's own cost:
+make test/perfobj/prelude_gc_probe
+for i in $(seq 1 11); do ./test/perfobj/prelude_gc_probe; done
+
+# the gcstress shift:
+make test/kgbatch-gcstress
+./test/kgbatch-gcstress -b -g /dev/null   # collections=6820, was 6819
+```

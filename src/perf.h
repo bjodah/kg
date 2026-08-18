@@ -180,6 +180,16 @@ enum kg_perf_counter {
 	 * the pty-launch noise a `make bench` case's whole-process wall time
 	 * carries. */
 	KG_PERF_LISP_PRELUDE_NS,
+	/* Wall-clock nanoseconds spent in the post-prelude
+	 * FeCollectGarbage() call (doc/plans/2026-08-14-embedded-prelude.md,
+	 * "Post-prelude collect -- results"), set once by kg_lisp_init()
+	 * right after KG_PERF_LISP_PRELUDE_NS's own window closes.  Same
+	 * caveat as that counter: a duration, not asserted anywhere, since
+	 * a wall time is not the same number twice on a loaded box -- what
+	 * it answers is what the one collection kg_lisp_init() now always
+	 * runs costs, against the whole reachable set live at the call (a
+	 * mark-and-sweep over it, not just the slots it reclaims). */
+	KG_PERF_LISP_POSTPRELUDE_COLLECT_NS,
 	/* Wall-clock nanoseconds spent loading the *user's* init file
 	 * (kg_lisp_load_init()'s kg_lisp_load_file call), and the total
 	 * spent evaluating files that `(require ...)` had to load

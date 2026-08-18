@@ -28,8 +28,11 @@ re-implemented here:
     reachable behaviour).
   * reachable_live_objects -- what a session actually keeps: arena slots
     still reachable after the prelude AND a forced collection
-    (`test/prelude_gc_probe`'s "excl. the triggering call's own object"
-    line). The stabler, implementation-independent definition footprint,
+    (`test/prelude_gc_probe`'s "reachable-live (total - free)" line --
+    kg_lisp_init() itself now runs the one forced collection this needs,
+    the post-prelude collect of doc/plans/2026-08-14-embedded-prelude.md,
+    so the probe only has to read `kg_lisp_arena_stats()` afterward).
+    The stabler, implementation-independent definition footprint,
     and what a lazy-loading phase's saving should be measured against
     instead of peak_live_objects, whose delta conflates fewer permanent
     definitions with less transient garbage from however the remaining
@@ -74,8 +77,7 @@ QUANTITIES = (
 )
 
 PEAK_LIVE_RE = re.compile(r"peak-live=(\d+)")
-REACHABLE_LIVE_RE = re.compile(
-    r"reachable-live \(excl\. the triggering call's own object\) = (\d+)")
+REACHABLE_LIVE_RE = re.compile(r"reachable-live \(total - free\) = (\d+)")
 DEFALIAS_RE = re.compile(r"(?m)^\(defalias '\S+\s+\(\w+")
 
 
@@ -114,7 +116,7 @@ def measure_reachable_live(probe: Path) -> int:
 	m = REACHABLE_LIVE_RE.search(result.stdout)
 	if not m:
 		raise SystemExit(
-		    f"check_prelude_census: no corrected reachable-live line in "
+		    f"check_prelude_census: no reachable-live line in "
 		    f"{probe} output: {result.stdout!r}")
 	return int(m.group(1))
 

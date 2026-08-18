@@ -36,10 +36,14 @@ expected_screen_contains:
   # partition answers by moving two frame slots' worth of bytes to the
   # object side, so the object count RISES as the frame count falls.
   # `fails 0` is the claim that a session which has only booted has never
-  # failed an allocation.
+  # failed an allocation.  `GC 1`, not `GC 0`: the post-prelude collect
+  # (doc/plans/2026-08-14-embedded-prelude.md, "Post-prelude collect --
+  # results") is kg_lisp_init()'s own last act, so a session that has only
+  # booted has already collected exactly once by the time this command can
+  # run.
   - "Arena: 56147 slots,"
   - " free, peak "
-  - "; GC 0; roots "
+  - "; GC 1; roots "
   - "/1087; fails 0"
 expected_screen_not_contains:
   - "Lisp not available"

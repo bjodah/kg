@@ -1040,6 +1040,21 @@ test/prelude_gc_probe: test/prelude_gc_probe.c \
 		$(TESTDIR)/stubs_main.o $(filter-out $(OBJDIR)/main.o,$(OBJS)) \
 		$(FE_OBJ) $(REGEX_OBJS) $(LDLIBS)
 
+# The counting-build twin, same shape as PRELUDE_READ_EVAL_SPLIT_PERF just
+# above: only the link recipe is new, the object comes from the generic
+# $(PERFOBJDIR)/%.o pattern rule.  What this buys over the release binary
+# is KG_PERF_LISP_POSTPRELUDE_COLLECT_NS -- the post-prelude collect's own
+# wall-clock cost (doc/plans/2026-08-14-embedded-prelude.md, "Post-prelude
+# collect -- results"), which perf.h compiles away entirely when
+# KG_PERF_COUNTERS is 0.
+PRELUDE_GC_PROBE_PERF = $(PERFOBJDIR)/prelude_gc_probe
+
+$(PRELUDE_GC_PROBE_PERF): $(PERFOBJDIR)/prelude_gc_probe.o \
+	$(PERFOBJDIR)/stubs_main.o \
+	$(filter-out $(PERFOBJDIR)/main.o,$(PERF_SRC_OBJS)) \
+	$(FE_OBJ) $(REGEX_ENGINE_OBJ)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
+
 # Phase 13.5's kg half of fe's FE_GC_STRESS knob.  Fe's `MakeObject()`
 # collects before every allocation when fe.c is built with
 # -DFE_GC_STRESS=1, so an object live only through an unrooted C local

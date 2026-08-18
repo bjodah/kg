@@ -1,122 +1,74 @@
-/* prelude_gc_probe - Phase 0.3's collectable-startup-garbage measurement.
+/* prelude_gc_probe - the post-prelude collect's reachable-live measurement.
  *
- * doc/plans/2026-08-14-embedded-prelude.md's "premise, corrected before
- * the plan is built on it" asserts the arena "collects nothing during
- * startup, so every prelude definition is a permanent high-water mark
- * rather than a transient."  The first half is measured true (Phase 0.1,
- * Phase 0.2's own "ten eager names" section: 0 collections after the real
- * prelude).  The second half conflates two different things
- * `FeArenaStats.peak_live_objects' cannot tell apart on its own: with
- * zero collections, `arena_live_count' (what `peak_live_objects' is a
- * high-water mark OF) is incremented by every MakeObject() call and never
- * decremented by anything but a collection's sweep -- so it counts every
- * object the prelude's reader and evaluator ever allocated, including
- * macro-expansion temporaries and reader spine cells that were already
- * unreachable by the time the prelude finished, not only what is still
- * reachable then.  This program measures the reachable figure directly.
+ * doc/plans/2026-08-14-embedded-prelude.md's "0.3 Part B" measured how much
+ * of the prelude's footprint is transient reader/macro-expansion garbage
+ * rather than a permanent definition: with zero collections during
+ * loading, `FeArenaStats.peak_live_objects` counts every object the reader
+ * and evaluator ever allocated, garbage included, so telling the two apart
+ * needed an actual mark-and-sweep. At that phase fe's collector
+ * (CollectGarbage(), fe/fe.c) was `static' -- not even fe_internal.h
+ * declared it outside that translation unit -- so the only way to force
+ * one was natural exhaustion inside MakeObject(): allocate through the
+ * public facade in a loop until the free list ran dry, then read
+ * `free_slots' back, with a `- 1' correction for the triggering call's own
+ * allocation (still occupying a slot: MakeObject() collects first, then
+ * still satisfies the request that forced it).
  *
- * fe's collector (CollectGarbage(), fe/fe.c) is `static' -- not even
- * fe_internal.h declares it outside that translation unit -- so there is
- * no way to force a collection from outside fe.c.  The only trigger is
- * natural exhaustion inside MakeObject(): the free list runs out.  This
- * program therefore does what the plan's own crude probe did, properly:
- * evaluate the real prelude through the real kg_lisp_init(), then drive
- * kg_lisp_eval_string() in a tight loop of the smallest possible
- * allocating form ("1", a single reader-allocated integer atom that
- * self-evaluates with no further allocation and is retained nowhere),
- * checking kg_lisp_arena_stats() after every single call and stopping at
- * the FIRST one where collection_count increases.  Checking after every
- * call, rather than after a batch, bounds the overshoot: the reading is
- * taken as soon as possible after the collection that produced it, before
- * any further allocation can inflate free_slots' complement.  What is
- * left uncollected at that instant is *live*, by fe's own definition --
- * it survived a real mark-and-sweep -- so free_slots there gives the
- * reachable set directly: total_slots - free_slots.  No fe.h, no custom
- * FeContext, no editor state beyond kg_lisp_init()'s own: every call here
- * goes through lisp.h's public facade, the same one test/kgbatch.c uses.
+ * "Post-prelude collect" (the section by that name in the plan above)
+ * exports `FeCollectGarbage()' as fe's public collect-now entry point
+ * (FE_API_VERSION 12) and calls it once from kg_lisp_init() itself, right
+ * after the prelude (evaluate_prelude() and install_deferred_stubs() both)
+ * has finished and the GC stack has been restored to its post-setup
+ * checkpoint -- the same root state the old forcing loop used to reach only
+ * after kg_lisp_init() had already returned. That makes this program's job
+ * trivial: kg_lisp_init() has already collected exactly once by the time it
+ * returns, so `kg_lisp_arena_stats()' read immediately afterward already
+ * reports the reachable set directly, with no forcing loop and no
+ * triggering-call correction -- nothing here allocates between the
+ * collection and the read, so there is no extra object to subtract.
  *
- * Prints one line before forcing (the same quantities `kgbatch -a`
- * prints) and one line at the first collection; see the plan's Phase 0.3
- * results section for the reproduce command and the readings taken. */
+ * No fe.h, no custom FeContext, no editor state beyond kg_lisp_init()'s
+ * own: every call here goes through lisp.h's public facade, the same one
+ * test/kgbatch.c uses. See the plan's "Post-prelude collect -- results"
+ * section for the reproduce command and the readings taken, including the
+ * cross-check that this reads the same reachable_live_objects number
+ * (5959 at the Phase 2 pin) the old allocate-until-exhaustion probe did. */
 
 #include <stdio.h>
 
 #include "lisp.h"
-
-/* free_slots before forcing is ~45000 on this tree (56147 total, ~11400
- * live) and each forcing call costs exactly one object (the read integer;
- * evaluating a self-evaluating atom allocates nothing further, and
- * kg_lisp_eval_string()'s own FeToString() rendering is a writer, not an
- * allocator), so a bound comfortably above total_slots is generous
- * without being unbounded -- a probe that never collects is a bug in this
- * program, not a slow arena, and should say so rather than spin. */
-enum { kMaxForcingCalls = 200000 };
+#include "perf.h"
 
 int main(void)
 {
-	struct kg_lisp_arena_stats before, after;
-	char result[64];
-	int call;
-	int collected = 0;
+	struct kg_lisp_arena_stats stats;
 
 	if (kg_lisp_init()) {
 		fprintf(stderr, "cannot initialize Lisp: %s\n",
 		    kg_lisp_last_error());
 		return 1;
 	}
-	if (kg_lisp_arena_stats(&before) != 0) {
+	if (kg_lisp_arena_stats(&stats) != 0) {
 		fprintf(stderr, "arena stats unavailable\n");
 		return 1;
 	}
-	printf("before: total=%zu free=%zu peak-live=%zu collections=%zu "
-	       "failures=%zu\n",
-	    before.total_slots, before.free_slots, before.peak_live_objects,
-	    before.collection_count, before.allocation_failures);
-
-	for (call = 0; call < kMaxForcingCalls; call++) {
-		if (kg_lisp_eval_string("1", 1, result, sizeof(result))) {
-			fprintf(stderr, "forcing loop: %s\n", result);
-			return 1;
-		}
-		if (kg_lisp_arena_stats(&after) != 0) {
-			fprintf(stderr, "arena stats unavailable\n");
-			return 1;
-		}
-		if (after.collection_count > before.collection_count) {
-			collected = 1;
-			break;
-		}
-	}
-	if (!collected) {
-		fprintf(stderr,
-		    "arena never collected after %d forcing calls\n",
-		    kMaxForcingCalls);
-		return 1;
-	}
-
-	printf("after first collection (forcing call %d of %d): total=%zu "
-	       "free=%zu peak-live=%zu collections=%zu failures=%zu\n",
-	    call + 1, kMaxForcingCalls, after.total_slots, after.free_slots,
-	    after.peak_live_objects, after.collection_count,
-	    after.allocation_failures);
-	/* `total - free' at this instant is one object more than what the
-	 * prelude itself left reachable: MakeObject() collects first, then
-	 * still satisfies the triggering call's own request from the
-	 * newly-repopulated free list, so the "1" atom that call just read
-	 * and evaluated -- discarded by kg_lisp_eval_string()'s own
-	 * FeRestoreGC() a few lines up, but not yet swept -- is still
-	 * occupying a slot. Every prior call in the loop cost exactly one
-	 * object each (confirmed above: `call + 1' calls exhausted exactly
-	 * `before.free_slots' free slots before this one forced a
-	 * collection), so the correction is exactly 1, not an estimate.
-	 * Both figures are printed so neither is hidden; the second is the
-	 * one a caller should read as "reachable live after the real
-	 * prelude". */
-	printf("reachable-live (raw, total - free) = %zu\n",
-	    after.total_slots - after.free_slots);
-	printf("reachable-live (excl. the triggering call's own object) = "
-	       "%zu\n",
-	    after.total_slots - after.free_slots - 1);
+	/* kg_lisp_init() has already run the post-prelude collect by the
+	 * time it returns, so this is the reachable reading directly: no
+	 * forcing loop, and collection_count is 1 rather than 0. */
+	printf("after kg_lisp_init(): total=%zu free=%zu peak-live=%zu "
+	       "collections=%zu failures=%zu\n",
+	    stats.total_slots, stats.free_slots, stats.peak_live_objects,
+	    stats.collection_count, stats.allocation_failures);
+	printf("reachable-live (total - free) = %zu\n",
+	    stats.total_slots - stats.free_slots);
+#if KG_PERF_COUNTERS
+	/* The post-prelude collect's own wall-clock cost, isolated the same
+	 * way KG_PERF_LISP_PRELUDE_NS isolates the prelude's: only a
+	 * KG_PERF_COUNTERS build carries this at all (test/perfobj/
+	 * prelude_gc_probe -- perf.h compiles the counter away otherwise). */
+	printf("postprelude_collect_ns=%llu\n",
+	    kg_perf_read(KG_PERF_LISP_POSTPRELUDE_COLLECT_NS));
+#endif
 
 	kg_lisp_shutdown();
 	return 0;

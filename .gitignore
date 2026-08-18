@@ -41,6 +41,10 @@ test/regex_differential
 # The kgbatch audit driver (make kgbatch), built from test/kgbatch.c.
 test/kgbatch
 test/kgbatch-gcstress
+# Phase 0.3 measurement drivers (doc/plans/2026-08-14-embedded-prelude.md):
+# test/prelude_read_eval_split.c and test/prelude_gc_probe.c.
+test/prelude_read_eval_split
+test/prelude_gc_probe
 # Unit-test binaries: test/test_foo is built from test/test_foo.c.
 test/test_*
 !test/test_*.c

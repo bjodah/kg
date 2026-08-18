@@ -682,6 +682,268 @@ embedding (Phase 3's cheap cousin) is on the table; if evaluation
 dominates, it is not.  This is the one measurement that decides between
 Phase 3's two shapes, and it is an afternoon.
 
+## Phase 0.3 — results
+
+Measured on this tree at `HEAD` `01d5a2b` ("Prelude Phase 0.2: the
+first-call census, and the gate it broke"), fe submodule pinned at
+`3eedbf36419e394fca04d972f1961bdc3171cc3b` (unchanged from Phase 0.1/0.2,
+`git submodule status` confirms no drift), default build (`WITH_LISP=1
+WITH_LSP=1 WITH_DAP=1`, `gcc` 14.2.0, `-Os -std=c23`), `lisp/prelude.el`
+1459 lines / 72151 bytes / 133 top-level forms (`grep -c '^(' lisp/prelude.el`
+agrees with both harnesses below), 1 MiB Lisp arena, `total_slots`
+**56147** — everything below reproduces Phase 0.1/0.2's own `total_slots`
+and `peak-live` readings exactly, which is the same cross-tree consistency
+check those two phases ran on each other.
+
+Two new, uncommitted `test/*.c` drivers do the measuring:
+`test/prelude_read_eval_split.c` (Part A) and `test/prelude_gc_probe.c`
+(Part B).  Neither asserts anything and neither is wired into `check` —
+same reason `kgbatch` is outside `TESTBINS`, and `src/perf.h`'s own header
+rule that a wall-clock reading is not a gate.  Both link like `kgbatch`
+(`test/stubs_main.o` plus every editor object but `main.o`, plus fe, plus
+the regex engine); Part A additionally gets a `KG_PERF_COUNTERS=1` twin
+under `test/perfobj/`, built by the same generic pattern rule
+`test_perf` already uses, with a new link recipe
+(`$(PRELUDE_READ_EVAL_SPLIT_PERF)`) beside it.  `make lisp-include-check`
+passed with both new files present and unchanged: it `grep`s `src/*.c`
+and `src/*.h` only, never `test/`, so `test/prelude_read_eval_split.c`
+including `../fe/fe.h` directly (verified by reading the Makefile rule
+before relying on it, per this phase's own instructions) does not trip
+it — the adapter-boundary rule CLAUDE.md states is a `src/` seam, and
+`lisp-include-check` enforces exactly that seam and no wider one.
+
+### 0.3 Part A — the read/eval split
+
+**Design.** `evaluate_prelude()` is `static` to `src/lisp_prelude.c` and
+the embedded array it reads is `static` to the generated `.inc` file, so
+neither is reachable from `test/`.  The harness times the real thing
+anyway rather than a reimplementation of it: "eval" is `kg_lisp_init()`,
+the real, unmodified init path, called once per process exactly as
+`kgbatch` calls it.  "read" cannot reuse that path — reading only, with
+no evaluation, is not a call kg's public facade offers — so it opens its
+*own* `FeContext` (fe.h is fair game in `test/`, established above) and
+reads `lisp/prelude.el`'s bytes directly off disk, which `make
+lisp-prelude-check` (run before every reading below) guarantees are
+byte-identical to the compiled-in copy `evaluate_prelude()` reads.  The
+read pass runs inside a native function (`read_only_native()`) invoked
+through a bare `FeCallWithOptions(ctx, fn, nullptr, 0, nullptr)` —
+*not* through evaluating a Lisp string — because a raw host-level call to
+`FeReadInputForm()` with no evaluator barrier active aborts the process on
+any raise (`fe/fe_unwind.c`'s `TransferEvaluationError`: no
+`evaluator_catch`, no `error_fn` that itself longjmps, means `abort()`),
+exactly the shape `kg_lisp_init()` itself avoids by wrapping
+`register_natives()`/`evaluate_prelude()` in its own `setjmp`.  The
+native's body is fe's own `EvaluateInput()` loop (`fe/fe.c`) with the
+`FeEvaluate()` call removed and nothing else changed: `FeReadInputForm()`
+per top-level form — the same entry point kg's `load` native
+`internal--read-form` calls — then `FeRestoreGC()` to discard it before
+reading the next one, which both matches the real loop's shape and keeps
+the GC root stack under `GcStackSize` (4096) across a 133-form file.  The
+only overhead this adds beyond raw reading is `FeCall`'s own one-cons
+dispatch of `(fn)` — building and evaluating a two-object form once per
+process, not per prelude form — which is not measured separately because
+it is far below this measurement's noise floor.
+
+**Two builds, same source file, same process shape.**  The counting
+build's "eval" column reads `KG_PERF_LISP_PRELUDE_NS`
+(`src/lisp_core.c`), which wraps only the `evaluate_prelude(context)`
+call inside `kg_lisp_init()` — excluding `register_natives()`,
+`lisp_hooks_init()` and `lisp_process_init()`, the same ~1962-object
+baseline Phase 0.1 named.  That is the precise, apples-to-apples number:
+both it and `read_ns` are wall-clock windows around one call that does
+nothing but process the same bytes, with no setup cost in either window.
+The release build has no such counter (`perf.h` compiles the whole enum
+away when `KG_PERF_COUNTERS` is 0), so its "eval" column is
+`kg_lisp_init()`'s total — prelude plus the C setup before it — a
+small, known superset rather than an isolated figure; it is reported as a
+secondary cross-check, not the primary evidence.
+
+Reproduce with (11 runs each, the same count `doc/TODO.md`'s Phase 11A
+row used for "median of nine" — one more here per side since two builds
+are being compared, not one):
+
+```
+make test/prelude_read_eval_split test/perfobj/prelude_read_eval_split
+for i in $(seq 1 11); do ./test/prelude_read_eval_split; done
+for i in $(seq 1 11); do ./test/perfobj/prelude_read_eval_split; done
+```
+
+| build | column | median | min | max | n |
+| --- | --- | ---: | ---: | ---: | ---: |
+| counting (`test/perfobj/`) | `prelude_only_ns` (eval, isolated) | 2.880 ms | 2.840 ms | 3.290 ms | 11 |
+| counting (`test/perfobj/`) | `read_ns` | 2.312 ms | 2.292 ms | 2.375 ms | 11 |
+| counting (`test/perfobj/`) | `eval_ns` (`kg_lisp_init()` total) | 3.381 ms | 3.277 ms | 3.767 ms | 11 |
+| release (`test/`) | `eval_ns` (`kg_lisp_init()` total) | 3.194 ms | 3.147 ms | 3.277 ms | 11 |
+| release (`test/`) | `read_ns` | 2.244 ms | 2.206 ms | 2.322 ms | 11 |
+
+Both builds agree on the direction and the rough size: in the counting
+build, `read_ns` / `prelude_only_ns` is **0.807 median** (0.706–0.813
+across the 11 runs) — reading is roughly four fifths of pure evaluation
+time, evaluation-beyond-reading the other fifth.  In the release build,
+`read_ns` / `eval_ns`-total is **0.699 median** (0.686–0.730) — lower
+only because that denominator still carries the C setup cost the
+isolated counting-build figure excludes, which biases this ratio *down*,
+not up; the true release-build ratio, were `evaluate_prelude()` isolable
+there, would sit above 0.699, closer to the counting build's 0.807.
+Neither of these absolute times is comparable to the plan's earlier 0.82
+ms / 2.81 ms figures (different commits, and — per `test/lisp-compat/README.md`
+line 283 and `doc/TODO.md`'s Phase 11A row — likely different measurement
+conditions on top of that); this measurement's own two columns, taken in
+the same process on the same build, are what decide the question, and
+they agree with each other on which build tells it.
+
+**Verdict: reading dominates.**  Across both builds and all 22 runs, the
+read/eval ratio stayed in a 68.6%–81.3% band — 68.6%–73.0% against the
+release build's padded (setup-inclusive) denominator, 70.6%–81.3% against
+the counting build's isolated one — never once dropping to a minority
+share.  Reading is consistently the larger of the two components taken
+alone, and evaluation-beyond-reading is consistently the smaller one
+(19–29% of the isolated figure).  Per the plan's own decision rule: **a
+pre-parsed embedding (Phase 3's cheap cousin) is on the table.**
+Phase 3, if it is reached, should price that variant first — embed a
+pre-parsed form representation and keep evaluation at boot — since most
+of the prelude's read/eval cost, and therefore most of the CI win the
+73% `lisp-gc-stress-check` figure names, is sitting in the half this
+measurement says is cheaper to precompute.
+
+### 0.3 Part B — collectable startup garbage
+
+**The claim being checked.**  "The premise, corrected before the plan is
+built on it" asserts the arena "collects nothing during startup, so
+every prelude definition is a permanent high-water mark rather than a
+transient."  The first half reproduces again here (`collections=0` below,
+matching Phase 0.1's and Phase 0.2's own readings).  The second half is
+**wrong, and this is the correction, stated plainly rather than folded
+silently into the prose above** — the same discipline Phase 0.1 used to
+correct the 11354/20.2% figures.
+
+**Why `peak_live_objects` cannot answer this on its own.**  fe's
+`arena_live_count` (what `peak_live_objects` is a high-water mark of) is
+incremented by every `MakeObject()` call and decremented by nothing but a
+collection's sweep (`fe/fe.c`).  With zero collections, increment-only
+means current equals peak at every instant — so `peak_live_objects` after
+the prelude counts *everything the reader and evaluator ever allocated*,
+including every reader spine cell and macro-expansion temporary that was
+already unreachable by the time the prelude finished, indistinguishably
+from a permanent `defun`.  Telling the two apart needs an actual
+mark-and-sweep, which needs an actual collection, which needs actual
+arena exhaustion — fe's collector (`CollectGarbage()`, `fe/fe.c`) is
+`static`, reachable from no translation unit outside `fe.c` (confirmed by
+reading `fe/fe_internal.h`, which does not declare it either), so there
+is no way to force one from outside fe.c.  `test/prelude_gc_probe.c`
+therefore does what the plan's own crude probe did, precisely: allocate
+through the public facade until natural exhaustion forces a collection,
+then read `free_slots` back out.
+
+**Design.** After the real `kg_lisp_init()`, the probe drives
+`kg_lisp_eval_string("1", 1, ...)` in a loop — the smallest allocating
+form available: `ReadAtom()`'s numeric path (`fe/fe.c`) accumulates the
+token into a C-local buffer and calls `FeMakeInteger()` exactly once, a
+self-evaluating atom needs no further allocation to evaluate, and
+`kg_lisp_eval_string()`'s own `FeRestoreGC()` on return discards it before
+the next call — so each call costs **exactly one object**, retained
+nowhere.  `kg_lisp_arena_stats()` is read after *every single call*, and
+the loop stops at the first one where `collection_count` increases: this
+bounds the overshoot to what that one triggering call itself allocates
+*after* the sweep runs (`MakeObject()` collects first, then still
+satisfies the request from the newly repopulated free list) — one
+object, confirmed exactly by the call count matching `free_slots`
+before forcing to the object (44719 free slots, collection first fires on
+call 44720 — see the table below), not approximated.
+
+Reproduce with:
+
+```
+make test/prelude_gc_probe
+./test/prelude_gc_probe
+```
+
+Run twice: byte-identical both times (the loop is deterministic — no
+randomness, no timing dependence, the same 44720 calls and the same
+final counters every run).
+
+| | total | free | peak-live | collections |
+| --- | ---: | ---: | ---: | ---: |
+| before forcing (real prelude, no forcing calls yet) | 56147 | 44719 | 11428 | 0 |
+| after the first collection (forcing call 44720 of a 200000 bound) | 56147 | 45956 | 56147 | 1 |
+
+`peak-live=56147` in the second row is exactly `total_slots`: the
+triggering call's own allocation is what pushed `arena_live_count` to
+100% and forced the collection, exactly as `ArenaCanAllocate()`/
+`MakeObject()`'s exhaustion path says it must.  The before-forcing row
+reproduces Phase 0.1/0.2's `56147`/`11428` byte-for-byte — the same
+commit's `kgbatch -a /dev/null` reading, printed here by a second,
+independently-written harness.
+
+**The reachable figure.**  `reachable = total_slots - free_slots` at the
+collection = `56147 - 45956` = **10191**, less the one object the
+triggering call itself contributed after the sweep (confirmed above) =
+**10190 objects genuinely reachable after the real prelude**, no
+approximation left in it.  Against `peak_live_objects` = 11428:
+
+| quantity | value | % of `total_slots` (56147) |
+| --- | ---: | ---: |
+| `peak_live_objects` (high-water mark, includes transient garbage) | 11428 | 20.35% |
+| reachable live (post-collection, this measurement) | 10190 | 18.15% |
+| **collectable garbage** (the difference) | **1238** | **2.20%** (10.83% of `peak_live_objects`) |
+
+**This corrects the plan's "permanent high-water mark rather than a
+transient" claim: it is false for 1238 of the prelude's 11428 objects,
+10.83% of the footprint.**  The note this section resolves put it at "on
+the order of ~1150, ~10%" from a cruder probe; this measurement refines
+that number rather than overturning it — same order of magnitude, same
+conclusion, no longer a rough estimate.  A collection immediately
+after the prelude would recover those 1238 slots for the session at zero
+additional lazy-loading machinery — matching what "Set 3's slot cost"
+above smoke-tested at a much smaller scale (88 slots for two known-real
+names) to confirm the measurement mechanism is sensitive at the scale
+that matters; this one is the whole-prelude analogue of that same
+methodology, not a new mechanism.
+
+**What "collect once after the prelude" would be worth, without
+implementing it.**  1238 slots is 2.20% of the arena, recovered at the
+cost of one `CollectGarbage()` call — a single mark-and-sweep over
+~11400 live objects, cheap by this same tree's own evidence: this
+phase's `make check` run (plain build, not the MSan lane "the premise,
+corrected" cites 11339 of 15612 collections against) logged
+`lisp-gc-stress-check` itself doing 15701 collections in 1.5 s of its
+120 s budget, so one collection is on the order of 0.1 ms, not a cost
+that competes with the 2.2–3.4 ms this phase's own Part A just measured
+for the whole prelude.  It would not change `total_slots`, would not
+touch a single definition's semantics, and needs none of Phase 1's stub
+machinery — but it is Phase 0.4's decision to schedule, not this
+phase's to build (the task this section answers is explicit: measure and
+report, do not implement), and it competes for attention with Phase 1's
+5043-slot deferral, which is 4× larger for comparably little machinery of
+its own.
+
+**Consequence for Phase 0.4, resolving the forward reference from Phase
+0.2's results:** `peak_live_objects` alone is the wrong ratchet target,
+demonstrated rather than asserted — 1238 of its 11428 objects (10.83%)
+are garbage a single collection would reclaim, so a ceiling on
+`peak_live_objects` alone partly ratchets evaluation-order noise
+(how much transient macro-expansion garbage a *specific* implementation
+of a *specific* definition happens to produce while loading) rather than
+the actual definition footprint a session pays for.  **Phase 0.4 should
+ratchet both, as two different properties:** `peak_live_objects` because
+it is what an exhaustion failure is actually measured against
+(`test_lisp.c`'s `peak_live * 3 < total_slots` margin, the four PTY
+exhaustion cases) and moves the moment a phase's *implementation*
+changes how much transient garbage it produces even when the reachable
+set does not move — Phase 11A's gensym-vs-lambda-parameter finding
+(11281 → 20906 vs → 11285 for the identical reachable behavior) is
+exactly a `peak_live_objects` movement with roughly zero reachable-set
+movement, and a ratchet that cannot see that difference would have missed
+the whole reason gensym was declined; and post-collection reachable live
+because it is the stabler, implementation-independent quantity — what a
+session actually keeps — and the one a lazy-loading phase's saving should
+be measured against, not `peak_live_objects`, whose delta conflates
+"fewer permanent definitions" with "less transient garbage from however
+the remaining ones happen to be written." Measuring reachable live
+costs one extra forced-collection pass per ratchet run (`test/prelude_gc_probe`'s
+own ~45000-call loop, well under a second); that cost is why it is a
+second ratchet alongside `peak_live_objects`, not a replacement for it.
+
 ### 0.4 The ratchet
 
 A startup census in `.ci/`, in the shape the tree already uses for

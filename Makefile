@@ -980,6 +980,42 @@ test/kgbatch: test/kgbatch.c $(TESTDIR)/stubs_main.o $(FEATURE_CONFIG) \
 		$(TESTDIR)/stubs_main.o $(filter-out $(OBJDIR)/main.o,$(OBJS)) \
 		$(FE_OBJ) $(REGEX_OBJS) $(LDLIBS)
 
+# doc/plans/2026-08-14-embedded-prelude.md's Phase 0.3: the read/eval split
+# (test/prelude_read_eval_split.c) and the collectable-startup-garbage probe
+# (test/prelude_gc_probe.c).  Same shape as kgbatch above and outside
+# TESTBINS for the same reason -- neither asserts anything, each prints one
+# line meant to be read by hand or collected over several runs, and the
+# plan's Phase 0.3 results section is the reproduce command.  Not wired into
+# `check`: a wall-clock reading is not a gate (src/perf.h's own rule).
+test/prelude_read_eval_split: test/prelude_read_eval_split.c \
+	$(TESTDIR)/stubs_main.o $(FEATURE_CONFIG) \
+	$(filter-out $(OBJDIR)/main.o,$(OBJS)) $(FE_OBJ) $(REGEX_OBJS)
+	$(CC) $(CFLAGS) -I$(OBJDIR) -o $@ $< \
+		$(TESTDIR)/stubs_main.o $(filter-out $(OBJDIR)/main.o,$(OBJS)) \
+		$(FE_OBJ) $(REGEX_OBJS) $(LDLIBS)
+
+# The counting-build twin, same shape as test_perf's own link line: its
+# object comes from the generic $(PERFOBJDIR)/%.o pattern rule below (which
+# already knows how to compile a test/*.c under PERF_CFLAGS), so only the
+# link recipe is new here.  This is what lets the "eval" column read
+# KG_PERF_LISP_PRELUDE_NS alongside its own wall-clock timing of the same
+# kg_lisp_init() call -- a cross-check the release binary above cannot do,
+# since perf.h compiles the counter away when KG_PERF_COUNTERS is 0.
+PRELUDE_READ_EVAL_SPLIT_PERF = $(PERFOBJDIR)/prelude_read_eval_split
+
+$(PRELUDE_READ_EVAL_SPLIT_PERF): $(PERFOBJDIR)/prelude_read_eval_split.o \
+	$(PERFOBJDIR)/stubs_main.o \
+	$(filter-out $(PERFOBJDIR)/main.o,$(PERF_SRC_OBJS)) \
+	$(FE_OBJ) $(REGEX_ENGINE_OBJ)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
+
+test/prelude_gc_probe: test/prelude_gc_probe.c \
+	$(TESTDIR)/stubs_main.o $(FEATURE_CONFIG) \
+	$(filter-out $(OBJDIR)/main.o,$(OBJS)) $(FE_OBJ) $(REGEX_OBJS)
+	$(CC) $(CFLAGS) -I$(OBJDIR) -o $@ $< \
+		$(TESTDIR)/stubs_main.o $(filter-out $(OBJDIR)/main.o,$(OBJS)) \
+		$(FE_OBJ) $(REGEX_OBJS) $(LDLIBS)
+
 # Phase 13.5's kg half of fe's FE_GC_STRESS knob.  Fe's `MakeObject()`
 # collects before every allocation when fe.c is built with
 # -DFE_GC_STRESS=1, so an object live only through an unrooted C local
@@ -1816,6 +1852,7 @@ clean:
 	      $(DAP_ALL) \
 	      $(OBJDIR)/.features-* $(OBJDIR)/.with-lisp-* $(TESTDIR)/*.o \
 	      $(TESTBINS) $(TESTDIR)/kgbatch $(GC_STRESS_KGBATCH) \
+	      $(TESTDIR)/prelude_read_eval_split $(TESTDIR)/prelude_gc_probe \
 	      $(FUZZBINS) $(TESTDIR)/fuzz_lsp_frames \
 	      $(FUZZBIN_DAP_DISPATCH) $(REGEX_DIFF_BIN)
 	rm -rf $(PERFOBJDIR) $(TS_FAKE_GRAMMAR_DIR)

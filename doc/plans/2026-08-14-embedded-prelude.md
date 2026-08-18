@@ -121,6 +121,206 @@ The deliverable is a table: which of the prelude's sections holds the
 20.2%.  Every later phase's target list comes from this table, and without
 it "move the rarely used definitions out" is a guess about which those are.
 
+## Phase 0.1 — results
+
+Measured on this tree at `HEAD` `25eb391` ("Break out of README: TS, LSP,
+DAP"), fe submodule pinned at `3eedbf36419e394fca04d972f1961bdc3171cc3b`
+(`doc/fe-upstream.md`'s recorded pin, `git submodule status` confirms no
+drift from what the superproject commit expects), default build
+(`WITH_LISP=1 WITH_LSP=1 WITH_DAP=1`, `gcc -Os -std=c23`), 1 MiB Lisp
+arena, `total_slots` **56147** (`test/kgbatch -a /dev/null`'s `census:`
+line — unchanged from the 56147 this file's premise section already
+names, confirmed below).
+
+### The reconciliation
+
+**All three previously-recorded figures, and the fourth this phase
+measured, are the same quantity: `FeArenaStats.peak_live_objects`, a
+high-water mark that cannot fall within one process's life
+(`test/test_lisp.c`'s own comment on `peak_live_objects * 3 <
+total_slots` says so).** `test/lisp-compat/README.md`'s 8402 looked like
+a different counter — the §15 table cites `lisp_arena_peak_live`, a
+`KG_PERF_COUNTERS` name, not `FeArenaStats` directly — but
+`kg_lisp_perf_snapshot()` (`src/lisp_core.c:1568`) sets
+`KG_PERF_LISP_ARENA_PEAK_LIVE` from `stats.peak_live_objects`, the exact
+same struct field `kg_lisp_arena_stats()` (`src/lisp_core.c`, called by
+both `test/kgbatch -g`'s `print_arena_stats()` and `doc/TODO.md`'s
+Phase 11A row, which says outright "measured at `kgbatch -g`'s
+post-prelude probe") returns. Same field, three call sites. Nothing here
+needed to reconcile a units mismatch; what needed reconciling is *when*
+each reading was taken.
+
+**8402 of 56224 (`test/lisp-compat/README.md`) is not a live figure and
+its own document already says so.** The paragraph above the number
+reads "The readings below are the Phase 10 measurement and are left as
+taken... not a live figure", and the same section separately notes its
+own `total_slots` is stale ("The 1 MiB arena partitions to 56147 object
+slots... now, against the 56224... the table names"). It is also a
+different, *larger* workload than "prelude alone" — prelude plus a user
+init plus two `require`d packages — measured against a prelude from
+several phases before Phases 11 (temporary hygiene), 12, 14, 15, 17, 19,
+20 and the DAP commit's own addition all added to `lisp/prelude.el`. A
+smaller, older prelude plus init and packages reading below a larger,
+newer prelude alone is not a contradiction once the two are placed on a
+timeline instead of next to each other; it only reads as "cannot be
+right" if both are assumed to be readings of the same tree, and they are
+not.
+
+**11281 (`doc/TODO.md`, the Phase 11A hygiene row) is a real
+`kgbatch -g`, prelude-alone reading, timestamped to the Phase 11A pin.**
+The same paragraph states its own `total_slots` at the time: 56259. This
+file's own "Sequencing" section already records that the denominator
+moved **56222 → 56224 → 56259 → 56147** across fe pins, so 56259 is
+neither today's 56147 nor `test/lisp-compat/README.md`'s 56224 — three
+different pins, three different partitions. Phases 12, 14, 15, 17, 19,
+20, the hygiene sweep itself and the DAP commit's `(defvar tab-width 8
+...)` all landed in `lisp/prelude.el` after this row was written; none
+of that growth was ever fed back into it.
+
+**11354 (this file's own "fresh `kgbatch -g` probe", above) does not
+reproduce even on the commit it was written into.** `git log` shows this
+plan document was added in commit `49e90ef` ("DAP - Debug Adapter
+Protocol", 2026-08-14 17:43:04), and `git show 49e90ef -- lisp/prelude.el`
+shows that *same commit* also added `(defvar tab-width 8 ...)` to the
+prelude — so the probe that produced 11354 ran before that line landed,
+or before something else in the same commit did. `HEAD` (`25eb391`,
+2026-08-14 17:57:09, "Break out of README") is fourteen minutes later
+and touches no Lisp or fe file at all. Running the identical probe on
+that unchanged-in-substance tree today reads **11428**, not 11354 — the
+plan's own number did not survive its own commit, which is exactly the
+failure mode this reconciliation exists to name: a figure with no commit
+or pin attached to it is not a number, it is a memory of one.
+
+**Verdict: `./test/kgbatch -g /dev/null` on this tree, `peak-live=11428`
+of `total_slots=56147` (20.35%), is the number to set a ceiling
+against.** Reasons, plainly:
+
+- It is the only one of the four that is reproducible *on the commit it
+  is recorded against* — run three times directly
+  (`./test/kgbatch -g /dev/null`, byte-identical each time) and twice
+  more as the final cumulative row of the section census below (also
+  byte-identical, and equal to the direct reading).
+- It comes from the direct `FeArenaStats` surface (`kgbatch -g`), not a
+  frozen counting-build snapshot several phases old that its own
+  document already disclaims.
+- `total_slots` (56147) matches what this file's premise section already
+  states, confirming the arena partition itself has not moved since this
+  plan was drafted — only `lisp/prelude.el`'s content has, by one
+  commit's worth of growth (`tab-width`, at minimum).
+
+**This corrects the 11354 and "20.2%" figures stated above** (in "The
+premise, corrected before the plan is built on it", the "Arena object
+slots live after the prelude" row and its surrounding paragraph): the
+reproducible reading on this tree is **11428 of 56147 — 20.35%**. The
+8402/14.9% and 11281/20.0% figures a few lines above are left as they
+were written — they are historical readings, correctly attributed above,
+not live claims this phase's measurement contradicts. Any later phase
+that re-measures peak-live should record the commit and fe pin alongside
+the number, which is precisely what none of the three older figures did
+and why none of them could be checked until now.
+
+### The per-section slot census
+
+`utils/prelude_slot_census.py` produces the table below. It cannot call
+into a running kg to get a mid-prelude reading — `evaluate_prelude()` and
+`register_natives()` are private to `src/lisp_prelude.c`, reachable only
+through `fe.h`, which only the `src/lisp_*.c` adapter files may include —
+so instead, for each cumulative section boundary, it writes a truncated
+copy of `lisp/prelude.el` to a temp file, regenerates
+`src/lisp_prelude_generated.inc` from *that* copy with the same
+`utils/embed_lisp.py` `make lisp-prelude-generate` uses, forces
+`test/kgbatch` to rebuild against the truncated array, and reads
+`test/kgbatch -g /dev/null`'s `peak-live` — the same field, the same
+code path (`kg_lisp_init()` → `evaluate_prelude()` → the real
+`eval_options`), just fed a prefix of the real source instead of all of
+it. Slices are cumulative and in source order throughout, never
+reordered or evaluated independently, matching the ordering rule
+`lisp/prelude.el`'s own header states. The swap is destructive to a
+checked-in generated file, so the script restores the real prelude from
+`lisp/prelude.el` in a `finally` and does not consider itself done until
+`make lisp-prelude-check` agrees — verified after every run in this
+phase; the tree is clean.
+
+Reproduce with:
+
+```
+make test/kgbatch
+python3 utils/prelude_slot_census.py --json /tmp/census.json
+```
+
+Run twice for this phase's numbers (a third confirmation is the direct
+`kgbatch -g` reading above, which the table's final row reproduces
+exactly): both runs produced byte-identical JSON, ~3 seconds each.
+
+| section | cumulative peak-live | this section's cost (delta) | % of total_slots |
+| --- | ---: | ---: | ---: |
+| *(baseline: register_natives + lisp_hooks_init + lisp_process_init, before any prelude form runs)* | 1962 | 1962 | 3.49% |
+| (preamble, before first section marker) | 2150 | 188 | 0.33% |
+| hygiene for the prelude's own temporaries | 2150 | 0 | 0.00% |
+| list library, all iterative | 3612 | 1462 | 2.60% |
+| control macros | 3784 | 172 | 0.31% |
+| binding forms | 4005 | 221 | 0.39% |
+| iteration macros | 4558 | 553 | 0.98% |
+| quasiquote: `x , ,@ read as (quasiquote x) etc. | 4937 | 379 | 0.68% |
+| definition forms | 6680 | 1743 | 3.10% |
+| the loader | 6859 | 179 | 0.32% |
+| startup | 7121 | 262 | 0.47% |
+| editor helpers | 7321 | 200 | 0.36% |
+| the package-writer's string and list library (Phase 15) | 7321 | 0 | 0.00% |
+| match data | 7382 | 61 | 0.11% |
+| strings | 8505 | 1123 | 2.00% |
+| lists | 9633 | 1128 | 2.01% |
+| the seq- shim | 9919 | 286 | 0.51% |
+| arithmetic | 10109 | 190 | 0.34% |
+| documentation for the definitions above | 11428 | 1319 | 2.35% |
+
+Final cumulative peak-live (whole prelude): 11428 of 56147 (20.35%),
+matching the direct `kgbatch -g /dev/null` reading above exactly.
+
+**The baseline row matters and is not a section of `lisp/prelude.el` at
+all.** `peak-live` counts every live object since `FeOpenContext()`, and
+`kg_lisp_init()` runs `register_natives()` (127 `FeDefineNative()`
+calls, each interning a symbol), `lisp_hooks_init()` and
+`lisp_process_init()` *before* `evaluate_prelude()` starts — none of it
+`lisp/prelude.el`'s doing, all of it counted in the same `peak-live`
+`kgbatch -g` prints. That baseline is 1962 objects, **3.49% of
+`total_slots` on its own** — about a sixth of the whole 20.35% headline
+figure is pre-Lisp C setup, not embedded Lisp source. It matters
+concretely for the very first slice: measured against 0 rather than
+against this baseline, the preamble's nine one-line `defalias` forms
+(`internal--let` through `listp`) would appear to cost 2150 objects: in
+fact they cost **188**, and the other 1962 is `register_natives()`'s.
+Every later delta in the table is a difference between two
+prelude-inclusive cumulative readings, so the baseline cancels out of
+those automatically; the preamble row is the one place it had to be
+subtracted by hand, which is what `utils/prelude_slot_census.py`'s
+`baseline_peak_live()` does.
+
+**Reading the table.** The two zero-delta rows are not measurement
+noise: "hygiene for the prelude's own temporaries" (`lisp/prelude.el`
+lines 80–135) is a pure design-rationale comment block with no
+executable form in it, and "the package-writer's string and list
+library (Phase 15)" (lines 950–962) is a section-header comment whose
+first actual definition falls under the next marker, "match data" — the
+census counts what runs, not what a comment claims. The five heaviest
+sections by delta are **definition forms** (1743, `defun`/`defmacro`/
+`defvar` machinery and `condition-case` — the forms every later section
+is written in terms of), **documentation for the definitions above**
+(1319, one `put`/`function-documentation` cons per named entry, over the
+whole 128-name surface at once, which is why this section costs more
+than any single earlier one despite adding no callable behaviour),
+**list library, all iterative** (1462), **lists** (1128, the Phase 15
+extension to the same library) and **strings** (1123). Those five sum to
+6775 objects — **59% of the whole prelude's 11428**, before any later
+phase's per-name attribution (Phase 0.2) narrows further within them.
+Everything else that is actually `lisp/prelude.el` content — the
+preamble (188) plus **arithmetic**, **the seq- shim**, **the loader**,
+**startup**, **editor helpers**, **binding forms**, **iteration
+macros**, **quasiquote**, **control macros** and **match data** —
+together costs 2691, under a quarter of the total and barely more than
+the pre-Lisp baseline itself (1962). Phase 1's candidate list, whenever
+it runs, has an obvious place to start.
+
 ### 0.2 A first-call census
 
 Instrument the function cell of each of the 128 prelude names to record

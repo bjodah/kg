@@ -99,8 +99,24 @@ int main(void)
 	    call + 1, kMaxForcingCalls, after.total_slots, after.free_slots,
 	    after.peak_live_objects, after.collection_count,
 	    after.allocation_failures);
-	printf("reachable-live = total - free = %zu\n",
+	/* `total - free' at this instant is one object more than what the
+	 * prelude itself left reachable: MakeObject() collects first, then
+	 * still satisfies the triggering call's own request from the
+	 * newly-repopulated free list, so the "1" atom that call just read
+	 * and evaluated -- discarded by kg_lisp_eval_string()'s own
+	 * FeRestoreGC() a few lines up, but not yet swept -- is still
+	 * occupying a slot. Every prior call in the loop cost exactly one
+	 * object each (confirmed above: `call + 1' calls exhausted exactly
+	 * `before.free_slots' free slots before this one forced a
+	 * collection), so the correction is exactly 1, not an estimate.
+	 * Both figures are printed so neither is hidden; the second is the
+	 * one a caller should read as "reachable live after the real
+	 * prelude". */
+	printf("reachable-live (raw, total - free) = %zu\n",
 	    after.total_slots - after.free_slots);
+	printf("reachable-live (excl. the triggering call's own object) = "
+	       "%zu\n",
+	    after.total_slots - after.free_slots - 1);
 
 	kg_lisp_shutdown();
 	return 0;

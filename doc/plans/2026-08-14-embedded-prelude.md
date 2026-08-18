@@ -955,6 +955,229 @@ a one-off cleanup — the prelude cannot quietly double again.
 
 **Gate:** 0.4 lands regardless.  0.1–0.3 decide whether Phases 1–3 exist.
 
+## Phase 0.4 — results
+
+Measured on this tree at `HEAD` `3bbac5c` ("Prelude Phase 0.3: reading
+dominates, and the high-water mark is 11% garbage"), fe submodule pinned at
+`3eedbf36419e394fca04d972f1961bdc3171cc3b` (unchanged since Phase 0.1,
+`git submodule status` confirms no drift), default build (`WITH_LISP=1
+WITH_LSP=1 WITH_DAP=1`, `gcc` 14.2.0, `-Os -std=c23`), `total_slots`
+**56147** — the same denominator every earlier sub-phase measured.
+
+### What is capped, and how
+
+`utils/check_prelude_census.py` + `.ci/prelude-startup-census.json`, in the
+shape `utils/check_mutation_gateway.py` + `.ci/mutation-gateway.json`
+already uses: a schema string, a `note` field stating current meaning (not
+history — `git log` is history), `make prelude-census-baseline` as the one
+command that regenerates the manifest, `make prelude-census-check` as the
+gate.  Four numbers, each a named ceiling equal to the measured actual with
+no slack:
+
+| quantity | ceiling | measured with |
+| --- | ---: | --- |
+| `peak_live_objects` | 11428 | `test/kgbatch -g /dev/null`, `peak-live=` |
+| `reachable_live_objects` | 10190 | `test/prelude_gc_probe`, corrected reading (below) |
+| `embedded_bytes` | 72151 | `lisp/prelude.el`'s own byte size |
+| `definition_count` | 128 | top-level `(defalias 'NAME (KIND ...))` forms in `lisp/prelude.el` |
+
+Both `peak_live_objects` and `reachable_live_objects` are ratcheted, per
+Phase 0.3's own recommendation, rather than one folded into the other: a
+ceiling on `peak_live_objects` alone moves on an implementation detail (how
+much transient macro-expansion garbage a rewritten definition happens to
+produce while loading) as readily as on a real change to what a session
+keeps, and Phase 11A's gensym-vs-lambda-parameter finding (11281 → 20906
+for identical reachable behaviour, `doc/TODO.md`) is exactly a case a
+`peak_live_objects`-only ratchet flags for the wrong reason and a
+`reachable_live_objects`-only one misses entirely.  The two together are
+what tell "fewer permanent definitions" apart from "less transient garbage
+from however the remaining ones are written."
+
+### The embedded-byte-count decision
+
+The task names "the size of `lisp/prelude.el` / the generated array" as one
+quantity; this phase settles it as `lisp/prelude.el`'s own byte size on
+disk, not `src/lisp_prelude_generated.inc`'s.  `utils/embed_lisp.py`'s own
+header states the generated array is a byte-for-byte copy with no
+reformatting or dedup, and regenerating today confirms it: `embed_lisp.py`
+reports "wrote src/lisp_prelude_generated.inc (72151 bytes from
+lisp/prelude.el)" — 72151 is what it *read*, and is `lisp/prelude.el`'s own
+`stat()` size.  The `.inc` file itself is 439791 bytes (one C source line
+plus twelve comma-separated `unsigned char` literals per input byte), a
+number about the C encoding, not about the prelude.  Ratcheting the source
+file's byte count therefore ratchets the embedded array's `sizeof` exactly,
+for one `stat()` call instead of a parse of the generated initializer.
+
+### The definition-count decision: local parsing over an import
+
+`utils/prelude_first_call_census.py`'s `parse_prelude_names()` already
+counts this (128, matching Phase 0.1's own count) — reused only in spirit
+here, not by import.  That module also imports PyYAML, `forecast_audit` and
+`check_lisp_oracle` for its call-census and slot-removal machinery, none of
+which a four-number ratchet touches, and every `make check` run would pay
+that import for one regex.  `utils/check_prelude_census.py` instead carries
+four lines of local parsing (`DEFALIAS_RE`), deliberately kept the same
+shape as that module's own `TOPLEVEL_DEFALIAS_RE` so the two cannot
+silently diverge on what counts as a top-level definition — a divergence
+would also move one of Phase 0.1/0.2's own numbers, which their own
+reproduce commands would catch independently.
+
+### Pinning down reachable-live's off-by-one
+
+Phase 0.3 measured `total_slots - free_slots` at the first forced
+collection as 10191, subtracted 1 by hand for the triggering call's own
+allocation to reach 10190, and flagged the ambiguity for this phase to
+settle rather than paper over in a ratchet script.  `test/prelude_gc_probe.c`
+now prints both lines, permanently, so the decision lives beside the
+measurement it describes instead of in whichever script reads the output
+next:
+
+```
+reachable-live (raw, total - free) = 10191
+reachable-live (excl. the triggering call's own object) = 10190
+```
+
+The correction is exactly 1 by construction, not a rounding choice:
+`MakeObject()` collects first and only then satisfies the triggering call's
+own request, from the newly repopulated free list (the file's existing
+comment, extended this phase to say so explicitly), and every call before
+it costs exactly one object — confirmed by the loop's own call count at
+collection (44720) equalling the real prelude's `free_slots` reading
+(44719) plus one.  `utils/check_prelude_census.py` parses the second,
+labelled line by its exact text rather than doing its own arithmetic on the
+first; the C source is now the one place this is decided, not the ratchet
+script.
+
+### Determinism
+
+Five runs each on this tree, byte-identical every time (rebuilding both
+`test/kgbatch` and `test/prelude_gc_probe` first each session, not just
+re-running a stale binary):
+
+| quantity | 5 readings |
+| --- | --- |
+| `peak_live_objects` (`test/kgbatch -g /dev/null`) | 11428, 11428, 11428, 11428, 11428 |
+| `reachable_live_objects` (`test/prelude_gc_probe`, corrected line) | 10190, 10190, 10190, 10190, 10190 |
+| `embedded_bytes` (`lisp/prelude.el` file size) | 72151 ×5 |
+| `definition_count` (regex count over `lisp/prelude.el`) | 128 ×5 |
+
+No slack is given, unlike the coverage ratchet's documented 4-line wobble:
+coverage's slack exists because which lines a PTY case happens to paint
+varies run to run, and nothing here depends on PTY timing — all four are
+exact counts of a checked-in file's own bytes or a deterministic C loop
+("1" evaluated in a fixed loop until natural exhaustion) over the same
+fixed, compiled-in prelude.  `peak_live_objects` reproducing byte-identically
+was already established across Phases 0.1–0.3; this phase re-confirms it
+and establishes the same property for the other three.
+
+### Where it runs
+
+`prelude-census-check` rides in `make check` (`ifeq ($(WITH_LISP),1)`,
+alongside `lisp-oracle-check` and `lisp-gc-stress-check`, both of which
+already require `test/kgbatch` built) — **not** in
+`.ci/ci-01-complexity.sh`, despite this section's own heading naming
+complexity, coverage and the mutation gateway as the shape to follow.
+`.ci/run-ci-steps.sh` states outright why ci-01 is not the right home:
+"ci-01 and ci-07 only read src/*.[ch]; they build nothing", which is what
+lets the runner share one tree copy across its `in_tree_steps`
+optimisation.  `complexity-check`, `pmccabe-check` and `gateway-check` all
+hold to that: `scc` and `pmccabe` read source text, and `gateway-check`'s
+own `$(OBJDIR)` argument is `src`, a directory of source files, not a build
+output directory.  This census needs the opposite — a real `kg_lisp_init()`
+run through `test/kgbatch` and `test/prelude_gc_probe`, both linked against
+the whole editor — so it does not fit that step's own stated invariant.
+
+Putting it in `make check` instead costs almost nothing beyond what the
+suite already pays: `test/kgbatch` is already an unordered prerequisite of
+`lisp-oracle-check`, `lisp-gc-stress-check` and `forecast-init-check`, so
+the one new link edge is `test/prelude_gc_probe`, and the ~45000-call
+forcing loop that measures `reachable_live_objects` runs in well under a
+second.  It also matches the stated reason `docs-check`, `lisp-compat-check`,
+`lisp-prelude-check`, `lisp-package-check` and `forecast-check` already live
+in `check` rather than in a `.ci` step of their own — each needs no tool
+`make check` doesn't already require and is meaningful in every
+configuration `check` runs under.  True here for every `WITH_LISP=1` lane,
+which is every lane that runs the PTY suite at all, including both
+sanitizer lanes (`ci-04`, `ci-05`) and a plain local `make check`.
+`.ci/ci-01-complexity.sh` itself is unaffected and still builds nothing,
+confirmed by running it directly end to end (below).
+
+### The gate firing
+
+A temporary `(defalias 'kg-census-sentinel-test (lambda () nil))` added to
+`lisp/prelude.el` (after the `ash` definition, before the "documentation
+for the definitions above" section), `make lisp-prelude-generate` and a
+rebuild of `test/kgbatch`/`test/prelude_gc_probe`, then `make
+prelude-census-check`:
+
+```
+FAIL: 4 prelude census number(s) above the manifest
+  peak_live_objects: 11447, manifest 11428 (+19)
+  reachable_live_objects: 10203, manifest 10190 (+13)
+  embedded_bytes: 72203, manifest 72151 (+52)
+  definition_count: 129, manifest 128 (+1)
+```
+
+`make prelude-census-check` exits nonzero, naming every quantity that rose
+and by how much, exactly as `make gateway-check`'s failure output does for
+its own manifest.  All four moving together is expected of one new
+top-level function: 19 more live objects (one `defalias`, one lambda, one
+closure captured by the reader and evaluator), 13 more reachable (the
+definition itself, since nothing calls it away), 52 more bytes (the added
+source line), one more definition.  Reverted immediately after — `git diff
+-- lisp/prelude.el src/lisp_prelude_generated.inc` is empty, `make
+lisp-prelude-check` agrees the regenerated file matches, and `make
+prelude-census-check` passes again at the checked-in ceiling.
+
+### Reproduce
+
+```
+make test/kgbatch test/prelude_gc_probe
+make prelude-census-check
+```
+
+Raise a ceiling with `make prelude-census-baseline` — the one command that
+rewrites `.ci/prelude-startup-census.json` — and carry the rationale and
+the measured proof (what rose, by how much, and why) in the commit
+message, the same rule `SCC_COMPLEXITY_MAX`'s own Makefile comment states
+for its ratchet.
+
+## Phase 0 — closing summary
+
+Four sub-phases in, where Phases 1–3 stand:
+
+- **Phase 1: proceeds.**  Phase 0.2's amended gate ("names no startup path
+  needs" worth roughly 2000 slots after stub cost) is cleared at 2.4×: 93
+  deferrable names are worth 5043 slots (9.0% of the arena) before stub
+  cost and roughly 4760 (8.5%) after, none of them a macro and only one
+  order-sensitive alias in the whole prelude (`internal--let`, already
+  eager for an unrelated reason).  The ten names Phase 0.2 found eager on
+  every startup path are Phase 1's fixed floor.
+- **Phase 2: open.**  Phase 0.2's ten eager names are its most obvious
+  candidate list — the complement of Phase 1's deferrable set, called on
+  every startup path with no lazy-loading win available — but no Phase 0
+  sub-phase priced a single move's slot saving against its complexity
+  cost, which is Phase 2's own stated gate.  Nothing here funds or rules
+  out a specific candidate; that pricing is Phase 2's work, not Phase 0's.
+- **Phase 3: the pre-parsed variant is what 0.3 funds, not the arena
+  image.**  Reading dominates evaluation across both builds and all 22
+  runs Phase 0.3 took (a 68.6%–81.3% read/eval-or-total ratio, never a
+  minority share), which is the plan's own decision rule for taking the
+  cheaper variant — embed a pre-parsed form representation, keep
+  evaluation at boot, no fe change.  The full arena-image variant remains
+  additionally gated on Phases 1–2 not already having brought post-prelude
+  live below this phase's ceiling, and on fe's pointer-offset question,
+  neither of which Phase 0 answered — it was never Phase 0's gate to
+  clear.
+
+Phase 0.4's own ratchet is what makes any of the above stand for more than
+one commit: `peak_live_objects`, `reachable_live_objects`, `embedded_bytes`
+and `definition_count` are now checked on every `WITH_LISP=1` `make check`,
+against a manifest that can only fall without a rationale and measured
+proof in the commit message — the prelude cannot quietly double again the
+way it quietly grew from whatever it was to 20.35% of the arena with
+nothing ever having measured it.
+
 ## Phase 1 — Stop paying for what nobody calls
 
 Emacs' answer, and the one that fits kg's actual constraint: a name whose

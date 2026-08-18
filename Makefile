@@ -753,6 +753,15 @@ PMCCABE_NEW_FUNCTION_MAX ?= 15
 # text fields.  A ratchet, not a ban -- no count may rise, and `make
 # gateway-baseline` is how a migrated caller is banked.
 GATEWAY_MANIFEST ?= .ci/mutation-gateway.json
+# doc/plans/2026-08-14-embedded-prelude.md's Phase 0.4: the embedded Lisp
+# prelude grew to a fifth of the Lisp arena with nothing ever measuring it.
+# This manifest holds four numbers to their measured actual -- post-prelude
+# peak live arena slots, still-reachable slots after a forced collection,
+# embedded byte count, and top-level definition count -- so it cannot
+# silently double again.  A ratchet, not a ban: no number may rise without
+# a rationale and measured proof in the commit message, and `make
+# prelude-census-baseline` is how a fall is banked.
+PRELUDE_CENSUS_MANIFEST ?= .ci/prelude-startup-census.json
 COVERAGE_DIR ?= coverage
 COVERAGE_CFLAGS ?= -Wall -W -pedantic -std=c23 -O0 -g --coverage
 # --branch-coverage matches what both subprojects already collect; the
@@ -856,7 +865,7 @@ $(OBJDIR)/fe_run.o: fe/fe_run.c fe/fe.h fe/fe_internal.h
 $(OBJDIR)/fe_unwind.o: fe/fe_unwind.c fe/fe.h fe/fe_internal.h
 	$(CC) $(FE_CFLAGS) -c $< -o $@
 
-check: header-check lisp-include-check docs-check lisp-compat-check lisp-prelude-check lisp-package-check forecast-check lisp-oracle-check lisp-gc-stress-check forecast-init-check check-unit-decoding check-pty-tokens check-unit check-pty
+check: header-check lisp-include-check docs-check lisp-compat-check lisp-prelude-check lisp-package-check forecast-check lisp-oracle-check lisp-gc-stress-check prelude-census-check forecast-init-check check-unit-decoding check-pty-tokens check-unit check-pty
 
 # Cheap documentation drift: every key the built-in help table names has
 # to be spelled somewhere in kg(1).  Not a substitute for reading either
@@ -1368,6 +1377,33 @@ gateway-check:
 gateway-baseline:
 	$(PYTHON) utils/check_mutation_gateway.py \
 		--manifest $(GATEWAY_MANIFEST) --write $(OBJDIR)
+
+# doc/plans/2026-08-14-embedded-prelude.md's Phase 0.4: check the four
+# numbers PRELUDE_CENSUS_MANIFEST holds against a fresh reading of the
+# real, compiled-in prelude.  That needs kg_lisp_init() actually run, so
+# this is gated exactly like lisp-oracle-check and lisp-gc-stress-check
+# below -- WITH_LISP=0 has no evaluator to census.  test/prelude_gc_probe
+# is outside TESTBINS (same reason kgbatch is) and named here as an
+# ordinary prerequisite so `make prelude-census-check` on its own builds
+# it rather than failing to find it.
+ifeq ($(WITH_LISP),1)
+prelude-census-check: $(TESTDIR)/kgbatch test/prelude_gc_probe
+	@$(PYTHON) utils/check_prelude_census.py \
+		--manifest $(PRELUDE_CENSUS_MANIFEST) \
+		--kgbatch $(TESTDIR)/kgbatch --probe test/prelude_gc_probe \
+		--prelude lisp/prelude.el
+
+prelude-census-baseline: $(TESTDIR)/kgbatch test/prelude_gc_probe
+	@$(PYTHON) utils/check_prelude_census.py \
+		--manifest $(PRELUDE_CENSUS_MANIFEST) \
+		--kgbatch $(TESTDIR)/kgbatch --probe test/prelude_gc_probe \
+		--prelude lisp/prelude.el --write
+else
+prelude-census-check:
+	@echo "# prelude-census-check: WITH_LISP=0, no evaluator to census"
+prelude-census-baseline:
+	@echo "# prelude-census-baseline: WITH_LISP=0, no evaluator to census"
+endif
 
 coverage: coverage-clean
 	$(MAKE) clean
@@ -1885,7 +1921,7 @@ uninstall:
 
 .PHONY: all clean distclean check header-check lisp-include-check docs-check lisp-compat-check lisp-compat-oracle lisp-prelude-generate lisp-prelude-check lisp-package-check lisp-oracle-check forecast-audit forecast-check forecast-init-check check-unit check-pty-tokens check-pty check-regex-differential \
 	bench bench-lisp-toggle complexity complexity-check \
-	pmccabe pmccabe-check pmccabe-baseline gateway-check gateway-baseline coverage coverage-check coverage-baseline coverage-clean format format-check compile-db iwyu \
+	pmccabe pmccabe-check pmccabe-baseline gateway-check gateway-baseline prelude-census-check prelude-census-baseline coverage coverage-check coverage-baseline coverage-clean format format-check compile-db iwyu \
 	fuzz-keypress fuzz-keypress-seed fuzz-keypress-smoke \
 	fuzz-syntax fuzz-syntax-seed fuzz-syntax-smoke \
 	fuzz-lsp-json fuzz-lsp-json-seed fuzz-lsp-json-smoke \

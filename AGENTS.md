@@ -111,6 +111,23 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   carries its rationale and measured proof in the commit message, never as
   a comment beside the knob. The manifest is follow-up Plan 02's remaining
   migration work written down.
+- `make prelude-census-check` (part of `make check` under `WITH_LISP=1`,
+  alongside `lisp-oracle-check` and `lisp-gc-stress-check`) holds the
+  embedded Lisp prelude (`lisp/prelude.el`) to four ceilings in
+  `.ci/prelude-startup-census.json`: post-prelude `peak_live_objects`
+  (`test/kgbatch -g`'s high-water mark), `reachable_live_objects` (what
+  survives a forced collection after the prelude, via
+  `test/prelude_gc_probe`, the stabler figure since a high-water mark
+  alone conflates fewer definitions with less transient load-time
+  garbage), `embedded_bytes` (`lisp/prelude.el`'s own size -- the
+  generated `.inc` is a byte-for-byte copy of it) and `definition_count`
+  (its top-level `defalias` forms). No number may rise without a
+  rationale and measured proof in the commit message; `make
+  prelude-census-baseline` banks a fall. It does not live in
+  `.ci/ci-01-*.sh` beside complexity/pmccabe/gateway because those three
+  read source text only ("build nothing", the property that lets the CI
+  runner share one tree across them) while this census needs a real
+  `kg_lisp_init()` run, which `make check` already pays for.
 - Every `make check` writes machine-readable results to `test/.results/`
   (gitignored): `unit.json` from `utils/run_unit_tests.py`, `pty.json`
   from `utils/pty_accept.py --json`, both with per-case status and wall

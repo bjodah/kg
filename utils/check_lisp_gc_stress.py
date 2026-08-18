@@ -138,15 +138,23 @@ MIN_STRESS_COLLECTIONS = 1000
 # A stress collection is O(arena), and the arena holds tens of thousands
 # of objects, so this lane is slow by construction and slowest where it
 # matters most.  Measured with the ci-05 MSan lane's own binary on the
-# 32-core development box, where the whole run is 142.7 s and 15612
-# collections: the PRELUDE ALONE is 97.7 s and 11339 of them, before the
+# 32-core development box, where the whole run was 142.7 s and 15612
+# collections: the PRELUDE ALONE was 97.7 s and 11339 of them, before the
 # script's first form runs; the forms outside the loop add 686 more; the
-# 40 iterations add 3587.  So 73% of the run is fixed cost, and time
+# 40 iterations add 3587.  So 73% of the run was fixed cost, and time
 # tracks collections almost exactly, at ~9 ms each (0 iterations 104.9 s,
 # 10 iterations 128.7 s, 40 iterations 142.7 s).  That is why the loop is
 # 40 iterations rather than the 300 it was through Phase 14 (measured
 # under MSan then: 300 -> 229 s, 100 -> 149 s, 40 -> 138 s), and why
-# cutting it further buys almost nothing: the knee is the prelude.  Nor
+# cutting it further buys almost nothing: the knee is the prelude.
+#
+# The embedded-prelude work has since moved those counts and the shape
+# they imply.  On this tree the whole run is 12315 collections and the
+# prelude alone 6819, so the prelude is 55% of the run rather than the
+# 73% above -- still the single largest block, so the 40-iteration choice
+# stands, but no longer most of the run.  Counts are what this script
+# asserts; doc/plans/2026-08-14-embedded-prelude.md's Phase 3 results
+# carry the current MSan timings beside them.  Nor
 # does a smaller arena -- a stress build at KG_LISP_ARENA_SIZE=256 KiB
 # measures 75 s, only 1.9x, because marking the ~10600 live objects costs
 # what sweeping the rest does, and it would want a second object build

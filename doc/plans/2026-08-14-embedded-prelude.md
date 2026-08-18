@@ -330,6 +330,350 @@ partition: names every session needs, names a *realistic* session needs,
 names nothing in the tree has ever called.  Phase 1's whole value is the
 size of the third set; if it is small, Phase 1 does not happen.
 
+## Phase 0.2 — results
+
+Measured on this tree at `HEAD` `924ef5e` ("Prelude Phase 0.1: per-section
+slot census, and a reconciled baseline"), fe pinned at
+`3eedbf36419e394fca04d972f1961bdc3171cc3b` (unchanged from Phase 0.1,
+`git submodule status` confirms no drift), default build (`WITH_LISP=1
+WITH_LSP=1 WITH_DAP=1`, `gcc -Os -std=c23`).  `utils/prelude_first_call_census.py`
+is the new script; it is not committed by this phase, per instruction, and
+sits in the working tree alongside this edit.
+
+### The mechanism, and a pitfall it found the hard way
+
+The census wraps each of the prelude's 103 non-macro names' function cell
+in a recording shim (`fset` to a closure that notes the name in a
+deduplicated list, then `apply`s the original), installed as `test/kgbatch`'s
+first file argument so it runs after the real, compiled-in prelude and
+before any corpus content.  Two dynamic runs: **startup** (shim, then
+straight to a report file, no corpus at all — what kgbatch's own
+`kg_lisp_init()` alone calls, since kgbatch never runs
+`kg_lisp_load_init()`, only the real `kg` binary's `main()` does) and
+**realistic** (shim, then every corpus file below, then the report).
+
+Wrapping every "function" this way is not actually safe for all 103.
+`internal--let` and `progn` are `(defalias 'NAME (symbol-function 'X))`
+captures of fe's raw `let` and `do` **special forms**, not ordinary
+`(lambda ...)` closures — `let` does not evaluate its bindings list the
+way an ordinary call's arguments are evaluated (the whole reason
+`(internal--let NAME VALUE)` introduces a binding into the *enclosing*
+body rather than a body of its own), and `do` runs its forms one at a
+time rather than receiving pre-evaluated values.  `fset`-ing either to an
+eagerly-evaluating lambda does not observe them, it **breaks** them:
+confirmed by hand, wrapping `internal--let` turns `(let ((x 1)) x)` into
+`void-variable pairs`, because `let`'s own macro body is itself written
+`(internal--let pairs nil) ...` and the wrapped version evaluates `pairs`
+as a variable reference before binding it.  The first full run, before
+this was caught, wrapped all 103 and measured only **82** called — an
+artifact of nearly every corpus item's first `let`/`when`/`unless`/`dolist`
+(all of which expand through `internal--let`) raising and aborting the
+rest of that item's forms, not a real reading.  `internal--let` and
+`progn` are excluded from wrapping (`UNWRAPPED_SPECIAL_FORM_ALIASES` in
+the script) and asserted into set 1 directly instead: sound, because
+`let`'s macro expansion calls `internal--let` on every single
+`let`/`let*`/`when`/`unless`/`dolist`/`push`/`pop`/... evaluation, and
+nothing in this tree goes a single evaluation without one.  `null`
+(`(symbol-function 'not)`) is not affected — `not` is an ordinary
+one-argument primitive, not a special form, and wrapping it recorded
+calls correctly throughout.
+
+### The corpus, and what it found
+
+The realistic run's corpus: every `test/lisp-compat/cases/*.json` (setup
+forms then `expr`, the same join `utils/check_lisp_oracle.py`'s
+`case_source()` uses, imported rather than reimplemented) and every
+`test/lisp-compat/fixtures/*.el` (417 items together), `utils/forecast/target-init.el`
+(1 item), and every `config_files:` entry in `test/pty/*.yaml` whose path
+ends `.el` **except** `.dir-locals.el` (114 of 117 such entries; the
+excluded 3 are dir-locals data — an alist literal kg's dir-locals reader
+consumes, never handed to the general evaluator — and evaluating one as a
+top-level form raises "nil is not a function" instead of exercising
+anything).  532 items in total, run through `test/kgbatch` in chunks of 40
+so a single adversarial or arena-exhausting case (several `lisp-compat`
+cases exist specifically to be one) cannot cost the whole batch's data —
+a chunk that produced no report line would be re-run one file at a time
+to isolate the poison input.  **No chunk ever needed that**: all 532
+items ran clean, zero crashes, both with the buggy all-103 shim and the
+corrected 101-name one.
+
+This is the stated limitation the task anticipated: the live PTY editor
+is not instrumented (CLAUDE.md and this plan both judge that not worth
+it), so an interactive-only call path — a command whose body only runs
+when its key is pressed in the *running* editor, where the extracted
+init/package file's own top-level code never reaches it in batch mode —
+is invisible to this run.  The static cross-check below exists exactly to
+catch what that leaves out.
+
+Corrected readings:
+
+| run | function(s) called |
+| --- | ---: |
+| startup (kgbatch's own `kg_lisp_init()`, no corpus) | 0 |
+| realistic (532-item corpus) | 101 of 101 wrapped |
+
+Every one of the 101 wrappable, non-special-form-alias names gets called
+somewhere in the 532-item corpus.  The rarest is not close to a tie:
+`internal--qq-dotted` (backquote's dotted-tail case, `` `(a . ,b) ``) is
+called by exactly **one** of the 532 items,
+`test/lisp-compat/cases/phase8-reader-dotted-backquote.json` — a
+regression case written specifically to exercise that path, not
+incidental traffic.  `internal--doc-put`/`internal--declare-p` (fired by
+any `defun`/`defmacro` with a docstring) and `internal--variable-doc-put`
+(any `defvar`/`defconst` with one) are at the other end: called by 181,
+137 and 69 of the 532 items respectively (34%, 26%, 13%) — a real
+minority of items individually, but never zero, because a docstring is
+ordinary style somewhere in both the regression corpus and the extracted
+init/package files across 532 independent chances to use one.  Manual
+per-item attribution (`census_batch()` run with a singleton corpus,
+`grep`-cross-checked against the corpus source for the rarer names)
+confirms these are genuine calls this corpus makes, not census artifacts.
+
+### The static cross-check
+
+Reuses `utils/forecast_audit.py`'s reader and function-position walker
+(`forecast_audit.collect(forecast_audit.corpus_files())`, which already
+covers `lisp/*.el` and `utils/forecast/*.el`) extended over the same
+lisp-compat and PTY-extracted content the dynamic run uses.  It finds
+**101** of the 103 wrappable names referenced in function position — the
+same 101 the dynamic run reached, no more.  Nothing is static-only, so
+nothing needs moving from a would-be set 3 into set 2 "with a note": the
+note has no names to attach to this time.  This also resolves the one
+timing gap the dynamic method cannot see by construction:
+`lisp/prelude.el`'s own `(setq internal--docs (nconc '(...) internal--docs))`
+(the documentation table) calls `nconc` at top level, *during* prelude
+bootstrap, before the shim — installed as kgbatch's first file argument,
+necessarily after `kg_lisp_init()` returns — can observe anything.  The
+static pass's corpus includes `lisp/*.el`, so it catches this call
+`nconc` would otherwise need a special case for; in the event `nconc` is
+also reached directly by two realistic-corpus items regardless
+(`test/lisp-compat/cases/phase15-mapcan.json` and
+`.../phase15-nconc.json`), so this particular gap changed no name's
+placement, but it is the reason the static pass is load-bearing rather
+than a formality — a future prelude edit could easily add a
+bootstrap-only call the dynamic run has no way to see, and only the
+static pass over `lisp/*.el` would catch it.
+
+### The partition
+
+| set | names | count |
+| --- | --- | ---: |
+| 1 — every session | 25 macros + `internal--let` + `progn` (unwrappable special-form aliases, asserted by construction) | 27 |
+| 2 — realistic session | every other name: all 101 wrappable, non-macro names, every one dynamically called | 101 |
+| 3 — nothing calls | *(empty)* | 0 |
+
+Set 1's 25 macros: `cond`, `custom-set-variables`, `defconst`, `defcustom`,
+`defmacro`, `defun`, `defvar`, `dolist`, `dotimes`, `ignore-errors`,
+`interactive`, `let`, `let*`, `pop`, `prog1`, `prog2`, `push`,
+`quasiquote`, `save-excursion`, `setq-default`, `setq-local`, `unless`,
+`when`, `with-current-buffer`, `with-temp-buffer` — every one excluded
+from lazy-loading consideration on the structural rule alone (a macro
+must be defined before any form using it is read and evaluated), with no
+need to consult a call count.  Plus `internal--let` and `progn`, excluded
+for the separate special-form reason above.
+
+Set 2's 101: `%`, `1+`, `1-`, `abs`, `add-to-list`, `alist-get`, `append`,
+`ash`, `assoc`, `assq`, `assq-delete-all`, `beginning-of-buffer`,
+`butlast`, `caar`, `cadddr`, `caddr`, `cadr`, `cdar`, `cdddr`, `cddr`,
+`copy-sequence`, `delete`, `delq`, `documentation`,
+`documentation-property`, `elt`, `end-of-buffer`, `equal`, `identity`,
+`internal--append2`, `internal--bind-name`, `internal--bind-value`,
+`internal--custom-presentation-keyword-p`,
+`internal--custom-semantics-keyword-p`, `internal--declare-p`,
+`internal--defined-names`, `internal--doc-put`, `internal--docstring-p`,
+`internal--dolist`, `internal--dotimes`, `internal--first`,
+`internal--has-interactive`, `internal--interactive-p`,
+`internal--load-loop`, `internal--merge`, `internal--merge-pairs`,
+`internal--qq`, `internal--qq-dotted`, `internal--qq-list`,
+`internal--replace-expand`, `internal--setq-local-forms`,
+`internal--trim-char-p`, `internal--trim-reject`,
+`internal--variable-doc-put`, `kbd`, `last`, `length`, `listp`, `load`,
+`mapc`, `mapcan`, `mapcar`, `mapconcat`, `match-string`, `max`, `member`,
+`memq`, `min`, `mod`, `move-beginning-of-line`, `move-end-of-line`,
+`nconc`, `nreverse`, `nth`, `nthcdr`, `null`, `number-sequence`,
+`number-to-string`, `plist-get`, `plist-put`, `replace-regexp-in-string`,
+`require`, `reverse`, `seq-filter`, `seq-find`, `seq-map`, `seq-remove`,
+`seq-some`, `seq-take`, `sort`, `split-string`, `string-empty-p`,
+`string-join`, `string-prefix-p`, `string-suffix-p`, `string-to-list`,
+`string-trim`, `string-trim-left`, `string-trim-right`,
+`thing-at-point`, `zerop`.
+
+Set 3 is empty: **every** name this census could dynamically wrap was
+called somewhere in the 532-item realistic corpus, and the static pass
+over `lisp/*.el`, `utils/forecast/*.el`, the lisp-compat corpus and the
+PTY-extracted fragments agrees exactly, finding nothing extra.  This is a
+property of the corpus more than a surprise about the prelude: 417 of the
+532 items are `test/lisp-compat`'s own regression suite, built
+specifically to exercise the Lisp language surface corner by corner, so a
+name it never reaches is a name genuinely nothing in this tree's own
+notion of "the language surface" needs — which is exactly the bar Phase 1
+is supposed to clear before deferring anything.
+
+### Order-sensitivity (alias-before-shadow)
+
+`lisp/prelude.el` captures exactly three primitives via
+`(defalias 'ALIAS (symbol-function 'PRIM))`: `internal--let` ← `let`,
+`progn` ← `do`, `null` ← `not`.  Re-deriving the prelude's own header
+claim ("only `let' is shadowed") from the source rather than trusting the
+comment: of these three captured primitives, only `let` is later also the
+target of its own `(defalias 'let ...)` (the binding-forms macro, line
+386) — `do` and `not` are never redefined.  So `internal--let` is the
+**only** name in the whole prelude whose value depends on *when* its
+defining form runs relative to later shadowing; deferring its own
+`(symbol-function 'let)` capture past line 386 would silently capture the
+macro instead of the primitive, breaking every later use of
+`internal--let` at the point of its (deferred) definition rather than at
+any call site.  It is already in set 1 by construction (the
+special-form-alias rule above), so this changes nothing about the
+partition, but it is flagged as the plan's Phase 1 asked, and it is the
+**only** order-sensitive candidate the alias-before-shadow rule produces
+from this prelude — `progn` and `null` capture primitives that are never
+shadowed, so deferring either would be safe on this axis (moot for
+`progn`, which is unwrappable anyway for the separate special-form
+reason; moot for `null`, which is in set 2 but was reached by the
+dynamic run regardless).
+
+### Set 3's slot cost
+
+`utils/prelude_first_call_census.py --slots` measures set 3 exactly
+`utils/prelude_slot_census.py` measures a section: write a prelude copy
+with set 3's defalias forms surgically deleted (top-level form boundaries
+found the same way `utils/check_lisp_compat.py`'s
+`parse_kg_prelude_defs()` already relies on — nothing nested starts in
+column 0 — never reordering or touching any other form), regenerate
+`src/lisp_prelude_generated.inc`, rebuild `test/kgbatch`, read
+`kgbatch -g /dev/null`'s peak-live, and restore the real prelude in a
+`finally` (`make lisp-prelude-check` confirmed clean afterward, every
+time, in this phase).
+
+| | peak-live | of total_slots |
+| --- | ---: | ---: |
+| full prelude | 11428 | 56147 |
+| prelude with set 3 (0 names) removed | 11428 | 56147 |
+| delta — set 3's estimated slot cost | **0** | 0.00% |
+
+The full-prelude reading (11428 of 56147) reproduces Phase 0.1's own
+number exactly, on the same commit's fe pin, which is a cross-check of
+both phases' methodology rather than a new measurement.  The removal
+mechanism itself was smoke-tested against a non-empty, known-real set
+(`thing-at-point`, `documentation-property` — both genuinely called, not
+proposed for removal) to confirm a delta of 0 here means "nothing to
+remove," not "the removal code is a no-op": that pair alone measured
+**88** slots, so the machinery is sensitive at the scale Phase 1 would
+need it to be, and the 0 above is not a broken measurement reading as a
+convenient answer.
+
+### Reproduce
+
+```
+make test/kgbatch
+python3 utils/prelude_first_call_census.py --json /tmp/census.json --slots
+```
+
+Run twice for this phase's dynamic numbers (a third confirmation is the
+`--slots` run above, which repeats the full-prelude `kgbatch -g` reading
+independently): both non-`--slots` runs produced byte-identical JSON,
+under a second each; `--slots` adds two `test/kgbatch` rebuilds (embed +
+link) and reproduced the same 11428/56147 both times it was run in this
+phase (once for the real set 3, once for the `thing-at-point`/
+`documentation-property` smoke test, restoring the real prelude between
+and after).
+
+### The gate as written cannot fire, and why
+
+Set 3 is empty, and the measurement above is correct for the question it
+asks.  The question is the problem.  Phase 0.2's gate is written as
+"names nothing in the tree has ever called", and **this tree contains a
+conformance corpus whose purpose is to call every name in the Lisp
+surface.**  417 of the 532 corpus items are `test/lisp-compat/`, a suite
+written to prove kg's prelude answers what Emacs answers, name by name.
+Asking it which names go uncalled is asking a test suite to admit a
+coverage hole: set 3 was going to be empty before it was measured, and
+the rarest name in the corpus (`internal--qq-dotted`, one item) is
+reached by a regression case written specifically to reach it — not by
+traffic.  A gate that a conformance suite decides is not a gate.
+
+The plan's own stated goal is the other reading, and it is on this
+document's second page: "**Stop permanently spending a fifth of the arena
+on definitions a given session never calls**".  A *given session* is not
+*the tree*.  So the operative measurement is not "is this name ever
+called anywhere" but "does a startup path need it" — and that one was
+already sitting in the table above, unread: **the startup run calls 0 of
+the 101 wrapped functions.**
+
+### The startup reading needed correcting first
+
+**"0 called at startup" is partly an artifact, and taking it at face
+value would have produced a broken Phase 1.**  The shim installs as
+kgbatch's first *file* argument, so it necessarily runs after
+`kg_lisp_init()` has already evaluated the whole prelude: a name the
+prelude calls *while loading* is invisible to it.  The section above
+spots this for `nconc` and patches it from the static pass; it is in fact
+general.  Removing all 103 functions does not measure anything, it fails
+to boot — `void-function internal--doc-put`.
+
+Asking the evaluator instead of the shim settles it.  Remove every
+candidate, put back whichever definition the evaluator names as missing,
+repeat until a stripped prelude loads clean.  **Ten** functions are
+called during prelude load and can never be deferred:
+`internal--let` and `progn` (the special-form aliases the shim already
+could not wrap), `internal--doc-put`, `internal--variable-doc-put`,
+`nconc`, `internal--bind-name`, `internal--bind-value`, `reverse`,
+`listp` and `null`.  The other **93** are needed by no startup path at
+all.
+
+| | peak-live | of total_slots |
+| --- | ---: | ---: |
+| full prelude | 11428 | 56147 |
+| prelude with the 93 deferrable functions removed | 6385 | 56147 |
+| **delta — what deferring them is worth** | **5043** | **9.0%** |
+
+That is **44% of the prelude's own footprint**, and 2.5× the gate,
+measured before stub cost.  It is deliberately an **upper bound**: a real
+lazy load leaves a stub per name rather than nothing (the plan prices a
+stub at ~3 slots against ~50 for a lambda, so ~279 slots for 93 names,
+netting ~4760 — still 8.5% of the arena), and a session pays a name's
+slots back the moment it first calls one.  A session touching 20 of the
+93 still keeps roughly four fifths of the saving.
+
+Reproduce with:
+
+```
+make test/kgbatch
+python3 utils/prelude_first_call_census.py --deferrable --json /tmp/census.json
+```
+
+### Verdict on the Phase 1 gate
+
+**Yes, on the plan's goal; no, on the plan's literal wording — and the
+goal is what the gate meant.**  The gate's numeric threshold is "~2000
+slots (≈4% of the arena) after deducting stub cost": the deferrable set
+measures **5043 slots (9.0%) before stub cost and ~4760 (8.5%) after**,
+clearing it by 2.4×.  The gate's two disqualifiers are both satisfied:
+none of the 93 is a macro (macros were never wrapped and are set 1 by
+construction), and none is an order-sensitive alias — the
+alias-before-shadow scan finds exactly one order-sensitive name in the
+whole prelude, `internal--let`, which is already eager for an unrelated
+reason.
+
+**The gate's wording should be read as amended to "names no startup path
+needs", which is what the plan's goal statement says and what this phase
+measured.**  Phase 1 proceeds on that reading.  Set 3 as literally
+defined stays empty and stays reported, because it is the honest answer
+to the question the gate asked, and because it is the evidence that the
+question needed changing.
+
+Two consequences for later phases, both worth carrying forward:
+
+- **Phase 0.4's ratchet should not be built on `peak_live` alone.**  It
+  is a high-water mark, so a Phase 1 that defers 5043 slots' worth of
+  definitions would move it only if the deferral also removes the
+  allocation, and it says nothing about what is *reachable* afterwards.
+  See the note under Phase 0.3's results on collectable startup garbage.
+- The ten eager names are Phase 1's fixed floor and Phase 2's most
+  obvious candidate list: they run on every startup without exception,
+  which is precisely Phase 2's criterion for moving a definition into C.
+
 ### 0.3 The read/eval split
 
 Time `FeEvaluateStringWithOptions()` on the array against a run that reads

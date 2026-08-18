@@ -5786,7 +5786,12 @@ static void test_quit_uncaught(void)
  * stub install_deferred_stubs() puts in a deferred name's cell is itself
  * an ordinary FeTFn closure, indistinguishable from the real definition by
  * type-of before its first call replaces it. */
-#define PRELUDE_DEFS 129
+/* Phase 2 of doc/plans/2026-08-14-embedded-prelude.md moved seven names
+ * (listp, reverse, internal--bind-name, internal--bind-value,
+ * internal--doc-put, internal--variable-doc-put, nconc) from
+ * lisp/prelude.el defalias forms to natives (src/lisp_cmd.c), so the
+ * source file's own top-level defalias count fell 129 -> 122. */
+#define PRELUDE_DEFS 122
 
 /* Phase 1 of doc/plans/2026-08-14-embedded-prelude.md: a deferred name
  * must be indistinguishable from an eager one to every caller shape the
@@ -5859,6 +5864,51 @@ static void test_deferred_stub_indistinguishable(void)
 	CHECK(eval_eq("(documentation-property 'phase1-documented-var"
 		      " 'variable-documentation)",
 	    "doc"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+/* Phase 2 of doc/plans/2026-08-14-embedded-prelude.md moved `reverse' from
+ * a Lisp `while' loop to a native.  A native's own C locals are not part
+ * of any `FeEvalFrame' `FeMarkEvaluatorRoots' walks, so they stay live
+ * only through the small, fixed-size root stack `FePushGC'/`FeRestoreGC'
+ * manage (`GcStackSize' 4096, `GcStackReserve' 64 held back for the
+ * ordinary completion ceiling -- fe/fe_internal.h) -- and `MakeObject()'
+ * pushes every single allocation onto it.  A loop that conses once per
+ * input element and never restores the checkpoint therefore roots one
+ * slot per element, forever, and dies around 4032 -- a limit the Lisp
+ * `while' loop this replaced never had, because a *Lisp* loop's
+ * accumulator lives in a `let'-bound frame slot, marked directly by
+ * `FeMarkEvaluatorRoots' rather than by the root stack, so it costs the
+ * root stack nothing per iteration.  5000 is chosen well past 4032 for
+ * the same reason test_arena_exhaustion_conditions' own reader-depth case
+ * picks 8192 over 4096: past the ceiling, not merely at it, so a future
+ * off-by-one in whatever fix this pins does not slip through by landing
+ * exactly on the edge.
+ * `mapcar' is asserted too, unprompted by anything but its own body
+ * ending in `(reverse res)' -- the same fix and the same test therefore
+ * cover the most heavily used name in the language, not just the one
+ * this phase edited directly. */
+static void test_native_reverse_gc_stack(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_ok("(setq p2-big nil)"));
+	CHECK(eval_ok("(setq p2-i 0)"));
+	CHECK(eval_ok("(while (< p2-i 5000)"
+		      " (setq p2-big (cons p2-i p2-big))"
+		      " (setq p2-i (+ p2-i 1)))"));
+	CHECK(eval_eq("(length p2-big)", "5000"));
+	CHECK(eval_eq("(length (reverse p2-big))", "5000"));
+	/* The reversed list's own first and last elements, not just its
+	 * length: a native that rooted nothing at all would still answer
+	 * a 5000-long list of garbage without raising. */
+	CHECK(eval_eq("(car (reverse p2-big))", "0"));
+	CHECK(eval_eq("(car (last (reverse p2-big)))", "4999"));
+	CHECK(eval_eq("(length (mapcar '1+ p2-big))", "5000"));
+	CHECK(eval_eq("(car (mapcar '1+ p2-big))", "5000"));
 
 	kg_lisp_shutdown();
 	teardown_editor();
@@ -7476,6 +7526,7 @@ int main(void)
 	RUN(test_phase8_reader_literals);
 	RUN(test_phase8_library);
 	RUN(test_deferred_stub_indistinguishable);
+	RUN(test_native_reverse_gc_stack);
 	RUN(test_prelude_source_file);
 	return test_summary();
 }

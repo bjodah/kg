@@ -178,6 +178,20 @@ static const struct native_binding native_bindings[] = {
 	 * stub lookup. lisp/prelude.el's internal--make-deferred-stub is the
 	 * only caller, once per deferred name, at most once per process. */
 	{ "internal--force-deferred", native_internal_force_deferred },
+	/* Phase 2 of doc/plans/2026-08-14-embedded-prelude.md: seven of the
+	 * ten names Phase 0.2 found eager on every startup path, moved from
+	 * lisp/prelude.el lambdas to natives (src/lisp_cmd.c).  The other
+	 * three -- internal--let, progn, null -- are already zero-cost
+	 * `(defalias NAME (symbol-function PRIM))` captures of an fe
+	 * primitive and stay Lisp; see src/lisp_cmd.c's own comment on why a
+	 * native cannot stand in for the first two. */
+	{ "listp", native_listp },
+	{ "reverse", native_reverse },
+	{ "nconc", native_nconc },
+	{ "internal--bind-name", native_internal_bind_name },
+	{ "internal--bind-value", native_internal_bind_value },
+	{ "internal--doc-put", native_internal_doc_put },
+	{ "internal--variable-doc-put", native_internal_variable_doc_put },
 };
 
 void register_natives(FeContext *context)

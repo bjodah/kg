@@ -794,6 +794,24 @@ static void cleanup_prefix_binding(FeContext *context, void *ptr)
 	    context, "void-variable", FeMakeList(context, parts, 1));
 }
 
+/* Raise Emacs' `(setting-constant SYMBOL)`: what `(setq t 1)`,
+ * `(setq nil 1)` and `(setq :k 1)` answer.  Phase 2 of
+ * doc/plans/2026-08-14-embedded-prelude.md needs it because
+ * `internal--bind-name` (a `let`/`let*` binding-list check, native since
+ * that phase) validates a proposed binding name without ever writing it,
+ * so it cannot reach fe's own `FeSet` guard the way an ordinary
+ * assignment does. */
+[[noreturn]] void lisp_raise_setting_constant(
+    FeContext *context, FeObject *symbol)
+{
+	FeObject *parts[1];
+
+	FePushGC(context, symbol);
+	parts[0] = symbol;
+	raise_signal_form(
+	    context, "setting-constant", FeMakeList(context, parts, 1));
+}
+
 /* Raise Emacs' `(args-out-of-range ...)`: the range failure that is not a
  * type failure.  Emacs' data is the offending arguments themselves, in the
  * order the call wrote them and with no predicate in front -- measured,

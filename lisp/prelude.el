@@ -76,7 +76,6 @@
 (defalias 'caar (lambda (x) (car (car x))))
 (defalias 'cadr (lambda (x) (car (cdr x))))
 (defalias 'cddr (lambda (x) (cdr (cdr x))))
-(defalias 'listp (lambda (x) (if (null x) t (consp x))))
 ;; --- hygiene for the prelude's own temporaries -----------------------
 ;;
 ;; A `let' over a name the user has `defvar'd binds DYNAMICALLY (Phase
@@ -134,12 +133,6 @@
 ;; with no callback in between, so nothing can observe them.  doc/TODO.md
 ;; carries the census and the classification.
 ;; --- list library, all iterative ---
-(defalias 'reverse (lambda (lst)
-  (internal--let res nil)
-  (while lst
-    (setq res (cons (car lst) res))
-    (setq lst (cdr lst)))
-  res))
 (defalias 'internal--append2 (lambda (a b)
   (internal--let res b)
   (internal--let r (reverse a))
@@ -357,13 +350,6 @@
 ;; rather than the only one -- it stays because `let*' expands to the
 ;; two-argument `internal--let' spelling, one binding at a time, and
 ;; because one rule with one message is worth more than the line it costs.
-(defalias 'internal--bind-name (lambda (b)
-  (internal--let name (if (atom b) b (car b)))
-  (if (or (eq name t) (eq name nil) (keywordp name))
-      (signal 'setting-constant (list name))
-    name)))
-(defalias 'internal--bind-value (lambda (b)
-  (if (atom b) nil (car (cdr b)))))
 ;; `let' normalises its binding list and hands it to fe's core
 ;; bindings-list `let' (reachable here as `internal--let', captured above
 ;; before this macro shadowed the name).  Until Phase 11 this expanded to
@@ -588,9 +574,6 @@
 ;; not much better than one that does not exist.  The cost of that is two
 ;; conses per definition.
 (setq internal--docs nil)
-(defalias 'internal--doc-put (lambda (name doc)
-  (setq internal--docs (cons (cons name doc) internal--docs))
-  doc))
 ;; Emacs puts a variable's docstring on the symbol's plist, under
 ;; `variable-documentation', where `documentation-property' reads it back
 ;; -- so `(get 'fill-column 'variable-documentation)' answers there and
@@ -600,9 +583,6 @@
 ;; both hold the same string object -- and nothing is stored at all for
 ;; an undocumented `defvar', which is why this is a call and not a bare
 ;; `put'.
-(defalias 'internal--variable-doc-put (lambda (name doc)
-  (if doc (put name 'variable-documentation doc))
-  doc))
 ;; (documentation-property SYMBOL PROPERTY &optional RAW): the property,
 ;; when it is a string.  Emacs stores a built-in variable's documentation
 ;; as an offset into its DOC file and resolves it here, which is why the
@@ -1152,19 +1132,6 @@
       (reverse out)))))
 ;; Destructive, as Emacs': every argument but the last has to be a list,
 ;; and the result is the first non-nil one with the rest spliced onto it.
-(defalias 'nconc (lambda lists
-  (let ((result nil) (tail nil))
-    (while lists
-      (let ((piece (car lists)))
-        (if (and (cdr lists) (not (listp piece)))
-            (signal 'wrong-type-argument (list 'listp piece)))
-        (when piece
-          (if (null tail) (setq result piece) (setcdr tail piece))
-          (when (consp piece)
-            (setq tail piece)
-            (while (consp (cdr tail)) (setq tail (cdr tail))))))
-      (setq lists (cdr lists)))
-    result)))
 (defalias 'mapcan (lambda (function sequence)
   (apply 'nconc (mapcar function sequence))))
 (defalias 'assq-delete-all (lambda (key alist)

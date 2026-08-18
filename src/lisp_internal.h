@@ -267,6 +267,10 @@ FeObject *lisp_callable_designator(FeContext *context, FeObject *object,
  * (lisp_core.c). */
 [[noreturn]] void lisp_raise_void_variable(
     FeContext *context, FeObject *symbol);
+/* Raise Emacs' `(setting-constant SYMBOL)' -- a `let'/`let*' binding name
+ * that is `t', `nil' or a keyword (lisp_core.c). */
+[[noreturn]] void lisp_raise_setting_constant(
+    FeContext *context, FeObject *symbol);
 /* Raise Emacs' `(end-of-buffer)' / `(beginning-of-buffer)', the two edges
  * a motion or an edit runs into.  Both carry no data, and both became
  * raisable at the Phase 20 fe pin, which is what added them to fe's
@@ -473,6 +477,7 @@ FeObject *native_stringp(FeContext *context, FeObject *arguments);
 FeObject *native_symbolp(FeContext *context, FeObject *arguments);
 FeObject *native_numberp(FeContext *context, FeObject *arguments);
 FeObject *native_consp(FeContext *context, FeObject *arguments);
+FeObject *native_listp(FeContext *context, FeObject *arguments);
 FeObject *native_functionp(FeContext *context, FeObject *arguments);
 FeObject *native_command(FeContext *context, FeObject *arguments);
 FeObject *native_commandp(FeContext *context, FeObject *arguments);
@@ -482,6 +487,17 @@ FeObject *native_command_documentation(FeContext *context, FeObject *arguments);
 FeObject *native_prefix_numeric_value(FeContext *context, FeObject *arguments);
 FeObject *lisp_prefix_object(
     FeContext *context, const struct command_prefix *prefix);
+/* Phase 2 of doc/plans/2026-08-14-embedded-prelude.md: the prelude names
+ * Phase 0.2 found eager on every startup path, small and ordering-free
+ * enough to be natives instead of the lambdas lisp/prelude.el used to
+ * carry (lisp_cmd.c). */
+FeObject *native_reverse(FeContext *context, FeObject *arguments);
+FeObject *native_nconc(FeContext *context, FeObject *arguments);
+FeObject *native_internal_bind_name(FeContext *context, FeObject *arguments);
+FeObject *native_internal_bind_value(FeContext *context, FeObject *arguments);
+FeObject *native_internal_doc_put(FeContext *context, FeObject *arguments);
+FeObject *native_internal_variable_doc_put(
+    FeContext *context, FeObject *arguments);
 /* Read and clear the value the command activation just finished produced
  * (lisp_core.c).  Nothing may allocate between the activation returning and
  * this call -- see the definition. */

@@ -1308,6 +1308,386 @@ it lands in and its complexity cost.
 **Gate:** each candidate carries its own before/after slot count.  A move
 that saves fewer slots than it costs complexity points is not made.
 
+## Phase 2 — results
+
+Measured at the Phase 1 pin, fe unchanged at
+`3eedbf36419e394fca04d972f1961bdc3171cc3b`, default build (`WITH_LISP=1
+WITH_LSP=1 WITH_DAP=1`, `gcc` 14.2.0, `-Os -std=c23`), `total_slots`
+**56147**, unchanged since Phase 0.1.  Every number below is a real
+`test/kgbatch -a`/`test/prelude_gc_probe` reading on a rebuilt tree, not an
+estimate; a cons-count screen was used only to decide what to build before
+building it, per this document's own rule for what may appear in a results
+table.
+
+| | before (Phase 1) | after | delta |
+|---|---:|---:|---:|
+| post-prelude `peak_live_objects` | 7363 | **6819** | **−544** (−0.97% of the arena) |
+| post-collection `reachable_live_objects` | 6212 | **5959** | **−253** (−0.45%) |
+| embedded bytes | 74927 | 73730 | −1197 |
+| prelude definition count | 129 | 122 | −7 |
+| `src` scc complexity | 10612 | **10642** | **+30** |
+
+**Seven of Phase 0.2's ten eager names cleared the gate and moved; three
+were priced and declined.  The whole class is worth 544 peak-live slots
+(0.97% of the arena) for 30 complexity points — 18 slots per point — which
+clears "saves more slots than it costs complexity points" by more than an
+order of magnitude, but is 13% of Phase 1's 4065-slot haul, matching in
+order of magnitude — if not in the last digit — the estimate registered
+before the class was built ("a couple of hundred slots", the overseer's
+brief for this phase; the plan's own Phase 2 section names no figure).
+Of the seven, six clear the
+gate cleanly on both tracked metrics; `internal--variable-doc-put` is the
+marginal case — it clears on `reachable_live_objects` (15 saved against
+2 complexity points) but only barely on `peak_live_objects` (3 saved
+against the same 2), and ships because it rides on `lisp_call_primitive`,
+which `nconc` already funds, not because it is a clean pass in its own
+right (see its own row below).**
+
+One consequence of this phase for a question Phase 0.3 left open without
+implementing: total post-prelude *collectable* garbage
+(`peak_live_objects − reachable_live_objects`, the slots a single forced
+collection right after the prelude would reclaim) has now fallen twice —
+1238 at the Phase 0.3 pin (11428 − 10190, that section's own figure),
+1151 computed from Phase 1's own before/after pair (7363 − 6212, not
+stated as such there), and **860** now (6819 − 5959).  Smaller in
+absolute terms each time, mostly because these phases' moves removed
+some of that garbage outright rather than merely relocating it, so the
+"collect once after the prelude" idea Phase 0.3 priced at ~1238 slots
+for one `CollectGarbage()` call is correspondingly worth less than it
+was, not more, the next time it is weighed against Phase 3's larger
+machinery.
+
+### The seven, priced individually
+
+Each row is its own isolated build: that one name's Lisp `defalias` form
+deleted from `lisp/prelude.el`, that one name's native registered alone in
+`native_bindings[]` (every other candidate's native commented out of the
+table, so an idle `FeDefineNative` registration for a name still served by
+Lisp — which costs one permanently-orphaned `FeTNativeFn` wrapper object
+once the Lisp `defalias` overwrites the cell moments later, the same
+mechanism Phase 1's stub cost measurement already named — cannot pad
+another candidate's number), `make lisp-prelude-generate`, a full rebuild
+of `test/kgbatch` and `test/prelude_gc_probe`, both census lines read.
+All seven deltas are against the same Phase 1 baseline (7363 / 6212);
+`utils/prelude_slot_census.py`'s own warning about double-counting on a
+split tree does not apply here — this is a fresh build per row, the same
+method Phase 0.2 used for its own removal deltas, not that script.
+
+| candidate | Δ peak-live | Δ reachable-live | pmccabe (own) | pmccabe (shared) | gate |
+| --- | ---: | ---: | ---: | --- | --- |
+| `listp` | −27 | −18 | 2 | — | clears, 9–14× |
+| `reverse` | −56 | −38 | 2 | — | clears, 19–28× |
+| `internal--bind-name` | −61 | −39 | 3 | +5 `lisp_is_constant_binding_name` +1 `lisp_raise_setting_constant` | clears, 6.8–4.3× over 9 |
+| `internal--bind-value` | −28 | −14 | 2 | — | clears, 7–14× |
+| `internal--doc-put` | −33 | −15 | 2 | — | clears, 7.5–16.5× |
+| `internal--variable-doc-put` | −3 | −15 | 2 | +2 `lisp_call_primitive` (first charged to `nconc`, see below) | marginal on peak alone (3 vs 2 own cost), clears on reachable, 7.5× |
+| `nconc` | −369 | −108 | 9 | +2 `lisp_call_primitive` (its first user) | clears, 33.5–9.8× over 11 |
+
+**`nconc`'s peak-reachable gap (369 vs 108, 261 slots) is transient
+read/eval garbage, not retained structure, and is the largest such gap
+in the table.**  The Lisp `nconc` this replaced was itself the most
+syntactically elaborate of the seven — nested `let`/`when`/`while` forms
+— and reading that much source at prelude load time built and discarded
+proportionally more reader-spine and macro-expansion garbage than a
+one-line lambda does, exactly the phenomenon Phase 0.1's own baseline
+section named for the preamble ("about a sixth of the whole 20.35%
+headline figure is pre-Lisp C setup, not embedded Lisp source" — the
+same distinction, applied to one definition's *reading* cost rather than
+to `register_natives()`'s).  `reverse`'s own gap (56 vs 38, 18 slots) is
+the same effect at the smaller scale its shorter body predicts; nothing
+here is a sign disagreement or a hidden retained cost — `reachable_live_objects`
+is the post-collection figure, so 108 and 38 are what a session actually
+keeps from removing these two definitions, and 369/56 are what a
+one-time collection right after the prelude would additionally reclaim
+if Phase 0.3's declined-for-now "collect once after the prelude" idea
+were ever taken up.
+
+Summing the seven isolated deltas (−577 peak, −247 reachable) against the
+one combined build that ships all seven together (−544, −253) does not
+reconcile to the digit: combined saves 33 *fewer* slots than the sum of
+parts predicts on peak-live, and 6 *more* on reachable-live.  Both differences are under 6% of the
+combined figure and are cross-term noise between forms sharing a
+truncated file's read/GC state, not a sign or order-of-magnitude
+disagreement — the same kind of small non-additivity Phase 0.1's own
+per-section census reported between cumulative and single-section
+readings.  The combined, all-seven build is what shipped, and its own
+directly-measured numbers are the ones in the top table, not the sum.
+
+**`internal--variable-doc-put` needed a second implementation, not a
+second isolation.**  Both readings below are properly isolated (only that
+one candidate's native active); what changed between them is
+`lisp_call_primitive` itself, in the correctness fix "The mechanism"
+describes next.  The first, closure-wrapping implementation measured
+isolated peak-live **+15** (a regression) against −15 reachable — a real
+number from a real build, not a padding artifact.  The second,
+direct-`FeEvaluateWithOptions` implementation measured −3 peak, still
+small but no longer a regression, with reachable unchanged at −15 (it was
+never affected either way: the two extra objects the closure wrapper cost
+are transient garbage that does not survive to be reachable regardless of
+which version produced it).  The 18-slot swing is two fewer permanent
+objects (`MakeClosure`'s pair) per call, times roughly how many
+`defvar`/`defconst`-with-docstring forms this one name's own call sees
+*during prelude bootstrap itself* — a handful, not the 69-of-532 corpus
+figure Phase 0.2 counted across the whole realistic corpus, most of which
+runs after the prelude has already finished loading.
+
+### The mechanism
+
+Seven natives, all in `src/lisp_cmd.c` (the file that already carries
+`type-of`/`stringp`/`consp`/`functionp` and the rest of the predicate and
+command-table surface `native_bindings[]` draws on) plus one small raiser
+in `src/lisp_core.c` beside `lisp_raise_wrong_type`/`lisp_raise_void_variable`:
+
+- `native_listp` sits beside `native_consp` in the type-predicate block.
+- `native_reverse` and `native_nconc` are straight ports of the Lisp
+  `while`/`let` bodies onto `FeCar`/`FeCdr`/`FeCons`/`FeGetType`.
+- `native_internal_bind_name`/`native_internal_bind_value` are the
+  `let`/`let*` binding-list accessors; the constant check
+  (`t`/`nil`/keyword) is a new static helper,
+  `lisp_is_constant_binding_name`, since `fe.h` exposes no
+  `keywordp`-equivalent and `fe/fe_internal.h`'s `IsKeywordSymbol` is
+  private to `fe/` (`make lisp-include-check` enforces the boundary).  A
+  real `(setq t 1)`-shaped constant violation now raises through a new
+  `lisp_raise_setting_constant(context, symbol)` in `src/lisp_core.c`,
+  the same shape as its two neighbours.
+- `native_internal_doc_put` conses onto the global `internal--docs` alist
+  via `FeGetValue`/`FeSet`/`FeCons` — no primitive call needed.
+- `native_internal_variable_doc_put` and `native_nconc` both need to
+  invoke a raw fe *primitive* (`put`, `setcdr`) that `fe.h` gives no
+  direct C entry point for, and hit the same wall from two different
+  directions before landing on the fix below.
+
+**A correctness bug this phase found and fixed: `FeCall`/`FeCallWithOptions`
+reject anything that is not `FeTFn` or `FeTNativeFn`** (`fe/fe_run.c`'s
+`FeCall`: `if (FeGetType(callable) != FeTFn && FeGetType(callable) !=
+FeTNativeFn) { FeHandleError(ctx, "tried to call non-callable value"); }`).
+`put` and `setcdr` are `FeTPrimitive`.  The first `nconc`/
+`internal--variable-doc-put` implementations resolved `setcdr`/`put`
+via `FeGetFunction` and called them through `FeCallWithOptions` exactly
+like a hook or callback — and the census script's `make test/kgbatch`
+rebuild booted straight into "prelude:504: tried to call non-callable
+value" (a misleading line number: fe's reader position at the moment of
+the raise, not the site of the call, since the offending call is inside
+a native's own C frame rather than a source line the reader is
+tracking).  `src/lisp_core.c`'s existing `raise_signal_form` had already
+solved calling a primitive (`signal`) from C, by wrapping the call in a
+`(lambda () (PRIM 'ARG...))` literal — evaluating a lambda form only
+builds the closure, which *is* an `FeTFn`, and cannot itself raise.  The
+first fix copied that shape; a second pass replaced it with something
+narrower once it was clear the closure wrapper was not needed for a call
+that is not itself trying to raise safely: `lisp_call_primitive`
+(`src/lisp_cmd.c`) builds `(PRIM 'ARG...)` and hands it straight to
+`FeEvaluateWithOptions`, which runs the ordinary evaluator — primitive
+dispatch included, with no restriction to `FeTFn`/`FeTNativeFn` — and
+needs no closure at all.  That second pass is what turned
+`internal--variable-doc-put`'s isolated peak-live delta from **+15** (the
+lambda-wrapping version, a real regression, not a padding artifact — see
+"The seven, priced individually" above) to **−3**: two fewer permanent
+objects (the closure's own `MakeClosure` pair) every time a
+`defvar`/`defconst` with a docstring calls it during prelude bootstrap
+itself, which this one name's own definition point sees a handful of
+times before the prelude finishes loading (Phase 0.2's 69-of-532 figure
+is the whole corpus, most of it running after the prelude, not this
+narrower count).
+`test_deferred_stub_indistinguishable` and the rest of `make check`
+passed unmodified throughout both versions — the bug was in a primitive
+re-entry path, not in anything the deferred-stub machinery touches.
+
+### A second correctness bug, found in review: `native_reverse` capped every list it touched at ~4032 elements
+
+`make check` never exercises a list longer than a few dozen elements, so
+this shipped in the first cut of this phase and was caught only by an
+independent read, not by the suite.  `fe.c`'s `MakeObject()` ends in an
+unconditional `FePushGC(ctx, obj)` — every allocation roots itself on a
+fixed `gc_stack[GcStackSize]` array (`GcStackSize` 4096, `GcStackReserve`
+64 held back for the ordinary-completion ceiling — `fe/fe_internal.h`).
+The first `native_reverse` consed once per input element in a `while`
+loop and never restored the checkpoint, so it pushed one permanent root
+per element and died at the ~4032nd with `GC stack overflow` — measured
+directly: `(length (reverse LIST))` answered 3000 and 4000 on lists of
+those lengths, and raised at 4030 and at 6000.  The Lisp `while`/`setq` body this native
+replaced never had this ceiling, and the reason is architectural rather
+than incidental: a Lisp-level loop's accumulator lives in a `let`-bound
+frame slot, and `FeMarkEvaluatorRoots` marks every live `FeEvalFrame`
+directly during a collection — a *Lisp* loop's intermediate values are
+protected by the evaluator's own frame-stack marking, and cost the fixed
+4096-slot root stack nothing per iteration.  A **native**'s C-level
+locals are not part of any `FeEvalFrame`, so they have no such
+protection and depend entirely on manual `FePushGC`/`FeRestoreGC`
+bookkeeping — the same reason `native_command_names` (`src/lisp_cmd.c`,
+pre-dating this phase) already carries exactly this idiom for its own
+loop, and the fix is that same idiom, unchanged: save one checkpoint
+before the loop, and each pass restore to it and re-push only the
+current accumulator, so the root stack holds one slot for the whole
+call rather than one per element.  Applied, verified against the same
+manual repro (6000 elements, `reverse` and `mapcar` — `mapcar`'s own body
+ends in `(reverse res)`, so it inherited the same ceiling and the same
+fix) and pinned by a new unit case, `test_native_reverse_gc_stack`
+(`test/test_lisp.c`), at 5000 elements — chosen past 4032 rather than at
+it, for the reason `test_arena_exhaustion_conditions`'s own 8192-vs-4096
+reader-depth case already states: landing exactly on an edge lets a
+future off-by-one through unnoticed.  The fix adds no branch (a
+`FeSaveGC` before the loop, a `FeRestoreGC`/`FePushGC` pair replacing
+nothing conditional inside it), and `native_reverse`'s own pmccabe figure
+and `src/lisp_cmd.c`'s scc total are confirmed unchanged by it (both
+below).  `.ci/prelude-startup-census.json`'s four numbers are also
+confirmed unchanged (re-read after the fix): the bug and its fix are
+root-stack discipline, not arena occupancy — a leaked *root*, not a
+leaked *object* — so nothing about how many objects the prelude leaves
+live was ever at stake.
+
+**Audited every other native this phase added for the same shape** — an
+allocating loop whose trip count is caller-controlled rather than fixed
+by the primitive's own arity — and only `native_reverse` had it:
+
+- `native_nconc`'s outer `while` loops once per *argument to `nconc`
+  itself* (its own arity, not the length of any list passed), and its
+  only allocation per iteration is one `lisp_call_primitive` call, which
+  saves its own checkpoint on entry and restores it before returning —
+  net zero permanent root growth per outer iteration, however many there
+  are.  Its inner `while` (walking to the end of one spliced piece) calls
+  only `FeCdr`, which reads and allocates nothing.
+- `lisp_call_primitive`'s own `for` loop is bounded by `count`, a
+  compile-time-fixed small constant at every call site (2 for `setcdr`,
+  3 for `put`) — never by anything caller- or list-length-controlled —
+  and it restores its full checkpoint before returning regardless of
+  `count`.
+- `native_listp`, `native_internal_bind_name`, `native_internal_bind_value`,
+  `native_internal_doc_put`, `native_internal_variable_doc_put`,
+  `lisp_is_constant_binding_name` and `lisp_raise_setting_constant` all
+  allocate O(1) — no loop at all — regardless of their arguments' size.
+
+### Declined, with the reason
+
+**`internal--let`, `progn`: not implementable as natives at all, not
+just poor value.**  Both are `(defalias 'NAME (symbol-function 'PRIM))`
+captures of a raw fe *special form* (`let`, `do`) — arguments unevaluated
+until the special form itself decides what to do with them.
+`FeDefineNative` registers an ordinary evaluated-argument function; giving
+either name a native would evaluate the operands before the native ever
+saw them, breaking exactly the property `internal--let` exists for (its
+own body is `(internal--let NAME VALUE)`, introducing a binding into the
+*enclosing* body — the reason `let`'s macro shadows the primitive rather
+than replacing it).  This is not a new finding: Phase 0.2's own census
+script hit it first, wrapping `internal--let` in a recording shim, and
+`(let ((x 1)) x)` came back `void-variable pairs`.  There is no price to
+attach; the move is not available.
+
+**`null`: measured, and moving it makes `reachable_live_objects` worse.**
+`null` is `(defalias 'null (symbol-function 'not))`, an ordinary
+one-argument alias with no special-form problem — the one member of the
+three-alias set actually eligible for a native.  Priced anyway, with a
+throwaway `native_null_experiment` (`FeIsNil`, one line) registered alone
+and `null`'s Lisp line deleted: **peak-live −8, reachable-live +1.**  The
+alias costs the arena nothing beyond interning the symbol `null` itself,
+which happens either way; a native costs one permanent `FeTNativeFn`
+wrapper object that the alias path never allocates, and that wrapper *is*
+reachable (it sits in `null`'s own function cell) where a transient
+reader/eval cons is not — reachable-live is the metric that shows this,
+peak-live's −8 is transient-garbage noise from not re-reading the alias
+line's own text.  Reverted; the measurement is the deliverable.  Same
+conclusion the plan's premise stated for all three, now with a number for
+the one member of the set a number could be gotten for.
+
+### Class B, priced: the deferred names, post-Phase-1
+
+The task's other named class — moving one of Phase 1's 93 *deferred*
+names to a native instead of an eager one — was priced with the same
+method: `identity` (`(lambda (value) value)`, the smallest deferred body
+in the file) taken out of `utils/prelude_deferred_names.txt` and out of
+`lisp/prelude.el`, a one-line `native_identity_experiment` registered in
+its place, full rebuild, census read, then reverted.  **Δ peak-live −8,
+Δ reachable-live −3** — an order of magnitude below every Class A
+candidate above except `internal--variable-doc-put`, and consistent with
+Phase 1's own accounting: a deferred name's *stub* is what a startup
+census sees, not its lambda body, and Phase 1 priced the average stub at
+~10.5 slots (978 / 93).  A native replaces the ~10.5-slot stub with a
+~1-slot `FeTNativeFn` wrapper — the theoretical ceiling on this class is
+therefore **under 10 slots per name**, an order of magnitude under the
+smallest Class A win (`internal--variable-doc-put`'s 3) and two orders
+under the largest (`nconc`'s 369).  93 such moves, at this one measured
+example's rate (93 × 3 reachable to 93 × 8 peak), would recover on the
+order of 280-740 slots for 93× the review surface and 93× the complexity
+cost of one `nconc`-sized move — priced and declined on the same "saves
+fewer slots than it costs" logic the gate states, not merely
+deprioritised.  Reverted; the measurement is
+the deliverable, matching the task's own expectation before it was run.
+
+### What was not priced
+
+`internal--let`'s ordering flag (Phase 0.2's "the only order-sensitive
+alias in the whole prelude") does not apply to anything moved here: none
+of the seven natives changes when its name becomes visible relative to
+any later `defalias`, since a native is defined at `register_natives()`
+time, strictly before `evaluate_prelude()` starts, which is earlier than
+any of their seven original source positions — a native can only ever be
+*more* eagerly available than the Lisp form it replaces, never less, so
+Phase 1's alias-before-shadow check has nothing new to say about a move
+in this direction.
+
+### Cost, and one piece of debt
+
+`SCC_COMPLEXITY_MAX` moved 10612 → 10642 (`src/lisp_cmd.c`'s own file
+total 131 → 161; `src/lisp_core.c` and `src/lisp_prelude.c` unchanged at
+212 and 6 — `lisp_raise_setting_constant` is straight-line with no
+branch, and `native_bindings[]`'s seven new rows are a static initializer,
+neither of which scc's complexity counter charges for; the
+`native_reverse` GC-stack fix below adds a save/restore/push, also no
+branch, and confirmed by re-running scc afterward to leave the same
+10642 unmoved).
+
+`make pmccabe-check` passed without a baseline change, but the baseline
+still needed banking: ten new C symbols (`native_listp`, `native_reverse`,
+`native_nconc`, `native_internal_bind_name`, `native_internal_bind_value`,
+`native_internal_doc_put`, `native_internal_variable_doc_put`,
+`lisp_call_primitive`, `lisp_is_constant_binding_name`,
+`lisp_raise_setting_constant`), complexities 1–9, all under
+`PMCCABE_NEW_FUNCTION_MAX` (15), so the check accepts them with no
+manifest entry — a symbol with none is only ever checked against that
+one shared ceiling, not against its own measured value, so leaving it
+unbanked lets it grow to 15 unchallenged with no ratchet at all.  `make
+pmccabe-baseline` was run once these ten settled (after the
+`native_reverse` fix, so the banked figure is the shipped one — which for
+`native_reverse` is the same 2 either way, the fix adding no branch):
+`.ci/pmccabe-baseline.json` gained exactly these
+ten entries (2823 → 2833) and changed nothing else — `git diff` on the
+file is ten added lines and zero removed, matching `make pmccabe-check`'s
+own re-run afterward, "0 new, 0 improved, 0 gone" against 2833 recorded
+and 2833 measured. Zero existing symbols moved.
+
+Proof for the `SCC_COMPLEXITY_MAX` raise, the per-file bisect and the
+before/after pair this document's own ground rules ask a ceiling change
+to carry:
+
+```
+$ make complexity-check                      # before this phase's C, at 10612
+scc total complexity: 10612 (limit 10612)    # PASS
+
+$ make complexity-check                      # after, still at the old ceiling
+scc total complexity: 10642 (limit 10612)    # FAIL: total complexity 10642 exceeds limit 10612
+
+$ make complexity-check SCC_COMPLEXITY_MAX=10642
+scc total complexity: 10642 (limit 10642)    # PASS
+```
+
+Per-file bisect (`scc --by-file`, `src/lisp_cmd.c` only, the one file
+that moved): 131 before this phase's edits, 161 after — the other two
+touched files, `src/lisp_core.c` (212) and `src/lisp_prelude.c` (6),
+contributed zero net change each, as stated above.  `SCC_FILE_COMPLEXITY_MAX`
+(519, `src/bufmgr.c`) is untouched — `src/lisp_cmd.c` at 161 is nowhere
+near it.
+
+The debt: `src/lisp_cmd.c` now hosts two things with no relation beyond
+"the file `native_bindings[]` already drew on" — the Emacs-facade
+predicate/command-table surface it was, and a small general-purpose
+`lisp_call_primitive` escape hatch for a gap in `fe.h`'s public surface
+(no C-level way to invoke a raw primitive) that Phase 1's own natives
+never needed and a future one might reach for again for a reason that has
+nothing to do with `lisp_cmd.c`'s own charter.  Nothing today asks for a
+third caller, so no new module was opened for one function; the debt is
+recorded here rather than paid pre-emptively, as `doc/TODO.md` already
+does for `logand`/`logior`/`logxor`'s eventual home.
+
 ## Phase 3 — The image, if Phases 1 and 2 do not get there
 
 The real "move off the pattern" answer, and deliberately last because it is

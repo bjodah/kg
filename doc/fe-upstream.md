@@ -376,6 +376,55 @@ constrains kg going forward is `src/lisp_io.c`'s `FeWriteFn`: fe's printer
 holds a payload pointer across that callback, and kg's callback must keep
 growing a host buffer rather than allocating an fe object.
 
+The pin then moved for section 23.1 of the same plan, where the substrate
+itself lands (fe `b208d66`..`44efb18`). Neither macro moves here either:
+`FE_API_VERSION` stays at **12** — `fe.h` is untouched again, and the bump
+belongs to 23.2's commit, the one that extends `FeArenaStats` —
+`FE_LANGUAGE_VERSION` stays at **15**, and `FeVersion` at **"18.0"**. What
+lands is release code no release program can reach yet: the payload region
+and its allocator, the collector's payload marking arm and the compactor, a
+new `(payload-exhaustion)` condition, and a third build knob,
+**`FE_PAYLOAD_TEST_OBJECT`**, which gives fe's own `payload_tests.c` a type
+that owns a payload. No type a shipped interpreter builds owns one — strings
+migrate in Phase 25 — so the substrate is complete and dormant, which is
+exactly why the language version does not move.
+
+**`FeOpenContext` carves no payload bytes**, which the Phase 22 ADR requires
+of it ("This is the SPIKE's split, not a shipped constant … with
+`FeOpenContext` keeping today's behaviour as the default"); the ADR's 25%
+split lands as `PayloadArenaPercent`, which the internal
+`OpenContextWithPayload` takes and which 23.2's options-bearing public API
+will default to. So the region costs kg's arena **zero bytes** at this pin.
+
+What does move is `FeMinimumArenaSize()`, by **280 bytes** — 66264 →
+**66544** — and every figure below is re-measured at this pin rather than
+carried: 224 of those bytes are the fourteen objects the new
+`payload-exhaustion` condition row builds at context open (its symbol at 8
+slots, its `error-message` string at 4 and its plist at 2), and 56 are the
+seven `FeContext` fields the region's bookkeeping adds to the arena's fixed
+header. A FIXED arena answers that by moving bytes between its pools: kg's
+1 MiB arena partitions to **56145 object slots / 1086 frames** (56147 / 1087
+before), the 2 MiB one `$KG_LISP_ARENA_BYTES` opens to **115127 / 2179**
+(115129 / 2179), and the 640 KiB floor to **34026 / 677** (34028). Live after
+a bare `FeOpenContext` is **906** (892), the same fourteen. That two-slot
+move is the whole kg-side adaptation and it is not free: it is asserted
+literally in five PTY cases and quoted in three comments, all corrected in
+the pin-move commit — `test/pty/lisp-arena-stats-command.yaml`,
+`lisp-arena-bytes-knob.yaml`, `lisp-exhaustion-mid-init-visible.yaml`,
+`lisp-exhaustion-mid-command-recovers.yaml`,
+`lisp-exhaustion-mid-hook-reports.yaml`, `src/lisp_core.c`'s two arena
+comments and `doc/lisp-api.md`'s frame-capacity aside. The prelude census
+rises by the same fourteen in both of its live figures
+(`peak_live_objects` 10979 → **10993**, `reachable_live_objects` 10002 →
+**10016**), with `embedded_bytes` and `definition_count` unmoved, and is
+re-baselined in that commit.
+
+The census row that constrains kg is unchanged and still stands: fe's printer
+holds a payload pointer across an `FeWriteFn`, and `src/lisp_io.c`'s callback
+must keep growing a host buffer rather than allocating an fe object. Phase
+23.1 touched no printer path, so A6-A10's re-derive-per-use property is
+exactly as the sweep found it.
+
 Fe is MIT licensed. Copyright belongs to rxi and Chris Palmer; the complete
 license text is in `fe/LICENSE`.
 

@@ -6,11 +6,11 @@
 # involved in changing the arena's size.
 #
 # The knob is proved by the two numbers moving together: 2M is echoed back
-# as the byte count, and the slot count is the 2 MiB partition (115129 at
-# this fe pin, against 56147 for the compiled 1 MiB default that
+# as the byte count, and the slot count is the 2 MiB partition (115127 at
+# this fe pin, against 56145 for the compiled 1 MiB default that
 # test/pty/lisp-arena-stats-command.yaml pins -- fe re-partitions at some
 # pins, so both numbers are measured, never carried forward).  A screen
-# saying only "115129 slots" would not say which arena produced it, which
+# saying only "115127 slots" would not say which arena produced it, which
 # is the gap this phase closed.
 #
 # No Emacs oracle, for lisp-arena-stats-command.yaml's reason: Emacs has no
@@ -31,10 +31,10 @@ keys:
   - k
 expected_saved: ok
 expected_screen_contains:
-  - "Arena: 115129 slots,"
+  - "Arena: 115127 slots,"
   - "; 2097152 bytes"
 expected_screen_not_contains:
   # Not the compiled default's arena, and not a session that quietly fell
   # back to it.
-  - "Arena: 56147 slots,"
+  - "Arena: 56145 slots,"
   - "Lisp not available"

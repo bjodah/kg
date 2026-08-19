@@ -68,11 +68,11 @@ static_assert(FE_LANGUAGE_VERSION == 15);
 #endif
 
 /* The arena holds the whole Fe context, its 4096-slot GC stack and Fe's
- * arena-resident evaluator frames. FeMinimumArenaSize() measures 66264
- * bytes (~64.7 KiB) at the pinned Fe, so an override much below ~72 KiB
+ * arena-resident evaluator frames. FeMinimumArenaSize() measures 66544
+ * bytes (~65.0 KiB) at the pinned Fe, so an override much below ~72 KiB
  * fails to start; the default's 1 MiB still leaves roughly 94% of the
- * arena for objects and frame growth -- 56147 object slots and a
- * 1087-frame evaluator stack, as kg_lisp_arena_stats() reports them.
+ * arena for objects and frame growth -- 56145 object slots and a
+ * 1086-frame evaluator stack, as kg_lisp_arena_stats() reports them.
  * All three are measured at the pin, never carried forward. */
 static constexpr size_t lisp_arena_size = KG_LISP_ARENA_SIZE;
 
@@ -82,9 +82,9 @@ static const char lisp_arena_env[] = "KG_LISP_ARENA_BYTES";
 
 /* The floor that variable may not go under.  An arena that holds the
  * prelude and little else is not an editor, so kg refuses it rather than
- * starting into it: 640 KiB opens 34028 object slots at this pin, against
- * the 30006 that are three times the prelude's measured reachable set
- * (.ci/prelude-startup-census.json, reachable_live_objects 10002) -- the
+ * starting into it: 640 KiB opens 34026 object slots at this pin, against
+ * the 30048 that are three times the prelude's measured reachable set
+ * (.ci/prelude-startup-census.json, reachable_live_objects 10016) -- the
  * same 3x margin test/test_lisp.c asserts of the default arena.  Both
  * halves of that sentence are re-derived by that file's
  * test_arena_floor_matches_census(), from the census file and from a real

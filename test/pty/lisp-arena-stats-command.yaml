@@ -25,12 +25,19 @@ keys:
   - k
 expected_saved: ok
 expected_screen_contains:
-  # The counters, in the order the renderer writes them.  56147 slots and
-  # a 1087-frame capacity are this arena's measured partitioning at the
-  # let-binding-buffer-tag pin (doc/fe-upstream.md's row) -- 56263/1089 at
-  # the Phase 20 pin, 56259/1090 at the Phase 19 pin, 56225/1095 at the
-  # Phase 12 pin, 56226/1095 at the Phase 11 pin and 56224/1096 at
-  # Phase 10's.
+  # The counters, in the order the renderer writes them.  56145 slots and
+  # a 1086-frame capacity are this arena's measured partitioning at the
+  # payload-substrate pin (doc/fe-upstream.md's row) -- 56147/1087 at the
+  # let-binding-buffer-tag pin, 56263/1089 at the Phase 20 pin, 56259/1090
+  # at the Phase 19 pin, 56225/1095 at the Phase 12 pin, 56226/1095 at the
+  # Phase 11 pin and 56224/1096 at Phase 10's.
+  # The payload substrate itself takes NO bytes here: `FeOpenContext` carves
+  # no payload region.  What moved is `FeMinimumArenaSize()`, by 280 bytes --
+  # 224 for the fourteen objects the new `payload-exhaustion` condition row
+  # builds at context open, and 56 for the seven `FeContext` fields the
+  # region's bookkeeping adds to the arena's fixed header -- and a fixed
+  # 1 MiB arena answers that by moving one frame's worth of bytes and two
+  # object slots.
   # Phase 14's fe widened a symbol object by one cons and added eight
   # primitives, which grew FeMinimumArenaSize by 2264 bytes; the arena
   # partition answers by moving two frame slots' worth of bytes to the
@@ -41,9 +48,9 @@ expected_screen_contains:
   # results") is kg_lisp_init()'s own last act, so a session that has only
   # booted has already collected exactly once by the time this command can
   # run.
-  - "Arena: 56147 slots,"
+  - "Arena: 56145 slots,"
   - " free, peak "
   - "; GC 1; roots "
-  - "/1087; fails 0"
+  - "/1086; fails 0"
 expected_screen_not_contains:
   - "Lisp not available"

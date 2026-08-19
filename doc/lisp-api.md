@@ -100,7 +100,8 @@ trusting it.
   runs to **217** and the 218th raises `evaluation frame limit
   exceeded`; nested `with-current-buffer` over `(current-buffer)` runs
   to **155** and the 156th raises the same — both the arena partition's
-  verdict (1087 frames here), not the pool's. `test/test_lisp.c`'s
+  verdict (1086 frames at the payload-substrate pin, 1087 when those
+  depths were measured), not the pool's. `test/test_lisp.c`'s
   `test_save_excursion_pool_bound` pins its own probe's figures.
 - **Process objects** are deduplicated like buffer objects (one object
   per live table entry) and, like a buffer object, never change handle

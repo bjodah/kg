@@ -135,8 +135,11 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   `.ci/.run/results/<step>` and ends by writing `.ci/.run/quality.json`
   (`utils/quality_report.py`): stages and durations, both layers' counts
   and slowest cases, coverage against its floor, the complexity manifest,
-  the pins. `utils/print-tool-versions.sh` prints the toolchain and the
-  box; hosted CI runs it before every step.
+  the pins, and the artifact header off the last `make bench` with a
+  verdict on whether it names this tree -- a run with no bench.json, or
+  one written before that header existed, says so in a sentence rather
+  than going missing. `utils/print-tool-versions.sh` prints the toolchain
+  and the box; hosted CI runs it before every step.
 - Performance evidence is counters first, wall clock second.
   `src/perf.h` declares counters that compile to nothing unless
   `KG_PERF_COUNTERS` is 1 (the KG_SHOW_TILDE/KG_FUZZ pattern), so the
@@ -163,7 +166,12 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   with the reason on a build without it: the `ts-*` cases (large-file
   open and mid-file typing, the tree-sitter latency policy's evidence)
   need `make bench WITH_TREE_SITTER=1`, and a plain `make bench` skips
-  them.
+  them. Every report opens with an `artifact` header -- `kg -V` verbatim
+  from the measured binary, its sha256, and `git describe --always
+  --dirty` for this tree and for fe -- because a number whose artifact
+  line is not the tree under discussion is not evidence about it. fe's
+  own `perfobj/workloads.json` carries the same kind of header
+  (`fe-perf-workloads/2`).
 - Hosted CI is one Woodpecker step (`.woodpecker.yaml`): a prebuilt image
   with the whole toolchain in it, an interpreter activation, then
   `.ci/run-ci-steps.sh` -- the same runner, and the same steps discovered

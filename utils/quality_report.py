@@ -6,8 +6,10 @@ was missing was one place that says, for a given commit, which stages ran
 and for how long, what the two test layers measured, where coverage and
 complexity stand against their baselines, and what the pins were.  It
 scrapes no logs: `.ci/.run/<step>.state` is written by the runner,
-`test/.results/{unit,pty}.json` by `make check`, `coverage/src.info` by
-lcov, and the two baselines are checked in.
+`test/.results/{unit,pty}.json` by `make check`, `test/.results/bench.json`
+by `make bench` (which is not a CI step, so it is usually absent and is
+reported as absent), `coverage/src.info` by lcov, and the two baselines are
+checked in.
 
 Never committed -- .ci/.run is gitignored, and the hosted workflow uploads
 it as an artifact.
@@ -19,7 +21,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-SCHEMA = "kg-quality/1"
+SCHEMA = "kg-quality/2"
 
 
 def git(*args):
@@ -116,6 +118,35 @@ def complexity_summary(baseline_path):
 	}
 
 
+def bench_artifact(bench, tree):
+	"""What produced test/.results/bench.json, and whether it was this tree.
+
+	`make bench` is deliberately not a CI step (utils/bench.py says why),
+	so the file is usually absent here, and one written before the
+	artifact header existed carries no "artifact" object at all.  Both
+	say so in a sentence: a number whose artifact is unknown must not
+	read like a number whose artifact matches.
+	"""
+	if bench is None:
+		return {"present": False,
+			"note": "no bench.json in this run; `make bench` is "
+				"not a CI step"}
+	artifact = bench.get("artifact")
+	if artifact is None:
+		return {"present": True, "artifact": None,
+			"generated": bench.get("generated"),
+			"note": "bench.json predates the artifact header; its "
+				"numbers name no tree"}
+	return {
+		"present": True,
+		"generated": bench.get("generated"),
+		"artifact": artifact,
+		"tree": tree,
+		"matches_tree": all(artifact.get(key) == value
+				    for key, value in tree.items()),
+	}
+
+
 def slowest(results, count):
 	cases = (results or {}).get("cases", [])
 	ranked = sorted(cases, key=lambda case: case.get("seconds") or 0,
@@ -139,7 +170,14 @@ def main():
 
 	unit = read_json(Path(args.results_dir) / "unit.json")
 	pty = read_json(Path(args.results_dir) / "pty.json")
+	bench = read_json(Path(args.results_dir) / "bench.json")
 	binary = Path("src/kg")
+	# The two describes bench.json's own header is compared against, in
+	# the report beside the verdict so a "matches_tree": false says what
+	# it did not match.
+	tree = {"kg_describe": git("describe", "--always", "--dirty"),
+		"fe_describe": git("-C", "fe", "describe", "--always",
+				   "--dirty")}
 
 	report = {
 		"schema": SCHEMA,
@@ -163,6 +201,7 @@ def main():
 		"coverage": coverage_summary(args.coverage,
 					     args.coverage_baseline),
 		"complexity": complexity_summary(args.pmccabe_baseline),
+		"bench": bench_artifact(bench, tree),
 		"binary_bytes": binary.stat().st_size if binary.exists() else None,
 	}
 

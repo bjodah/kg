@@ -35,11 +35,19 @@ That build also re-measures every other case against the tree-sitter
 backend -- open-comment-c-40k and open-comment-c-40k-edit under both
 configurations are the backend comparison, since a case name means the
 same workload either way.
+
+Every report opens with an `artifact` header naming what produced the
+numbers: `kg -V` verbatim from the measured binary, its sha256, and
+`git describe --always --dirty` for this tree and for fe.  A number whose
+artifact line is not the tree under discussion is not evidence about it,
+so the file says which tree it was rather than leaving the reader to
+assume the one they have checked out.
 """
 
 import argparse
 import errno
 import fcntl
+import hashlib
 import json
 import os
 import platform
@@ -55,7 +63,7 @@ import termios
 import time
 from pathlib import Path
 
-SCHEMA = "kg-bench/1"
+SCHEMA = "kg-bench/2"
 DEFAULT_ROWS, DEFAULT_COLS = 24, 80
 
 
@@ -1103,16 +1111,67 @@ def normalize_case(value):
 	return corpus, keys, home_files, assert_gt, requires_feature
 
 
-def kg_features(kg):
-	"""The +words `kg -V` prints, as a set of feature names.
+def kg_version(kg):
+	"""What `kg -V` prints, verbatim.
 
-	The same reading utils/pty_accept.py does, and deliberately from the
-	binary rather than from the build flags: what a case needs is a
-	property of the kg it is about to drive.
+	Deliberately from the binary rather than from the build flags: what a
+	case needs, and what the report names, is a property of the kg it is
+	about to drive.
 	"""
 	out = subprocess.run([kg, "-V"], check=True, capture_output=True,
 			     text=True)
-	return {word[1:] for word in out.stdout.split() if word.startswith("+")}
+	return out.stdout.strip()
+
+
+def kg_features(version):
+	"""The +words in a `kg -V` line, as a set of feature names.
+
+	The same reading utils/pty_accept.py does.
+	"""
+	return {word[1:] for word in version.split() if word.startswith("+")}
+
+
+def git_describe(tree):
+	"""`git describe --always --dirty` for one tree, or None.
+
+	Run here, at measurement time, rather than baked into the build: a
+	describe compiled into a binary names the tree that last triggered a
+	rebuild, which is the wrong tree exactly when it matters.
+	"""
+	try:
+		out = subprocess.run(["git", "-C", str(tree), "describe",
+				      "--always", "--dirty"],
+				     check=False, capture_output=True, text=True)
+	except OSError:
+		return None
+	return out.stdout.strip() or None
+
+
+def file_sha256(path):
+	"""Digest of the exact file this run drove, or None if unreadable."""
+	digest = hashlib.sha256()
+	try:
+		with open(path, "rb") as handle:
+			for block in iter(lambda: handle.read(1 << 16), b""):
+				digest.update(block)
+	except OSError:
+		return None
+	return digest.hexdigest()
+
+
+def artifact(kg, version):
+	"""Which binary, built from which trees, produced these numbers.
+
+	`kg -V` verbatim rather than the +words alone, because the -words are
+	half of what identifies a build; both describes, because kg's numbers
+	are as much fe's tree as kg's own.
+	"""
+	return {
+		"kg_version": version,
+		"kg_sha256": file_sha256(kg),
+		"kg_describe": git_describe(repo_root()),
+		"fe_describe": git_describe(repo_root() / "fe"),
+	}
 
 
 def toolchain(cc):
@@ -1180,7 +1239,8 @@ def main():
 
 	# Decided before any corpus is generated, so a run that will skip
 	# every case needing a corpus does not write one first.
-	features = kg_features(args.kg)
+	version = kg_version(args.kg)
+	features = kg_features(version)
 	skipped = {}
 	for name, value in cases.items():
 		needs = normalize_case(value)[4]
@@ -1203,6 +1263,7 @@ def main():
 	report = {
 		"schema": SCHEMA,
 		"generated": time.strftime("%Y-%m-%dT%H:%M:%S"),
+		"artifact": artifact(args.kg, version),
 		"note": "counting build (-DKG_PERF_COUNTERS=1); times are not "
 			"comparable with a release build",
 		"build": {"kg": args.kg, "cc": args.cc,

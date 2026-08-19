@@ -427,6 +427,33 @@ FUZZ_MAX_TOTAL_TIME=60 make fuzz-syntax-smoke
 
 For crash triage and fuzzing notes, see [doc/FUZZING.md](doc/FUZZING.md).
 
+## Packaging
+
+### Debian
+
+How to build and extract the `.deb`
+
+```console
+# Using Podman
+podman build --target export --output . -f Containerfile.deb .
+
+# Using Docker (with BuildKit)
+DOCKER_BUILDKIT=1 docker build --target export --output . -f Containerfile.deb .
+```
+
+### Alpine
+
+How to build and extract the .apk:
+
+```console
+# Using Podman
+podman build --target export --output . -f Containerfile.apk .
+
+# Using Docker (with BuildKit)
+DOCKER_BUILDKIT=1 docker build --target export --output . -f Containerfile.apk .
+```
+
+
 ## Origin & References
 
 kg is based on [kilo][0] by Salvatore Sanfilippo (antirez), the original

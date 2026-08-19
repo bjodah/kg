@@ -2,6 +2,7 @@
 #define KG_LISP_H
 
 #include <stddef.h>
+#include <stdio.h>
 
 #include "bufhandle.h"
 
@@ -121,6 +122,31 @@ struct kg_lisp_arena_stats {
  * Called once from main.c right before kg_perf_dump(), so a counting
  * build's $KG_PERF_OUT JSON reports the arena's state at exit. */
 void kg_lisp_perf_snapshot(void);
+
+/* Writes fe's own performance counters (fe/fe_perf.h, Phase 21.1 of
+ * doc/plans/2026-08-18-elisp-data-model.md) as one JSON value to `fp`:
+ * fe's FePerfWriteJson() output verbatim -- under fe's own counter names,
+ * not translated into kg's -- when this build's fe objects were compiled
+ * with FE_PERF_COUNTERS=1 ($(PERFOBJDIR)'s PERF_FE_CFLAGS, never
+ * $(TARGET)'s), and Lisp is active and initialized; the JSON literal
+ * `null` otherwise, so the caller never has to special-case "not
+ * measured" -- the same contract kg_lisp_arena_stats() states for the
+ * `int` it returns, spelled here as a value instead since this callee
+ * owns the whole write.
+ *
+ * fe's counters are process-wide totals since the context opened, NOT
+ * per-context (fe_perf.h's own header comment: widening FeContext to
+ * hold them would move the object/frame partition being measured). kg
+ * opens exactly one Fe context for its whole process lifetime, so a
+ * process-wide total and "this run's counters" are the same number here
+ * -- nothing here calls FePerfReset(), which would only matter for
+ * distinguishing several measured regions inside one process.
+ *
+ * Called from kg_perf_dump() (src/perf.c), which owns $KG_PERF_OUT's
+ * file lifecycle; src/perf.c stays free of any fe.h reference (the rule
+ * `make lisp-include-check` enforces) by calling this instead of
+ * fe/fe_perf.h's own API directly. */
+void kg_lisp_perf_dump_fe_json(FILE *fp);
 
 /* What one line of typed text is, as a number.  The classifier behind the
  * interactive `n` and `N` codes (07E §2), declared here rather than kept

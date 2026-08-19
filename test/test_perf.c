@@ -1888,12 +1888,117 @@ static void test_lisp_evaluator_shapes(void)
 	kg_lisp_shutdown();
 }
 
+/* The integer value fe's own FePerfWriteJson() wrote after `"key": `,
+ * found by the same kind of substring search a reader (or `utils/
+ * bench.py`) does on this file's JSON -- there is no JSON parser in this
+ * tree's C tests, and fe's flat "name": number shape does not need one.
+ * Fails the test (does not return 0) if `key` is absent, since an absent
+ * counter is a schema break this test exists to catch. */
+static unsigned long long fe_json_counter(const char *json, const char *key)
+{
+	char needle[64];
+	const char *p;
+
+	CHECK(snprintf(needle, sizeof(needle), "\"%s\": ", key)
+	    < (int)sizeof(needle));
+	p = strstr(json, needle);
+	CHECK(p != nullptr);
+	if (p == nullptr) {
+		return 0;
+	}
+	return strtoull(p + strlen(needle), nullptr, 10);
+}
+
+/* Phase 21's follow-up (doc/plans/2026-08-18-elisp-data-model-phase21-
+ * baseline.md's "LIMITATION" paragraph): this counting build's fe
+ * objects are compiled with FE_PERF_COUNTERS=1 too (Makefile's
+ * PERF_FE_CFLAGS), so kg_lisp_perf_dump_fe_json() (src/lisp_core.c)
+ * reaches fe's real FePerfWriteJson() rather than writing the disabled
+ * build's JSON `null` -- checked directly below, not assumed, since
+ * `null` would otherwise look like a passing string search on the wrong
+ * build. Asserts relationships, per this file's own header rule and
+ * fe's own Phase 21.1 commit's rule for its C API test: a cons cell
+ * moves alloc_pair, and the by-type block still sums to alloc_object
+ * from kg's side of the seam, the same invariant fe's own test_api.c
+ * pins from fe's side. */
+static void test_fe_perf_counters_reach_kg_json(void)
+{
+	FILE *fp;
+	char buf[8192];
+	size_t n;
+	unsigned long long pairs_before, pairs_after, object_total;
+	int i;
+
+	if (!kg_lisp_active()) {
+		return;
+	}
+	CHECK(kg_lisp_init() == 0);
+
+	fp = tmpfile();
+	CHECK(fp != nullptr);
+	kg_lisp_perf_dump_fe_json(fp);
+	rewind(fp);
+	n = fread(buf, 1, sizeof(buf) - 1, fp);
+	buf[n] = '\0';
+	fclose(fp);
+	CHECK(strncmp(buf, "null", 4) != 0);
+	pairs_before = fe_json_counter(buf, "alloc_pair");
+
+	{
+		char result[128] = "";
+		static const char one_cons[] = "(cons 1 2)";
+
+		CHECK(kg_lisp_eval_string(one_cons, sizeof(one_cons) - 1,
+			  result, sizeof(result))
+		    == 0);
+	}
+
+	fp = tmpfile();
+	CHECK(fp != nullptr);
+	kg_lisp_perf_dump_fe_json(fp);
+	rewind(fp);
+	n = fread(buf, 1, sizeof(buf) - 1, fp);
+	buf[n] = '\0';
+	fclose(fp);
+	pairs_after = fe_json_counter(buf, "alloc_pair");
+	CHECK(pairs_after > pairs_before);
+
+	object_total = 0;
+	static const char *const alloc_type_names[] = {
+		"alloc_pair",
+		"alloc_free",
+		"alloc_nil",
+		"alloc_double",
+		"alloc_integer",
+		"alloc_symbol",
+		"alloc_string",
+		"alloc_fn",
+		"alloc_macro",
+		"alloc_primitive",
+		"alloc_native_fn",
+		"alloc_ptr",
+		"alloc_fex0",
+		"alloc_fex1",
+		"alloc_fex2",
+		"alloc_sentinel",
+	};
+	for (i = 0;
+	    i < (int)(sizeof(alloc_type_names) / sizeof(alloc_type_names[0]));
+	    i++) {
+		object_total += fe_json_counter(buf, alloc_type_names[i]);
+	}
+	CHECK(object_total == fe_json_counter(buf, "alloc_object"));
+	CHECK(fe_json_counter(buf, "peak_live_objects") > 0);
+	kg_lisp_shutdown();
+}
+
 int main(void)
 {
 	RUN(test_post_command_hook_empty_costs_nothing);
 	RUN(test_lisp_prelude_arena_margin);
 	RUN(test_lisp_load_time_counters);
 	RUN(test_lisp_evaluator_shapes);
+	RUN(test_fe_perf_counters_reach_kg_json);
 	RUN(test_load_row_array_growth);
 	RUN(test_load_highlight_is_final);
 	RUN(test_insert_row_array_growth);

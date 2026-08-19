@@ -62,6 +62,18 @@ override LDLIBS += -lm
 # list so every consumer below is a one-line change.
 FE_OBJ = $(OBJDIR)/fe.o $(OBJDIR)/fe_eval.o $(OBJDIR)/fe_run.o \
 	 $(OBJDIR)/fe_unwind.o
+# The counting build's fe objects (Phase 21's follow-up, elisp-data-model
+# plan): the same four translation units, compiled into $(PERFOBJDIR)
+# instead of $(OBJDIR) with fe's own -DFE_PERF_COUNTERS=1 (fe f29302f),
+# plus fe_perf.c itself -- the counter storage and FePerfWriteJson, which
+# only a counting build references and which the ordinary $(FE_OBJ) above
+# never links, since FE_PERF_COUNTERS is 0 there and every macro in
+# fe/fe_perf.h expands to nothing. Used by $(PERF_KG) and test/test_perf
+# in place of $(FE_OBJ); nothing else links it, so $(TARGET) and every
+# other test binary keep the non-counting fe objects.
+PERF_FE_OBJ = $(PERFOBJDIR)/fe.o $(PERFOBJDIR)/fe_eval.o \
+	      $(PERFOBJDIR)/fe_run.o $(PERFOBJDIR)/fe_unwind.o \
+	      $(PERFOBJDIR)/fe_perf.o
 FUZZ_FE_OBJ = $(TESTDIR)/fe_fuzz.o $(TESTDIR)/fe_eval_fuzz.o \
 	      $(TESTDIR)/fe_run_fuzz.o $(TESTDIR)/fe_unwind_fuzz.o
 endif
@@ -543,7 +555,23 @@ PERF_KG = $(PERFOBJDIR)/kg
 # differently-compiled builds of the same source into one tracefile.  It
 # stays in the *link* flags so libgcov is still there for the objects that
 # were instrumented ($(FE_OBJ)).
-PERF_CFLAGS = $(filter-out --coverage,$(CFLAGS)) -DKG_PERF_COUNTERS=1
+#
+# -DFE_PERF_COUNTERS=1 rides beside kg's own -D here, not only on fe's
+# objects below, because src/lisp_core.c's read site
+# (kg_lisp_perf_dump_fe_json()) is guarded by fe's own flag, not kg's --
+# it has to see FE_PERF_COUNTERS=1 in ITS OWN compilation to call
+# FePerfWriteJson() instead of writing the disabled build's JSON `null`.
+# Every other $(PERFOBJDIR) object ignores the macro (nothing in src/
+# besides lisp_core.c includes fe/fe_perf.h), so this is the same
+# "one flag set for the whole counting build" PERF_CFLAGS already is for
+# -DKG_PERF_COUNTERS=1, not a per-file carve-out.
+PERF_CFLAGS = $(filter-out --coverage,$(CFLAGS)) -DKG_PERF_COUNTERS=1 \
+	      -DFE_PERF_COUNTERS=1
+# fe's own objects are compiled from $(FE_CFLAGS), not $(CFLAGS) -- see
+# the ordinary $(OBJDIR)/fe.o rule below -- so the counting build's fe
+# objects need their own flag set rather than reusing $(PERF_CFLAGS);
+# same --coverage filter, same reasoning, fe's flag instead of kg's.
+PERF_FE_CFLAGS = $(filter-out --coverage,$(FE_CFLAGS)) -DFE_PERF_COUNTERS=1
 PERF_SRC_OBJS = $(addprefix $(PERFOBJDIR)/,$(SRCS:.c=.o)) $(PERFOBJDIR)/regex.o
 PERF_TEST_OBJS = $(PERFOBJDIR)/test_perf.o $(PERFOBJDIR)/test.o \
 		 $(PERFOBJDIR)/stubs_main.o \
@@ -730,7 +758,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 10642
+SCC_COMPLEXITY_MAX ?= 10643
 SCC_FILE_COMPLEXITY_MAX ?= 519
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -843,7 +871,8 @@ $(OBJDIR)/tiny_regex.o: fe/tiny-regex-c/re.c fe/tiny-regex-c/re.h
 $(OBJDIR)/regex.o: src/regex.c src/regex.h $(HDRS) fe/tiny-regex-c/re.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(OBJDIR)/lisp_core.o: $(OBJDIR)/lisp_internal.h $(OBJDIR)/lisp.h
+$(OBJDIR)/lisp_core.o: $(OBJDIR)/lisp_internal.h $(OBJDIR)/lisp.h \
+	fe/fe_perf.h
 $(OBJDIR)/lisp_prelude.o: $(OBJDIR)/lisp_internal.h
 $(OBJDIR)/lisp_string.o: $(OBJDIR)/lisp_internal.h
 $(OBJDIR)/lisp_buffer.o: $(OBJDIR)/lisp_internal.h
@@ -856,12 +885,17 @@ $(OBJDIR)/lisp_process.o: $(OBJDIR)/lisp_internal.h $(OBJDIR)/lisp_obj.h $(OBJDI
 $(OBJDIR)/lisp_require.o: $(OBJDIR)/lisp_internal.h
 $(OBJDIR)/main.o: $(OBJDIR)/lisp.h
 
-# fe/fe_perf.h is a prerequisite of exactly the three fe translation units
-# that include it -- fe.c, fe_eval.c and fe_unwind.c.  fe_run.c has no
-# instrumented site and does not include it, so it does not get the edge:
-# a prerequisite nothing reads is a rebuild nobody needs.  This is stale-
+# fe/fe_perf.h is a prerequisite of exactly the four translation units
+# that include it -- fe.c, fe_eval.c and fe_unwind.c above, and
+# src/lisp_core.c beside its own fe.h include (the read site that calls
+# FePerfWriteJson() in the counting build).  fe_run.c has no instrumented
+# site and does not include it, so it does not get the edge: a
+# prerequisite nothing reads is a rebuild nobody needs.  This is stale-
 # rebuild hygiene, not a build fix; kg compiles fe with FE_PERF_COUNTERS
-# off here, where every macro in that header expands to nothing.
+# off here, where every macro in that header expands to nothing -- and
+# lisp_core.c's own read site is equally inert in this same ordinary
+# build, since FE_PERF_COUNTERS defaults to 0 there too (only
+# $(PERFOBJDIR)'s PERF_CFLAGS sets it).
 $(OBJDIR)/fe.o: fe/fe.c fe/fe.h fe/fe_internal.h fe/fe_perf.h
 	$(CC) $(FE_CFLAGS) -c $< -o $@
 
@@ -1757,7 +1791,8 @@ $(PERFOBJDIR)/%.o: $(OBJDIR)/%.c $(HDRS) $(OBJDIR)/perf.h | $(PERFOBJDIR)
 $(PERFOBJDIR)/%.o: $(TESTDIR)/%.c $(HDRS) $(OBJDIR)/perf.h | $(PERFOBJDIR)
 	$(CC) $(PERF_CFLAGS) -I$(OBJDIR) -c $< -o $@
 
-$(PERFOBJDIR)/lisp_core.o: $(OBJDIR)/lisp_internal.h $(OBJDIR)/lisp.h
+$(PERFOBJDIR)/lisp_core.o: $(OBJDIR)/lisp_internal.h $(OBJDIR)/lisp.h \
+	fe/fe_perf.h
 $(PERFOBJDIR)/lisp_prelude.o: $(OBJDIR)/lisp_internal.h \
 	$(OBJDIR)/lisp_prelude_generated.inc \
 	$(OBJDIR)/lisp_prelude_deferred_generated.inc
@@ -1772,10 +1807,35 @@ $(PERFOBJDIR)/lisp_process.o: $(OBJDIR)/lisp_internal.h $(OBJDIR)/lisp_obj.h $(O
 $(PERFOBJDIR)/lisp_require.o: $(OBJDIR)/lisp_internal.h
 $(PERFOBJDIR)/regex.o: $(OBJDIR)/regex.h fe/tiny-regex-c/re.h
 
-$(TESTDIR)/test_perf: $(PERF_TEST_OBJS) $(FE_OBJ) $(REGEX_ENGINE_OBJ)
+# fe's counting objects (Phase 21's follow-up): the same explicit rules as
+# $(OBJDIR)/fe.o and friends below, into $(PERFOBJDIR) with
+# $(PERF_FE_CFLAGS) instead of $(FE_CFLAGS), plus fe_perf.c, which no
+# ordinary build compiles at all -- fe_perf.h declares FePerfWriteJson()
+# and friends only under `#if FE_PERF_COUNTERS`, so the four ordinary
+# fe/*.c files never reference a fe_perf.c symbol and the linker never
+# misses it.
+$(PERFOBJDIR)/fe.o: fe/fe.c fe/fe.h fe/fe_internal.h fe/fe_perf.h \
+	| $(PERFOBJDIR)
+	$(CC) $(PERF_FE_CFLAGS) -c $< -o $@
+
+$(PERFOBJDIR)/fe_eval.o: fe/fe_eval.c fe/fe.h fe/fe_internal.h fe/fe_perf.h \
+	| $(PERFOBJDIR)
+	$(CC) $(PERF_FE_CFLAGS) -c $< -o $@
+
+$(PERFOBJDIR)/fe_run.o: fe/fe_run.c fe/fe.h fe/fe_internal.h | $(PERFOBJDIR)
+	$(CC) $(PERF_FE_CFLAGS) -c $< -o $@
+
+$(PERFOBJDIR)/fe_unwind.o: fe/fe_unwind.c fe/fe.h fe/fe_internal.h \
+	fe/fe_perf.h | $(PERFOBJDIR)
+	$(CC) $(PERF_FE_CFLAGS) -c $< -o $@
+
+$(PERFOBJDIR)/fe_perf.o: fe/fe_perf.c fe/fe_perf.h fe/fe.h | $(PERFOBJDIR)
+	$(CC) $(PERF_FE_CFLAGS) -c $< -o $@
+
+$(TESTDIR)/test_perf: $(PERF_TEST_OBJS) $(PERF_FE_OBJ) $(REGEX_ENGINE_OBJ)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
-$(PERF_KG): $(PERF_SRC_OBJS) $(FE_OBJ) $(REGEX_ENGINE_OBJ)
+$(PERF_KG): $(PERF_SRC_OBJS) $(PERF_FE_OBJ) $(REGEX_ENGINE_OBJ)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 # Wall-clock benchmarks, deliberately not a CI gate: see the note in

@@ -37,6 +37,7 @@ void copy_result(char *result, size_t result_size, const char *text)
 #endif
 
 #include "../fe/fe.h"
+#include "../fe/fe_perf.h"
 #include "bufhandle.h"
 #include "cmd.h"
 /* lisp.h is already included, unconditionally, above -- this second
@@ -1627,6 +1628,27 @@ void kg_lisp_perf_snapshot(void)
 	KG_PERF_SET(KG_PERF_LISP_ALLOC_FAILURES, stats.allocation_failures);
 }
 
+/* See src/lisp.h's doc comment. The real implementation exists only when
+ * THIS translation unit was compiled with FE_PERF_COUNTERS=1 --
+ * $(PERFOBJDIR)'s PERF_CFLAGS, never $(OBJDIR)'s plain CFLAGS -- because
+ * FePerfWriteJson() is declared only inside fe_perf.h's own
+ * `#if FE_PERF_COUNTERS`. */
+#if FE_PERF_COUNTERS
+void kg_lisp_perf_dump_fe_json(FILE *fp)
+{
+	FeArenaStats stats;
+
+	if (!state.initialized) {
+		fputs("null\n", fp);
+		return;
+	}
+	stats = FeGetArenaStats(state.context);
+	FePerfWriteJson(fp, &stats);
+}
+#else
+void kg_lisp_perf_dump_fe_json(FILE *fp) { fputs("null\n", fp); }
+#endif
+
 #else
 
 static char disabled_error[64] = "lisp not compiled in";
@@ -1713,6 +1735,12 @@ int kg_lisp_arena_stats(struct kg_lisp_arena_stats *out)
 }
 
 void kg_lisp_perf_snapshot(void) { }
+
+/* fe is not compiled into a WITH_LISP=0 build at all, so there is no
+ * FePerfWriteJson() to reach for; the JSON literal null is this
+ * configuration's whole answer, matching every other counter this build
+ * reports as zero/inactive rather than refusing to build the JSON. */
+void kg_lisp_perf_dump_fe_json(FILE *fp) { fputs("null\n", fp); }
 
 #endif /* KG_USE_LISP */
 

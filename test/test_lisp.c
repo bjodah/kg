@@ -4225,6 +4225,37 @@ static void test_recursion_depth(void)
 	kg_lisp_shutdown();
 }
 
+/* kg_lisp_perf_dump_fe_json() (src/lisp_core.c, Phase 21's elisp-data-
+ * model follow-up) has two implementations selected by FE_PERF_COUNTERS
+ * at compile time: the real one, reached only from test/perfobj/kg and
+ * test/test_perf.c (test_fe_perf_counters_reach_kg_json), which are the
+ * only binaries whose fe objects are compiled with FE_PERF_COUNTERS=1;
+ * and this facade, linked into every ordinary binary including this one,
+ * which writes the JSON literal `null` because fe's own FePerfWriteJson()
+ * is not even declared in that build (fe_perf.h's `#if FE_PERF_COUNTERS`
+ * guard). Exercised here so the facade is not a function `make coverage`
+ * reports as dead code -- kg_perf_dump() (src/perf.c) is its only other
+ * caller, and that call site does not exist at all in a build without
+ * KG_PERF_COUNTERS=1, which this ordinary test binary also is not. */
+static void test_perf_dump_fe_json_facade(void)
+{
+	FILE *fp;
+	char buf[16];
+	size_t n;
+
+	if (!kg_lisp_active()) {
+		return;
+	}
+	fp = tmpfile();
+	CHECK(fp != nullptr);
+	kg_lisp_perf_dump_fe_json(fp);
+	rewind(fp);
+	n = fread(buf, 1, sizeof(buf) - 1, fp);
+	buf[n] = '\0';
+	fclose(fp);
+	CHECK(strcmp(buf, "null\n") == 0);
+}
+
 /* Exhaustion of the fixed arena, from kg's own evaluator entry point.
  *
  * Sub-plan 09D Part 3, and the kg half of 09A's Table X.  Fe sub-plan 09B
@@ -7495,6 +7526,7 @@ int main(void)
 	RUN(test_void_variable);
 	RUN(test_cyclic_result);
 	RUN(test_recursion_depth);
+	RUN(test_perf_dump_fe_json_facade);
 	RUN(test_arena_exhaustion_conditions);
 	RUN(test_condition_case_native_error);
 	RUN(test_catch_throw_unwind);

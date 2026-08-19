@@ -261,6 +261,21 @@ arithmetic loop.  (3) String cells, at seven payload bytes each: a bare
 context open spends 226 of its 892 cells on them, and interning 8192
 symbols spends 24479.
 
+**A LIMITATION in that first answer, found by Phase 22's Design C gate
+after this report was first written.**  Every by-type figure above is
+fe-side.  kg's counting build has kg's counters but NOT fe's:
+`PERF_CFLAGS` sets `-DKG_PERF_COUNTERS=1` and nothing sets
+`-DFE_PERF_COUNTERS=1`, and there is no `$(PERFOBJDIR)/fe.o` rule, so
+`test/perfobj/kg` links the ordinary non-counting fe objects.  There is
+therefore no allocation-by-type breakdown anywhere for kg's OWN
+workloads -- the prelude, the representative init, the four shipped
+packages.  The ranking above is sound for the shapes fe's battery
+measures and is not contradicted by anything, but "the top three sources
+of cell allocation" is answered for fe's shapes rather than for kg's.
+Closing this is tracked as Phase 21's one follow-up; it does not reopen
+the gate, because the workloads it would newly type are load-and-intern
+shapes whose integer share can only be lower than the arithmetic loop's.
+
 **Lookup and dispatch.**  (1) The linear `symbol_list` scan --
 34 451 636 candidate examinations and 442 042 413 name-byte comparisons
 at the 8192-symbol tier.  (2) `IsNamedSymbol`'s byte comparisons in the

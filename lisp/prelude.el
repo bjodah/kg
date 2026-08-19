@@ -1283,69 +1283,6 @@
       (floor value (expt 2 (- count)))
     (* value (expt 2 count)))))
 
-;; --- lazy loading: the deferred-stub factory ---------------------------
-;;
-;; Phase 1 of doc/plans/2026-08-14-embedded-prelude.md.  93 of this file's
-;; names are never called by any startup path (Phase 0.2's `--deferrable`
-;; census) and are worth 5043 of the arena's 56147 slots -- 9.0% -- kept
-;; permanently live for definitions a given session may never call.  The
-;; build (utils/embed_lisp_split.py, driven by the reviewed policy list
-;; utils/prelude_deferred_names.txt) excises exactly those 93 names' forms
-;; out of the array evaluate_prelude() runs and into a second one,
-;; src/lisp_prelude_deferred_generated.inc, read only by
-;; internal--force-deferred (a native, src/lisp_prelude.c).
-;;
-;; This is the one new EAGER name that split buys: a factory returning
-;; the closure every deferred name's function cell holds until its own
-;; first call.  install_deferred_stubs() (src/lisp_prelude.c) calls this
-;; once per deferred name, right after the eager prelude above has
-;; evaluated -- driven by the generated index table, not by a name list
-;; written here, so this file needs no list of the 93 to keep in step
-;; with that table by hand.
-;;
-;; The returned closure IS the stub, and it is an ordinary Lisp function
-;; -- not a native -- which is what makes a deferred name indistinguishable
-;; from an eager one to functionp, symbol-function, a hook, and a value
-;; passed around before ever being called: every one of those sees a real
-;; FeTFn, both before and after its first call.  A call to the stub asks
-;; internal--force-deferred for THE REAL CLOSURE -- the native evaluates
-;; the one saved form, `(defalias 'NAME (lambda ...))`, the very same one
-;; this file would have run eagerly, and returns what that form defined
-;; -- and forwards this call's own arguments to it with `apply` over
-;; `&rest`, so the caller sees an ordinary return value and never sees
-;; the stub at all.
-;;
-;; A STUB IS A DEFINITION, NOT A FORWARDER TO THE NAME.  It asks on every
-;; call and the native answers the same closure every time, so a value
-;; captured out of a deferred name's function cell means what capturing
-;; an eager definition means.  Emacs' answer to
-;;
-;;   (let ((saved (symbol-function 'mapcar)))
-;;     (defalias 'mapcar (lambda (f s) 'replacement))
-;;     (list (funcall saved '1+ '(1 2)) (mapcar '1+ '(1 2))))
-;;
-;; is ((2 3) replacement), and both halves are load-bearing: the capture
-;; keeps calling what it captured, and the NAME means the later defalias.
-;; The stub read `(symbol-function name)` back after forcing until the
-;; review in doc/reviews/2026-08-19-embedded-prelude-phase21-adversarial-
-;; review.md, which made a captured stub track the name -- and, because
-;; forcing wrote the function cell unconditionally, silently destroyed
-;; the redefinition on the line above it.
-;;
-;; The ordinary path still pays the indirection once rather than once per
-;; call, because the native leaves the real closure in a cell that still
-;; holds this name's stub: every later call BY NAME then resolves
-;; straight to it.  Which cells it may write, and what it caches, are
-;; src/lisp_prelude.c's own comment.  A deferred name calling another
-;; deferred name (internal--qq's mutual recursion with internal--qq-list
-;; and internal--qq-dotted is the prelude's own example) works the way
-;; calling any other function does: `funcall`/`apply` resolve through the
-;; function cell, which is either already the stub or already the real
-;; thing, never anything else.
-(defalias 'internal--make-deferred-stub (lambda (name)
-  (lambda (&rest args)
-    (apply (internal--force-deferred name) args))))
-
 ;; --- documentation for the definitions above -------------------------
 ;;
 ;; One table rather than a docstring on each `defalias' above, for a

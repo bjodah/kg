@@ -590,12 +590,5 @@ FeObject *native_completing_read(FeContext *context, FeObject *arguments);
 /* Startup (lisp_prelude.c): bind the natives and evaluate the prelude. */
 void register_natives(FeContext *context);
 void evaluate_prelude(FeContext *context);
-/* Phase 1 of doc/plans/2026-08-14-embedded-prelude.md (lisp_prelude.c):
- * install one self-replacing stub per deferred name, and the native each
- * stub's first call uses to force its real definition.  Call
- * install_deferred_stubs() once, after evaluate_prelude() has returned. */
-void install_deferred_stubs(FeContext *context);
-FeObject *native_internal_force_deferred(
-    FeContext *context, FeObject *arguments);
 
 #endif /* KG_LISP_INTERNAL_H */

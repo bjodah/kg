@@ -17,10 +17,8 @@
  * "Post-prelude collect" (the section by that name in the plan above)
  * exports `FeCollectGarbage()' as fe's public collect-now entry point
  * (FE_API_VERSION 12) and calls it once from kg_lisp_init() itself, right
- * after the prelude (evaluate_prelude() and install_deferred_stubs() both)
- * has finished and the GC stack has been restored to its post-setup
- * checkpoint -- the same root state the old forcing loop used to reach only
- * after kg_lisp_init() had already returned. That makes this program's job
+ * after evaluate_prelude() has finished and the GC stack has been
+ * restored to its post-setup checkpoint. That makes this program's job
  * trivial: kg_lisp_init() has already collected exactly once by the time it
  * returns, so `kg_lisp_arena_stats()' read immediately afterward already
  * reports the reachable set directly, with no forcing loop and no

@@ -3416,32 +3416,6 @@
    "source_name": "defconst"
   },
   {
-   "id": "prelude-deferred-force",
-   "category": "prelude",
-   "status": "supported",
-   "owner": "kg",
-   "comparison": "kg-policy",
-   "cases": [
-    "prelude-deferred-force"
-   ],
-   "kg_test": "test/test_lisp.c:test_deferred_stub_indistinguishable test/test_lisp.c:test_deferred_stub_captured_value",
-   "rationale": "Phase 1's C half: returns the real closure one deferred name's saved defalias form defines, evaluating that form out of the second embedded array (src/lisp_prelude_deferred_generated.inc) on the first ask and answering from a per-name root after it. Called by the stub internal--make-deferred-stub returns, on every call of that stub. Evaluating the form writes the name's function cell, which is what gives a later call by name the direct route; a cell that no longer holds this name's own stub is put back, so a user redefinition installed before the first call survives it (finding 1 of doc/reviews/2026-08-19-embedded-prelude-phase21-adversarial-review.md). kg-policy: the deferred array is embedded, never read from disk, so the no-lisp/-directory guarantee is unchanged.",
-   "source_name": "internal--force-deferred"
-  },
-  {
-   "id": "prelude-deferred-stub-factory",
-   "category": "prelude",
-   "status": "supported",
-   "owner": "kg",
-   "comparison": "kg-policy",
-   "cases": [
-    "prelude-deferred-stub-factory"
-   ],
-   "kg_test": "test/test_lisp.c:test_deferred_stub_indistinguishable",
-   "rationale": "Phase 1 of doc/plans/2026-08-14-embedded-prelude.md. The one new eager prelude name the eager/deferred split buys: a factory returning the ordinary Lisp closure a deferred name's function cell holds until its first call, which then forces the real definition and forwards its own arguments to it. Deliberately a closure rather than a native, so functionp, symbol-function, apply, a hook and a value passed around before first call all see a real FeTFn before and after forcing. kg-policy: Emacs solves the same problem with autoload objects and a load path, neither of which kg has.",
-   "source_name": "internal--make-deferred-stub"
-  },
-  {
    "id": "prelude-defmacro",
    "category": "functions-and-macros",
    "status": "supported",
@@ -3920,11 +3894,11 @@
    "comparison": "emacs",
    "cases": [
     "prelude-mapcar",
-    "prelude-deferred-capture-redefine",
-    "prelude-deferred-capture-force-redefine"
+    "prelude-capture-redefine",
+    "prelude-capture-force-redefine"
    ],
-   "kg_test": "test/test_lisp.c:test_list_library test/test_lisp.c:test_deferred_stub_captured_value",
-   "rationale": "The mapping itself (prelude-mapcar), plus the two cases that ask what a value CAPTURED out of this name's function cell means. They live here rather than under prelude-deferred-force because the rule they pin is a language-level one Emacs decides -- a captured function value is the definition captured, and the name is whatever was last defined -- while the mechanism they happen to run through, kg's deferred stub, has no Emacs analogue to compare. `mapcar' is the deferred name they use, which is what makes them the regression for doc/reviews/2026-08-19-embedded-prelude-phase21-adversarial-review.md finding 1.",
+   "kg_test": "test/test_lisp.c:test_list_library test/test_lisp.c:test_captured_function_value",
+   "rationale": "The mapping itself (prelude-mapcar), plus the two cases that ask what a value CAPTURED out of this name's function cell means: a captured function value is the definition captured, and the name is whatever was last defined. They live on this row because that rule is a language-level one Emacs decides, and `mapcar' is only the name they happen to ask it about. They were written as the regression for doc/reviews/2026-08-19-embedded-prelude-phase21-adversarial-review.md finding 1, when `mapcar' was a deferred name whose stub got both halves wrong; Phase A of doc/plans/2026-08-19-fe-simplification-and-cheap-compat.md deleted the deferral and kept the cases, which an eager definition satisfies trivially -- they now stand as the guard against putting a forwarding stub back in a function cell.",
    "source_name": "mapcar"
   },
   {
@@ -4550,7 +4524,7 @@
     "pipeline-macro-use"
    ],
    "kg_test": "lisp/pipeline.el, lisp/pipeline-text.el, test/pty/lisp-proof3-pipeline-init.yaml, test/pty/lisp-proof3-pipeline-commands.yaml, test/pty/lisp-proof3-pipeline-errors.yaml",
-   "rationale": "The parent plan's \u00a714 Proof 3: a small higher-order package whose pure-language portions also run unchanged under Emacs 31. lisp/pipeline.el is that pure portion -- no buffer, window, key or process -- and lisp/pipeline-text.el is the editor-facing half that (require ...)s it, which is also \u00a714's 'multiple files' bullet. The nine cases here are the measurement, not the claim: each one's setup loads the tracked lisp/pipeline.el on BOTH sides and the snapshot is the pinned Emacs 31.0.90's own answer, so `make lisp-oracle-check' fails the moment the two stop agreeing. Between them they cover every \u00a714 bullet: Lisp-2 cells, closures, funcall, apply, catch/throw, condition-case, one-step and fixpoint macro expansion used reflectively (10B's primitives, 10A Decision 2), macro expansion used as a predicate, and the macros evaluated normally. Two of kg's then-recorded silent divergences were deliberately NOT made load-bearing in the pure file, which is what makes the agreement a property rather than a coincidence: nothing rebinds a defvar'd variable around a call (prelude-defvar), and no returned value contains a (quote X) form (writer-quote-abbreviation). Both of those closed in Phase 11 and are `supported' now, so nothing here depends on them either way; the file is left as written because what it took to make the agreement a property is the record worth keeping. Two measured constraints shaped it: a throw could not cross a native re-entry boundary (catch-throw-reachability, also closed in Phase 11 for exactly the two forms this package avoids, though every other native re-entry is still a wall), so every catch and its throws are inside one function with no wrapping native between them; and `load' resolves a bare name only in the config directory (load-path-search), which is the one of the four that still diverges, so the two files reach each other with `require'.",
+   "rationale": "The parent plan's §14 Proof 3: a small higher-order package whose pure-language portions also run unchanged under Emacs 31. lisp/pipeline.el is that pure portion -- no buffer, window, key or process -- and lisp/pipeline-text.el is the editor-facing half that (require ...)s it, which is also §14's 'multiple files' bullet. The nine cases here are the measurement, not the claim: each one's setup loads the tracked lisp/pipeline.el on BOTH sides and the snapshot is the pinned Emacs 31.0.90's own answer, so `make lisp-oracle-check' fails the moment the two stop agreeing. Between them they cover every §14 bullet: Lisp-2 cells, closures, funcall, apply, catch/throw, condition-case, one-step and fixpoint macro expansion used reflectively (10B's primitives, 10A Decision 2), macro expansion used as a predicate, and the macros evaluated normally. Two of kg's then-recorded silent divergences were deliberately NOT made load-bearing in the pure file, which is what makes the agreement a property rather than a coincidence: nothing rebinds a defvar'd variable around a call (prelude-defvar), and no returned value contains a (quote X) form (writer-quote-abbreviation). Both of those closed in Phase 11 and are `supported' now, so nothing here depends on them either way; the file is left as written because what it took to make the agreement a property is the record worth keeping. Two measured constraints shaped it: a throw could not cross a native re-entry boundary (catch-throw-reachability, also closed in Phase 11 for exactly the two forms this package avoids, though every other native re-entry is still a wall), so every catch and its throws are inside one function with no wrapping native between them; and `load' resolves a bare name only in the config directory (load-path-search), which is the one of the four that still diverges, so the two files reach each other with `require'.",
    "source_name": null
   },
   {

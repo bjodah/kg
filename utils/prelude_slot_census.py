@@ -207,10 +207,7 @@ def restore_real_prelude() -> None:
 	Restoring runs the `make lisp-prelude-generate` TARGET rather than
 	calling utils/embed_lisp.py directly, so that however many files
 	generation writes, and with whichever generator, this puts all of
-	them back. Phase 1's eager/deferred split is why that matters: it
-	made generation write two files through utils/embed_lisp_split.py,
-	and a restore that still wrote only the one this script truncates
-	would leave the other stale."""
+	them back."""
 	result = run(["make", "lisp-prelude-generate"])
 	if result.returncode != 0:
 		sys.stderr.write(result.stdout)
@@ -267,25 +264,6 @@ def main(argv: list[str]) -> int:
 	finally:
 		restore_real_prelude()
 		denom = total_slots()
-
-	deferred_names = ROOT / "utils" / "prelude_deferred_names.txt"
-	if deferred_names.is_file() and any(
-	    line.strip() and not line.startswith("#")
-	    for line in deferred_names.read_text().splitlines()):
-		print("WARNING: the tree defers part of the prelude "
-		      "(utils/prelude_deferred_names.txt is non-empty).")
-		print("  This script regenerates the EAGER array from a "
-		      "truncated copy while the deferred array keeps its full")
-		print("  contents, so every figure below counts each deferred "
-		      "name twice over: once evaluated eagerly out of the")
-		print("  truncated copy, and again as the stub "
-		      "install_deferred_stubs() puts in its function cell.")
-		print("  The numbers are therefore NOT comparable with the "
-		      "pre-split table in Phase 0.1's results, which remains")
-		print("  the record for per-section cost.  Making this "
-		      "split-aware means splitting each truncated prefix with")
-		print("  the subset of utils/prelude_deferred_names.txt that "
-		      "prefix actually defines; nothing needs it yet.\n")
 
 	print(f"# Prelude per-section slot census\n")
 	print(f"Source: {PRELUDE.relative_to(ROOT)} "

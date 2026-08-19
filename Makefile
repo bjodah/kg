@@ -758,7 +758,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 10656
+SCC_COMPLEXITY_MAX ?= 10641
 SCC_FILE_COMPLEXITY_MAX ?= 519
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -845,11 +845,8 @@ $(PERF_SRC_OBJS) $(PERF_TEST_OBJS): $(FEATURE_CONFIG)
 # says nothing the line above has not.  What was missing is this: the
 # embedded prelude is #included, and nothing told make so, which is how a
 # `make lisp-prelude-generate` followed by `make` could relink an editor
-# still carrying the previous prelude.  Phase 1 (doc/plans/2026-08-14-
-# embedded-prelude.md) split that one #include into two -- the eager
-# array and the deferred one -- so both need the same edge.
-$(OBJDIR)/lisp_prelude.o: $(OBJDIR)/lisp_prelude_generated.inc \
-	$(OBJDIR)/lisp_prelude_deferred_generated.inc
+# still carrying the previous prelude.
+$(OBJDIR)/lisp_prelude.o: $(OBJDIR)/lisp_prelude_generated.inc
 ifeq ($(WITH_LISP),1)
 # lisp_internal.h includes Fe's public header, but this Makefile does not
 # generate compiler dependency files.  Keep both ordinary and performance
@@ -995,42 +992,25 @@ endif
 
 # Elisp-subset sub-plan 01A: lisp/prelude.el is the canonical prelude
 # source and src/lisp_prelude_generated.inc is a checked-in, byte-for-byte
-# copy of its eager forms, so an ordinary build needs no Python.  These two
-# targets are the drift check that keeps the pair honest -- the same
-# structural no-drift shape as docs-check and header-check, which is why
-# they sit beside them in `check`.  Regeneration writes into temporary
-# files and compares, so the check never rewrites the tree it is checking.
-#
-# Prelude-embedding Phase 1 (doc/plans/2026-08-14-embedded-prelude.md)
-# split the single embed_lisp.py call below into embed_lisp_split.py,
-# which additionally excises the names utils/prelude_deferred_names.txt
-# lists into a second array, src/lisp_prelude_deferred_generated.inc --
-# `lisp/prelude.el` itself is unchanged by the split and is still what
-# both generated files are checked against.
+# copy of it, so an ordinary build needs no Python.  These two targets are
+# the drift check that keeps the pair honest -- the same structural
+# no-drift shape as docs-check and header-check, which is why they sit
+# beside them in `check`.  Regeneration writes into a temporary file and
+# compares, so the check never rewrites the tree it is checking.
 lisp-prelude-generate:
-	@$(PYTHON) utils/embed_lisp_split.py lisp/prelude.el \
-		src/lisp_prelude_generated.inc \
-		src/lisp_prelude_deferred_generated.inc
+	@$(PYTHON) utils/embed_lisp.py lisp/prelude.el \
+		src/lisp_prelude_generated.inc
 
-# The `--self-test` first, in check_lisp_oracle.py's mold: the generator
-# whose output the rest of this recipe compares is reached through a
-# command line, and that command line is what shipped broken -- the
-# documented `--names FILE` was unusable and an undefined option was
-# silently discarded.  It writes only into a temp directory.
 lisp-prelude-check:
-	@$(PYTHON) utils/embed_lisp_split.py --self-test
-	@tmp=$$(mktemp) && tmpd=$$(mktemp) && \
-	trap 'rm -f "$$tmp" "$$tmpd"' EXIT && \
-	$(PYTHON) utils/embed_lisp_split.py lisp/prelude.el "$$tmp" "$$tmpd" \
-		>/dev/null && \
-	if cmp -s "$$tmp" src/lisp_prelude_generated.inc && \
-	   cmp -s "$$tmpd" src/lisp_prelude_deferred_generated.inc; then \
-		echo "lisp-prelude-check: src/lisp_prelude_generated.inc and src/lisp_prelude_deferred_generated.inc match lisp/prelude.el"; \
+	@tmp=$$(mktemp) && \
+	trap 'rm -f "$$tmp"' EXIT && \
+	$(PYTHON) utils/embed_lisp.py lisp/prelude.el "$$tmp" >/dev/null && \
+	if cmp -s "$$tmp" src/lisp_prelude_generated.inc; then \
+		echo "lisp-prelude-check: src/lisp_prelude_generated.inc matches lisp/prelude.el"; \
 	else \
-		echo "lisp-prelude-check: the generated prelude files are stale" >&2; \
-		echo "  lisp/prelude.el or utils/prelude_deferred_names.txt changed without running 'make lisp-prelude-generate'." >&2; \
+		echo "lisp-prelude-check: src/lisp_prelude_generated.inc is stale" >&2; \
+		echo "  lisp/prelude.el changed without running 'make lisp-prelude-generate'." >&2; \
 		diff -u src/lisp_prelude_generated.inc "$$tmp" | head -20 >&2; \
-		diff -u src/lisp_prelude_deferred_generated.inc "$$tmpd" | head -20 >&2; \
 		exit 1; \
 	fi
 
@@ -1817,8 +1797,7 @@ $(PERFOBJDIR)/%.o: $(TESTDIR)/%.c $(HDRS) $(OBJDIR)/perf.h | $(PERFOBJDIR)
 $(PERFOBJDIR)/lisp_core.o: $(OBJDIR)/lisp_internal.h $(OBJDIR)/lisp.h \
 	fe/fe_perf.h
 $(PERFOBJDIR)/lisp_prelude.o: $(OBJDIR)/lisp_internal.h \
-	$(OBJDIR)/lisp_prelude_generated.inc \
-	$(OBJDIR)/lisp_prelude_deferred_generated.inc
+	$(OBJDIR)/lisp_prelude_generated.inc
 $(PERFOBJDIR)/lisp_string.o: $(OBJDIR)/lisp_internal.h
 $(PERFOBJDIR)/lisp_buffer.o: $(OBJDIR)/lisp_internal.h
 $(PERFOBJDIR)/lisp_word.o: $(OBJDIR)/lisp_internal.h

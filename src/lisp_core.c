@@ -464,12 +464,6 @@ int kg_lisp_init(void)
 #else
 	evaluate_prelude(context);
 #endif
-	/* Phase 1 of doc/plans/2026-08-14-embedded-prelude.md: install the
-	 * deferred names' stubs now that the eager prelude (including the
-	 * factory function they are built from) has evaluated cleanly.
-	 * Still inside the setjmp above, so a raise here is reported the
-	 * same way a raise from evaluate_prelude() itself is. */
-	install_deferred_stubs(context);
 	FeRestoreGC(context, state.frame.gc_checkpoint);
 	/* The post-prelude collect (doc/plans/2026-08-14-embedded-prelude.md,
 	 * "Post-prelude collect -- results"): one forced collection, after
@@ -481,9 +475,9 @@ int kg_lisp_init(void)
 	 * (~860 slots measured at this pin) before a session's own work
 	 * begins, rather than waiting for natural exhaustion to find it.
 	 * Everything still needed is reachable from fe's own roots --
-	 * `symbol_list` for every `defalias`, `defvar` and deferred stub's
-	 * function/value cell -- so nothing kg holds across this call needs
-	 * a root of its own; see the plan section for the per-site audit.
+	 * `symbol_list` for every `defalias`'s and `defvar`'s function/value
+	 * cell -- so nothing kg holds across this call needs a root of its
+	 * own; see the plan section for the per-site audit.
 	 * FeCollectGarbage() cannot raise, so this needs no error handling
 	 * of its own even though it runs inside the setjmp above. */
 #if KG_PERF_COUNTERS

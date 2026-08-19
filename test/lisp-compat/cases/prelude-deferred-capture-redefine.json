@@ -1,6 +1,0 @@
-{
- "id": "prelude-deferred-capture-redefine",
- "setup": [],
- "expr": "(let ((saved (symbol-function 'mapcar))) (defalias 'mapcar (lambda (function sequence) 'replacement)) (list (funcall saved '1+ '(1 2)) (mapcar '1+ '(1 2))))",
- "note": "A function value captured out of a symbol's function cell is the definition that was captured, and a `defalias' after the capture is what the NAME means -- so the two halves answer ((2 3) replacement) independently of each other. `mapcar' is deliberate: it is a DEFERRED name (utils/prelude_deferred_names.txt), so what the capture holds is the stub internal--make-deferred-stub built, not the real closure, and this is the case that says the difference has to be invisible. kg answered ((2 3) (2 3)) until doc/reviews/2026-08-19-embedded-prelude-phase21-adversarial-review.md finding 1: forcing wrote the function cell unconditionally, so calling the captured stub destroyed the redefinition. Emacs prints a native-compilation warning for redefining `mapcar'; it goes to stderr and the shim's one-line record on stdout is unaffected."
-}

@@ -263,22 +263,19 @@ CASES = {
 	# pin (Phase 21.2), which moved both baseline numbers this comment
 	# used to give -- current tree: the prelude alone is peak_frame_depth
 	# 8 and peak_native_reentry 1, both up from the 2/0 measured at the
-	# Phase 12 fix cycle. Explained, not merely re-measured: Prelude
-	# Phase 1 (b94e795, "defer the 93 names no startup path needs") added
-	# install_deferred_stubs() (src/lisp_prelude.c), which
-	# kg_lisp_init() runs right after the eager prelude and calls
-	# FeCallWithOptions() once PER DEFERRED NAME (93 times) to fetch
-	# `internal--make-deferred-stub` and build that name's stub closure
-	# (lisp/prelude.el, an ordinary Lisp closure returning a closure) --
-	# a NATIVE re-entering the evaluator every time, but never nested
-	# inside itself (each call returns before the next starts), so
-	# peak_native_reentry -- a high-water mark of SIMULTANEOUS re-entry,
-	# not a count of calls -- reads 1 across all 93, hence 0 -> 1 rather
-	# than 0 -> 93. That closure's own construction nests Lisp frames
-	# above whatever the eager prelude reached, which is why
-	# peak_frame_depth rose off 2 as well; test_perf.c's
-	# test_lisp_prelude_arena_margin now pins peak_native_reentry == 1
-	# for exactly this reason. fe's own bare-context baseline moving too
+	# Phase 12 fix cycle. This paragraph used to explain that rise as
+	# install_deferred_stubs()' doing (Prelude Phase 1, b94e795: a
+	# native that re-entered the evaluator once per deferred name to
+	# build its stub closure). Phase A of doc/plans/2026-08-19-fe-
+	# simplification-and-cheap-compat.md deleted that loop and both
+	# numbers stayed put -- 8 and 1, measured either side of the removal
+	# -- so the explanation was wrong. What actually moved them is the
+	# prelude growing across Phases 15-20; no single cause is claimed
+	# here in its place, because none has been measured. peak_native_
+	# reentry remains a high-water mark of SIMULTANEOUS re-entry rather
+	# than a count, which is why a prelude that re-enters repeatedly
+	# still reads 1, and test_perf.c's test_lisp_prelude_arena_margin
+	# pins it at 1 for that reason. fe's own bare-context baseline moving too
 	# (per fe's Phase 21.2 commit) is unrelated: fe has no prelude and
 	# nothing here claims a shared cause. What matters for this file
 	# either way is that a threshold has to clear the CURRENT baseline,

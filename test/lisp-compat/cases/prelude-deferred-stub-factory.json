@@ -1,6 +1,0 @@
-{
- "id": "prelude-deferred-stub-factory",
- "setup": [],
- "expr": "(let ((f (symbol-function 'mapcar))) (funcall f '1+ '(1 2 3)))",
- "note": "Phase 1 of doc/plans/2026-08-14-embedded-prelude.md. `mapcar' is one of the 93 deferred names, so before this form runs its function cell holds the stub internal--make-deferred-stub returned, not the real closure. Taking that cell as a VALUE and calling it later still answers (2 3 4): the stub is an ordinary Lisp closure, so symbol-function, funcall and being passed around cannot tell a deferred name from an eager one. `1+' is deferred too and is forced from inside mapcar's own body, one level further in. No Emacs equivalent: Emacs defers with autoload objects and a load path, and kg has neither -- the deferred forms are embedded in the binary."
-}

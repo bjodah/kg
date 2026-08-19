@@ -31,11 +31,8 @@ temporary file and fails if that differs from what is checked in --
 regenerating must be a no-op on a clean tree.
 
 The optional third argument names the emitted array (default
-`lisp_prelude_generated`); Phase 1's split (utils/embed_lisp_split.py)
-imports render() directly with a second name for the deferred array, so
-one translation unit can #include both without a symbol clash. Nothing
-about the byte-copying contract above changes: this parameterises the
-identifier only.
+`lisp_prelude_generated`).  Nothing about the byte-copying contract above
+changes: this parameterises the identifier only.
 """
 
 from __future__ import annotations

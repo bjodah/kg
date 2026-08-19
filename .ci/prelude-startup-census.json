@@ -9,9 +9,9 @@
   "definition_count": "lisp/prelude.el, count of top-level (defalias 'NAME (KIND ...)) forms"
  },
  "ceiling": {
-  "peak_live_objects": 6933,
-  "reachable_live_objects": 6049,
-  "embedded_bytes": 74583,
-  "definition_count": 122
+  "peak_live_objects": 10950,
+  "reachable_live_objects": 9979,
+  "embedded_bytes": 70954,
+  "definition_count": 121
  }
 }

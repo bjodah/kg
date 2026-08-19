@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """Phase 0.2 of doc/plans/2026-08-14-embedded-prelude.md: a first-call
-census of lisp/prelude.el's 128 top-level names.
+census of lisp/prelude.el's top-level names.
 
 Phase 0.1 (utils/prelude_slot_census.py) answered "which SECTION of the
-prelude holds the arena cost".  This answers the question Phase 1 actually
-needs: of the 128 names, which does *anything in this tree ever call*?
-Only a name nothing calls is a lazy-load candidate at all, and a macro
-never is, no matter how rarely it is used (a macro must be defined before
-any form using it is read and evaluated, so it cannot be deferred past its
-own textual load position).
+prelude holds the arena cost".  This one answers: of those names, which
+does *anything in this tree ever call*?  It was written to price lazy
+loading, and Phase A of doc/plans/2026-08-19-fe-simplification-and-cheap-
+compat.md removed the lazy loading along with the option that measured
+what could be deferred.  The partition itself outlived that decision and
+is what the script still reports: a name no case, corpus file or startup
+path reaches is a name whose behaviour nothing in this tree pins, which
+is worth knowing whatever is done about it.
 
 THE MECHANISM
 
@@ -79,9 +81,9 @@ position, anywhere in lisp/*.el, utils/forecast/*.el,
 test/lisp-compat/cases/*.json (setup+expr text), test/lisp-compat/*.el
 fixtures, and the same PTY-extracted .el content the dynamic run uses.  A
 name the dynamic run never reaches but this walker finds is moved from
-"never" to "realistic, static-only" rather than left a lazy-load
-candidate -- the plan is explicit that set 3 must be conservative, because
-a wrong entry there becomes a broken lazy-load later.
+"never" to "realistic, static-only" rather than left in set 3 -- the plan
+is explicit that set 3 must be conservative, since it is the set anything
+acting on this report would act on.
 
 Usage:
     make test/kgbatch
@@ -140,8 +142,8 @@ def parse_prelude_names() -> list[tuple[str, str]]:
 	PARAMS . BODY)` the same way `(lambda PARAMS . BODY)` spells a
 	function.  Everything else (`(lambda ...)` bodies and the three
 	`(symbol-function 'X)` primitive captures in the preamble) is a
-	function for this partition's purposes: it can in principle be
-	deferred, subject to the order-sensitivity check below.
+	function for this partition's purposes, subject to the
+	order-sensitivity check below.
 	"""
 	text = PRELUDE.read_text(encoding="utf-8")
 	names = TOPLEVEL_DEFALIAS_RE.findall(text)
@@ -512,111 +514,6 @@ def measure_removed_slot_cost(names_to_remove: list[str]) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# The deferrable set: what a lazy-loading Phase 1 could actually defer.
-# ---------------------------------------------------------------------------
-
-# `void-function NAME' out of a prelude evaluation names the one definition
-# the removal took away that the prelude itself still needs while loading.
-VOID_FUNCTION_RE = re.compile(r"void-function ([^\s'\"]+)")
-
-
-def probe_removed(names_to_remove: list[str]) -> tuple[int | None, str | None]:
-	"""Evaluate a prelude with `names_to_remove' deleted.
-
-	Returns (peak_live, None) when it evaluates clean, or (None, name) when
-	it does not -- `name' being the definition the prelude called while
-	loading, which therefore cannot be deferred.  Unlike
-	measure_removed_slot_cost() this does NOT restore the real prelude: the
-	caller drives it in a loop and restores once at the end."""
-	lines = PRELUDE.read_bytes().decode("utf-8").splitlines(keepends=True)
-	ranges = toplevel_form_ranges(lines)
-	drop: set[int] = set()
-	for name in names_to_remove:
-		start, end = ranges[name]
-		drop.update(range(start, end))
-	kept = [line for i, line in enumerate(lines) if i not in drop]
-
-	tmp_dir = Path(subprocess.run(["mktemp", "-d"], capture_output=True,
-	    text=True, check=True).stdout.strip())
-	tmp_slice = tmp_dir / "prelude-minus-deferred.el"
-	tmp_slice.write_bytes("".join(kept).encode("utf-8"))
-	result = subprocess.run(
-	    [sys.executable, str(pslot.EMBED_SCRIPT), str(tmp_slice),
-	     str(pslot.GENERATED)], cwd=ROOT, capture_output=True, text=True)
-	if result.returncode != 0:
-		sys.stderr.write(result.stdout)
-		sys.stderr.write(result.stderr)
-		raise SystemExit(
-		    "prelude_first_call_census: embed_lisp.py failed on the "
-		    "deferred-set copy")
-	pslot.rebuild_kgbatch()
-	probe = subprocess.run([str(pslot.KGBATCH), "-g", "/dev/null"], cwd=ROOT,
-	    capture_output=True, text=True)
-	if probe.returncode != 0:
-		m = VOID_FUNCTION_RE.search(probe.stdout + probe.stderr)
-		if not m:
-			raise SystemExit(
-			    "prelude_first_call_census: a deferred-set prelude "
-			    "failed for a reason that is not a missing "
-			    f"definition: {probe.stdout!r} {probe.stderr!r}")
-		return None, m.group(1)
-	m = PEAK_LIVE_RE.search(probe.stdout)
-	if not m:
-		raise SystemExit(
-		    "prelude_first_call_census: no peak-live in kgbatch -g "
-		    f"output: {probe.stdout!r}")
-	return int(m.group(1)), None
-
-
-def measure_deferrable_set(functions: list[str]) -> dict:
-	"""How much of the prelude a lazy-loading Phase 1 could defer.
-
-	The dynamic startup census cannot answer this on its own: its shim is
-	installed as kgbatch's first FILE argument, so it runs after
-	kg_lisp_init() has already evaluated the whole prelude, and a name the
-	prelude calls WHILE LOADING is invisible to it -- which is why the
-	startup run reads 0 called and yet removing all 103 functions does not
-	even evaluate.  So ask the evaluator instead: remove every candidate,
-	and put back the one it names as missing, until a removed prelude loads
-	clean.  What survives is the set no startup path needs, and the
-	difference in peak-live is what deferring it is worth, before stub
-	cost.
-
-	This is an UPPER BOUND on Phase 1's saving, deliberately: a real lazy
-	load leaves a stub per name rather than nothing, and a session pays a
-	name's slots back the moment it first calls it."""
-	candidates = list(functions)
-	eager: list[str] = []
-	try:
-		while True:
-			peak, missing = probe_removed(candidates)
-			if missing is None:
-				break
-			eager.append(missing)
-			candidates.remove(missing)
-	finally:
-		pslot.restore_real_prelude()
-
-	full = subprocess.run([str(pslot.KGBATCH), "-g", "/dev/null"], cwd=ROOT,
-	    capture_output=True, text=True)
-	full_m = PEAK_LIVE_RE.search(full.stdout)
-	if full.returncode != 0 or not full_m:
-		raise SystemExit(
-		    "prelude_first_call_census: kgbatch -g failed on the "
-		    f"restored prelude: {full.stdout!r} {full.stderr!r}")
-	full_peak_live = int(full_m.group(1))
-	return {
-	    "deferrable": sorted(candidates),
-	    "deferrable_count": len(candidates),
-	    "eager_because_called_during_prelude_load": eager,
-	    "full_peak_live": full_peak_live,
-	    "deferred_peak_live": peak,
-	    "delta": full_peak_live - peak,
-	    "total_slots": pslot.total_slots(),
-	}
-
-
-# ---------------------------------------------------------------------------
 # The partition.
 # ---------------------------------------------------------------------------
 
@@ -628,11 +525,6 @@ def main(argv: list[str]) -> int:
 	parser.add_argument("--slots", action="store_true",
 	    help="also measure set 3's arena cost (rebuilds test/kgbatch "
 		 "twice; restores the real prelude when done)")
-	parser.add_argument("--deferrable", action="store_true",
-	    help="measure what a lazy-loading Phase 1 could defer: every "
-		 "function no startup path needs, and its peak-live saving "
-		 "(rebuilds test/kgbatch once per eager name found, then "
-		 "restores the real prelude)")
 	args = parser.parse_args(argv[1:])
 
 	if not KGBATCH.is_file():
@@ -747,23 +639,6 @@ def main(argv: list[str]) -> int:
 		      f"{slot_result['total_slots']}")
 		print(f"delta (set 3's estimated slot cost): "
 		      f"{slot_result['delta']}")
-
-	if args.deferrable:
-		print()
-		print(f"measuring the deferrable set ({len(functions)} functions "
-		      "offered, one rebuild per eager name found)...")
-		deferrable = measure_deferrable_set(sorted(functions))
-		partition["deferrable_set"] = deferrable
-		print(f"eager because the prelude calls them while loading "
-		      f"({len(deferrable['eager_because_called_during_prelude_load'])}): "
-		      f"{deferrable['eager_because_called_during_prelude_load']}")
-		print(f"deferrable: {deferrable['deferrable_count']} functions")
-		print(f"peak-live {deferrable['full_peak_live']} -> "
-		      f"{deferrable['deferred_peak_live']} of "
-		      f"{deferrable['total_slots']} "
-		      f"(saving {deferrable['delta']}, "
-		      f"{100.0 * deferrable['delta'] / deferrable['total_slots']:.1f}% "
-		      "of the arena, before stub cost)")
 
 	if args.json:
 		args.json.write_text(json.dumps(partition, indent=2) + "\n")

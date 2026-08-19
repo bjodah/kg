@@ -5857,124 +5857,47 @@ static void test_quit_uncaught(void)
  * beginning-of-buffer/end-of-buffer pair, +1 for Phase 19's
  * internal--defined-names, and net +1 at Phase 20 (-1 for `string<',
  * which became an fe primitive, +2 for `documentation-property' and its
- * `internal--variable-doc-put' helper), +1 at prelude-embedding Phase 1
- * (doc/plans/2026-08-14-embedded-prelude.md): internal--make-deferred-stub,
- * the one new eager name the split into an eager and a deferred array
- * buys.  93 of the other 128 names move out of the array evaluate_prelude()
- * runs and into a second one this test never reads, but their own
- * `(defalias 'NAME ...)` forms stay in lisp/prelude.el exactly where they
- * were -- utils/embed_lisp_split.py excises them at BUILD time, not by
- * editing this file -- so every one of them still counts here, and the
- * type probe loop below still reads "lambda" for each: the self-replacing
- * stub install_deferred_stubs() puts in a deferred name's cell is itself
- * an ordinary FeTFn closure, indistinguishable from the real definition by
- * type-of before its first call replaces it. */
+ * `internal--variable-doc-put' helper). */
 /* Phase 2 of doc/plans/2026-08-14-embedded-prelude.md moved seven names
  * (listp, reverse, internal--bind-name, internal--bind-value,
  * internal--doc-put, internal--variable-doc-put, nconc) from
  * lisp/prelude.el defalias forms to natives (src/lisp_cmd.c), so the
- * source file's own top-level defalias count fell 129 -> 122. */
-#define PRELUDE_DEFS 122
+ * source file's own top-level defalias count fell 129 -> 122; Phase A of
+ * doc/plans/2026-08-19-fe-simplification-and-cheap-compat.md removed
+ * internal--make-deferred-stub with the rest of the deferral machinery,
+ * taking it to 121. */
+#define PRELUDE_DEFS 121
 
-/* Phase 1 of doc/plans/2026-08-14-embedded-prelude.md: a deferred name
- * must be indistinguishable from an eager one to every caller shape the
- * plan names -- functionp, symbol-function, apply, funcall, a value
- * passed around before its first call, a hook, and a deferred name
- * calling another deferred name from inside its own (real) body.
- * `mapcar` is deferred and its own body, once forced, calls `funcall` on
- * whatever it was handed -- here `1+`, itself deferred -- so one call
- * forces two stubs and exercises the cross-call in the same breath. */
-static void test_deferred_stub_indistinguishable(void)
-{
-	setup_editor();
-	CHECK(kg_lisp_init() == 0);
-
-	/* Before the first call: still functionp, still fboundp, still a
-	 * real function object by type -- never void. */
-	CHECK(eval_eq("(functionp (symbol-function 'mapcar))", "t"));
-	CHECK(eval_eq("(fboundp 'mapcar)", "t"));
-	CHECK(eval_eq("(type-of (symbol-function 'mapcar))", "lambda"));
-
-	/* A value passed around before ever being called is still callable
-	 * once it is: the stub object itself, not just the name, is a
-	 * function. */
-	CHECK(
-	    eval_ok("(setq phase1-deferred-value (symbol-function 'mapcar))"));
-	CHECK(
-	    eval_eq("(funcall phase1-deferred-value '1+ '(1 2 3))", "(2 3 4)"));
-
-	/* Direct call, apply and funcall by name all force and forward
-	 * correctly -- and `1+' (also deferred) gets forced from INSIDE
-	 * mapcar's own body, via mapcar's `(funcall f (car lst))'. */
-	CHECK(eval_eq("(mapcar '1+ '(1 2 3))", "(2 3 4)"));
-	CHECK(eval_eq("(apply 'mapcar (list '1- '(5 6 7)))", "(4 5 6)"));
-	CHECK(eval_eq("(funcall 'mapcar '1- '(5 6 7))", "(4 5 6)"));
-
-	/* After the first call: still functionp, same type, and calling it
-	 * again reaches the SAME (now real) definition, not a second stub
-	 * and not a re-force -- there is nothing left to force it FROM. */
-	CHECK(eval_eq("(functionp (symbol-function 'mapcar))", "t"));
-	CHECK(eval_eq("(type-of (symbol-function 'mapcar))", "lambda"));
-	CHECK(eval_eq("(mapcar '1+ '(10 20))", "(11 21)"));
-
-	/* A cross-deferred call the prelude itself is built from:
-	 * quasiquote's splice and dotted-tail cases both route through
-	 * internal--qq-list/internal--qq-dotted, both deferred, both
-	 * reached only through internal--qq, also deferred. */
-	CHECK(eval_eq("`(a ,(+ 1 2) ,@(list 3 4))", "(a 3 3 4)"));
-	CHECK(eval_eq("`(1 . ,(list 2 3))", "(1 2 3)"));
-
-	/* A hook resolves a deferred name through its function cell exactly
-	 * as an eager one does, forcing it the first time the hook runs --
-	 * the same designator-resolution path test_hooks pins for eager
-	 * names. */
-	CHECK(eval_ok("(setq phase1-hook-out nil)"));
-	CHECK(eval_ok("(defun phase1-deferred-hook-fn ()"
-		      " (setq phase1-hook-out"
-		      "   (string-join (list \"a\" \"b\") \"-\")))"));
-	CHECK(eval_ok("(add-hook 'before-save-hook 'phase1-deferred-hook-fn)"));
-	CHECK(eval_ok("(run-hooks 'before-save-hook)"));
-	CHECK(eval_eq("phase1-hook-out", "a-b"));
-
-	/* A name nothing above happened to call is still a stub right up to
-	 * this line and behaves identically to one already forced:
-	 * documentation-property is deferred and untouched by anything
-	 * above, and reads back a docstring another deferred-adjacent macro
-	 * expansion (defvar, eager) recorded for it. */
-	CHECK(eval_eq(
-	    "(functionp (symbol-function 'documentation-property))", "t"));
-	CHECK(eval_ok("(defvar phase1-documented-var 1 \"doc\")"));
-	CHECK(eval_eq("(documentation-property 'phase1-documented-var"
-		      " 'variable-documentation)",
-	    "doc"));
-
-	kg_lisp_shutdown();
-	teardown_editor();
-}
-
-/* Finding 1 of doc/reviews/2026-08-19-embedded-prelude-phase21-adversarial-
- * review.md: what a value CAPTURED out of a deferred name's function cell
- * is.  It is that name's definition -- the one the prelude would have
- * installed eagerly -- and it stays that definition however often the
- * name is redefined afterwards; the name, meanwhile, means whatever was
- * defined last.  Emacs decides both halves, and both are recorded against
- * it (test/lisp-compat/cases/prelude-deferred-capture-redefine.json and
- * prelude-deferred-capture-force-redefine.json); this is the same pair
- * in-process, plus the two cell-level assertions a printed value cannot
- * make.
+/* What a value CAPTURED out of a symbol's function cell is: that symbol's
+ * definition at the moment of capture, and it stays that definition
+ * however often the name is redefined afterwards; the name, meanwhile,
+ * means whatever was defined last.  Emacs decides both halves, and both
+ * are recorded against it (test/lisp-compat/cases/prelude-capture-
+ * redefine.json and prelude-capture-force-redefine.json); this is the
+ * same pair in-process, plus the cell-level assertions a printed value
+ * cannot make.
  *
- * Two deferred names rather than one process each: `mapcar' is captured
- * before anything forces it and `1-' after, which are the two orders the
+ * kg's prelude defines every name eagerly, so all of this is what an
+ * ordinary `defalias' does and none of it needs a mechanism to be true.
+ * It is asserted anyway, because it was NOT true here: finding 1 of
+ * doc/reviews/2026-08-19-embedded-prelude-phase21-adversarial-review.md
+ * caught a lazily-installed forwarding stub in these cells getting both
+ * halves wrong.  Phase A of doc/plans/2026-08-19-fe-simplification-and-
+ * cheap-compat.md deleted the deferral outright; this unit is what stops
+ * a function cell holding a forwarder again without anyone noticing.
+ *
+ * Two names rather than one process each: `mapcar' is captured before it
+ * has ever been called and `1-' after, which are the two orders the
  * defect had different wrong answers for. */
-static void test_deferred_stub_captured_value(void)
+static void test_captured_function_value(void)
 {
 	setup_editor();
 	CHECK(kg_lisp_init() == 0);
 
 	/* Captured, then redefined, then called: the capture answers the
 	 * prelude's `mapcar' and the redefinition survives being called
-	 * through.  kg answered ((2 3) (2 3)) here -- forcing wrote the
-	 * function cell whatever it held, so calling the captured stub
+	 * through.  kg answered ((2 3) (2 3)) here while the cell held a
+	 * stub, which wrote the cell whatever it already held and so
 	 * silently destroyed the line above it. */
 	CHECK(eval_eq("(let ((saved (symbol-function 'mapcar)))"
 		      "  (defalias 'mapcar"
@@ -5986,9 +5909,9 @@ static void test_deferred_stub_captured_value(void)
 	 * is the half the printed value above cannot show on its own. */
 	CHECK(eval_eq("(mapcar '1+ '(1 2))", "replacement"));
 
-	/* Captured, CALLED (which is what forces it), then redefined, then
-	 * called again: a retained stub reads no cell, so the second call
-	 * answers the same definition as the first. */
+	/* Captured, CALLED, then redefined, then called again: a captured
+	 * value reads no cell, so the second call answers the same
+	 * definition as the first. */
 	CHECK(eval_eq("(let ((saved (symbol-function '1-)))"
 		      "  (list (funcall saved 5)"
 		      "        (progn (defalias '1- (lambda (n) 'replacement))"
@@ -5996,20 +5919,22 @@ static void test_deferred_stub_captured_value(void)
 		      "        (1- 5)))",
 	    "(4 4 replacement)"));
 
-	/* The ordinary path is unchanged: a name forced BY NAME leaves the
-	 * real closure in its own function cell -- the cell no longer holds
-	 * the stub that was there before the call -- so later calls resolve
-	 * straight to it rather than through the stub. */
-	CHECK(eval_ok("(setq phase1-before (symbol-function 'string-join))"));
+	/* And the cell itself is STABLE across a call: calling a prelude
+	 * name by name leaves its function cell holding the same object it
+	 * held before, so a value captured either side of the call is the
+	 * same value.  This is the assertion that inverted when the cell
+	 * held a self-replacing stub -- `eq' answered nil there, because
+	 * the first call swapped the stub out for the real closure -- and
+	 * it is the cheapest direct statement that nothing lazy lives in
+	 * these cells any more. */
+	CHECK(eval_ok("(setq captured-before (symbol-function 'string-join))"));
 	CHECK(eval_eq("(string-join (list \"a\" \"b\") \"-\")", "a-b"));
-	CHECK(eval_ok("(setq phase1-after (symbol-function 'string-join))"));
-	CHECK(eval_eq("(eq phase1-before phase1-after)", "nil"));
-	/* Both values still call the one definition the saved form made,
-	 * which is also the one the cell holds: forcing happens once. */
-	CHECK(
-	    eval_eq("(funcall phase1-before (list \"a\" \"b\") \"-\")", "a-b"));
-	CHECK(
-	    eval_eq("(funcall phase1-after (list \"a\" \"b\") \"-\")", "a-b"));
+	CHECK(eval_ok("(setq captured-after (symbol-function 'string-join))"));
+	CHECK(eval_eq("(eq captured-before captured-after)", "t"));
+	CHECK(eval_eq(
+	    "(funcall captured-before (list \"a\" \"b\") \"-\")", "a-b"));
+	CHECK(eval_eq(
+	    "(funcall captured-after (list \"a\" \"b\") \"-\")", "a-b"));
 
 	kg_lisp_shutdown();
 	teardown_editor();
@@ -7673,8 +7598,7 @@ int main(void)
 	RUN(test_phase8_constants_and_keywords);
 	RUN(test_phase8_reader_literals);
 	RUN(test_phase8_library);
-	RUN(test_deferred_stub_indistinguishable);
-	RUN(test_deferred_stub_captured_value);
+	RUN(test_captured_function_value);
 	RUN(test_native_reverse_gc_stack);
 	RUN(test_prelude_source_file);
 	return test_summary();

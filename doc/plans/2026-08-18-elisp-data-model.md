@@ -1,369 +1,702 @@
-# Elisp phases 21–26: the data-model wave
+# Elisp phases 21+: an engine-substrate wave
 
-## Prompt
+Status: **REVISED 2026-08-19 after architecture review.**  This replaces the
+original phases 21–26 proposal added in `adabf89`.  Git retains that proposal
+as the record of what was reviewed.
 
-"Author a follow-up plan with your recommended next steps for bettering fe
-to better serve as an 'elisp-like' engine in kg."  `/opt/nelisp` named as
-inspiration, as it was for phases 13–19.
+## Executive decision
 
-## Provenance
+Do **not** execute the original plan as written.
 
-Written 2026-08-18, immediately after the embedded-prelude program closed
-(`doc/plans/2026-08-14-embedded-prelude.md`, phases 0–3 plus the
-post-prelude collect).  Three sources:
+It found the right frontier: fe's fixed-cell representation is now the
+constraint behind vectors, length-bearing strings, hash tables and records,
+and representation work must precede adding those public types.  It also got
+several important details right:
 
-1. **A measured read of fe's object model**, from `fe/fe.h` and
-   `fe/fe_internal.h` on the pin this plan is written at
-   (`c3044f4`, `FE_API_VERSION` 12, `FE_LANGUAGE_VERSION` 14).  Every
-   representation claim below was read out of those two files, not
-   inferred.
-2. **The forecast audit's own output** (`utils/forecast/AUDIT.md`), which
-   phases 13–19's Declined section nominated as the instrument that would
-   re-answer the vectors/hash/records question.  It has now answered.
-   Section "The instrument answered, and the answer cannot be trusted yet"
-   is about what that answer is worth.
-3. **A second mining pass over `/opt/nelisp`.**  Phases 13–19 mined it for
-   *which elisp semantics matter and in what order*.  This plan mines it
-   for one thing more: `docs/02-scoping.org` is `SCOPE-LOCKED` and opens by
-   naming scope management as the enemy that killed Remacs.  A plan called
-   "make fe a better elisp engine" is unbounded by construction, and this
-   one is written to be bounded — every phase past 22 is conditional on a
-   measurement, and the plan says plainly what result kills it.
+- reader syntax is part of a type's implementation, not a later nicety;
+- the fixed arena and the pointer-reversing collector are properties to
+  preserve deliberately, not obstacles to route around accidentally;
+- vectors should precede records;
+- bytecode and text properties are separate questions; and
+- a phase may legitimately end in a measured decline.
 
-## What is actually there
+The proposed execution order and gates do not follow from those observations,
+however:
 
-Measured, not assumed.
+1. **A raw third-party reference count is not a product decision.**  One
+   vector literal prevents a whole file from being read, while fifty calls to
+   an optional helper may block nothing.  Counts also depend more on which
+   packages were selected than on what kg users want to do.  Pre-registering
+   50/20/10 as thresholds prevents post-hoc rationalisation, but does not make
+   the thresholds meaningful.
+2. **The representation menu is incomplete.**  Variable payload can remain
+   inside the caller's arena without being either a linked list, a contiguous
+   run in the object free list, or a `malloc` allocation.  A stable
+   `FeObject` header plus a separately managed, compactable payload region is
+   the most important candidate for fe and was absent.
+3. **The proposed chain is not a performant vector.**  It costs at least one
+   16-byte cell per element and makes `aref`/`aset` linear.  It is a useful
+   control in a spike, not an acceptable expected outcome for a plan whose
+   goal includes performance.
+4. **The plan separates a type from the operations that make it usable.**
+   Shipping vectors in Phase 23 and only generalising sequence functions in
+   Phase 26 creates a deliberately broken interval.  Reader, writer, access,
+   mutation, equality and the core sequence surface belong in one vertical
+   slice.
+5. **It skips the data-model costs fe already pays.**  Strings are
+   NUL-terminated seven-byte cell chains; symbol interning scans every
+   interned symbol and compares those chains; lexical environments are
+   alists; every integer result is a fresh 16-byte object.  Adding a vector
+   without measuring those paths is not a performance plan.
+6. **`symbol_list` is not an obarray-shaped problem already solved.**
+   `FindInternedSymbol()` linearly walks `ctx->symbol_list`.  It is a correct
+   permanent root and enumeration list, but it is the absence of an index,
+   not a reusable hash-table implementation.
+7. **“The function surface is nearly closed” is true only of the current
+   forecast corpus.**  The checked-in audit reports four missing names for
+   exactly that corpus.  fe's compatibility manifest still records unsupported
+   reader/type families and dozens of deliberate semantic divergences.  The
+   audit is useful; the broader claim is not.
+8. **The original Phase 22 runs even if Phase 21 funds no type.**  In that
+   outcome all three prototypes are throwaway work with no consumer.
 
-**fe's whole type set** (`FeType`, `fe/fe.h:399`): `FeTPair`, `FeTFree`,
-`FeTNil`, `FeTDouble`, `FeTInteger`, `FeTSymbol`, `FeTString`, `FeTFn`,
-`FeTMacro`, `FeTPrimitive`, `FeTNativeFn`, `FeTPtr`, plus three `FeTFex*`
-extension slots.  **There is no vector, no hash table, no record, no
-char-table and no bool-vector.**  That is the gap this plan is about, and
-it is a gap in the *data model*, not in the function surface — phases
-13–20 closed the function surface almost completely.
+The better sequence is therefore:
 
-**The function surface is nearly closed.**  `utils/forecast/AUDIT.md` at
-this pin: COVERED 246 names over 2268 references; MISSING **4 names over 4
-references**, and all four are the same family —
+1. measure engine costs and name the compatibility milestones;
+2. decide the storage/value architecture against those costs;
+3. land the private storage substrate with no half-implemented Lisp type;
+4. add vectors together with their sequence contract;
+5. use the same substrate to repair strings;
+6. index symbols and extract a real hash substrate; and
+7. add user hash tables, records, or lexical-environment work according to
+   named blockers rather than token counts.
 
-| Refs | Name |
-| ---: | --- |
-| 1 | `gethash` |
-| 1 | `make-hash-table` |
-| 1 | `maphash` |
-| 1 | `puthash` |
+The expected architecture is **stable `FeObject *` handles plus a bounded
+payload region inside the existing arena**.  A tagged-value rewrite remains a
+real candidate, not a rhetorical one, but it has to beat the evolutionary
+design on kg's measured workloads by enough to pay for an API-wide migration.
+nelisp's 8-byte tagged-word work is evidence that per-value boxing can matter;
+its measured crisis was a 1.80 GB vendor load with 72-byte cons boxes.  fe
+already has 16-byte conses and a 1 MiB budget.  The lesson to import is
+“measure the representation”, not “copy the representation”.
 
-with the audit's own watch table reporting **vectors 0 references, records
-0 references**.
+### What this review takes from nelisp
 
-**The arena is a uniform fixed-cell heap.**  `Value` is a union that
-`static_assert`s to exactly `sizeof(FeObject*)` (`fe_internal.h:180-194`),
-`FeObject` is two of them, and `ctx->objects` is a flat array of
-`object_count` such cells.  kg's arena is 1 MiB, which partitions to
-`total_slots` **56147**.  There is no variable-length allocation in fe at
-all.  The existing precedent for variable-length data is a **chain of
-cells**: a string carries `StringBufferSize = sizeof(FeObject*) - 1` = 7
-payload bytes per cell (`fe_internal.h:228`), so an N-byte string costs
-`ceil(N/7)` slots.
+The reference is evidence, not a target architecture:
 
-**The collector reverses pointers.**  Sub-plan 09C's mark phase stores its
-links in a pair's own `car`/`cdr` words with the collector's flags in the
-low bits, which is why `fe_internal.h:298-300` requires bits 0, 1 and 2 of
-every object pointer to be free.  Any new object shape has to be markable
-under that scheme.
+- `/opt/nelisp/docs/02-scoping.org` supplies the useful scope rule: define a
+  concrete completion condition and keep attractive later layers out.
+- `/opt/nelisp/docs/design/146-low-memory-value-rep-and-gc.org` records why
+  nelisp eventually funded tagged values and moving collection: per-value
+  boxing was measured as the dominant cost at its scale.
+- `/opt/nelisp/docs/design/147-box-layout-container-shrink.org` records the
+  corrective result that shrinking vector/record slots did not move its
+  vendor-load peak, while shrinking conses did.  “Vectors are a foundational
+  type” and “vectors are the memory bottleneck” are different claims.
 
-**Headroom, measured at this pin**: post-`kg_lisp_init()` live is 5959 of
-56147 slots (10.6%), free 50188, after the post-prelude collect.
+That last result is a direct reason for Phase 21: even a sensible
+representation optimisation can be irrelevant to the workload that motivated
+it.
 
-## The instrument answered, and the answer cannot be trusted yet
+## Goal and boundaries
 
-Phases 13–19's Declined section deferred hash tables, vectors and records
-with a named condition: *"Phase 15's forecast audit re-answers this with
-kg-relevant data; a nonzero verdict is recorded in the audit output either
-way, and reopening requires its own phase with that evidence."*
+The goal is not “run arbitrary ELPA”.  It is:
 
-That audit now exists and its verdict is: hash tables 4 references,
-vectors 0, records 0.  Read literally, that closes all three — decline and
-move on.
+> Make fe a predictable, extensible and efficient Elisp substrate for kg,
+> able to add ordinary aggregate types without abandoning its bounded-memory
+> contract, while improving the hot paths kg actually exercises.
 
-**Do not read it literally.**  The corpus is `utils/forecast/` — an
-`init.el` and hand-written package sketches — plus kg's own `lisp/*.el`.
-Every line of it was written by someone who knew kg has no vectors.  A
-demand instrument fed only code written *against the current surface*
-cannot measure demand for a surface that does not exist; it will report
-zero for every absent feature, forever, and that zero is an artifact of
-the corpus rather than a fact about Elisp.
+The following remain the default contract unless Phase 22 proves that one
+must change:
 
-This project has made exactly this mistake once already and paid for it.
-The embedded-prelude program's Phase 1 gate asked for names "nothing in
-the tree has ever called" while 417 of the 532 corpus items were
-`test/lisp-compat`, a conformance suite whose *purpose* is to call every
-name; the set was empty before it was measured, and the gate had to be
-re-read against the plan's own goal statement before the phase could
-proceed.  The lesson recorded there — **beware any gate a corpus gets to
-decide** — applies here with the sign flipped: there the corpus made a set
-look empty, here it makes demand look absent.
+- one caller-owned arena is fe's complete memory budget;
+- core fe performs no `malloc` and gains no runtime dependency;
+- a failure to allocate is a structured, recoverable arena exhaustion;
+- host-visible `FeObject *` values remain stable for their lifetime;
+- the host roots persistent values explicitly and pointer extension objects
+  remain traceable through the mark callback;
+- collection uses no C stack proportional to the object graph; and
+- kg remains the primary downstream.  Generic embeddability matters, but kg
+  does not pay for an abstract VM project it does not need.
 
-So the first phase of this plan implements nothing.  It fixes the
-instrument, and everything after it is conditional on what the fixed
-instrument says.
+Explicit non-goals for this wave:
 
-## Ground rules (all phases)
+- full Emacs compatibility, ELPA percentage targets, or `cl-lib` as a whole;
+- bytecode, JIT, native compilation or an arena image;
+- text properties, overlays, char-tables and bool-vectors;
+- moving host-visible objects;
+- a growable or host-heap-backed default arena; and
+- replacing kg's C buffer/window/display model with Lisp objects.
 
-These restate standing project discipline; a phase agent reads this list
-as binding.  They are unchanged from `2026-08-10-elisp-phases-13-19.md`
-except where noted.
+## Baseline at the plan's pin
 
-- **fe-first pin discipline.**  A change to fe lands as a commit in `fe/`
-  (branch `more-elisp-work`) with fe's own suite green
-  (`make -C fe check complexity-check pmccabe-check format-check`, and the
-  same for `fe/tiny-regex-c`), then the kg-side commit moves the pin and
-  adapts.
-- **Version macros.**  A language-behaviour change bumps
-  `FE_LANGUAGE_VERSION`; a C-contract change bumps `FE_API_VERSION`; both
-  are recorded in `doc/fe-upstream.md` and `src/lisp_core.c`'s
-  `static_assert`s move with the pin.  An addition-only change still bumps
-  — the compile-time tripwire is the point.  The pin this plan starts from
-  is 12/14.
-- **Manifests are exhaustive.**  Every new fe primitive gets a
-  `fe/compat/features.json` row; every new kg native or prelude definition
-  gets a `test/lisp-compat/features.json` row *and* a case file under
-  `test/lisp-compat/cases/`.  `make check` fails otherwise; do not
-  "temporarily" silence it.
-- **Ratchets.**  scc/pmccabe/coverage/gateway/prelude-census ceilings are
-  re-set at measured actuals with rationale and before/after proof in the
-  commit message, never in a comment beside the knob.  `src` scc is at
-  **10642/10642 with zero slack** and the per-file cap is 519.
-- **The GC-root rule.**  `MakeObject()` ends in an unconditional
-  `FePushGC`, so every allocation roots itself on a fixed 4096-entry stack
-  (effective ceiling 4032).  A C loop that allocates a caller-controlled
-  number of times must collapse the stack each pass — `FeSaveGC` before,
-  `FeRestoreGC` + `FePushGC(accumulator)` each iteration.  This rule is
-  here because breaking it shipped a bug in the last program: a
-  `native_reverse` that capped every list at ~4030 elements, invisible to
-  a suite whose longest list is a few dozen.  **Any phase adding a
-  sequence type must include a case above 4032.**
-- **A fixture must need nothing fetched.**  The hosted CI box resolves
-  internal names only.  This binds Phase 21 hardest: a corpus of real
-  third-party Elisp has to be vendored, not downloaded at test time.
-- **Docs move with behaviour**: `README.md`, `doc/kg.1`, `src/help.c` and
-  `make docs-check` for anything user-visible; `doc/lisp-api.md` for the
-  Lisp surface; `doc/TODO.md` rows retired when a phase lands them.
-- **Green light** = `.ci/run-ci-steps.sh --parallel` all-PASS.  `make
-  check` alone is an iteration signal, not a completion signal.
-- **Never push.**  Commits carry the session's standard trailers.
+The facts below are the starting constraints, not estimates.
+
+- Superproject `adabf89` pins fe `c3044f4`,
+  `FE_API_VERSION == 12` and `FE_LANGUAGE_VERSION == 14`.
+- kg's 1 MiB arena partitions into **56147 object cells**.  On this tree,
+  `./test/kgbatch -a /dev/null` reports **50188 free** after
+  `kg_lisp_init()`, hence **5959 reachable live**, with a startup high-water
+  mark of **6819** and the one deliberate post-prelude collection.
+- On a 64-bit build, one `FeObject` is 16 bytes: two pointer-sized `Value`
+  words.  Every integer and float is boxed in one such object.
+- A string is a chain of `FeTString` cells carrying seven bytes each.  It has
+  no stored length, cannot contain NUL, and indexing/copying walks the chain.
+- An interned symbol owns several ordinary cells and is itself kept forever
+  through `symbol_list`.  Every interning hit or miss linearly scans that
+  list, comparing name chains.
+- A lexical environment is an alist.  Lookup and parameter binding allocate
+  and traverse ordinary pairs.
+- The collector sweeps all 56147 cells and uses pointer reversal for pairs
+  and one-child objects.  `FeTPtr`/`FeTFex*` children are reported by the
+  host mark callback.
+- `MakeObject()` pushes every new object onto a fixed GC-root stack.  Any
+  caller-controlled allocation loop must restore its checkpoint as it goes;
+  tests above 4032 elements remain mandatory.
+- The current forecast is an exact report about kg's shipped Lisp and three
+  hand-written target sketches.  It is not a representative sample of Elisp
+  packages in the wild.
+
+These figures must be re-recorded if work starts at a different pin.
+
+## Evidence policy
+
+Two questions require different evidence and must not be collapsed into one
+score.
+
+### Capability evidence
+
+A compatibility target is a **named use case or package**, with:
+
+- why kg wants it;
+- its exact version, source and licence;
+- the first unsupported reader form, type, special form and function family;
+- whether the blocker is on an unconditional load path; and
+- a small end-to-end acceptance case that will become green.
+
+A single unconditional `[...]` is sufficient evidence for vectors because it
+prevents parsing.  Repeating it fifty times does not make the package fifty
+times more valuable.  Conversely, a thousand references in code kg does not
+intend to run fund nothing.
+
+The forecast audit remains a cheap discovery tool and drift gate for kg's own
+target corpus.  A broader corpus may be mined manually to produce a shortlist,
+but this plan does **not** require vendoring arbitrary packages into
+`utils/forecast/wild/` or turn their aggregate reference counts into CI
+policy.  Vendor a package only after it becomes a named target and its licence
+and fixture cost are accepted.
+
+### Performance evidence
+
+Counters decide algorithmic shape; repeated wall-clock measurements decide
+whether a shape matters to users.  A phase does not argue from elapsed time
+alone, and it does not optimise a counter merely because the counter exists.
+
+Every performance claim records:
+
+- commit and fe pin;
+- compiler and flags;
+- arena layout;
+- exact workload and result;
+- allocation/live/collection counters;
+- median and dispersion for wall time where relevant; and
+- the same measurement before and after.
+
+Wall time is a report, not a CI gate.  Deterministic shape assertions are the
+gate.
+
+## Ground rules for every implementation phase
+
+- **fe first.**  A fe change lands and passes fe's own
+  `check`, `complexity-check`, `pmccabe-check` and `format-check` before kg
+  moves the pin and adapts.
+- **Version tripwires move deliberately.**  Language behaviour moves
+  `FE_LANGUAGE_VERSION`; a C contract or representation-facing API moves
+  `FE_API_VERSION`.  `doc/fe-upstream.md` records both.
+- **Manifests stay exhaustive.**  Freeze oracle cases before implementation,
+  then add every new primitive/native/prelude definition to its owning
+  manifest.  A recorded divergence that starts agreeing is fixed, not ignored.
+- **The fixed arena is tested small as well as large.**  New allocation
+  machinery gets exhaustion and recovery tests in arenas that collect often,
+  not only kg's roomy 1 MiB configuration.
+- **GC stress is mandatory.**  Aggregate tests cover cycles, self-reference,
+  host-pointer edges, mutation immediately before collection, collection
+  during construction, and more than 4032 elements.
+- **No unpriced split.**  Cell capacity, frame capacity and payload bytes are
+  reported separately.  A design must not make one pool look healthy by
+  silently starving another.
+- **No partial public type.**  A private allocator may land alone.  A public
+  type lands with reader/writer behaviour, predicates, equality, mutation,
+  C accessors, error contracts and the core operations packages will use.
+- **Docs and ratchets move with the code.**  Representation changes update
+  fe's `doc/implementation.md` and `doc/c-api.md`.  User-visible language
+  changes update both language/API documentation and kg's Lisp documentation.
+- **Green light is the complete CI pipeline**, not only `make check`.
+
+---
+
+## Phase 21 — Measure the engine, not a guessed feature set
+
+This phase implements no language feature and changes no default behaviour.
+
+### 21.1 Deterministic fe counters
+
+Add a compile-time `FE_PERF_COUNTERS` facility that compiles to nothing in a
+normal build, following kg's `KG_PERF_COUNTERS` rule.  At minimum count:
+
+- object allocations by final type, plus reclaimed objects;
+- string cells and source bytes created/copied;
+- symbol interning calls, candidate symbols examined and name bytes compared;
+- lexical binding cells examined and parameter-binding pairs allocated;
+- function-cell indirections followed;
+- evaluator frame pushes and dispatches by broad family;
+- macro expansions;
+- GC cells examined, newly marked and reclaimed; and
+- peak live cells, GC-root depth and frame depth (the existing arena stats,
+  reported beside the new totals rather than duplicated).
+
+Instrumentation must not call the clock, allocate, or alter rooting.  A
+non-counting build has identical `sizeof` results and generated code at each
+instrumented site apart from ordinary compilation noise.
+
+### 21.2 Workload battery
+
+Build an in-process fe runner and extend kg's existing Lisp benchmark cases so
+both layers exercise the same named shapes:
+
+1. bare context open/close;
+2. kg prelude and post-prelude collection;
+3. the representative init and every shipped kg Lisp package;
+4. the existing list walk, arithmetic loop, macro-heavy loop and deep call;
+5. intern hits and misses after 128, 1024 and 8192 distinct symbols;
+6. lexical lookup by environment width and depth;
+7. strings at 0, 7, 8, 256 and 8192 bytes;
+8. sparse-garbage and dense-live collections; and
+9. an interactive command that calls a small Lisp function on every
+   invocation.
+
+Each workload checks its answer.  Counter JSON is checked for schema and
+deterministic relationships; wall time is emitted under `test/.results/` and
+is not gated.
+
+### 21.3 Capability shortlist
+
+Produce a short table of two or three packages or init-file capabilities kg
+might actually want next.  This is a decision aid, not vendored test data and
+not an implementation commitment.  For each, report first blockers as
+described under “Capability evidence”.  Include kg's own likely future uses:
+Lisp keymaps/configuration tables, package-local caches, and structured state.
+
+### Gate and result
+
+The phase closes with a checked-in baseline report naming:
+
+- the top three sources of cell allocation;
+- the top three sources of lookup/dispatch work;
+- which workloads collect and why;
+- current live/peak arena margins; and
+- the capability shortlist.
+
+No optimisation is allowed in the counter commit.  Phase 22 uses these
+numbers; if the data model is not material to any measured or named target,
+the wave stops here.
 
 ---
 
-## Phase 21 — Make the demand instrument honest
+## Phase 22 — Storage/value architecture decision
 
-**Implements nothing.**  Its entire deliverable is a number that was not
-produced by a corpus written against kg's current surface.
+Conditional on Phase 21 finding a material aggregate/string/lookup constraint
+or a named capability blocker.  This is a spike and ADR phase.  Its prototype
+code does not land in release sources.  It compares two serious designs and
+one control.
 
-Work:
+### Design A — cell chains, as the control
 
-- Vendor a corpus of **real, unmodified third-party Elisp** under
-  `utils/forecast/wild/` — code whose authors had never heard of kg.
-  Licence-check every file and record provenance and licence per file;
-  prefer GPL-compatible sources kg can legally carry, and prefer breadth
-  (many small packages) over depth (one large one), since the question is
-  *which features appear at all*, not how often one package uses them.
-- Teach `utils/forecast_audit.py` to partition its report by corpus
-  origin, so `wild/` demand and hand-written-sketch demand are never
-  summed into one number again.  The existing MISSING/COVERED tables stay;
-  they gain a column, or a second table.
-- Re-run `make forecast-audit`, and record the new MISSING table and the
-  new vectors/hash/records watch table in the phase's results.
+A vector header points to an ordinary pair chain, one cell per element.
 
-**Gate:** none — this phase is unconditional and cheap, and it is the only
-one in the plan that is.  It fails only if no vendorable corpus exists, in
-which case it says so and the whole plan stops, because every phase below
-depends on its number.
+- Good: almost no collector work, stable pointers, no new allocator.
+- Bad: at least 16 bytes per element, O(n) random access, poor cache locality,
+  and the GC-root-stack loop discipline leaks into every constructor.
 
-**What its output means for the rest of the plan.**  State the thresholds
-*before* looking, so the number cannot be rationalised afterwards:
+Measure it so the cheapest implementation has a number.  Do not select it for
+public vectors.  It remains suitable for lists, which are already represented
+that way.
 
-- Vectors at **≥ 50 references across ≥ 5 distinct packages** funds Phase
-  23.  Below that, vectors are declined and 24–26 fall with them.
-- Hash tables at **≥ 20 references across ≥ 3 packages** funds Phase 24
-  independently of vectors.
-- `cl-defstruct`/records at **≥ 10 references** funds Phase 25, which is
-  additionally gated on 23.
+### Design B — stable objects plus an in-arena payload region
 
-These are pre-registered and deliberately not adjustable by the phase that
-measures them.
+This is the recommended design to beat.
 
-## Phase 22 — The variable-length object question
+- Keep the current stable 16-byte `FeObject` cells for conses and object
+  headers.
+- Partition the caller's arena into context, evaluator frames, stable object
+  cells and a variable-size payload region.  The split is explicit in a new
+  open-options API and visible in arena statistics.
+- Allocate payload blocks with a bump pointer.  A block records its byte size
+  and stable owning object.  A block is live only when that owner is marked
+  and its current payload field still names that block; this distinction makes
+  a replaced block dead even though its owner survives.  On exhaustion, mark
+  the object graph, discard dead blocks, slide live blocks down with
+  `memmove`, and update only the owning object's payload pointer.  Compaction
+  runs after marking restores the graph and before the cell sweep clears mark
+  bits or reuses an owner.
+- A vector payload is a contiguous `FeObject *` array: 8 bytes per element on
+  the target build and O(1) indexing.  Its elements point to stable objects,
+  so moving the payload rewrites no Lisp edge.
+- A string payload carries an explicit byte length followed by bytes.  It can
+  contain NUL and move without changing string identity.
+- Marking a vector iterates its elements and invokes the existing non-recursive
+  marker on each child.  The vector is already marked, so a child cycle back
+  to it terminates.  Payload compaction occurs only after pointer reversal has
+  restored the graph.
+- Replacing/resizing a payload publishes the new block through the stable
+  header; the old block becomes garbage.  A collection may occur at every
+  allocation boundary.
 
-fe has no variable-length allocation.  Every data type this plan might add
-is variable-length.  **This question is prior to all of them and it is
-fe's to answer**, exactly as the arena image's pointer-offset question was
-in the embedded-prelude plan.  This phase answers it with a spike and
-ships no type.
+The price is a partition: unused payload bytes cannot satisfy a cell
+allocation and vice versa.  The spike must size and stress that split instead
+of hiding it.  A later page allocator could allow regions to trade pages, but
+it is not part of the first design.
 
-The three candidate representations, with what each costs:
+### Design C — a tagged `FeValue` word
 
-1. **A chain of cells**, as strings already are (7 payload bytes per cell).
-   Cheapest by far — the sweeper, the marker and the pointer-reversal
-   scheme all already handle chains, and `FE_API_VERSION` need not move
-   for the representation itself.  Costs O(n/k) indexing, which makes
-   `aref` linear.  For a keymap, a `cl-defstruct` instance or a small
-   sequence that is fine; for a 10k-element vector it is not.
-2. **A multi-cell extent**: one header cell plus ⌈n/2⌉ contiguous payload
-   cells taken from the arena.  O(1) indexing.  Costs the sweeper an
-   understanding of extents — the free list is currently a singly-linked
-   chain of individual cells, and a contiguous run cannot be carved from
-   it without compaction or a size-class allocator.  This is the change
-   that could destabilise the collector, and it is where the real risk in
-   this whole plan sits.
-3. **An out-of-arena handle**: an `FeTPtr`-shaped cell holding a
-   `malloc`'d block, freed by a finalizer at sweep.  O(1) indexing and no
-   collector change to the arena, at the price of giving fe its first
-   finalizer and its first allocation the fixed arena does not bound —
-   which is a real loss, because "the arena is the whole budget" is a
-   property kg's exhaustion handling and its four PTY exhaustion cases
-   currently rely on.
+Make Lisp values a public pointer-sized word:
 
-Work: spike all three far enough to measure, on a fixed benchmark
-(construct, index, iterate, collect) at n = 8, 256 and 8192; report slots
-consumed, indexing cost, collector diff size, and whether the
-pointer-reversal invariant survives.
+- immediate nil, t and fixnums;
+- aligned pointers to heap objects for conses, floats, strings, symbols and
+  aggregates;
+- two `FeValue` words in a cons; and
+- `FeValue` elements in vectors and environment slots.
 
-**Gate:** a Decision, recorded in `doc/fe-upstream.md` with its
-measurements, naming one representation and saying why the other two lost.
-If option 2 cannot be made to work without compaction, say so — that is a
-finding, and it pushes the answer to 1 or 3 rather than pushing the
-collector.
+This removes integer allocation, can shrink several internal paths, and is the
+direction nelisp's measurements eventually justified.  It also:
 
-**A phase that ends "chain of cells, and `aref` is linear" is a success**,
-not a failure.  It bounds every phase after it, which is the point.
+- breaks virtually every fe and kg C signature that currently passes
+  `FeObject *`;
+- requires a new mark-bit/side-metadata design;
+- changes extension callbacks and root handling;
+- creates an ABI cut with no incremental compatibility shim worth keeping;
+  and
+- still needs a variable-payload allocator for strings and vectors.
 
-## Phase 23 — Vectors
+It is a valid “fe 2” candidate only if boxed scalar churn is a leading measured
+cost.  Do not select it merely because tagged values are conventional.
 
-Conditional on 21's threshold and 22's Decision.
+### Explicitly rejected control — host `malloc` payloads
 
-Work: `[...]` reader syntax and printing; `vector`, `make-vector`,
-`vconcat`, `aref`, `aset`, `vectorp`, and `length`/`elt` extended to
-vectors.  Reader syntax is the half that is easy to forget and the half
-packages actually use — a `[...]` literal in a keymap or a `cl-defstruct`
-default is far more common than an explicit `make-vector` call.
+A `FeTPtr`-like header pointing to `malloc` storage makes O(1) vectors easy,
+but it breaks the arena's role as the complete budget, introduces allocation
+failure and finalisation paths outside arena exhaustion, and makes
+`FeCloseContext`/`longjmp` ownership harder.  It is not a candidate in this
+wave.  Reopening it is an explicit decision to change fe's core product
+contract, not a shortcut inside a vector phase.
 
-`FE_LANGUAGE_VERSION` moves.  Manifest rows in both compat manifests.  A
-case above 4032 elements, per the ground rules.
+### Spike
 
-**Gate:** the audit's vectors row from Phase 21, and a slot cost per
-element from Phase 22 that the 56147-slot arena can carry — a
-representation costing more than one slot per two elements makes a
-1000-element vector 1% of the arena, which needs saying out loud before it
-is shipped rather than after.
+Prototype A and B as private aggregate types far enough to run:
 
-## Phase 24 — Hash tables
+- create, sequential scan, random read and random write at n = 8, 256, 8192;
+- an aggregate containing itself and two aggregates forming a cycle;
+- an aggregate containing a host pointer object whose mark callback reports a
+  child; and
+- forced collection after every allocation in a deliberately small arena.
 
-Conditional on 21's threshold; independent of 23 unless 22's Decision
-makes a hash table a vector underneath.
+Run the unchanged kg prelude and representative init with the object region
+reduced to B's candidate split.  Use Phase 21's allocation trace to project
+the payload bytes their strings would occupy after Phase 25; do not call an
+otherwise-empty payload pool “headroom”.
 
-Work: `make-hash-table` (`:test` restricted to `eq`/`eql`/`equal` — a
-predicate table is a recorded divergence, as phases 13–19 already framed
-it), `gethash`, `puthash`, `remhash`, `maphash`, `hash-table-p`,
-`hash-table-count`, `clrhash`.  Printing and reading of `#s(hash-table
-...)` is explicitly **out of scope** and a recorded divergence; nothing in
-kg needs to serialise one.
+Design C is gated before code.  If scalar boxing is not one of Phase 21's
+three leading allocation/time costs, the measured trace eliminates C and the
+ADR says so.  If it is, first replay the allocation trace with nil/t/fixnum
+boxing removed.  Only when that projection could clear C's selection
+threshold is a throwaway tagged-value branch funded, far enough to run the
+arithmetic loop, list walk, macro-heavy loop and public-API compile probes.
+A full fe/kg API migration is an outcome to plan after selection, not
+throwaway work required merely to obtain a number.
 
-Note for whoever takes this: fe already has an obarray-shaped problem
-solved internally (`symbol_list`), and a hash table is the same structure
-with a user-visible face.  Look there before inventing storage.
+Record cell bytes, payload bytes, allocations, collection work, median time,
+binary size, affected public declarations and the code/complexity delta.
+“Collector diff size” alone is not a quality metric.
 
-**Gate:** the audit's hash-table row from Phase 21.  Today's figure is 4
-references from a single sketch file, which is *below* the pre-registered
-threshold — so on current evidence this phase does not run.
+### Decision rule
 
-## Phase 25 — Records, and the `cl-defstruct` question
+All selectable designs must:
 
-Conditional on 21's threshold and on 23 having shipped.
+- keep current compatibility cases green;
+- provide O(1) vector access, proved by a counter independent of vector length;
+- use 8n + O(1) payload bytes for n vector elements on a 64-bit build;
+- complete collection without graph-proportional C stack;
+- preserve structured exhaustion and recover after it; and
+- leave the stable-cell pool below one third of capacity on the prelude plus
+  representative-init workload, and the projected payload pool below one
+  third after charging every string in that trace plus the selected vector
+  capability fixture, at the selected kg arena split.
 
-Work: `record`, `make-record`, `recordp`, `type-of` extended, and enough
-of `cl-defstruct` to define and use a struct.  The honest scoping question
-is whether kg wants `cl-lib` at all; a `cl-defstruct` that works but whose
-`cl-` neighbours do not is a trap for a package author, and the phase
-should decide that explicitly rather than discovering it.
+Select B unless it fails one of those conditions.  Select C only if it either
+unlocks a condition B cannot meet, or on Phase 21's two most expensive real
+workloads it reduces allocations by at least 50%, improves median evaluator
+time by at least 25%, and regresses no existing workload by more than 10%.
+Those are return-on-migration thresholds, not package-popularity guesses.
 
-**Gate:** 21's records row, and a written answer to "does this commit kg
-to `cl-lib`?" before any code.
-
-## Phase 26 — Sequence generalisation
-
-Conditional on 23.  The phase that makes 23–25 worth having.
-
-Work: `elt`, `length`, `mapcar`, `mapc`, `mapconcat`, `append`, `copy-
-sequence` and the rest of the sequence surface extended over strings and
-vectors, not just lists.  Today several of these are list-only prelude
-Lisp, which is invisible until a package passes a vector and gets a
-`wrong-type-argument` from three frames down.
-
-**Gate:** each generalised name carries a compat case proving it against
-the Emacs oracle for all three sequence types.  A name that cannot be
-generalised without slowing the list path is left alone and recorded.
+The ADR records the selected layout, exact arena split, failure semantics,
+rooting model and why the alternatives lost.  If no design clears the gate,
+stop; no public aggregate type follows.
 
 ---
+
+## Phase 23 — Land the private payload substrate
+
+Conditional on Phase 22 selecting a design.  The description below assumes
+the expected Design B result; a Design C result requires a replacement phase
+plan reviewed before implementation.
+
+Land the arena payload allocator/compactor without adding reader syntax or a
+Lisp-visible type.
+
+### C contract
+
+- Add an options-bearing context-open API that makes frame/cell/payload
+  budgeting explicit.  Keep `FeOpenContext` as the documented default.
+- Extend `FeArenaStats` with payload capacity, current/live bytes,
+  high-water bytes, compaction count and payload allocation failures.  Existing
+  cell fields retain their exact meaning.
+- Keep object addresses stable.  Document that an internal payload pointer is
+  invalid after any allocation; do not expose one through the public API.
+- Establish one publish protocol for a new/replacement block, including the
+  roots required across allocation and the point at which the old block
+  becomes dead.
+
+### Verification
+
+- allocator unit tests for exact fit, one-byte-over, alignment, stale replaced
+  blocks, sliding overlap and deterministic compaction;
+- live/dead mixtures with owners in every part of the object array;
+- failure injection at every construction allocation;
+- GC-stress and sanitiser lanes;
+- close-context with live payloads and pointer extension objects;
+- an internal child-bearing test object proving mark/compact order; and
+- unchanged results and recorded arena margins for all Phase 21 workloads.
+
+`FE_API_VERSION` moves.  `FE_LANGUAGE_VERSION` does not: no Lisp program can
+construct the private test object and no reader rule changes.
+
+---
+
+## Phase 24 — Vectors and the sequence contract, as one slice
+
+Vectors are the first public proof because they exercise variable payload,
+child tracing, mutation, reader/writer syntax and O(1) access together.
+
+### fe-owned surface
+
+- `[...]` reader syntax and re-readable vector printing;
+- `vector`, `make-vector`, `vectorp`, `aref`, `aset` and `vconcat`;
+- `length` and `elt` over lists, strings and vectors at their owning layer;
+- public C construction, length, checked ref and checked set accessors; and
+- `type-of`/type-name, `eq`/`eql` identity and structural `equal` behaviour
+  frozen against the oracle before code.
+
+The primitive storage operations belong in fe.  Higher-order combinators may
+stay in kg's prelude, but in the same pin-moving kg commit they must accept the
+new sequence where Emacs does:
+
+- `mapcar`, `mapc` and `mapconcat`;
+- `append` and `copy-sequence`; and
+- the shipped `seq-` shim where its contract is generic sequence rather than
+  list.
+
+Do not publish vectors while these still fail three frames down in list-only
+helpers.
+
+### Required cases
+
+- empty, one-element, nested and self-referential vectors;
+- reader error recovery for a missing bracket;
+- mutation observed through two references to the same vector;
+- bounds and wrong-type condition data;
+- a vector containing more than 4032 elements;
+- collection during construction and immediately after mutation;
+- random-access counters identical at n = 8 and n = 8192;
+- list/string/vector oracle cases for every generalised sequence name; and
+- one named capability from Phase 21 that previously failed at vector syntax.
+
+Report cell and payload cost for n = 0, 1, 1000 and 8192, including temporary
+construction high-water, not only retained size.  `FE_LANGUAGE_VERSION` and
+the vector C API version move together.
+
+---
+
+## Phase 25 — Length-bearing, binary-safe strings
+
+Use the same stable-header/payload mechanism to replace the seven-byte cell
+chain.  This phase is justified even if no external package mentions a new
+function: strings already dominate source reading, symbol names and kg's C
+boundary.
+
+### Representation and API
+
+- A string object has stable identity, explicit byte length and an arena
+  payload that may contain NUL.
+- Add `FeMakeStringBytes(ctx, bytes, length)` and a length-aware copy API.
+  Keep `FeMakeString` as the NUL-terminated convenience wrapper.
+- Do not expose a borrowed payload pointer unless its “valid until the next
+  possible allocation” lifetime can be made impossible to misuse in kg.
+- Symbol names use the same representation without changing symbol identity.
+- Reader, writer, equality, order, substring and formatting stop using
+  `strlen` as a data-model operation.
+
+The representation being binary-safe does not by itself promise Emacs'
+unibyte/multibyte duality.  The language contract for this phase is UTF-8
+text plus explicit bytes, with character-indexed operations continuing to use
+kg's existing codepoint policy.  Freeze oracle cases for NUL, non-ASCII,
+invalid byte input, `aref` and `aset` before deciding exactly which forms
+agree and which remain documented divergences.
+
+### Performance and correctness gates
+
+- embedded NUL round-trips through read/write and the C API;
+- 0, 7, 8, 256 and 8192-byte strings survive compaction;
+- symbol lookup remains correct when its name payload moves;
+- string mutation preserves the stable header even when a codepoint-width
+  change requires a replacement block;
+- old string/symbol goldens stay byte-identical except where a planned
+  divergence closes; and
+- Phase 21's string, reader, prelude and interning counters are reported
+  before/after.
+
+This phase may reduce cells while increasing payload pressure.  Both numbers
+must be shown.
+
+---
+
+## Phase 26 — Index symbols and extract the hash substrate
+
+This is an internal performance phase before a user hash-table API.
+
+Keep `symbol_list` as the permanent GC root and enumeration order.  Add an
+arena-owned open-addressed index from name bytes/hash to the stable symbol
+object.  `FeMakeSymbol` and `intern-soft` consult the index; creating a symbol
+publishes it to both structures as one recoverable operation.  Give the index
+a private stable owner rooted by the context, so it follows Phase 23's one
+payload-ownership rule rather than teaching the compactor a context-only
+exception.
+
+Requirements:
+
+- a miss never interns, preserving `intern-soft`'s double-probe contract;
+- resizing and tombstone policy allocate only through the payload substrate;
+- hash collisions compare length and bytes, including embedded NUL where the
+  symbol-name policy permits it;
+- partial failure leaves neither a symbol visible only in the list nor only
+  in the index;
+- `FeCloseContext` and collection need no special external finaliser;
+- a debug check can rebuild/compare the index against `symbol_list`; and
+- candidate-probe counters grow approximately O(1), not O(symbol count), at
+  the Phase 21 sizes.  The gate is a bounded probe relationship, not a flaky
+  time limit.
+
+At the same time, define the internal hash/equality contracts user tables will
+need for `eq`, `eql` and `equal` keys.  Do not expose a Lisp hash table yet.
+Cycles, mutable keys, float corner cases and a recursion/step bound must have
+answers before Phase 27 builds on them.
+
+---
+
+## Phase 27 — User hash tables
+
+Conditional on the Phase 26 substrate being green and either:
+
+- a named kg/package capability needs a table; or
+- kg itself has an internal Lisp-facing cache/configuration use that is
+  clearer as a hash table than as an alist.
+
+Implement:
+
+- `make-hash-table` with `:test` restricted to `eq`, `eql` and `equal`;
+- `gethash`, `puthash`, `remhash`, `clrhash` and `maphash`;
+- `hash-table-p`, `hash-table-count` and `hash-table-test`;
+- checked C accessors if kg needs them; and
+- opaque printing.  `#s(hash-table ...)` reading/printing, weakness,
+  user-supplied test functions and Emacs' full sizing/rehash knob set are
+  explicit divergences, not accepted-and-ignored arguments.
+
+Freeze semantics for mutation during `maphash`, re-entrant callbacks, a key
+mutated after insertion, NaN/signed-zero keys and cyclic `equal` structures
+before implementation.  Exercise more than 4032 entries, collision-heavy
+tables, repeated grow/clear cycles, self-reference and table↔table cycles
+under GC stress.
+
+The acceptance result is an end-to-end named capability, not “the audit now
+has N fewer missing names”.
+
+---
+
+## Phase 28 — Choose the next semantic substrate
+
+Do not automatically continue from hash tables to `cl-defstruct`.  Re-run the
+Phase 21 measurements and capability table, then choose one separately
+planned branch:
+
+1. **First-class lexical environments.**  This is the strongest likely next
+   semantic investment: it can close `eval`'s LEXICAL argument,
+   `macroexpand` environments, the one-argument-`defvar` closure residual and
+   potentially alist lookup costs.  It needs an explicit environment object
+   and a closure contract; it is not a vector footnote.
+2. **Records.**  Add `record`, `make-record`, `recordp` and accessors as a
+   typed vector-like object if a named target needs them.  Reader `#s(...)`
+   is a separate serialization decision.
+3. **`cl-defstruct`.**  Treat this as a library/macro compatibility project
+   after records, not as part of the record representation.  It does not
+   commit kg to all of `cl-lib`, but the supported `cl-` neighbourhood must
+   be stated before advertising it.
+4. **Macro-expansion caching or another evaluator optimisation.**  fe expands
+   macros on every invocation.  Take this branch if Phase 21 still shows it
+   dominating realistic code after the storage work; preserve macro
+   redefinition semantics explicitly.
+5. **Tagged `FeValue` migration.**  Reopen Design C if arithmetic/scalar
+   boxing remains a leading cost and now clears the same migration thresholds
+   it failed in Phase 22.
+
+Each branch gets its own plan and compatibility milestone.  None is selected
+by aggregate wild-corpus references.
 
 ## Declined and watch items
 
-- **Bytecode.**  Declined 2026-08-07 with counters; the five triggers and
-  the "fund instrumentation first" rule stand.  Nothing here reopens it,
-  and nothing here should: `/opt/nelisp` has a bytecode interpreter *and*
-  a JIT, and it is a self-hosting VM project, which kg is not.
-- **The arena image / pre-parsed embedding.**  Declined 2026-08-18 with
-  measurements; see the embedded-prelude plan's Phase 3 results.  Its
-  finding is load-bearing here too: fe objects are pointer-linked with
-  mark bits in the low bits of `car`/`cdr`, so anything that wants to
-  serialise or relocate them inherits that problem.
-- **Char-tables and bool-vectors.**  Not planned.  They are Emacs'
-  answer to per-character data at Emacs' scale; kg's syntax and display
-  layers are C and do not want them.  Reopening needs a demand number from
-  Phase 21's corpus like everything else.
-- **Text properties and overlays.**  Genuinely editor-relevant and
-  deliberately *not* in this plan, because they are a buffer-model
-  question rather than a data-model one and would double its scope.  A
-  separate plan, after this one, if Phase 21's corpus shows packages
-  reaching for them.
-- **`eval`'s LEXICAL argument, macro environments.**  Still need
-  first-class lexical environments; recorded, not planned.
-- **Growing the arena, or making it growable.**  Measured useless in a
-  different context (a 256 KiB arena runs the GC stress in 75.2 s against
-  142.7 s, only 1.9×, because marking the live set costs what sweeping the
-  rest does).  If Phase 22 picks representation 3 this needs revisiting,
-  which is one more reason 22 comes before 23.
+- **The original `utils/forecast/wild/` gate:** declined.  A selected,
+  licensed package may be vendored as a fixture; an arbitrary popularity
+  census is not roadmap authority.
+- **Linear-access vectors:** benchmark control only, not a shippable vector
+  representation.
+- **Out-of-arena aggregate payloads:** declined while the fixed arena remains
+  fe's product contract.
+- **A moving object heap:** not needed by the recommended design.  Payloads
+  may move behind stable headers; host-visible objects do not.
+- **Bytecode/JIT:** the 2026-08-07 measured decline stands.  Storage work does
+  not reopen it.
+- **Arena image/pre-parsed embedding:** the embedded-prelude plan's measured
+  decline stands.
+- **Text properties/overlays:** editor buffer-model work, not this data-model
+  wave.
+- **Char-tables/bool-vectors:** no current kg consumer; require their own
+  named capability.
+- **Weak hash tables:** require ephemeron/weak-edge collector semantics and
+  are not smuggled into the ordinary hash-table phase.
+- **Bignums:** the integer-overflow divergence stays recorded.  A payload
+  allocator makes bignums possible but does not fund them.
 
-## Sequencing rationale
+## Recommended execution summary
 
-Instrument before decision, and representation before type.
+Phase 21 is unconditional if this wave starts.  Phase 22 starts only if 21
+finds a material engine cost or named capability blocker; otherwise the wave
+ends with its baseline.  Phase 23 lands only after an architecture clears the
+ADR gate.  Vectors/sequences (24), strings (25), and symbol indexing (26) are
+the coherent foundation and are the recommended implementation wave.  Hash
+tables (27) require a named consumer.  Records, lexical environments and
+evaluator optimisation compete openly in Phase 28 rather than being assumed
+by a data-type checklist.
 
-Phase 21 is first because every threshold in this plan is a number it
-produces, and because the number the current corpus produces is an
-artifact of who wrote that corpus.  It is also the only phase that is
-unconditionally worth doing: even if every threshold below fails, kg ends
-up with an honest, re-runnable measure of how far its Lisp is from the
-Elisp packages actually get written in — which is the question behind the
-prompt, whatever the answer turns out to be.
-
-Phase 22 is second because fe cannot allocate a variable-length object at
-all, and all four types below are variable-length.  Deciding vectors
-before deciding how a vector is *shaped* would repeat the embedded-prelude
-plan's own Phase 3 error, where a variant was funded on "no fe change"
-that turned out to need the hardest fe change in the document.  22's
-cheapest outcome — chains of cells, linear `aref` — is a real answer that
-bounds everything after it.
-
-Then vectors (23) before records (25), because a record is a vector with a
-type tag under every implementation worth having; hash tables (24) beside
-them rather than after, because they need nothing from vectors if 22 says
-so; and sequence generalisation (26) last, because it is the phase that
-turns three new types into something a package author can actually use,
-and it is worthless before they exist.
-
-On current evidence, **the honest expected outcome of this plan is that
-Phase 21 runs, Phase 22 runs, and one or none of 23–26 clears its
-threshold.**  That is written here deliberately.  The last two programs
-each produced more value from a measured decline than from the code they
-shipped, and a plan whose phases are all expected to land is a plan whose
-gates are not doing any work.
+That sequence improves fe even if no third-party package ever loads: it leaves
+kg with measured evaluator costs, a bounded variable-payload mechanism,
+complete vectors, better strings and scalable interning.  It also leaves a
+clean stopping point after every phase, which is the scope discipline worth
+borrowing from nelisp.

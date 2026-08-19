@@ -3424,8 +3424,8 @@
    "cases": [
     "prelude-deferred-force"
    ],
-   "kg_test": "test/test_lisp.c:test_deferred_stub_indistinguishable",
-   "rationale": "Phase 1's C half: evaluates one deferred name's saved defalias form out of the second embedded array (src/lisp_prelude_deferred_generated.inc), replacing that name's function cell with the real closure. Called only by the stub internal--make-deferred-stub returns, once per deferred name per session. kg-policy: the deferred array is embedded, never read from disk, so the no-lisp/-directory guarantee is unchanged.",
+   "kg_test": "test/test_lisp.c:test_deferred_stub_indistinguishable test/test_lisp.c:test_deferred_stub_captured_value",
+   "rationale": "Phase 1's C half: returns the real closure one deferred name's saved defalias form defines, evaluating that form out of the second embedded array (src/lisp_prelude_deferred_generated.inc) on the first ask and answering from a per-name root after it. Called by the stub internal--make-deferred-stub returns, on every call of that stub. Evaluating the form writes the name's function cell, which is what gives a later call by name the direct route; a cell that no longer holds this name's own stub is put back, so a user redefinition installed before the first call survives it (finding 1 of doc/reviews/2026-08-19-embedded-prelude-phase21-adversarial-review.md). kg-policy: the deferred array is embedded, never read from disk, so the no-lisp/-directory guarantee is unchanged.",
    "source_name": "internal--force-deferred"
   },
   {
@@ -3919,10 +3919,12 @@
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
-    "prelude-mapcar"
+    "prelude-mapcar",
+    "prelude-deferred-capture-redefine",
+    "prelude-deferred-capture-force-redefine"
    ],
-   "kg_test": "test/test_lisp.c:test_list_library",
-   "rationale": null,
+   "kg_test": "test/test_lisp.c:test_list_library test/test_lisp.c:test_deferred_stub_captured_value",
+   "rationale": "The mapping itself (prelude-mapcar), plus the two cases that ask what a value CAPTURED out of this name's function cell means. They live here rather than under prelude-deferred-force because the rule they pin is a language-level one Emacs decides -- a captured function value is the definition captured, and the name is whatever was last defined -- while the mechanism they happen to run through, kg's deferred stub, has no Emacs analogue to compare. `mapcar' is the deferred name they use, which is what makes them the regression for doc/reviews/2026-08-19-embedded-prelude-phase21-adversarial-review.md finding 1.",
    "source_name": "mapcar"
   },
   {

@@ -22,11 +22,11 @@ that a name which *stops* being covered is a diff and not a silence.
 | `lisp/help-fns.el` | 160 | 10 |
 | `lisp/pipeline-text.el` | 57 | 6 |
 | `lisp/pipeline.el` | 51 | 13 |
-| `lisp/prelude.el` | 1549 | 122 |
+| `lisp/prelude.el` | 1548 | 122 |
 | `utils/forecast/target-init.el` | 75 | 7 |
 | `utils/forecast/forecast-snippet.el` | 112 | 13 |
 | `utils/forecast/forecast-wordcount.el` | 118 | 10 |
-| **total** | **2272** | **196** |
+| **total** | **2271** | **196** |
 
 ## Implemented-name set
 
@@ -58,7 +58,7 @@ Measured demand for the three families the plan's Declined section keeps off the
 | vectors | 0 | -- |
 | records | 0 | -- |
 
-## COVERED (246 names, 2268 references)
+## COVERED (246 names, 2267 references)
 
 | Refs | Name | Source |
 | ---: | --- | --- |
@@ -127,7 +127,6 @@ Measured demand for the three families the plan's Declined section keeps off the
 | 5 | `match-string` | kg-lisp |
 | 5 | `nreverse` | kg-lisp |
 | 5 | `sort` | kg-lisp |
-| 5 | `symbol-function` | fe-primitive |
 | 4 | `>` | fe-primitive |
 | 4 | `commandp` | kg-native |
 | 4 | `cond` | kg-lisp |
@@ -139,6 +138,7 @@ Measured demand for the three families the plan's Declined section keeps off the
 | 4 | `split-string` | kg-lisp |
 | 4 | `string-length` | kg-native |
 | 4 | `string-to-char` | kg-native |
+| 4 | `symbol-function` | fe-primitive |
 | 3 | `alist-get` | kg-lisp |
 | 3 | `assoc` | kg-lisp |
 | 3 | `boundp` | fe-primitive |

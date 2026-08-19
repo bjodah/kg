@@ -176,7 +176,8 @@ static const struct native_binding native_bindings[] = {
 	{ "process-status", native_process_status },
 	/* Phase 1 of doc/plans/2026-08-14-embedded-prelude.md: the deferred-
 	 * stub lookup. lisp/prelude.el's internal--make-deferred-stub is the
-	 * only caller, once per deferred name, at most once per process. */
+	 * only caller -- once per call of a stub, answering from a per-name
+	 * cache after the first, which evaluates the saved form. */
 	{ "internal--force-deferred", native_internal_force_deferred },
 	/* Phase 2 of doc/plans/2026-08-14-embedded-prelude.md: seven of the
 	 * ten names Phase 0.2 found eager on every startup path, moved from
@@ -232,6 +233,23 @@ struct lisp_prelude_deferred_entry {
 };
 #include "lisp_prelude_deferred_generated.inc"
 
+/* One row per generated index entry, and the whole of what this module
+ * remembers about forcing.  `held' is the single GC root the row owns:
+ * the stub install_deferred_stubs() put in the name's function cell
+ * until the row is forced, and the real closure the saved form defined
+ * after that.  It has to be a root and not a bare pointer -- a stub the
+ * user replaced and then dropped is collectable, and a stale slot
+ * address could compare equal to whatever the arena reused it for.
+ *
+ * The cost is one arena cons per row, held for the session; measured in
+ * the commit that added it, and paid to keep `symbol-function' on a
+ * deferred name worth what it is worth on an eager one. */
+static struct lisp_deferred_state {
+	FeRoot *held;
+	bool forced;
+} deferred_state[sizeof(lisp_prelude_deferred_generated_index)
+    / sizeof(lisp_prelude_deferred_generated_index[0])];
+
 /* The prelude gets its own evaluation, so it neither consumes nor shares
  * the budget of later user evaluations. */
 void evaluate_prelude(FeContext *context)
@@ -241,19 +259,87 @@ void evaluate_prelude(FeContext *context)
 	    &eval_options);
 }
 
-/* Evaluate the ONE deferred form named by `arguments' -- a symbol or
- * string, the same designator copy_fe_string() already accepts for
- * add-hook/provide/featurep -- replacing its function cell with the real
- * definition.  lisp/prelude.el's internal--make-deferred-stub is the only
- * caller: each stub calls this exactly once, on its own first
- * invocation, before forwarding that call's arguments to the freshly
- * installed function, which is what makes a deferred name behave the
- * same as an eager one from its very first call onward (see
- * install_deferred_stubs() below for the other half).
+/* Force ONE deferred entry and return the real closure the saved form
+ * defines -- the value a stub `apply's this call's arguments to, and the
+ * value every later call of that stub gets back without the form being
+ * evaluated a second time.
  *
- * A linear scan over 93 entries, not a hash lookup: this runs at most
- * once per deferred name per process, so the lookup's own cost is
- * nowhere near what the stub it replaces already saved. */
+ * WHAT IT MAY WRITE.  Evaluating the saved form, `(defalias 'NAME
+ * (lambda ...))', writes NAME's function cell as a side effect; that is
+ * how the ordinary path gets its fast route, since a later call BY NAME
+ * then resolves straight to the real closure with no stub in between.
+ * But the cell is the user's to redefine, and a redefinition installed
+ * before the first call must survive one -- Emacs' answer to
+ *
+ *   (let ((saved (symbol-function 'mapcar)))
+ *     (defalias 'mapcar (lambda (f s) 'replacement))
+ *     (list (funcall saved '1+ '(1 2)) (mapcar '1+ '(1 2))))
+ *
+ * is ((2 3) replacement), and kg answered ((2 3) (2 3)) until the review
+ * in doc/reviews/2026-08-19-embedded-prelude-phase21-adversarial-
+ * review.md.  So the cell this function found is read BEFORE the form
+ * runs and put back afterwards unless it was this entry's own stub: a
+ * cell holding anything else belongs to whoever wrote it.
+ *
+ * WHY IT CACHES.  A stub asks on every call, not only its first, which
+ * is what makes a captured stub a definition rather than a forwarder to
+ * the name.  Answering from `held' keeps that at one arena root and a
+ * function-cell read per call, and keeps the saved form's side effects
+ * -- one defalias -- to exactly once per name per session.
+ *
+ * `previous' is on the GC stack across the evaluation because nothing
+ * else need be holding it: once the form has written the cell, a
+ * redefinition the user did not otherwise retain is reachable from this
+ * C frame alone. */
+static FeObject *force_deferred_entry(FeContext *context, size_t index)
+{
+	const struct lisp_prelude_deferred_entry *entry
+	    = &lisp_prelude_deferred_generated_index[index];
+	struct lisp_deferred_state *state = &deferred_state[index];
+	FeObject *symbol, *previous = nullptr, *real;
+	size_t gc;
+	bool restore;
+
+	if (state->forced) {
+		return FeGetRoot(state->held);
+	}
+	gc = FeSaveGC(context);
+	symbol = FeMakeSymbol(context, entry->name);
+	if (FeIsFBound(context, symbol)) {
+		previous = FeGetFunction(context, symbol);
+		FePushGC(context, previous);
+	}
+	(void)FeEvaluateStringWithOptions(context, "prelude-deferred",
+	    (const char *)lisp_prelude_deferred_generated + entry->offset,
+	    entry->length, &eval_options);
+	real = FeGetFunction(context, symbol);
+	restore = previous != nullptr
+	    && (state->held == nullptr || previous != FeGetRoot(state->held));
+	if (state->held != nullptr) {
+		FeReleaseRoot(context, state->held);
+	}
+	state->held = FeCreateRoot(context, real);
+	state->forced = true;
+	if (restore) {
+		FeSetFunction(context, symbol, previous);
+	}
+	FeRestoreGC(context, gc);
+	/* Safe past the checkpoint: `held' is now the row's root. */
+	return real;
+}
+
+/* (internal--force-deferred NAME): the real closure NAME's saved form
+ * defines, forcing it on the first ask.  NAME is a symbol or a string,
+ * the same designator copy_fe_string() already accepts for
+ * add-hook/provide/featurep.  lisp/prelude.el's internal--make-deferred-
+ * stub is the only caller: every call of a stub asks, and the answer is
+ * what that call's own arguments are applied to (see that file for the
+ * Lisp half, and force_deferred_entry() above for what forcing may
+ * write).
+ *
+ * A linear scan over 93 entries, not a hash lookup: the scan is one
+ * strcmp chain against a name a stub has already resolved, and the
+ * measured alternative -- an eager prelude -- costs 5043 arena slots. */
 FeObject *native_internal_force_deferred(
     FeContext *context, FeObject *arguments)
 {
@@ -267,14 +353,7 @@ FeObject *native_internal_force_deferred(
 		if (strcmp(name, lisp_prelude_deferred_generated_index[i].name)
 		    == 0) {
 			free(name);
-			(void)FeEvaluateStringWithOptions(context,
-			    "prelude-deferred",
-			    (const char *)lisp_prelude_deferred_generated
-				+ lisp_prelude_deferred_generated_index[i]
-				    .offset,
-			    lisp_prelude_deferred_generated_index[i].length,
-			    &eval_options);
-			return object;
+			return force_deferred_entry(context, i);
 		}
 	}
 	free(name);
@@ -290,10 +369,16 @@ FeObject *native_internal_force_deferred(
  * closure (internal--make-deferred-stub's return value, lisp/prelude.el),
  * not a native: functionp, funcall, apply, a hook, and a recursive or
  * cross-deferred call all see a real FeTFn, indistinguishable from an
- * eager definition both before and after its first call replaces it.
+ * eager definition both before and after its first call forces it.
  * Runs once, right after evaluate_prelude() -- so the factory function it
  * calls is already defined -- inside kg_lisp_init()'s own setjmp, exactly
- * like evaluate_prelude() itself. */
+ * like evaluate_prelude() itself.
+ *
+ * It is also where deferred_state[] starts its life, root by root: the
+ * rows describe THIS context, and kg_lisp_init() may run again on a new
+ * one (test/test_lisp.c does it once per case), so a row is cleared
+ * before it is filled and the clearing happens ahead of the early return
+ * below rather than after it. */
 void install_deferred_stubs(FeContext *context)
 {
 	FeObject *factory_symbol
@@ -301,6 +386,7 @@ void install_deferred_stubs(FeContext *context)
 	FeObject *factory;
 	size_t i;
 
+	memset(deferred_state, 0, sizeof(deferred_state));
 	if (!FeIsFBound(context, factory_symbol)) {
 		/* Not the shipped prelude: a prefix of lisp/prelude.el ending
 		 * before the factory's own definition (utils/
@@ -320,5 +406,6 @@ void install_deferred_stubs(FeContext *context)
 		    context, factory, &symbol, 1, &eval_options);
 
 		FeSetFunction(context, symbol, stub);
+		deferred_state[i].held = FeCreateRoot(context, stub);
 	}
 }

@@ -5900,6 +5900,69 @@ static void test_deferred_stub_indistinguishable(void)
 	teardown_editor();
 }
 
+/* Finding 1 of doc/reviews/2026-08-19-embedded-prelude-phase21-adversarial-
+ * review.md: what a value CAPTURED out of a deferred name's function cell
+ * is.  It is that name's definition -- the one the prelude would have
+ * installed eagerly -- and it stays that definition however often the
+ * name is redefined afterwards; the name, meanwhile, means whatever was
+ * defined last.  Emacs decides both halves, and both are recorded against
+ * it (test/lisp-compat/cases/prelude-deferred-capture-redefine.json and
+ * prelude-deferred-capture-force-redefine.json); this is the same pair
+ * in-process, plus the two cell-level assertions a printed value cannot
+ * make.
+ *
+ * Two deferred names rather than one process each: `mapcar' is captured
+ * before anything forces it and `1-' after, which are the two orders the
+ * defect had different wrong answers for. */
+static void test_deferred_stub_captured_value(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	/* Captured, then redefined, then called: the capture answers the
+	 * prelude's `mapcar' and the redefinition survives being called
+	 * through.  kg answered ((2 3) (2 3)) here -- forcing wrote the
+	 * function cell whatever it held, so calling the captured stub
+	 * silently destroyed the line above it. */
+	CHECK(eval_eq("(let ((saved (symbol-function 'mapcar)))"
+		      "  (defalias 'mapcar"
+		      "    (lambda (function sequence) 'replacement))"
+		      "  (list (funcall saved '1+ '(1 2))"
+		      "        (mapcar '1+ '(1 2))))",
+	    "((2 3) replacement)"));
+	/* ... and the redefinition is still in the cell afterwards, which
+	 * is the half the printed value above cannot show on its own. */
+	CHECK(eval_eq("(mapcar '1+ '(1 2))", "replacement"));
+
+	/* Captured, CALLED (which is what forces it), then redefined, then
+	 * called again: a retained stub reads no cell, so the second call
+	 * answers the same definition as the first. */
+	CHECK(eval_eq("(let ((saved (symbol-function '1-)))"
+		      "  (list (funcall saved 5)"
+		      "        (progn (defalias '1- (lambda (n) 'replacement))"
+		      "               (funcall saved 5))"
+		      "        (1- 5)))",
+	    "(4 4 replacement)"));
+
+	/* The ordinary path is unchanged: a name forced BY NAME leaves the
+	 * real closure in its own function cell -- the cell no longer holds
+	 * the stub that was there before the call -- so later calls resolve
+	 * straight to it rather than through the stub. */
+	CHECK(eval_ok("(setq phase1-before (symbol-function 'string-join))"));
+	CHECK(eval_eq("(string-join (list \"a\" \"b\") \"-\")", "a-b"));
+	CHECK(eval_ok("(setq phase1-after (symbol-function 'string-join))"));
+	CHECK(eval_eq("(eq phase1-before phase1-after)", "nil"));
+	/* Both values still call the one definition the saved form made,
+	 * which is also the one the cell holds: forcing happens once. */
+	CHECK(
+	    eval_eq("(funcall phase1-before (list \"a\" \"b\") \"-\")", "a-b"));
+	CHECK(
+	    eval_eq("(funcall phase1-after (list \"a\" \"b\") \"-\")", "a-b"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
 /* Phase 2 of doc/plans/2026-08-14-embedded-prelude.md moved `reverse' from
  * a Lisp `while' loop to a native.  A native's own C locals are not part
  * of any `FeEvalFrame' `FeMarkEvaluatorRoots' walks, so they stay live
@@ -7558,6 +7621,7 @@ int main(void)
 	RUN(test_phase8_reader_literals);
 	RUN(test_phase8_library);
 	RUN(test_deferred_stub_indistinguishable);
+	RUN(test_deferred_stub_captured_value);
 	RUN(test_native_reverse_gc_stack);
 	RUN(test_prelude_source_file);
 	return test_summary();

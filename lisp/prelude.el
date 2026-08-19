@@ -1307,29 +1307,44 @@
 ;; -- not a native -- which is what makes a deferred name indistinguishable
 ;; from an eager one to functionp, symbol-function, a hook, and a value
 ;; passed around before ever being called: every one of those sees a real
-;; FeTFn, both before and after its first call.  That first call:
+;; FeTFn, both before and after its first call.  A call to the stub asks
+;; internal--force-deferred for THE REAL CLOSURE -- the native evaluates
+;; the one saved form, `(defalias 'NAME (lambda ...))`, the very same one
+;; this file would have run eagerly, and returns what that form defined
+;; -- and forwards this call's own arguments to it with `apply` over
+;; `&rest`, so the caller sees an ordinary return value and never sees
+;; the stub at all.
 ;;
-;;   1. forces the real definition (internal--force-deferred evaluates
-;;      the one saved form, which is `(defalias 'NAME (lambda ...))` --
-;;      the very same form this file would have run eagerly -- so it
-;;      replaces NAME's function cell with the real closure); then
-;;   2. forwards THIS call's own arguments to what is now the real
-;;      function, via `apply` over `&rest`, so the caller sees an ordinary
-;;      return value and never sees the stub at all.
+;; A STUB IS A DEFINITION, NOT A FORWARDER TO THE NAME.  It asks on every
+;; call and the native answers the same closure every time, so a value
+;; captured out of a deferred name's function cell means what capturing
+;; an eager definition means.  Emacs' answer to
 ;;
-;; Every later call reaches the real closure directly -- the stub is
-;; reachable from nothing once step 1 above has run -- so the whole
-;; mechanism costs one extra `funcall`-shaped indirection exactly once
-;; per deferred name per session, not once per call.  A deferred name
-;; calling another deferred name (internal--qq's mutual recursion with
-;; internal--qq-list/internal--qq-dotted is the prelude's own example)
-;; works the same way calling any other function does: `funcall`/`apply`
-;; resolve through the function cell, which is either already the stub or
-;; already the real thing, never anything else.
+;;   (let ((saved (symbol-function 'mapcar)))
+;;     (defalias 'mapcar (lambda (f s) 'replacement))
+;;     (list (funcall saved '1+ '(1 2)) (mapcar '1+ '(1 2))))
+;;
+;; is ((2 3) replacement), and both halves are load-bearing: the capture
+;; keeps calling what it captured, and the NAME means the later defalias.
+;; The stub read `(symbol-function name)` back after forcing until the
+;; review in doc/reviews/2026-08-19-embedded-prelude-phase21-adversarial-
+;; review.md, which made a captured stub track the name -- and, because
+;; forcing wrote the function cell unconditionally, silently destroyed
+;; the redefinition on the line above it.
+;;
+;; The ordinary path still pays the indirection once rather than once per
+;; call, because the native leaves the real closure in a cell that still
+;; holds this name's stub: every later call BY NAME then resolves
+;; straight to it.  Which cells it may write, and what it caches, are
+;; src/lisp_prelude.c's own comment.  A deferred name calling another
+;; deferred name (internal--qq's mutual recursion with internal--qq-list
+;; and internal--qq-dotted is the prelude's own example) works the way
+;; calling any other function does: `funcall`/`apply` resolve through the
+;; function cell, which is either already the stub or already the real
+;; thing, never anything else.
 (defalias 'internal--make-deferred-stub (lambda (name)
   (lambda (&rest args)
-    (internal--force-deferred name)
-    (apply (symbol-function name) args))))
+    (apply (internal--force-deferred name) args))))
 
 ;; --- documentation for the definitions above -------------------------
 ;;

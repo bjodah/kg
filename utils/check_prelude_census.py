@@ -177,7 +177,9 @@ def write_manifest(path: Path, measured: dict) -> None:
 		"measured_with": {
 			"peak_live_objects": "test/kgbatch -g /dev/null, peak-live=",
 			"reachable_live_objects": ("test/prelude_gc_probe, the "
-				"\"excl. the triggering call's own object\" line"),
+				"\"reachable-live (total - free)\" line, read "
+				"right after kg_lisp_init() -- which now runs "
+				"the one forced collection this needs itself"),
 			"embedded_bytes": "lisp/prelude.el, byte size on disk",
 			"definition_count": ("lisp/prelude.el, count of top-level "
 				"(defalias 'NAME (KIND ...)) forms"),

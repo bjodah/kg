@@ -1,0 +1,6 @@
+{
+ "id": "prelude-deferred-capture-force-redefine",
+ "setup": [],
+ "expr": "(let ((saved (symbol-function 'mapcar))) (list (funcall saved '1+ '(1 2)) (progn (defalias 'mapcar (lambda (function sequence) 'replacement)) (funcall saved '1+ '(1 2))) (mapcar '1+ '(1 2))))",
+ "note": "The same rule as prelude-deferred-capture-redefine with the capture CALLED first, which for a deferred name is the call that forces the real definition out of the embedded array: a later `defalias' still does not change what the captured value invokes, so the answer is ((2 3) (2 3) replacement). This is the half a stub that re-read (symbol-function name) on every call got wrong even after forcing stopped clobbering the cell."
+}

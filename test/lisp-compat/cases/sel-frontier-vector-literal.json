@@ -1,0 +1,8 @@
+{
+ "id": "sel-frontier-vector-literal",
+ "setup": [
+  "(setq sel-frontier-path (if (fboundp 'expand-file-name) (expand-file-name \"test/lisp-compat/fixtures/sel-frontier.el\") \"test/lisp-compat/fixtures/sel-frontier.el\"))"
+ ],
+ "expr": "(condition-case e (load sel-frontier-path) (error (error-message-string e)))",
+ "note": "Phase C3: the frontier a real package stops kg at, pinned with a SYNTHETIC fixture -- test/lisp-compat/fixtures/sel-frontier.el reproduces s.el's blocker SHAPE (an autoload declaration in the header, a page separator between sections, a `declare' debug spec carrying a vector literal) without copying a line of it, because vendoring an elpa package as a fixture is a licensing decision the maintainer makes.  Emacs loads the file, so the handler never runs and the case answers t.  kg answers the checked-in expected error, measured at this tree: \"unsupported read syntax: vector brackets\".  PHASE 24 FLIPS THIS -- when kg reads vector literals the load goes clean, the runner's XPASS rule fires, and this case, its snapshot and its sibling move in the same commit as the behaviour."
+}

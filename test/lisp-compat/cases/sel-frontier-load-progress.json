@@ -1,0 +1,8 @@
+{
+ "id": "sel-frontier-load-progress",
+ "setup": [
+  "(setq sel-frontier-path (if (fboundp 'expand-file-name) (expand-file-name \"test/lisp-compat/fixtures/sel-frontier.el\") \"test/lisp-compat/fixtures/sel-frontier.el\"))"
+ ],
+ "expr": "(progn (condition-case e (load sel-frontier-path) (error nil)) (list (boundp 'sel-frontier-past-autoload) (boundp 'sel-frontier-past-page-break) (boundp 'sel-frontier-loaded) (fboundp 'sel-frontier-when-let)))",
+ "note": "The same load measured by HOW FAR IT GOT, which is what makes the sibling case a frontier rather than just a failure: Emacs answers (t t t t) and kg (t t nil nil), so the first two blockers -- the autoload declaration (Phase C1) and the page separator (Phase C2) -- are demonstrably past, and the file stops at the vector literal in the `declare' debug spec, with neither the macro defined nor the trailing form run.  A regression that moves the stop EARLIER changes this list without changing the sibling's message."
+}

@@ -4569,6 +4569,20 @@
    "source_name": null
   },
   {
+   "id": "sel-frontier-vector-literal",
+   "category": "loading",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "sel-frontier-vector-literal",
+    "sel-frontier-load-progress"
+   ],
+   "kg_test": "test/test_lisp.c:test_sel_frontier_vector_literal",
+   "rationale": "Phase C3 of doc/plans/2026-08-19-fe-simplification-and-cheap-compat.md: the frontier a package-shaped file stops kg at, pinned so that moving it is a diff and not a memory. The fixture (test/lisp-compat/fixtures/sel-frontier.el) is SYNTHETIC by policy -- it reproduces s.el's blocker sequence in the order a load meets it (autoload declaration at the header, s.el:34; page separator between sections, s.el:770; a `declare' debug spec carrying a vector literal) and copies no line of s.el or of any other elpa package, since vendoring a GPLv3+ file as a test fixture is a licensing decision the maintainer makes and the suite's own rule is that a fixture must need nothing fetched. Two of the three blockers are landed and this row is what shows it: sel-frontier-load-progress measures how far the load got, (t t t t) in Emacs against (t t nil nil) here, so the header and the page break are past. The third is the recorded divergence, and its exact text is the checked-in expected error -- `unsupported read syntax: vector brackets', the same named rejection phase8-reader-unsupported-syntax records for the syntax itself, met here through `load' rather than at the top level. PHASE 24 FLIPS BOTH CASES: when kg reads vector literals this file loads clean, the runner's XPASS rule fails the run, and the two cases, their snapshots and test_sel_frontier_vector_literal move in the same commit as the behaviour. That is the point of checking the error in rather than leaving the frontier undescribed.",
+   "source_name": null
+  },
+  {
    "id": "signal-from-kg",
    "category": "errors-and-non-local-exits",
    "status": "supported",

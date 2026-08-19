@@ -6254,6 +6254,57 @@ static void test_autoload_no_op(void)
 	kg_lisp_shutdown();
 }
 
+/* Phase C3: the frontier a package-shaped file stops kg at.  The fixture
+ * is synthetic -- test/lisp-compat/fixtures/sel-frontier.el says why
+ * nothing is vendored -- and reproduces s.el's blocker sequence in the
+ * order a load meets it.  Two of the three are landed (C1's no-op
+ * `autoload', C2's form-feed whitespace), so the load gets past the
+ * header and the page separator and stops at the vector literal in a
+ * `declare' debug spec, BY NAME.  That message is the checked-in
+ * expected error; PHASE 24 FLIPS THIS TEST, and it is meant to fail
+ * loudly when it does rather than be quietly right about nothing. */
+static void test_sel_frontier_vector_literal(void)
+{
+	static const char *const paths[] = {
+		"test/lisp-compat/fixtures/sel-frontier.el",
+		"../test/lisp-compat/fixtures/sel-frontier.el",
+	};
+	const char *path = nullptr;
+	char form[256];
+	size_t i;
+
+	for (i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
+		FILE *fp = fopen(paths[i], "r");
+
+		if (fp != nullptr) {
+			fclose(fp);
+			path = paths[i];
+			break;
+		}
+	}
+	CHECK(path != nullptr);
+	if (path == nullptr) {
+		return;
+	}
+
+	CHECK(kg_lisp_init() == 0);
+
+	(void)snprintf(form, sizeof(form),
+	    "(condition-case e (load \"%s\") (error (error-message-string e)))",
+	    path);
+	CHECK(eval_eq(form, "unsupported read syntax: vector brackets"));
+	/* The frontier is that literal and nothing before it: the autoload
+	 * declaration and the page break are both past, and neither the
+	 * macro nor the form after it made it. */
+	CHECK(eval_eq("(list (boundp 'sel-frontier-past-autoload)"
+		      " (boundp 'sel-frontier-past-page-break)"
+		      " (boundp 'sel-frontier-loaded)"
+		      " (fboundp 'sel-frontier-when-let))",
+	    "(t t nil nil)"));
+
+	kg_lisp_shutdown();
+}
+
 static void test_phase8_library(void)
 {
 	struct kg_lisp_arena_stats before, after;
@@ -7663,6 +7714,7 @@ int main(void)
 	RUN(test_phase8_reader_literals);
 	RUN(test_reader_form_feed_page_break);
 	RUN(test_autoload_no_op);
+	RUN(test_sel_frontier_vector_literal);
 	RUN(test_phase8_library);
 	RUN(test_captured_function_value);
 	RUN(test_native_reverse_gc_stack);

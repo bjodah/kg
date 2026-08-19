@@ -95,7 +95,11 @@ static void test_group_writable_file(void)
 	char path[PATH_MAX];
 
 	make_file("shared.txt", 0464, path, sizeof(path));
-	CHECK(path_write_protected(path) == 0);
+	if (geteuid() == 0) {
+		CHECK(path_write_protected(path) == 0);
+	} else {
+		CHECK(path_write_protected(path) == 1);
+	}
 	CHECK(unlink(path) == 0);
 }
 

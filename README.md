@@ -431,7 +431,7 @@ For crash triage and fuzzing notes, see [doc/FUZZING.md](doc/FUZZING.md).
 
 ### Debian
 
-How to build and extract the `.deb`
+How to build and extract the `.deb`:
 
 ```console
 # Using Podman
@@ -443,7 +443,7 @@ DOCKER_BUILDKIT=1 docker build --target export --output . -f Containerfile.deb .
 
 ### Alpine
 
-How to build and extract the .apk:
+How to build and extract the `.apk`:
 
 ```console
 # Using Podman

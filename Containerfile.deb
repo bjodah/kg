@@ -10,7 +10,7 @@
 #   - Bundled tree-sitter grammar shared libraries in /usr/lib/tree-sitter
 # =============================================================================
 
-FROM debian:bookworm-slim AS builder
+FROM docker.io/library/debian:trixie-slim AS builder
 
 # Install packaging and compilation prerequisites
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -20,6 +20,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     ca-certificates \
     python3 \
+    python3-yaml \
+    python3-pexpect \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src/kg
@@ -38,7 +40,7 @@ RUN ./utils/build-tree-sitter.sh --prefix /opt/tree-sitter
 RUN rm -f /opt/tree-sitter/lib/libtree-sitter.so*
 
 # Configure debian/rules for the feature set and grammar installation
-RUN cat << 'EOF' > debian/rules
+COPY <<'EOF' debian/rules
 #!/usr/bin/make -f
 %:
 	dh $@
@@ -48,8 +50,16 @@ override_dh_auto_build:
 		TREE_SITTER_PREFIX=/opt/tree-sitter \
 		TS_GRAMMAR_PATH=/usr/lib/tree-sitter
 
+override_dh_auto_test:
+	KG_TS_GRAMMAR_PATH=/opt/tree-sitter/lib $(MAKE) check-unit \
+		WITH_LISP=1 WITH_LSP=1 WITH_DAP=1 WITH_TREE_SITTER=1 \
+		TREE_SITTER_PREFIX=/opt/tree-sitter
+
 override_dh_auto_install:
-	$(MAKE) install DESTDIR=$(CURDIR)/debian/kg prefix=/usr
+	$(MAKE) install WITH_LISP=1 WITH_LSP=1 WITH_DAP=1 WITH_TREE_SITTER=1 \
+		TREE_SITTER_PREFIX=/opt/tree-sitter \
+		TS_GRAMMAR_PATH=/usr/lib/tree-sitter \
+		DESTDIR=$(CURDIR)/debian/kg prefix=/usr
 	install -d $(CURDIR)/debian/kg/usr/lib/tree-sitter
 	install -m 644 /opt/tree-sitter/lib/libtree-sitter-*.so $(CURDIR)/debian/kg/usr/lib/tree-sitter/
 EOF
@@ -64,6 +74,7 @@ RUN mkdir -p /dist && cp /src/kg_*.deb /dist/
 # Test and verify package installation
 RUN dpkg -i /dist/kg_*.deb && \
     kg -V && \
+    kg -V | grep -q '+tree-sitter' && \
     ! ldd /usr/bin/kg | grep -q libtree-sitter.so && \
     test -f /usr/lib/tree-sitter/libtree-sitter-c.so
 

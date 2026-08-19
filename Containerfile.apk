@@ -8,7 +8,7 @@
 #   - WITH_TREE_SITTER=0
 # =============================================================================
 
-FROM alpine:latest AS builder
+FROM docker.io/library/alpine:latest AS builder
 
 # Install build tools and abuild package creation tools
 RUN apk add --no-cache \
@@ -16,6 +16,7 @@ RUN apk add --no-cache \
     build-base \
     ca-certificates \
     git \
+    python3 \
     sudo
 
 # Set up builder user for abuild (abuild requires a non-root user)
@@ -29,40 +30,46 @@ WORKDIR /home/builder
 RUN abuild-keygen -a -i -n
 
 # Create package workspace and copy repository source
-RUN mkdir -p /home/builder/kg
+RUN mkdir -p /home/builder/kg /home/builder/pkg
 WORKDIR /home/builder/kg
 COPY --chown=builder:abuild . .
 
-# Generate APKBUILD dynamically using KG_VERSION from src/def.h
-RUN VER=$(sed -n 's/^#define KG_VERSION "\(.*\)"/\1/p' src/def.h) && \
-    cat << EOF > APKBUILD
+WORKDIR /home/builder/pkg
+COPY <<'EOF' APKBUILD
 # Maintainer: Joachim Wiberg <troglobit@gmail.com>
 pkgname=kg
-pkgver=${VER}
+pkgver=VERSION_PLACEHOLDER
 pkgrel=0
 pkgdesc="Light Weight UTF-8 Terminal Text Editor"
 url="https://github.com/troglobit/kg"
 arch="all"
 license="BSD-2-Clause"
 depends=""
-makedepends="gcc make musl-dev"
-subpackages="\$pkgname-doc"
+makedepends="gcc make musl-dev python3"
+subpackages="$pkgname-doc"
 source=""
+builddir="/home/builder/kg"
 
 build() {
+	cd "$builddir"
+	make clean
 	make WITH_LISP=0 WITH_LSP=0 WITH_DAP=0 WITH_TREE_SITTER=0
 }
 
 check() {
+	cd "$builddir"
 	make WITH_LISP=0 WITH_LSP=0 WITH_DAP=0 WITH_TREE_SITTER=0 check-unit
 }
 
 package() {
-	make WITH_LISP=0 WITH_LSP=0 WITH_DAP=0 WITH_TREE_SITTER=0 install DESTDIR="\$pkgdir" prefix=/usr
-	install -Dm644 LICENSE "\$pkgdir/usr/share/licenses/\$pkgname/LICENSE"
-	install -Dm644 README.md "\$pkgdir/usr/share/doc/\$pkgname/README.md"
+	cd "$builddir"
+	make WITH_LISP=0 WITH_LSP=0 WITH_DAP=0 WITH_TREE_SITTER=0 install DESTDIR="$pkgdir" prefix=/usr
+	install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+	install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
 }
 EOF
+RUN VER=$(sed -n 's/^#define KG_VERSION "\(.*\)"/\1/p' /home/builder/kg/src/def.h) && \
+    sed -i "s/VERSION_PLACEHOLDER/${VER}/" APKBUILD
 
 # Build and package the APK (including running unit checks)
 RUN abuild -r

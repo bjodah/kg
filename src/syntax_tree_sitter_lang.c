@@ -643,7 +643,7 @@ static const char HASKELL_HIGHLIGHT_QUERY[]
       "\"then\"\n"
       "  \"type\" \"using\" \"via\" \"where\"\n"
       "] @keyword\n"
-      "[ (type_synonym) (data_type) (newtype) (class) (instance) ] @type\n"
+      "[ (type_synomym) (data_type) (newtype) (class) (instance) ] @type\n"
       "[ (type_params) (constructor) (constructor_synonym) (type_binder) "
       "(type_role) ] @type\n";
 
@@ -934,7 +934,7 @@ static const char DOXYGEN_HIGHLIGHT_QUERY[]
     = "(tag (tag_name) @keyword)\n"
       "[ \"\\\\a\" ] @keyword\n"
       "[ (type) (storageclass) ] @type\n"
-      "[ (function) (function_link) (qualified_identifier) ] @type\n"
+      "[ (function) (qualified_identifier) ] @type\n"
       "[ (brief_description) (description) (text) ] @comment\n";
 
 /* Meson */

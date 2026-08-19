@@ -274,7 +274,26 @@ static void test_env_overrides_search_path(void)
 {
 	const char *dir = "test/.ts-grammar-env";
 	char dflt[1024];
+	char orig[1024] = {0};
+	const char *env_orig = getenv("KG_TS_GRAMMAR_PATH");
+	int had_orig = (env_orig != NULL);
 	char err[160];
+
+	if (had_orig) {
+		snprintf(orig, sizeof(orig), "%s", env_orig);
+	}
+
+	/* And the override is a path the loader really searches. */
+	if (make_fixture_dir(dir) && link_c_grammar_into(dir)) {
+		setenv("KG_TS_GRAMMAR_PATH", dir, 1);
+		err[0] = '\0';
+		CHECKF(kg_ts_grammar_load(
+			   "c", kg_ts_grammar_search_path(), err, sizeof(err))
+			!= NULL,
+		    "%s", err);
+		unlink_c_grammar_from(dir);
+		rmdir(dir);
+	}
 
 	unsetenv("KG_TS_GRAMMAR_PATH");
 	snprintf(dflt, sizeof(dflt), "%s", kg_ts_grammar_search_path());
@@ -286,19 +305,11 @@ static void test_env_overrides_search_path(void)
 	unsetenv("KG_TS_GRAMMAR_PATH");
 	CHECK(strcmp(kg_ts_grammar_search_path(), dflt) == 0);
 
-	/* And the override is a path the loader really searches. */
-	if (!make_fixture_dir(dir) || !link_c_grammar_into(dir)) {
-		return;
+	if (had_orig) {
+		setenv("KG_TS_GRAMMAR_PATH", orig, 1);
+	} else {
+		unsetenv("KG_TS_GRAMMAR_PATH");
 	}
-	setenv("KG_TS_GRAMMAR_PATH", dir, 1);
-	err[0] = '\0';
-	CHECKF(kg_ts_grammar_load(
-		   "c", kg_ts_grammar_search_path(), err, sizeof(err))
-		!= NULL,
-	    "%s", err);
-	unsetenv("KG_TS_GRAMMAR_PATH");
-	unlink_c_grammar_from(dir);
-	rmdir(dir);
 }
 
 /* kg's own highlight queries compile against the real grammars, and every

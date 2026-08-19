@@ -49,10 +49,10 @@ grammar	ssh-config	https://github.com/ObserverOfTime/tree-sitter-ssh-config	v0.5
 
 # Metadata-less on the box (grammar ABI 14 builds); newest release tag.
 grammar	commonlisp	https://github.com/theHamsta/tree-sitter-commonlisp	v0.4.1
-grammar	csv		https://github.com/tree-sitter-grammars/tree-sitter-csv	v0.1.0	csv
+grammar	csv		https://github.com/tree-sitter-grammars/tree-sitter-csv	v1.2.0	csv
 grammar	dockerfile	https://github.com/camdencheek/tree-sitter-dockerfile	v0.2.0
 grammar	doxygen		https://github.com/tree-sitter-grammars/tree-sitter-doxygen	v1.0.0
-grammar	dtd		https://github.com/tree-sitter-grammars/tree-sitter-xml	v0.7.0	tree-sitter-dtd
+grammar	dtd		https://github.com/tree-sitter-grammars/tree-sitter-xml	v0.7.0	dtd
 grammar	gitattributes	https://github.com/ObserverOfTime/tree-sitter-gitattributes	v0.1.6
 grammar	glsl		https://github.com/tree-sitter-grammars/tree-sitter-glsl	v0.1.9
 grammar	html		https://github.com/tree-sitter/tree-sitter-html		v0.23.2
@@ -61,14 +61,14 @@ grammar	linkerscript	https://github.com/tree-sitter-grammars/tree-sitter-linkers
 grammar	make		https://github.com/tree-sitter-grammars/tree-sitter-make	v1.1.1
 grammar	meson		https://github.com/Decodetalkers/tree-sitter-meson	v1.3.0
 grammar	properties	https://github.com/tree-sitter-grammars/tree-sitter-properties	v0.1.0
-grammar	psv		https://github.com/tree-sitter-grammars/tree-sitter-csv	v0.1.0	psv
+grammar	psv		https://github.com/tree-sitter-grammars/tree-sitter-csv	v1.2.0	psv
 grammar	re2c		https://github.com/tree-sitter-grammars/tree-sitter-re2c	master
 grammar	ron		https://github.com/tree-sitter-grammars/tree-sitter-ron	v0.1.0
 grammar	tablegen	https://github.com/tree-sitter-grammars/tree-sitter-tablegen	v0.0.1
-grammar	tsv		https://github.com/tree-sitter-grammars/tree-sitter-csv	v0.1.0	tsv
+grammar	tsv		https://github.com/tree-sitter-grammars/tree-sitter-csv	v1.2.0	tsv
 grammar	tsx		https://github.com/tree-sitter/tree-sitter-typescript	v0.23.2	tsx
 grammar	typescript	https://github.com/tree-sitter/tree-sitter-typescript	v0.23.2	typescript
-grammar	xml		https://github.com/tree-sitter-grammars/tree-sitter-xml	v0.7.0	tree-sitter-xml
+grammar	xml		https://github.com/tree-sitter-grammars/tree-sitter-xml	v0.7.0	xml
 grammar	yaml		https://github.com/tree-sitter-grammars/tree-sitter-yaml	v0.7.2
 
 # Behind the box (1.7.2), and deliberately: tree-sitter-elisp stopped

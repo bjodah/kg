@@ -1,8 +1,9 @@
-#!/usr/bin/env python3
-"""Wire-level tests for PTY acceptance key tokens."""
-
+import os
+import sys
 import unittest
 from unittest import mock
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from utils import pty_accept
 

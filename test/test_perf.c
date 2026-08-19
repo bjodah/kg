@@ -1579,10 +1579,21 @@ static void test_lisp_prelude_arena_margin(void)
 	CHECK(stats.collection_count == 1);
 	CHECK(stats.free_slots * 2 > stats.total_slots);
 	/* A real init evaluates real forms: peak_frame_depth has moved off
-	 * the bare prelude's own baseline (measured at the Phase 12 fix
-	 * cycle: prelude alone is peak_frame_depth 3, the representative
-	 * init above is 54 -- both well under frame_capacity). */
-	CHECK(stats.peak_frame_depth > 2);
+	 * the bare prelude's own baseline.  That baseline itself has moved
+	 * since the Phase 12 fix cycle measured it at peak_frame_depth 3 --
+	 * re-measured at this fe pin (Phase 21.2) via this same harness, the
+	 * bare prelude alone now reads 8, and the representative init above
+	 * reads 54, both still well under frame_capacity.  The threshold
+	 * below moved from 2 to 20 for exactly that reason: 2 is now BELOW
+	 * the bare-prelude baseline of 8, so it would have passed for a
+	 * kg_lisp_eval_string() call that silently did nothing at all --
+	 * the same "case that cannot fail" defect utils/bench.py's
+	 * lisp-arena-auto-fill and lisp-arithmetic-loop cases had at this
+	 * same pin, for the same underlying reason (see their comments).
+	 * 20 clears the current baseline of 8 with real margin, matching the
+	 * threshold utils/bench.py's own lisp-arena-representative-init and
+	 * lisp-arena-auto-fill cases use for the identical shape. */
+	CHECK(stats.peak_frame_depth > 20);
 	CHECK(stats.peak_cleanup_stack_depth == 0);
 	kg_lisp_shutdown();
 }
@@ -1743,10 +1754,11 @@ static void test_lisp_load_time_counters(void)
  *
  * Each asserts its own exact result: unlike a rebuild's incidental object
  * count, "this expression computed the right answer" is the property
- * under test, not an approximation of it.  Where a shape's cost is
- * GC-stack depth rather than result, the bound is against GcStackSize
- * (4096) with margin, not a tight number -- see the list-walk comment for
- * the measurement that picked 150. */
+ * under test, not an approximation of it.  Every shape here is also
+ * bounded against GcStackSize (4096) and, where that is the resource the
+ * shape actually spends, frame_capacity -- margin, not a tight number --
+ * see the list-walk comment for the measurement that picked 150 and for
+ * which of the two ceilings this shape actually meets. */
 static void test_lisp_evaluator_shapes(void)
 {
 	static constexpr size_t gc_stack_size = 4096;
@@ -1759,11 +1771,27 @@ static void test_lisp_evaluator_shapes(void)
 
 	/* List walk: `lw` is not tail-call optimised (Fe's recursive
 	 * evaluator does not flatten it), so every intermediate cons stays
-	 * live until the outermost call returns and GC-stack depth is
-	 * linear in recursion depth.  Measured directly: this expression's
-	 * peak_gc_stack_depth is 3914 of 4096 at n=300 and overflows by
-	 * n=400; 150 leaves roughly half the stack free while still being
-	 * a real multi-hundred-cell walk. */
+	 * live until the outermost call returns.  This comment used to claim
+	 * that made GC-stack depth linear in recursion depth and the
+	 * resource this shape spends -- "peak_gc_stack_depth is 3914 of 4096
+	 * at n=300 and overflows by n=400".  Re-measured at this fe pin
+	 * (Phase 21.2), that claim is backwards: THE GC ROOT STACK DOES NOT
+	 * GROW WITH n AT ALL.  peak_gc_stack_depth reads the same value --
+	 * kg's own prelude baseline -- at n=150, n=300, n=400 and n=600
+	 * alike (measured via utils/bench.py's counting build,
+	 * test/perfobj/kg, one run per n).  What scales is peak_frame_depth:
+	 * 305/605/805/1087 at those same four n, roughly 2 per recursion
+	 * level (`lw`'s body is one `if` wrapping the recursive call, no
+	 * extra arithmetic frame) -- exactly what fe's own Phase 21.2 commit
+	 * found for the equivalent bare-context shape, confirmed here for
+	 * kg's prelude-loaded evaluator too.  frame_capacity (1087 on this
+	 * build) is the ceiling this shape actually meets: n=600 saturates
+	 * it exactly and both this function's kg_lisp_eval_string() and
+	 * test/kgbatch raise "evaluation frame limit exceeded" somewhere
+	 * between n=520 (still fits) and n=540-545 (does not; the two entry
+	 * paths' own frame overhead differs by a handful, hence the range).
+	 * 150 leaves about 72% of frame_capacity free (305 of 1087) while
+	 * still being a real multi-hundred-cell walk. */
 	CHECK(kg_lisp_init() == 0);
 	static const char list_walk[]
 	    = "(defun lw (n l) (if (<= n 0) l (lw (- n 1) (cons n l)))) "
@@ -1775,6 +1803,10 @@ static void test_lisp_evaluator_shapes(void)
 	CHECK(strcmp(result, "150") == 0);
 	CHECK(kg_lisp_arena_stats(&stats) == 0);
 	CHECK(stats.peak_gc_stack_depth < gc_stack_size);
+	/* The bound this shape actually meets, per the comment above -- not
+	 * asserted before this pin, which is exactly how a stale claim about
+	 * the wrong resource went unnoticed. */
+	CHECK(stats.peak_frame_depth < stats.frame_capacity);
 	kg_lisp_shutdown();
 
 	/* Arithmetic loop: 20000 `while` iterations of scalar addition --

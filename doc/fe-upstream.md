@@ -346,6 +346,36 @@ no field to `FeContext`, so `FeMinimumArenaSize()` is unchanged and kg's
 1 MiB arena still partitions to **56147 object slots** (re-measured through
 `test/kgbatch -a` at this pin, not carried).
 
+The pin then moved for section 23.0 of
+`doc/plans/2026-08-19-elisp-data-model-phase23-execution.md`, the entry gate
+for the payload substrate the Phase 22 ADR selected (fe `a219b14`). Neither
+macro moves: `FE_API_VERSION` stays at **12**, `FE_LANGUAGE_VERSION` at
+**15**, and `FeVersion` at **"18.0"** — `fe.h` is untouched by the range. What
+lands is a tracked census (`fe/doc/payload-pointer-census.md`), the one
+publish protocol stated in `fe/fe_internal.h` beside `STRING_BUFFER`, and
+fe's second build knob in the `FE_GC_STRESS` family,
+**`FE_DEBUG_PAYLOAD_MOVE`**, which the paragraph above's standard covers
+exactly: a compile-time define defaulting to 0, compiling to nothing there,
+with no declaration in `fe.h` and no effect on any program's answer. fe's
+`.ci/ci-04-clang-asan-ubsan.sh` is the lane that arms it; kg builds nothing
+with it, unlike `FE_GC_STRESS`, because no live object owns a payload yet and
+the knob's only caller is fe's own `test_api.c`.
+
+The default build is unchanged and was proved so rather than inspected:
+`fe.c`, `fe_eval.c`, `fe_run.c` and `fe_unwind.c` compiled at both ends of
+the range with identical flags and `-DNDEBUG` produce byte-identical objects,
+and without `-DNDEBUG` the objects have identical section sizes and differ
+only in the `__LINE__` constants `assert` embeds. So no arena figure moves
+either: no object, no symbol and no `FeContext` field is added, so
+`FeMinimumArenaSize()` is unchanged and kg's 1 MiB arena still partitions to
+**56147 object slots**. Thirteen of the census's rows are kg's own
+`src/lisp_*.c`, and the finding they record is that kg holds no interior
+pointer into fe storage at all — `fe.h` returns none, and `copy_fe_string()`
+and every `FeToString` caller copy bytes into host memory. The one row that
+constrains kg going forward is `src/lisp_io.c`'s `FeWriteFn`: fe's printer
+holds a payload pointer across that callback, and kg's callback must keep
+growing a host buffer rather than allocating an fe object.
+
 Fe is MIT licensed. Copyright belongs to rxi and Chris Palmer; the complete
 license text is in `fe/LICENSE`.
 

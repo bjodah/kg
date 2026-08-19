@@ -1555,6 +1555,21 @@ static void test_lisp_prelude_arena_margin(void)
 	 * bound-not-count convention as the slot counts above. */
 	CHECK(stats.frame_capacity > 0);
 	CHECK(stats.peak_frame_depth <= stats.frame_capacity);
+	/* Exactly 1, not merely nonzero: install_deferred_stubs() (src/
+	 * lisp_prelude.c, Prelude Phase 1, b94e795 "defer the 93 names no
+	 * startup path needs") runs right after the eager prelude and calls
+	 * FeCallWithOptions() once PER DEFERRED NAME (93 times) to fetch
+	 * `internal--make-deferred-stub` and build that name's stub closure
+	 * -- a native re-entering the evaluator every time -- but never
+	 * nested inside itself: each call returns before the next one
+	 * starts, so the high-water mark of SIMULTANEOUS re-entry stays 1
+	 * across all 93, the same as if there were only one.  peak_
+	 * native_reentry is a depth, not a count, which is what makes that
+	 * true; pinned so a future change to how deferred stubs are
+	 * installed -- nesting one inside another, say -- says so loudly
+	 * rather than the way this number drifted (0 -> 1) unremarked
+	 * through the comment above that used to still say 0. */
+	CHECK(stats.peak_native_reentry == 1);
 
 	CHECK(kg_lisp_load_file("lisp/auto-fill.el") == 0);
 	CHECK(kg_lisp_arena_stats(&stats) == 0);
@@ -1582,9 +1597,22 @@ static void test_lisp_prelude_arena_margin(void)
 	 * the bare prelude's own baseline.  That baseline itself has moved
 	 * since the Phase 12 fix cycle measured it at peak_frame_depth 3 --
 	 * re-measured at this fe pin (Phase 21.2) via this same harness, the
-	 * bare prelude alone now reads 8, and the representative init above
-	 * reads 54, both still well under frame_capacity.  The threshold
-	 * below moved from 2 to 20 for exactly that reason: 2 is now BELOW
+	 * bare prelude alone now reads 8 (and peak_native_reentry 1, up from
+	 * 0).  Explained, not just re-measured: Prelude Phase 1 (b94e795,
+	 * "defer the 93 names no startup path needs") added
+	 * install_deferred_stubs() (src/lisp_prelude.c), which
+	 * kg_lisp_init() runs right after the eager prelude and which calls
+	 * FeCallWithOptions() once per deferred name -- a NATIVE re-entering
+	 * the evaluator to build that name's stub closure
+	 * (`internal--make-deferred-stub`, lisp/prelude.el) and
+	 * FeSetFunction() it in, which is the native_reentry 0 -> 1 and,
+	 * via that closure's own construction nesting frames above the
+	 * eager prelude, the frame_depth 3 -> 8 both at once.  See
+	 * utils/bench.py's identical baseline comment for the fuller
+	 * account; this file and that one describe the same prelude.  The
+	 * representative init above reads 54, still well under
+	 * frame_capacity.  The threshold below moved from 2 to 20 for
+	 * exactly that reason: 2 is now BELOW
 	 * the bare-prelude baseline of 8, so it would have passed for a
 	 * kg_lisp_eval_string() call that silently did nothing at all --
 	 * the same "case that cannot fail" defect utils/bench.py's

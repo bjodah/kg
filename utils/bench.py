@@ -263,16 +263,31 @@ CASES = {
 	# pin (Phase 21.2), which moved both baseline numbers this comment
 	# used to give -- current tree: the prelude alone is peak_frame_depth
 	# 8 and peak_native_reentry 1, both up from the 2/0 measured at the
-	# Phase 12 fix cycle. Nothing here investigates why (a bare-context fe
-	# workload's own baseline moved too, per fe's Phase 21.2 commit, so a
-	# shared cause upstream of kg's prelude is plausible but unconfirmed);
-	# what matters for this file is that a threshold has to clear the
-	# CURRENT baseline, not the number a comment last measured -- exactly
-	# the trap this paragraph exists to keep in view.  That baseline is
-	# exactly the reading a case whose key script silently failed to
-	# reach the evaluator at all would also show -- the sub-plan 07C
-	# trap, a key that turned out to be a prefix map -- so "nonzero" was
-	# never the bar; "above the baseline this pin measures" is.
+	# Phase 12 fix cycle. Explained, not merely re-measured: Prelude
+	# Phase 1 (b94e795, "defer the 93 names no startup path needs") added
+	# install_deferred_stubs() (src/lisp_prelude.c), which
+	# kg_lisp_init() runs right after the eager prelude and calls
+	# FeCallWithOptions() once PER DEFERRED NAME (93 times) to fetch
+	# `internal--make-deferred-stub` and build that name's stub closure
+	# (lisp/prelude.el, an ordinary Lisp closure returning a closure) --
+	# a NATIVE re-entering the evaluator every time, but never nested
+	# inside itself (each call returns before the next starts), so
+	# peak_native_reentry -- a high-water mark of SIMULTANEOUS re-entry,
+	# not a count of calls -- reads 1 across all 93, hence 0 -> 1 rather
+	# than 0 -> 93. That closure's own construction nests Lisp frames
+	# above whatever the eager prelude reached, which is why
+	# peak_frame_depth rose off 2 as well; test_perf.c's
+	# test_lisp_prelude_arena_margin now pins peak_native_reentry == 1
+	# for exactly this reason. fe's own bare-context baseline moving too
+	# (per fe's Phase 21.2 commit) is unrelated: fe has no prelude and
+	# nothing here claims a shared cause. What matters for this file
+	# either way is that a threshold has to clear the CURRENT baseline,
+	# not the number a comment last measured -- exactly the trap this
+	# paragraph exists to keep in view. That baseline is exactly the
+	# reading a case whose key script silently failed to reach the
+	# evaluator at all would also show -- the sub-plan 07C trap, a key
+	# that turned out to be a prefix map -- so "nonzero" was never the
+	# bar; "above the baseline this pin measures" is.
 	#
 	# frame_depth does not clear it by a useful margin for every shape
 	# below: `while`-loop bodies do not grow frame nesting per iteration

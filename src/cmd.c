@@ -28,6 +28,7 @@
 #include "mouse.h"
 #include "next_error.h"
 #include "occur.h"
+#include "perf.h"
 #include "register.h"
 #include "showparen.h"
 #include "syntax.h"

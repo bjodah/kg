@@ -6190,6 +6190,38 @@ static void test_phase8_reader_literals(void)
 	kg_lisp_shutdown();
 }
 
+/* Phase C2, the fe pin that made the form feed (0x0C) reader whitespace.
+ * Emacs' `read1' retries on five bytes and fe had four of them, so the
+ * page separator every Elisp file uses between sections was an ordinary
+ * symbol constituent: the first form below answered `void-variable \'
+ * before the pin -- the unbound symbol being the page break itself --
+ * and the rows after it walk the other sites the reader asks the same
+ * question, including the two the fix deliberately leaves alone. */
+static void test_reader_form_feed_page_break(void)
+{
+	CHECK(kg_lisp_init() == 0);
+
+	/* A page break alone on a line between two forms, which is the
+	 * reader-form-feed-page-break oracle case's own expression. */
+	CHECK(eval_eq("(progn\n  nil\n\f\n  nil)", "nil"));
+	/* The skip loop and the atom delimiter: it separates tokens and
+	 * ends the one beside it. */
+	CHECK(eval_eq("(+ 1\f2)", "3"));
+	/* The `?' literal's own delimiter, and the radix digits'. */
+	CHECK(eval_eq("(list ?a\f?b)", "(97 98)"));
+	CHECK(eval_eq("(list #x1f\f2)", "(31 2)"));
+	/* Unmoved: an ESCAPED form feed is a symbol constituent, as an
+	 * escaped space is -- the escape decides, not the byte. */
+	CHECK(eval_eq("(length (symbol-name 'a\\\fb))", "3"));
+	/* Unmoved: inside a string body the byte was never reader syntax. */
+	CHECK(eval_eq("(length \"a\fb\")", "3"));
+	/* Unmoved: a comment still ends at a newline and nothing else, so a
+	 * page break inside one is comment text. */
+	CHECK(eval_eq("(progn ; page \f break\n  42)", "42"));
+
+	kg_lisp_shutdown();
+}
+
 static void test_phase8_library(void)
 {
 	struct kg_lisp_arena_stats before, after;
@@ -7597,6 +7629,7 @@ int main(void)
 	RUN(test_quit_uncaught);
 	RUN(test_phase8_constants_and_keywords);
 	RUN(test_phase8_reader_literals);
+	RUN(test_reader_form_feed_page_break);
 	RUN(test_phase8_library);
 	RUN(test_captured_function_value);
 	RUN(test_native_reverse_gc_stack);

@@ -1,0 +1,6 @@
+{
+ "id": "reader-form-feed-page-break",
+ "setup": [],
+ "expr": "(progn\n  nil\n\f\n  nil)",
+ "note": "Phase C2, kg's half of fe's reader-form-feed-whitespace row: the page separator every Elisp file uses is reader whitespace, so a form feed alone on a line between two forms is skipped rather than read as a symbol whose name is that byte.  The expression carries a REAL 0x0C -- JSON's \\f escape decodes to the byte, it is not the two characters spelling it.  Measured through test/kgbatch before the pin move: E:void-variable, the unbound symbol being the form feed itself, which the printer wrote as a backslash and the byte."
+}

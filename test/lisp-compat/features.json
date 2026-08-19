@@ -4541,6 +4541,19 @@
    "source_name": null
   },
   {
+   "id": "reader-form-feed-page-break",
+   "category": "reader-and-literals",
+   "status": "supported",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "reader-form-feed-page-break"
+   ],
+   "kg_test": "test/test_lisp.c:test_reader_form_feed_page_break",
+   "rationale": "kg's half of fe's reader-form-feed-whitespace row, pinned at the editor's own seam. The form feed (0x0C) is reader whitespace at every site fe's reader asks the question -- the skip loop, the atom delimiter, the `?' literal's delimiter and the radix digits' -- which it was not before the pin that carries fe cbcea0e: Emacs' `read1' retries on space, form feed, newline, tab and carriage return, and fe had the other four. A page separator is the conventional Elisp section break (s.el:770, f.el:39), so a file that used one handed the reader a symbol constituent instead of a token boundary; measured through test/kgbatch before the pin move, this case's expression answered E:void-variable, the editor's own diagnostic reading `void-variable \\' because the unbound symbol IS the page break and the printer escapes that byte. It answers nil after. The kg-side case is the page-break arm alone -- fe's six cases cover the arms either side of it, including the two that deliberately did not move (an escaped form feed is still a symbol constituent, as an escaped space is, and a string body was never reader syntax) -- and the cited kg_test walks all of them through kg_lisp_eval_string. The snapshot is stamped 31.0.91, the version this box's Emacs pin reports now; the corpus's 417 older snapshots keep the 31.0.90 that produced them, a snapshot carrying the Emacs that made it.",
+   "source_name": null
+  },
+  {
    "id": "signal-from-kg",
    "category": "errors-and-non-local-exits",
    "status": "supported",

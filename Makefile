@@ -908,7 +908,7 @@ $(OBJDIR)/fe_run.o: fe/fe_run.c fe/fe.h fe/fe_internal.h
 $(OBJDIR)/fe_unwind.o: fe/fe_unwind.c fe/fe.h fe/fe_internal.h fe/fe_perf.h
 	$(CC) $(FE_CFLAGS) -c $< -o $@
 
-check: header-check lisp-include-check docs-check lisp-compat-check lisp-prelude-check lisp-package-check forecast-check lisp-oracle-check lisp-gc-stress-check prelude-census-check forecast-init-check check-unit-decoding check-pty-tokens check-unit check-pty
+check: header-check lisp-include-check docs-check lisp-compat-check lisp-prelude-check lisp-package-check forecast-check lisp-oracle-check lisp-gc-stress-check prelude-census-check prelude-probe-link-check forecast-init-check check-unit-decoding check-pty-tokens check-unit check-pty
 
 # Cheap documentation drift: every key the built-in help table names has
 # to be spelled somewhere in kg(1).  Not a substitute for reading either
@@ -1070,7 +1070,7 @@ PRELUDE_READ_EVAL_SPLIT_PERF = $(PERFOBJDIR)/prelude_read_eval_split
 $(PRELUDE_READ_EVAL_SPLIT_PERF): $(PERFOBJDIR)/prelude_read_eval_split.o \
 	$(PERFOBJDIR)/stubs_main.o \
 	$(filter-out $(PERFOBJDIR)/main.o,$(PERF_SRC_OBJS)) \
-	$(FE_OBJ) $(REGEX_ENGINE_OBJ)
+	$(PERF_FE_OBJ) $(REGEX_ENGINE_OBJ)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 test/prelude_gc_probe: test/prelude_gc_probe.c \
@@ -1092,7 +1092,7 @@ PRELUDE_GC_PROBE_PERF = $(PERFOBJDIR)/prelude_gc_probe
 $(PRELUDE_GC_PROBE_PERF): $(PERFOBJDIR)/prelude_gc_probe.o \
 	$(PERFOBJDIR)/stubs_main.o \
 	$(filter-out $(PERFOBJDIR)/main.o,$(PERF_SRC_OBJS)) \
-	$(FE_OBJ) $(REGEX_ENGINE_OBJ)
+	$(PERF_FE_OBJ) $(REGEX_ENGINE_OBJ)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 # Phase 13.5's kg half of fe's FE_GC_STRESS knob.  Fe's `MakeObject()`
@@ -1468,11 +1468,28 @@ prelude-census-baseline: $(TESTDIR)/kgbatch test/prelude_gc_probe
 		--manifest $(PRELUDE_CENSUS_MANIFEST) \
 		--kgbatch $(TESTDIR)/kgbatch --probe test/prelude_gc_probe \
 		--prelude lisp/prelude.el --write
+
+# The counting twins of the two probes above are the only binaries in the
+# tree that no other target builds: they are outside TESTBINS (they assert
+# nothing, they print a wall-clock reading), outside $(PERF_KG) and outside
+# `bench'.  Both shipped broken -- linked against the ordinary $(FE_OBJ),
+# which deliberately omits fe_perf.o, so $(PERFOBJDIR)/lisp_core.o's
+# FePerfWriteJson() reference had nothing to resolve to -- and `make check'
+# stayed green throughout, because nothing in it ever asked for the link.
+# This asks.  A LINK is the whole gate: RUNNING them is not, and must not
+# become one, since what they print is a wall time and this repository does
+# not gate on those (src/perf.h's header rule).  Cheap next to what `check'
+# already pays: every $(PERF_SRC_OBJS) object is built for test_perf
+# already, so this is two more objects and two links.
+prelude-probe-link-check: $(PRELUDE_READ_EVAL_SPLIT_PERF) $(PRELUDE_GC_PROBE_PERF)
+	@echo "prelude-probe-link-check: both counting prelude probes link"
 else
 prelude-census-check:
 	@echo "# prelude-census-check: WITH_LISP=0, no evaluator to census"
 prelude-census-baseline:
 	@echo "# prelude-census-baseline: WITH_LISP=0, no evaluator to census"
+prelude-probe-link-check:
+	@echo "# prelude-probe-link-check: WITH_LISP=0, no prelude to probe"
 endif
 
 coverage: coverage-clean
@@ -2038,7 +2055,7 @@ uninstall:
 
 .PHONY: all clean distclean check header-check lisp-include-check docs-check lisp-compat-check lisp-compat-oracle lisp-prelude-generate lisp-prelude-check lisp-package-check lisp-oracle-check forecast-audit forecast-check forecast-init-check check-unit check-pty-tokens check-pty check-regex-differential \
 	bench bench-lisp-toggle perf-baseline complexity complexity-check \
-	pmccabe pmccabe-check pmccabe-baseline gateway-check gateway-baseline prelude-census-check prelude-census-baseline coverage coverage-check coverage-baseline coverage-clean format format-check compile-db iwyu \
+	pmccabe pmccabe-check pmccabe-baseline gateway-check gateway-baseline prelude-census-check prelude-census-baseline prelude-probe-link-check coverage coverage-check coverage-baseline coverage-clean format format-check compile-db iwyu \
 	fuzz-keypress fuzz-keypress-seed fuzz-keypress-smoke \
 	fuzz-syntax fuzz-syntax-seed fuzz-syntax-smoke \
 	fuzz-lsp-json fuzz-lsp-json-seed fuzz-lsp-json-smoke \

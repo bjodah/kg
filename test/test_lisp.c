@@ -102,11 +102,221 @@ static void test_lifecycle(void)
 	kg_lisp_shutdown();
 	CHECK(kg_lisp_eval_string("1", 1, result, sizeof(result)) != 0);
 	CHECK(strstr(result, "not initialized") != nullptr);
+	kg_lisp_shutdown();
 	CHECK(strstr(kg_lisp_last_error(), "not initialized") != nullptr);
 	CHECK(kg_lisp_init() == 0);
 	CHECK(kg_lisp_init() == 0);
 	kg_lisp_shutdown();
 	kg_lisp_shutdown();
+}
+
+/* ------------------------- $KG_LISP_ARENA_BYTES ------------------------
+ *
+ * Phase B of doc/plans/2026-08-19-fe-simplification-and-cheap-compat.md:
+ * the arena size stopped being a constant of the build.  Three tests --
+ * what kg accepts as a size, what it refuses and how, and whether the
+ * floor it refuses against still matches the measurement it was derived
+ * from.
+ */
+static const char arena_env[] = "KG_LISP_ARENA_BYTES";
+
+/* `reachable_live_objects' from .ci/prelude-startup-census.json -- what
+ * survives the forced collection kg_lisp_init() ends with, which is the
+ * measurement the arena floor is three times.  Scraped rather than
+ * parsed: the file is one flat object and a JSON parser in a test would
+ * be more machinery than the question needs, exactly as
+ * test_prelude_source_file() below scans the prelude's own text.  The
+ * editor never reads this file; only this test does. */
+static size_t census_reachable_live_objects(void)
+{
+	static const char *const paths[] = {
+		".ci/prelude-startup-census.json",
+		"../.ci/prelude-startup-census.json",
+	};
+	static const char key[] = "\"reachable_live_objects\":";
+	static char text[8192];
+	const char *found;
+	FILE *fp = nullptr;
+	size_t i, len;
+
+	for (i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
+		fp = fopen(paths[i], "r");
+		if (fp != nullptr) {
+			break;
+		}
+	}
+	CHECK(fp != nullptr);
+	if (fp == nullptr) {
+		return 0;
+	}
+	len = fread(text, 1, sizeof(text) - 1, fp);
+	fclose(fp);
+	text[len] = '\0';
+	/* Twice in the file: once in "measured_with" as a description, once
+	 * in "ceiling" as the number.  The last one is the number. */
+	found = strstr(text, key);
+	CHECK(found != nullptr);
+	while (found != nullptr) {
+		const char *next = strstr(found + 1, key);
+
+		if (next == nullptr) {
+			break;
+		}
+		found = next;
+	}
+	if (found == nullptr) {
+		return 0;
+	}
+	return strtoul(found + sizeof(key) - 1, nullptr, 10);
+}
+
+/* The floor, learned the way a user learns it: from the refusal.  Nothing
+ * here knows the constant in src/lisp_core.c, so a floor that moves moves
+ * these assertions with it rather than past them. */
+static size_t refused_arena_floor(void)
+{
+	static const char marker[] = "below the ";
+	const char *found;
+
+	setenv(arena_env, "1", 1);
+	CHECK(kg_lisp_init() != 0);
+	/* A no-op after a failed init, and the one thing that keeps a
+	 * surprise success here from leaking a context into every test
+	 * after it. */
+	kg_lisp_shutdown();
+	unsetenv(arena_env);
+	found = strstr(kg_lisp_last_error(), marker);
+	CHECK(found != nullptr);
+	return found == nullptr
+	    ? 0
+	    : strtoul(found + sizeof(marker) - 1, nullptr, 10);
+}
+
+/* One size, three spellings, and everything that is not a size at all. */
+static void test_arena_env_parsing(void)
+{
+	static const char *const two_mib[] = { "2M", "2048K", "2097152" };
+	/* Empty, blank, signed, hex, trailing text, a suffix kg does not
+	 * know, and two values that overflow size_t -- before scaling and
+	 * after it.  None of them is an answer, so each leaves the compiled
+	 * default alone, as an unreadable $KG_LSP_TIMEOUT_MS does. */
+	static const char *const not_a_size[] = { "", " ", "1 ", " 1", "abc",
+		"12x", "0x10", "-1", "+1", "1K2", "1MB", "1.5M", "M",
+		"18446744073709551616", "18014398509481984M" };
+	struct kg_lisp_arena_stats compiled, measured;
+	size_t i;
+
+	unsetenv(arena_env);
+	CHECK(kg_lisp_init() == 0);
+	CHECK(kg_lisp_arena_stats(&compiled) == 0);
+	kg_lisp_shutdown();
+
+	for (i = 0; i < sizeof(two_mib) / sizeof(two_mib[0]); i++) {
+		setenv(arena_env, two_mib[i], 1);
+		CHECK(kg_lisp_init() == 0);
+		CHECK(kg_lisp_arena_stats(&measured) == 0);
+		CHECKF(measured.arena_bytes == 2U * 1024U * 1024U,
+		    "%s opened %zu bytes", two_mib[i], measured.arena_bytes);
+		/* A bigger arena is a bigger arena: the slots follow the
+		 * bytes, which is the whole point of the knob. */
+		CHECK(measured.total_slots > compiled.total_slots);
+		kg_lisp_shutdown();
+	}
+	for (i = 0; i < sizeof(not_a_size) / sizeof(not_a_size[0]); i++) {
+		setenv(arena_env, not_a_size[i], 1);
+		CHECK(kg_lisp_init() == 0);
+		CHECK(kg_lisp_arena_stats(&measured) == 0);
+		CHECKF(measured.arena_bytes == compiled.arena_bytes,
+		    "\"%s\" opened %zu bytes, not the compiled %zu",
+		    not_a_size[i], measured.arena_bytes, compiled.arena_bytes);
+		kg_lisp_shutdown();
+	}
+	unsetenv(arena_env);
+}
+
+/* A size kg understands and refuses: it says so, naming the variable and
+ * the floor, and starts nothing.  The one thing that must never happen
+ * here is a smaller arena opened in silence. */
+static void test_arena_env_floor_refused(void)
+{
+	struct kg_lisp_arena_stats stats;
+	char result[128] = "";
+
+	setenv(arena_env, "1024", 1);
+	CHECK(kg_lisp_init() != 0);
+	CHECK(kg_lisp_config_refused() == 1);
+	CHECK(strstr(kg_lisp_last_error(), "KG_LISP_ARENA_BYTES=1024")
+	    != nullptr);
+	CHECK(strstr(kg_lisp_last_error(), "minimum Lisp arena") != nullptr);
+	/* Nothing was opened, so the session is the Lisp-less one every
+	 * caller already knows how to answer for. */
+	CHECK(kg_lisp_arena_stats(&stats) != 0);
+	CHECK(kg_lisp_eval_string("1", 1, result, sizeof(result)) != 0);
+	CHECK(strstr(result, "not initialized") != nullptr);
+
+	/* A size so large that aligning it up overflows size_t is a failure
+	 * rather than a refusal: kg understood the value and could not use
+	 * it, which is the pre-existing "cannot start" answer and stays
+	 * fatal where a refusal does not. */
+	setenv(arena_env, "18446744073709551615", 1);
+	CHECK(kg_lisp_init() != 0);
+	CHECK(kg_lisp_config_refused() == 0);
+	CHECK(strstr(kg_lisp_last_error(), "overflow") != nullptr);
+	kg_lisp_shutdown();
+
+	/* The refusal is about the configuration it was handed, not a state
+	 * kg stays in: a later init on a sound one clears it. */
+	unsetenv(arena_env);
+	CHECK(kg_lisp_init() == 0);
+	CHECK(kg_lisp_config_refused() == 0);
+	kg_lisp_shutdown();
+}
+
+/* The floor is a byte count in src/lisp_core.c and the margin it exists to
+ * keep is a slot count in .ci/prelude-startup-census.json, measured by a
+ * different tool at a different time.  Nothing in C ties the two together
+ * -- fe decides how many slots a byte count buys, and it has moved that
+ * partition at several pins already -- so this test opens a real arena at
+ * exactly the floor and asks the arena itself, against the census's own
+ * number.  A prelude that grows past a third of the floor's slots fails
+ * here, which is the drift this is for; so does a floor raised so far past
+ * the measurement that it has stopped tracking it. */
+static void test_arena_floor_matches_census(void)
+{
+	size_t floor_bytes = refused_arena_floor();
+	size_t reachable = census_reachable_live_objects();
+	struct kg_lisp_arena_stats stats;
+	char text[32];
+
+	CHECK(floor_bytes > 0);
+	CHECK(reachable > 0);
+	if (floor_bytes == 0 || reachable == 0) {
+		return;
+	}
+	/* The floor is a floor: one byte under it is refused. */
+	snprintf(text, sizeof(text), "%zu", floor_bytes - 1);
+	setenv(arena_env, text, 1);
+	CHECK(kg_lisp_init() != 0);
+	kg_lisp_shutdown();
+
+	snprintf(text, sizeof(text), "%zu", floor_bytes);
+	setenv(arena_env, text, 1);
+	CHECK(kg_lisp_init() == 0);
+	CHECK(kg_lisp_arena_stats(&stats) == 0);
+	CHECK(stats.arena_bytes == floor_bytes);
+	CHECKF(stats.total_slots >= reachable * 3,
+	    "the %zu-byte floor opens %zu slots, under the %zu the census's "
+	    "%zu reachable objects need three of",
+	    floor_bytes, stats.total_slots, reachable * 3, reachable);
+	CHECKF(stats.total_slots < reachable * 6,
+	    "the %zu-byte floor opens %zu slots, more than twice the %zu it "
+	    "is supposed to be tracking",
+	    floor_bytes, stats.total_slots, reachable * 3);
+	/* And the prelude really does fit in it, with the margin above. */
+	CHECK(stats.peak_live_objects <= reachable * 3);
+	CHECK(stats.allocation_failures == 0);
+	kg_lisp_shutdown();
+	unsetenv(arena_env);
 }
 
 static void test_sized_input(void)
@@ -7578,6 +7788,9 @@ int main(void)
 	test_lisp_command_run = kg_lisp_run_command;
 
 	RUN(test_lifecycle);
+	RUN(test_arena_env_parsing);
+	RUN(test_arena_env_floor_refused);
+	RUN(test_arena_floor_matches_census);
 	RUN(test_eval_and_recovery);
 	RUN(test_sized_input);
 	RUN(test_variable_non_nil);

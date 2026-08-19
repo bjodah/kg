@@ -1,0 +1,40 @@
+# Phase B of doc/plans/2026-08-19-fe-simplification-and-cheap-compat.md:
+# the Lisp arena is a run-time knob, and a report says which arena it is
+# reporting on.  $KG_LISP_ARENA_BYTES is read once by kg_lisp_init(), the
+# way $KG_LSP_SERVER_C is read once when a server starts, so `env:` here is
+# the whole fixture -- there is no file, no config and no init form
+# involved in changing the arena's size.
+#
+# The knob is proved by the two numbers moving together: 2M is echoed back
+# as the byte count, and the slot count is the 2 MiB partition (115129 at
+# this fe pin, against 56147 for the compiled 1 MiB default that
+# test/pty/lisp-arena-stats-command.yaml pins -- fe re-partitions at some
+# pins, so both numbers are measured, never carried forward).  A screen
+# saying only "115129 slots" would not say which arena produced it, which
+# is the gap this phase closed.
+#
+# No Emacs oracle, for lisp-arena-stats-command.yaml's reason: Emacs has no
+# arena.  120 columns because the line is ~95 of them now.
+name: lisp-arena-bytes-knob
+filename: lisp-arena-bytes.txt
+requires_feature: lisp
+backend: tmux
+dimensions: [24, 120]
+env:
+  KG_LISP_ARENA_BYTES: "2M"
+initial: ""
+keys:
+  - M-x
+  - lisp-arena-stats
+  - RET
+  - o
+  - k
+expected_saved: ok
+expected_screen_contains:
+  - "Arena: 115129 slots,"
+  - "; 2097152 bytes"
+expected_screen_not_contains:
+  # Not the compiled default's arena, and not a session that quietly fell
+  # back to it.
+  - "Arena: 56147 slots,"
+  - "Lisp not available"

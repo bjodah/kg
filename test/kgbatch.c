@@ -199,7 +199,9 @@ static void usage(const char *argv0)
  * ordinary kgbatch and through one whose fe was built with
  * -DFE_GC_STRESS=1 and compares the collection counts.  Off by default,
  * and never passed by the oracle runner, so kgbatch's one-line output
- * contract is unchanged for everything else. */
+ * contract is unchanged for everything else.  `bytes=` comes last and
+ * names the arena the other three were counted in, which
+ * $KG_LISP_ARENA_BYTES makes a run-time question. */
 static void print_arena_stats(void)
 {
 	struct kg_lisp_arena_stats stats;
@@ -208,9 +210,9 @@ static void print_arena_stats(void)
 		fprintf(stderr, "arena stats unavailable\n");
 		return;
 	}
-	printf("arena: collections=%zu peak-live=%zu failures=%zu\n",
+	printf("arena: collections=%zu peak-live=%zu failures=%zu bytes=%zu\n",
 	    stats.collection_count, stats.peak_live_objects,
-	    stats.allocation_failures);
+	    stats.allocation_failures, stats.arena_bytes);
 }
 
 /* `-a': every FeArenaStats field on one line, prefixed `census:' rather

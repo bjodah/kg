@@ -599,14 +599,17 @@ static void test_lisp_arena_stats_renders(void)
 	 * has to answer exactly what the command rendered from.  This is
 	 * what makes the frames/capacity pair asserted here rather than
 	 * only in the PTY case -- capacity is a fixed property of the
-	 * arena layout, so it is stable within a session by construction. */
+	 * arena layout, so it is stable within a session by construction.
+	 * The trailing byte count is that same fixed property one level
+	 * further out -- which arena this session opened, now that
+	 * $KG_LISP_ARENA_BYTES makes that a run-time answer. */
 	snprintf(expected, sizeof(expected),
 	    "Arena: %zu slots, %zu free, peak %zu; GC %zu; roots %zu; "
-	    "frames %zu/%zu; fails %zu",
+	    "frames %zu/%zu; fails %zu; %zu bytes",
 	    stats.total_slots, stats.free_slots, stats.peak_live_objects,
 	    stats.collection_count, stats.peak_gc_stack_depth,
 	    stats.peak_frame_depth, stats.frame_capacity,
-	    stats.allocation_failures);
+	    stats.allocation_failures, stats.arena_bytes);
 	CHECKF(strcmp(editor.statusmsg, expected) == 0,
 	    "rendered %s, expected %s", editor.statusmsg, expected);
 	CHECK(stats.frame_capacity > 0);

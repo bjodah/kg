@@ -5271,6 +5271,34 @@ asks for mouse reports at all; see
 Nothing else in
 .Nm
 consults it.
+.It Ev KG_LISP_ARENA_BYTES
+How many bytes of arena a
+.Sq +lisp
+build gives the interpreter, replacing the 1 MiB it is built with.
+Plain bytes, or a
+.Sq K
+or
+.Sq M
+suffix for KiB or MiB:
+.Sq 2M ,
+.Sq 2048K
+and
+.Sq 2097152
+are the same arena.
+Read once, at startup.
+Unset, empty, or anything that is not one of those spellings leaves the
+compiled default alone.
+A value that IS one of them but is below 655360 bytes is refused, naming
+itself and that floor, and
+.Nm
+comes up with Lisp switched off rather than on a smaller arena than was
+asked for; the floor is three times what the built-in Lisp prelude needs
+to stay resident.
+.Ic M-x lisp-arena-stats
+reports the size in force.
+Ignored by a
+.Sq -lisp
+build.
 .It Ev KG_LSP_SERVER_C , Ev KG_LSP_SERVER_PYTHON , Ev KG_LSP_SERVER_GO , Ev KG_LSP_SERVER_RUST , Ev KG_LSP_SERVER_JAVA
 The command line a
 .Sq +lsp

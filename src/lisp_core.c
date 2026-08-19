@@ -75,6 +75,22 @@ static_assert(FE_LANGUAGE_VERSION == 15);
  * 1087-frame evaluator stack, as kg_lisp_arena_stats() reports them.
  * All three are measured at the pin, never carried forward. */
 static constexpr size_t lisp_arena_size = KG_LISP_ARENA_SIZE;
+
+/* The size the environment sets instead, read once per kg_lisp_init(),
+ * the way $KG_LSP_TIMEOUT_MS is read once per language server. */
+static const char lisp_arena_env[] = "KG_LISP_ARENA_BYTES";
+
+/* The floor that variable may not go under.  An arena that holds the
+ * prelude and little else is not an editor, so kg refuses it rather than
+ * starting into it: 640 KiB opens 34028 object slots at this pin, against
+ * the 30006 that are three times the prelude's measured reachable set
+ * (.ci/prelude-startup-census.json, reachable_live_objects 10002) -- the
+ * same 3x margin test/test_lisp.c asserts of the default arena.  Both
+ * halves of that sentence are re-derived by that file's
+ * test_arena_floor_matches_census(), from the census file and from a real
+ * arena opened at exactly this size, so the constant and the measurement
+ * cannot drift apart in silence. */
+static constexpr size_t lisp_arena_min_size = 640U * 1024U;
 static constexpr size_t lisp_step_limit = KG_LISP_STEP_LIMIT;
 static constexpr size_t lisp_poll_interval = 256;
 
@@ -373,9 +389,92 @@ static void release_lisp_commands(void)
 	}
 }
 
+/* The multiplier a size suffix names: 1 for no suffix at all, and 0 --
+ * "not a suffix kg knows" -- for anything else, trailing text included. */
+static size_t arena_suffix_scale(const char *suffix)
+{
+	switch (*suffix) {
+	case '\0':
+		return 1;
+	case 'k':
+	case 'K':
+		return suffix[1] == '\0' ? 1024U : 0;
+	case 'm':
+	case 'M':
+		return suffix[1] == '\0' ? 1024U * 1024U : 0;
+	default:
+		return 0;
+	}
+}
+
+/* An arena size written the way a person writes one: plain bytes, or a
+ * K/M suffix for KiB/MiB.  True and *out set only for a value that is
+ * entirely a number and an optional known suffix; false -- leaving *out
+ * alone -- for an empty string, a sign, whitespace, 0x10, trailing text,
+ * and for a number too large for size_t either before or after scaling.
+ * The digits are accumulated with checked arithmetic rather than handed
+ * to strtoull() for the reason the numeric classifier at the foot of this
+ * file gives: that function accepts far more than this grammar does and
+ * reports it through a combination of `end` and errno that is easy to
+ * read wrong. */
+static bool parse_arena_bytes(const char *text, size_t *out)
+{
+	const char *p = text;
+	size_t value = 0, scale;
+
+	if (!ascii_is_digit(*p)) {
+		return false;
+	}
+	for (; ascii_is_digit(*p); p++) {
+		if (ckd_mul(&value, value, (size_t)10)
+		    || ckd_add(&value, value, (size_t)(*p - '0'))) {
+			return false;
+		}
+	}
+	scale = arena_suffix_scale(p);
+	if (scale == 0 || ckd_mul(&value, value, scale)) {
+		return false;
+	}
+	*out = value;
+	return true;
+}
+
+/* How many bytes this session's arena is, ready to hand to
+ * FeOpenContext(): the compiled default, or what $KG_LISP_ARENA_BYTES
+ * names when it names a size at or above the floor, rounded up to
+ * Fe's alignment either way.
+ *
+ * A value that does not parse is not an answer and leaves the default
+ * alone, as an unreadable $KG_LSP_TIMEOUT_MS does.  A value that DOES
+ * parse and is under the floor is refused -- returning false with the
+ * error set and the refusal latched -- because the one thing kg must
+ * never do here is run on a smaller arena than the user asked for
+ * without saying so. */
+static bool select_arena_size(size_t alignment, size_t *out)
+{
+	const char *text = getenv(lisp_arena_env);
+	size_t bytes, padding;
+
+	if (text == nullptr || !parse_arena_bytes(text, &bytes)) {
+		bytes = lisp_arena_size;
+	} else if (bytes < lisp_arena_min_size) {
+		state.config_refused = true;
+		set_error("%s=%zu is below the %zu-byte minimum Lisp arena",
+		    lisp_arena_env, bytes, lisp_arena_min_size);
+		return false;
+	}
+	padding = bytes % alignment;
+	if (padding != 0 && ckd_add(&bytes, bytes, alignment - padding)) {
+		set_error("Lisp arena size overflow");
+		return false;
+	}
+	*out = bytes;
+	return true;
+}
+
 int kg_lisp_init(void)
 {
-	size_t alignment, arena_size, padding;
+	size_t alignment, arena_size;
 	void *arena;
 	FeContext *context;
 	volatile bool in_prelude = false;
@@ -384,17 +483,14 @@ int kg_lisp_init(void)
 		return 0;
 	}
 	state.error[0] = '\0';
+	state.config_refused = false;
 
 	alignment = FeArenaAlignment();
 	if (alignment == 0) {
 		set_error("invalid Fe arena alignment");
 		return 1;
 	}
-	padding = lisp_arena_size % alignment;
-	arena_size = lisp_arena_size;
-	if (padding != 0
-	    && ckd_add(&arena_size, arena_size, alignment - padding)) {
-		set_error("Lisp arena size overflow");
+	if (!select_arena_size(alignment, &arena_size)) {
 		return 1;
 	}
 
@@ -411,6 +507,7 @@ int kg_lisp_init(void)
 	}
 
 	state.arena = arena;
+	state.arena_bytes = arena_size;
 	state.context = context;
 	state.initialized = true;
 	FeSetUserData(context, &state);
@@ -645,6 +742,8 @@ int kg_lisp_load_init(void)
 }
 
 const char *kg_lisp_last_error(void) { return state.error; }
+
+int kg_lisp_config_refused(void) { return state.config_refused ? 1 : 0; }
 
 enum kg_lisp_error_kind kg_lisp_last_error_kind(void)
 {
@@ -1588,6 +1687,7 @@ int kg_lisp_arena_stats(struct kg_lisp_arena_stats *out)
 		return 1;
 	}
 	stats = FeGetArenaStats(state.context);
+	out->arena_bytes = state.arena_bytes;
 	out->total_slots = stats.total_slots;
 	out->free_slots = stats.free_slots;
 	out->peak_live_objects = stats.peak_live_objects;
@@ -1685,6 +1785,11 @@ int kg_lisp_load_file(const char *path)
 int kg_lisp_load_init(void) { return 0; }
 
 const char *kg_lisp_last_error(void) { return disabled_error; }
+
+/* This build reads no $KG_LISP_ARENA_BYTES and has no arena to refuse, so
+ * its one init failure is the compile-time one and is never a refused
+ * configuration. */
+int kg_lisp_config_refused(void) { return 0; }
 
 enum kg_lisp_error_kind kg_lisp_last_error_kind(void)
 {

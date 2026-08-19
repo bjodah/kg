@@ -1,0 +1,37 @@
+# The other half of Phase B's knob: a size kg understands and REFUSES.
+#
+# 4096 bytes parses, so it is not the "not a number, keep the default"
+# case -- it is an arena that could not hold the prelude, and kg never
+# opens a smaller one than it was asked for without saying so.  So it says
+# so, naming the variable, the value and the floor in bytes (the unit the
+# user set), and comes up with Lisp inactive: a configuration kg refuses
+# is the user's to fix, not a broken editor, and every other
+# kg_lisp_init() failure stays fatal.
+#
+# The editor really is an editor afterwards, which is what the saved file
+# proves: the two typed characters are inserted and written by the
+# harness' own trailing C-x C-s.  The refusal replaces the greeting rather
+# than flashing past it, which is what the absent "Press Ctrl-h for help"
+# proves.
+#
+# Two keys and no command: the echo area holds a message for five seconds
+# (src/display.c), and this one is set before the first frame, so the case
+# must reach its capture inside that window.  Anything typed here that set
+# a message of its own would also overwrite the one under test.
+name: lisp-arena-bytes-refused
+filename: lisp-arena-bytes-refused.txt
+requires_feature: lisp
+backend: tmux
+dimensions: [24, 120]
+env:
+  KG_LISP_ARENA_BYTES: "4096"
+initial: ""
+keys:
+  - o
+  - k
+expected_saved: ok
+expected_screen_contains:
+  - "KG_LISP_ARENA_BYTES=4096 is below the "
+  - "-byte minimum Lisp arena; Lisp is off"
+expected_screen_not_contains:
+  - "Press Ctrl-h for help"

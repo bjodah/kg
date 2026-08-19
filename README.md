@@ -332,6 +332,12 @@ turns off the startup screen an empty buffer shows:
 (setq inhibit-startup-message t)
 ```
 
+Lisp runs in a fixed arena, 1 MiB by default; `KG_LISP_ARENA_BYTES` in the
+environment sets another size (`2M`, `4096K`, or plain bytes), read once at
+startup, and `M-x lisp-arena-stats` reports the one in force. Sizes below
+640 KiB are refused rather than quietly enlarged, and kg then starts with
+Lisp switched off.
+
 kg installs a handful of Lisp packages beside itself; `(require 'NAME)`
 loads one. `help-fns` is the one to try first — it makes kg describe
 itself:

@@ -215,7 +215,8 @@ STRESS_TIMEOUT_RATIO = 1000
 STRESS_TIMEOUT_FLOOR = 120
 STRESS_TIMEOUT_CAP = 3600
 
-STATS = re.compile(r"^arena: collections=(\d+) peak-live=(\d+) failures=(\d+)$")
+STATS = re.compile(
+	r"^arena: collections=(\d+) peak-live=(\d+) failures=(\d+) bytes=(\d+)$")
 
 
 def run(binary: pathlib.Path, script: pathlib.Path, budget: float, why: str):

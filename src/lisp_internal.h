@@ -140,6 +140,11 @@ struct kg_lisp_match_data {
 
 struct lisp_state {
 	void *arena;
+	/* The arena's size in bytes, exactly as FeOpenContext() was given
+	 * it: the compiled default or $KG_LISP_ARENA_BYTES, rounded up to
+	 * Fe's alignment.  Reported by kg_lisp_arena_stats() so a slot
+	 * figure always says which arena produced it. */
+	size_t arena_bytes;
 	FeContext *context;
 	struct lisp_frame frame;
 	char error[1024];
@@ -219,6 +224,10 @@ struct lisp_state {
 	 * function for why this is a bare pointer and not a root. */
 	FeObject *command_value;
 	bool initialized;
+	/* Set when kg_lisp_init() REFUSED the configuration it was handed
+	 * rather than failing to start on a sound one; see
+	 * kg_lisp_config_refused(). */
+	bool config_refused;
 };
 
 extern struct lisp_state state;

@@ -234,7 +234,9 @@ static void display_lisp_result(int error, const char *result)
  *
  * `frames` is peak-of-capacity because that pair is the one bound a
  * person can act on (09A Table X's frame row); slots, collections, roots
- * and failures are counts. */
+ * and failures are counts.  The arena's own size comes last, so a report
+ * says which arena produced it -- with $KG_LISP_ARENA_BYTES that is no
+ * longer a constant of the build. */
 static void cmd_lisp_arena_stats(int fd)
 {
 	struct kg_lisp_arena_stats stats;
@@ -246,11 +248,11 @@ static void cmd_lisp_arena_stats(int fd)
 	}
 	editor_set_status_message(
 	    "Arena: %zu slots, %zu free, peak %zu; GC %zu; roots %zu; "
-	    "frames %zu/%zu; fails %zu",
+	    "frames %zu/%zu; fails %zu; %zu bytes",
 	    stats.total_slots, stats.free_slots, stats.peak_live_objects,
 	    stats.collection_count, stats.peak_gc_stack_depth,
 	    stats.peak_frame_depth, stats.frame_capacity,
-	    stats.allocation_failures);
+	    stats.allocation_failures, stats.arena_bytes);
 }
 
 /* Emacs' read-expression-history. */

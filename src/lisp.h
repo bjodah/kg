@@ -108,6 +108,12 @@ struct kg_lisp_arena_stats {
 	 * deep its Lisp nesting. */
 	size_t peak_native_reentry;
 	size_t allocation_failures;
+	/* The arena's own size in bytes -- the compiled default, or what
+	 * $KG_LISP_ARENA_BYTES asked for -- so a report of slots always says
+	 * which arena produced them.  Last, and rendered last everywhere
+	 * this struct is rendered, because the text in front of it is what
+	 * PTY cases and utils/check_lisp_gc_stress.py already read. */
+	size_t arena_bytes;
 };
 
 /* Snapshots Fe's read-only arena/evaluator counters through
@@ -116,6 +122,16 @@ struct kg_lisp_arena_stats {
  * active and initialized; returns nonzero and leaves *out untouched
  * otherwise, including every WITH_LISP=0 build. */
 [[nodiscard]] int kg_lisp_arena_stats(struct kg_lisp_arena_stats *out);
+
+/* Whether the last kg_lisp_init() failure was kg REFUSING the
+ * configuration it was handed, rather than an interpreter that could not
+ * start on a sound one.  Today the one refusal is $KG_LISP_ARENA_BYTES
+ * naming an arena below kg's floor: kg never quietly runs on a smaller
+ * arena than it was asked for, but the session is still a usable editor,
+ * so src/main.c reports the refusal and comes up with Lisp inactive where
+ * every other init failure stays fatal.  Always 0 in a WITH_LISP=0 build,
+ * which reads no such variable. */
+[[nodiscard]] int kg_lisp_config_refused(void);
 
 /* Copies the current arena stats into the KG_PERF_LISP_* gauge counters
  * (src/perf.h); a no-op when KG_PERF_COUNTERS is 0 or Lisp is inactive.

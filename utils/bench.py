@@ -404,7 +404,7 @@ CASES = {
 		"(defun lw (n l) (if (<= n 0) l (lw (- n 1) (cons n l)))) "
 		"(length (lw 150 nil))\r",
 		"\x18\x03",
-	], None, {"lisp_peak_frame_depth": 200}),
+	], None, {"lisp_peak_frame_depth": 200, "lisp_minibuffer_eval": 0}),
 	# Iterative, not recursive: peak_frame_depth stays flat at 8 (the
 	# bare-prelude baseline itself, per the block comment above)
 	# regardless of 20000 vs. 3 iterations, so it cannot be the signal.
@@ -428,7 +428,7 @@ CASES = {
 		"(setq i 0) (setq acc 0) (while (< i 20000) (setq acc (+ acc i)) "
 		"(setq i (+ i 1))) acc\r",
 		"\x18\x03",
-	], None, {"lisp_gc_count": 1}),
+	], None, {"lisp_gc_count": 1, "lisp_minibuffer_eval": 0}),
 	# Also iterative (peak_frame_depth 10, same non-signal as the
 	# arithmetic loop above): fe.c re-expands a macro on every call
 	# (doc/fe-upstream.md) rather than rewriting the call site, so 2000
@@ -464,7 +464,7 @@ CASES = {
 		"(defmacro m (x) (list '+ x 1)) (setq n 0) (setq i 0) "
 		"(while (< i 2000) (setq n (m n)) (setq i (+ i 1))) n\r",
 		"\x18\x03",
-	], None, {"lisp_arena_peak_live": 15000}),
+	], None, {"lisp_arena_peak_live": 15000, "lisp_minibuffer_eval": 0}),
 	# Deep call chain: 300 levels of non-tail self-recursion; measured
 	# peak_frame_depth 904 (~3 frames per level: `if`, `+`, and the
 	# recursive call each open one -- see test/test_perf.c's identical
@@ -473,16 +473,31 @@ CASES = {
 		"\x1b:",
 		"(defun dc (n) (if (<= n 0) 0 (+ 1 (dc (- n 1))))) (dc 300)\r",
 		"\x18\x03",
-	], None, {"lisp_peak_frame_depth": 500}),
+	], None, {"lisp_peak_frame_depth": 500, "lisp_minibuffer_eval": 0}),
 	# Representative command latency: the minibuffer round trip and eval
 	# dispatch on a trivial expression, with none of the above shapes'
 	# own cost mixed in. Deliberately as shallow as the prelude's own
 	# deepest call (nesting 8, per the block comment above), so --
 	# unlike the shapes above -- peak_frame_depth cannot be the
-	# non-trivial-execution signal here; total_slots merely confirms
-	# Lisp ran at all.
+	# non-trivial-execution signal here.
+	#
+	# `lisp_arena_total_slots > 0` USED TO BE the whole assertion, and it
+	# is not an assertion at all: the arena is sized at kg_lisp_init()
+	# and total_slots reads 56147 after a startup that then exits
+	# immediately. The Phase 21 adversarial review (finding 4)
+	# demonstrated the consequence -- this case's own `assert_gt` and its
+	# own LISP_ANSWERS entry both PASSED against an exit-only key script
+	# of `["\x18\x03"]`, so a broken key sequence would have left a
+	# startup benchmark wearing the name of a command round trip.
+	# `lisp_minibuffer_eval` (src/perf.h, incremented only where
+	# eval-expression reaches a value) is zero for that script and 1 for
+	# this one, which is the difference the case is named for. The arena
+	# gauge stays beside it: it costs nothing and still says "Lisp is
+	# compiled in and initialised", which is the precondition rather than
+	# the measurement.
 	"lisp-command-latency": (None, ["\x1b:", "(+ 1 2)\r", "\x18\x03"],
-				 None, {"lisp_arena_total_slots": 0}),
+				 None, {"lisp_arena_total_slots": 0,
+					"lisp_minibuffer_eval": 0}),
 	# Phase 21.2 item 9: a key-bound interactive command that calls a
 	# small Lisp function on every invocation, pressed
 	# INTERACTIVE_COMMAND_TICKS (100) times -- the shape of a real
@@ -722,16 +737,31 @@ def typed_expression(name):
 # `kgbatch_answer()` (see bench_case()) evaluates `source` through
 # `test/kgbatch -r -b`, which needs no terminal and runs the identical
 # kg_lisp_eval_string() seam the M-: minibuffer path does, and compares its
-# `V:` payload byte for byte. Deliberately NOT a check of the pty's own
-# screen output: for an `M-:` case the typed expression's own digits are
-# already present in the terminal stream before RET is ever sent (they are
-# the self-insert echo of what was typed), so grepping the whole session's
-# bytes for "150" would pass whether or not evaluation happened at all --
-# exactly the silent-no-op failure mode assert_gt's docstring describes for
-# counters, here for the computed value instead.
+# `V:` payload byte for byte.
+#
+# WHAT THAT PROVES, EXACTLY: that this expression, under kg's Lisp, at this
+# build, evaluates to this value. It is a VALUE ORACLE and nothing more --
+# a SEPARATE test/kgbatch process, started after every measured run has
+# already exited, so it cannot say anything at all about what the measured
+# process did. The Phase 21 adversarial review (finding 4) is the
+# demonstration: an answer of "3" was returned for a case whose key script
+# was `C-x C-c` and nothing else. What proves the measured process ran the
+# expression is the `lisp_minibuffer_eval` counter every M-: case above now
+# asserts; the two are complementary and neither substitutes for the other
+# (the counter cannot tell a right answer from a wrong one at the same
+# cost, which is the bug the fe pin's commit message found in the old
+# `lisp-macro-heavy` case).
+#
+# Deliberately NOT a check of the pty's own screen output: for an `M-:`
+# case the typed expression's own digits are already present in the
+# terminal stream before RET is ever sent (they are the self-insert echo of
+# what was typed), so grepping the whole session's bytes for "150" would
+# pass whether or not evaluation happened at all -- exactly the silent-no-op
+# failure mode assert_gt's docstring describes for counters, here for the
+# computed value instead.
 #
 # "lisp-arena-prelude" has no expression to check (its key script is just
-# `C-x C-c`) and is not here, matching fe's own context-open-close workload,
+# `C-x C-c`) and is not here, matching fe's own context-open workload,
 # whose `answer` field is likewise not a computed value.
 LISP_ANSWERS = {
 	"lisp-list-walk": (typed_expression("lisp-list-walk"), "150"),
@@ -984,15 +1014,21 @@ def bench_case(kg, name, corpus_path, keys, runs, rows, cols, timeout,
 	silently reached nothing, so the case measured the startup constant
 	instead of what it was named for.
 
-	`answer`, when given, is a (source, expected) pair from LISP_ANSWERS:
-	checked once via `kgbatch_answer()`, not once per run, since it is
-	the same deterministic evaluation every time and buys nothing repeated
-	that a wall-clock measurement would. This is Phase 21.2's "each
-	workload checks its answer" for the cases that have one -- a counter
-	threshold alone cannot tell a workload that computed the right answer
-	from one that silently computed nothing (or the wrong thing) at
-	exactly the same cost, which is exactly the bug the fe pin's commit
-	message found in the `lisp-macro-heavy` case this file used to have.
+	`answer`, when given, is a (source, expected) pair from LISP_ANSWERS,
+	checked once via `kgbatch_answer()` after every measured run has
+	exited. It is a VALUE ORACLE, not a witness: the check runs in a
+	SEPARATE `test/kgbatch` process, so what it establishes is that this
+	expression evaluates to this value under kg's Lisp at this build --
+	never that the process whose time and counters are reported above
+	evaluated anything. The Phase 21 adversarial review (finding 4)
+	showed the gap by returning a correct answer for a case driven with
+	an exit-only key script. `assert_gt` is the half that speaks for the
+	measured process, which is why every `M-:` case in CASES asserts
+	`lisp_minibuffer_eval`; the oracle is still worth having, since a
+	counter threshold alone cannot tell a workload that computed the
+	right answer from one that computed the WRONG thing at exactly the
+	same cost -- the bug the fe pin's commit message found in the
+	`lisp-macro-heavy` case this file used to have.
 	"""
 	times, rss, counters = [], 0, {}
 	with tempfile.TemporaryDirectory() as tmp:

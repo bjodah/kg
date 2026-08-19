@@ -319,7 +319,7 @@
   "src/cmd.c:cmd_electric_pair_mode": 2,
   "src/cmd.c:cmd_end_of_buffer": 1,
   "src/cmd.c:cmd_eval_buffer": 2,
-  "src/cmd.c:cmd_eval_expression": 4,
+  "src/cmd.c:cmd_eval_expression": 5,
   "src/cmd.c:cmd_eval_last_sexp": 1,
   "src/cmd.c:cmd_eval_last_sexp_cmd": 4,
   "src/cmd.c:cmd_eval_print_last_sexp": 1,

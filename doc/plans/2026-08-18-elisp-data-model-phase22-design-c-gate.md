@@ -116,9 +116,16 @@ they are regenerated rather than checked in.  The regenerated numbers are
 byte-for-byte the ones fe's `dd35a2b` commit message and
 `doc/plans/2026-08-18-elisp-data-model-phase21-baseline.md` already report
 (`arithmetic-loop`: 80043 cells, 40004 integers, 40035 pairs; `intern-8192`:
-65444 cells, 0 integers; `context-open-close`: 892 cells) — cited as
+65444 cells, 0 integers; `context-open`: 892 cells) — cited as
 "already checked" per the instructions, and independently reproduced here
-rather than trusted blind.
+rather than trusted blind.  `context-open` is spelled `context-open-close`
+in `dd35a2b`'s own table: the Phase 21 adversarial review (finding 5) found
+that that workload stopped its timer and snapshotted its counters *before*
+`FeCloseContext()`, so what it measured was the open alone, and fe renamed
+it to say so.  Every number this document quotes for it is that same
+open-only measurement, unchanged; the name is the only thing that moved,
+and the workload now called `context-open-close` is a new one that really
+does include the close.
 
 ### nil/t are already singletons — verified, not assumed
 
@@ -164,7 +171,7 @@ all):
   list-walk              2651       305          11.51%  NO
   env-depth-64            575        63          10.96%  NO
   intern-8192           65444         0           0.00%  NO
-  context-open-close       892         0           0.00%  NO
+  context-open             892         0           0.00%  NO
   string-0/7/8/256/8192 1,1,2,37,1171   0     0.00%  NO (all five)
 
 **Why `env-width-8` is not the ceiling despite its raw percentage, and why
@@ -189,7 +196,7 @@ did not.  This is the same category of error Finding 4 named for
 attributable to test scaffolding rather than to the shape Design C would
 change, and crediting it to boxing would overstate the projection on
 exactly the workload family (`env-*`) this report's own reading already
-excludes from "real" for an independent, textual reason. `context-open-close`,
+excludes from "real" for an independent, textual reason. `context-open`,
 `intern-*` and `string-*` need no such correction — their `alloc_integer`
 is 0 outright, not a denominator artifact.
 
@@ -488,7 +495,7 @@ At `more-elisp-work`, superproject commit `a76d6d7`, fe submodule commit
                                    not merely cited): arithmetic-loop
                                    80043 cells / 40004 integers /
                                    40035 pairs; intern-8192 65444 cells /
-                                   0 integers; context-open-close 892
+                                   0 integers; context-open 892
                                    cells.  A second python query read all
                                    19 workloads' alloc_integer/alloc_object
                                    fields directly (not only the subset

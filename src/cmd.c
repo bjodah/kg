@@ -276,6 +276,14 @@ static void cmd_eval_expression(int fd)
 	}
 	rc = kg_lisp_eval_string(
 	    expression, strlen(expression), result, sizeof(result));
+	/* The minibuffer round trip got all the way to a value.  This is
+	 * the one thing a `make bench' Lisp case cannot otherwise prove
+	 * about the process it measured -- see KG_PERF_LISP_MINIBUFFER_EVAL
+	 * in src/perf.h -- and it is nothing at all in a build without
+	 * counters, where the whole statement expands to `((void)0)'. */
+	if (rc == 0) {
+		KG_PERF_INC(KG_PERF_LISP_MINIBUFFER_EVAL);
+	}
 	display_lisp_result(rc, result);
 }
 

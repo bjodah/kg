@@ -221,6 +221,32 @@ enum kg_perf_counter {
 	 *     the two together and call it startup cost. */
 	KG_PERF_LISP_USER_INIT_NS,
 	KG_PERF_LISP_PACKAGE_LOAD_NS,
+	/* `M-:' evaluations (eval-expression, src/cmd.c) that reached a
+	 * value.  A COUNT, and the only Lisp counter here that is neither a
+	 * gauge nor a duration, because the question it answers is not "how
+	 * big did the arena get" but "did the minibuffer round trip happen
+	 * at all in THIS process".
+	 *
+	 * The defect it exists for: utils/bench.py's Lisp cases type an
+	 * expression at `M-:' in a counting kg and then check the ANSWER in
+	 * a separate test/kgbatch process, so the answer says nothing about
+	 * what the measured process did; and the arena gauges beside it are
+	 * all non-zero after a bare startup, since loading the prelude
+	 * fills the arena.  An exit-only key script therefore passed both
+	 * validations of `lisp-command-latency' while evaluating nothing --
+	 * demonstrated in the Phase 21 adversarial review, finding 4.  This
+	 * counter is zero after a startup that only ever exits, so a case
+	 * asserting it > 0 cannot degrade into a startup benchmark while
+	 * keeping its name.
+	 *
+	 * Successful completion only: a condition or a C-g leaves it alone,
+	 * so a case whose expression raised is not credited with having
+	 * measured the shape it is named for.  eval-buffer (`M-x
+	 * eval-buffer') shares kg_lisp_eval_string() with it and is
+	 * deliberately NOT counted here -- what a bench case drives is the
+	 * minibuffer, and a counter that both paths moved could not tell
+	 * one from the other. */
+	KG_PERF_LISP_MINIBUFFER_EVAL,
 	/* Phase 18's post-command-hook question, as counts rather than as a
 	 * duration, because a duration is the one thing this file's header
 	 * says not to decide on.  CALLS is how many times the main loop

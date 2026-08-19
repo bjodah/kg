@@ -18,6 +18,7 @@
  * with -DKG_PERF_COUNTERS=1, so the counters measure the real code.
  */
 
+#include "../src/cmd.h"
 #include "../src/compile.h"
 #include "../src/def.h"
 #include "../src/edit.h"
@@ -1888,6 +1889,97 @@ static void test_lisp_evaluator_shapes(void)
 	kg_lisp_shutdown();
 }
 
+/* Type `text' at whatever prompt `name' opens, with the frame it paints
+ * sent to /dev/null (refresh_quietly()'s reason exactly: the prompt
+ * writes to fd 1 and the suite's own output has to stay readable).
+ *
+ * The pipe's WRITE END STAYS OPEN for the whole call.  At end of input
+ * read_key_byte() (src/tty.c) sees poll(2) call the descriptor readable
+ * and read(2) return 0 and loops, so a closed write end is a spin, not a
+ * return -- which is why `text' ends in the CR that makes the minibuffer
+ * reader return before it ever asks for another byte. */
+static int type_at_prompt(const char *name, const char *text)
+{
+	int fds[2];
+	int saved, devnull, rc;
+
+	if (pipe(fds) != 0) {
+		return -1;
+	}
+	if (write(fds[1], text, strlen(text)) != (ssize_t)strlen(text)) {
+		close(fds[0]);
+		close(fds[1]);
+		return -1;
+	}
+	saved = dup(STDOUT_FILENO);
+	devnull = open("/dev/null", O_WRONLY);
+	fflush(stdout);
+	if (devnull >= 0) {
+		dup2(devnull, STDOUT_FILENO);
+	}
+	rc = cmd_execute_named(name, fds[0]);
+	fflush(stdout);
+	if (saved >= 0) {
+		dup2(saved, STDOUT_FILENO);
+		close(saved);
+	}
+	if (devnull >= 0) {
+		close(devnull);
+	}
+	close(fds[0]);
+	close(fds[1]);
+	return rc;
+}
+
+/* One `M-:' that reached a value moves lisp_minibuffer_eval by exactly
+ * one, and a session that opened no prompt leaves it at zero.
+ *
+ * The property this is the evidence for is utils/bench.py's, not the
+ * editor's: every other Lisp counter is a gauge the prelude has already
+ * filled by the time the first keystroke arrives, so none of them can
+ * tell a case that drove its key script from one that started kg and
+ * exited.  The Phase 21 adversarial review (finding 4) demonstrated
+ * exactly that -- `lisp-command-latency' asserted only
+ * lisp_arena_total_slots > 0 and passed with an exit-only key script,
+ * measuring startup under the name of a command round trip.  A counter
+ * this test pins to the M-: path is what that case now asserts instead.
+ *
+ * Exact equality rather than a bound, per this file's header rule: the
+ * number of minibuffer evaluations in a session IS the property, the way
+ * one row update per logical replacement is. */
+static void test_lisp_minibuffer_eval_counts_each_prompt(void)
+{
+	if (!kg_lisp_active()) {
+		return;
+	}
+	CHECK(kg_lisp_init() == 0);
+	kg_perf_reset();
+
+	/* Nothing typed yet: the prelude has run, the arena gauges are all
+	 * long since non-zero, and this one is still zero.  That gap is the
+	 * whole point of it. */
+	CHECK(counter(KG_PERF_LISP_MINIBUFFER_EVAL) == 0);
+	CHECK(counter(KG_PERF_LISP_ARENA_TOTAL_SLOTS) == 0);
+
+	CHECK(type_at_prompt("eval-expression", "(+ 1 2)\r") == 0);
+	CHECK(counter(KG_PERF_LISP_MINIBUFFER_EVAL) == 1);
+	CHECK(type_at_prompt("eval-expression", "(+ 2 3)\r") == 0);
+	CHECK(counter(KG_PERF_LISP_MINIBUFFER_EVAL) == 2);
+
+	/* An expression that raises is a prompt that completed and an
+	 * evaluation that did not, so it is not credited: the counter is
+	 * what a bench case reads to claim its workload ran, and a workload
+	 * that signalled did not run. */
+	CHECK(type_at_prompt("eval-expression", "(car 1)\r") == 0);
+	CHECK(counter(KG_PERF_LISP_MINIBUFFER_EVAL) == 2);
+
+	/* An empty prompt (RET alone) never reaches the evaluator at all. */
+	CHECK(type_at_prompt("eval-expression", "\r") == 0);
+	CHECK(counter(KG_PERF_LISP_MINIBUFFER_EVAL) == 2);
+
+	kg_lisp_shutdown();
+}
+
 /* The integer value fe's own FePerfWriteJson() wrote after `"key": `,
  * found by the same kind of substring search a reader (or `utils/
  * bench.py`) does on this file's JSON -- there is no JSON parser in this
@@ -1998,6 +2090,7 @@ int main(void)
 	RUN(test_lisp_prelude_arena_margin);
 	RUN(test_lisp_load_time_counters);
 	RUN(test_lisp_evaluator_shapes);
+	RUN(test_lisp_minibuffer_eval_counts_each_prompt);
 	RUN(test_fe_perf_counters_reach_kg_json);
 	RUN(test_load_row_array_growth);
 	RUN(test_load_highlight_is_final);

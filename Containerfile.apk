@@ -1,0 +1,86 @@
+# syntax=docker/dockerfile:1
+# =============================================================================
+# Containerfile.apk
+# Builds an Alpine Linux package (.apk) of kg with:
+#   - WITH_LISP=0
+#   - WITH_LSP=0
+#   - WITH_DAP=0
+#   - WITH_TREE_SITTER=0
+# =============================================================================
+
+FROM alpine:latest AS builder
+
+# Install build tools and abuild package creation tools
+RUN apk add --no-cache \
+    alpine-sdk \
+    build-base \
+    ca-certificates \
+    git \
+    sudo
+
+# Set up builder user for abuild (abuild requires a non-root user)
+RUN adduser -D -G abuild builder && \
+    echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+
+USER builder
+WORKDIR /home/builder
+
+# Generate local signing keys for abuild
+RUN abuild-keygen -a -i -n
+
+# Create package workspace and copy repository source
+RUN mkdir -p /home/builder/kg
+WORKDIR /home/builder/kg
+COPY --chown=builder:abuild . .
+
+# Generate APKBUILD dynamically using KG_VERSION from src/def.h
+RUN VER=$(sed -n 's/^#define KG_VERSION "\(.*\)"/\1/p' src/def.h) && \
+    cat << EOF > APKBUILD
+# Maintainer: Joachim Wiberg <troglobit@gmail.com>
+pkgname=kg
+pkgver=${VER}
+pkgrel=0
+pkgdesc="Light Weight UTF-8 Terminal Text Editor"
+url="https://github.com/troglobit/kg"
+arch="all"
+license="BSD-2-Clause"
+depends=""
+makedepends="gcc make musl-dev"
+subpackages="\$pkgname-doc"
+source=""
+
+build() {
+	make WITH_LISP=0 WITH_LSP=0 WITH_DAP=0 WITH_TREE_SITTER=0
+}
+
+check() {
+	make WITH_LISP=0 WITH_LSP=0 WITH_DAP=0 WITH_TREE_SITTER=0 check-unit
+}
+
+package() {
+	make WITH_LISP=0 WITH_LSP=0 WITH_DAP=0 WITH_TREE_SITTER=0 install DESTDIR="\$pkgdir" prefix=/usr
+	install -Dm644 LICENSE "\$pkgdir/usr/share/licenses/\$pkgname/LICENSE"
+	install -Dm644 README.md "\$pkgdir/usr/share/doc/\$pkgname/README.md"
+}
+EOF
+
+# Build and package the APK (including running unit checks)
+RUN abuild -r
+
+# Stage the APK artifacts for export
+USER root
+RUN mkdir -p /dist && \
+    cp /home/builder/packages/*/*/*.apk /dist/
+
+# Test and verify package installation
+RUN apk add --allow-untrusted /dist/kg-*.apk && \
+    kg -V && \
+    ldd /usr/bin/kg
+
+# -----------------------------------------------------------------------------
+# Exporter stage: outputs only the built .apk artifacts
+# Usage: podman build --target export --output . -f Containerfile.apk .
+#        or docker build --target export --output . -f Containerfile.apk .
+# -----------------------------------------------------------------------------
+FROM scratch AS export
+COPY --from=builder /dist/ /

@@ -1,0 +1,76 @@
+# syntax=docker/dockerfile:1
+# =============================================================================
+# Containerfile.deb
+# Builds a Debian package (.deb) of kg with:
+#   - WITH_LISP=1
+#   - WITH_LSP=1
+#   - WITH_DAP=1
+#   - WITH_TREE_SITTER=1
+#   - Statically linked tree-sitter core (libtree-sitter.a)
+#   - Bundled tree-sitter grammar shared libraries in /usr/lib/tree-sitter
+# =============================================================================
+
+FROM debian:bookworm-slim AS builder
+
+# Install packaging and compilation prerequisites
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    debhelper \
+    dpkg-dev \
+    git \
+    ca-certificates \
+    python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src/kg
+COPY . .
+
+# Initialize submodules (fe, fe/tiny-regex-c) if not already present
+RUN if [ ! -f fe/fe.c ] || [ ! -f fe/tiny-regex-c/re.c ]; then \
+        git submodule update --init --recursive; \
+    fi
+
+# Build tree-sitter core and all grammars using kg's pinned manifest
+RUN ./utils/build-tree-sitter.sh --prefix /opt/tree-sitter
+
+# Remove shared libtree-sitter.so from prefix to force static linking against libtree-sitter.a
+# (Grammar .so files remain untouched in /opt/tree-sitter/lib/)
+RUN rm -f /opt/tree-sitter/lib/libtree-sitter.so*
+
+# Configure debian/rules for the feature set and grammar installation
+RUN cat << 'EOF' > debian/rules
+#!/usr/bin/make -f
+%:
+	dh $@
+
+override_dh_auto_build:
+	$(MAKE) WITH_LISP=1 WITH_LSP=1 WITH_DAP=1 WITH_TREE_SITTER=1 \
+		TREE_SITTER_PREFIX=/opt/tree-sitter \
+		TS_GRAMMAR_PATH=/usr/lib/tree-sitter
+
+override_dh_auto_install:
+	$(MAKE) install DESTDIR=$(CURDIR)/debian/kg prefix=/usr
+	install -d $(CURDIR)/debian/kg/usr/lib/tree-sitter
+	install -m 644 /opt/tree-sitter/lib/libtree-sitter-*.so $(CURDIR)/debian/kg/usr/lib/tree-sitter/
+EOF
+RUN chmod +x debian/rules
+
+# Build Debian binary package (.deb)
+RUN dpkg-buildpackage -b -us -uc
+
+# Stage the generated .deb package for extraction
+RUN mkdir -p /dist && cp /src/kg_*.deb /dist/
+
+# Test and verify package installation
+RUN dpkg -i /dist/kg_*.deb && \
+    kg -V && \
+    ! ldd /usr/bin/kg | grep -q libtree-sitter.so && \
+    test -f /usr/lib/tree-sitter/libtree-sitter-c.so
+
+# -----------------------------------------------------------------------------
+# Exporter stage: outputs only the built .deb artifacts
+# Usage: podman build --target export --output . -f Containerfile.deb .
+#        or docker build --target export --output . -f Containerfile.deb .
+# -----------------------------------------------------------------------------
+FROM scratch AS export
+COPY --from=builder /dist/ /

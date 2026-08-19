@@ -576,6 +576,169 @@ static char *LISP_HL_keywords[] = { "defun", "defmacro", "defvar", "defconst",
 	"if", "cond", "when", "unless", "while", "dolist", "dotimes", "quote",
 	"and", "or", "not", "nil", "t", NULL };
 
+/* Dockerfile */
+static char *DOCKERFILE_HL_keywords[] = { "FROM", "AS", "RUN", "CMD", "LABEL",
+	"EXPOSE", "ENV", "ADD", "COPY", "ENTRYPOINT", "VOLUME", "USER",
+	"WORKDIR", "ARG", "ONBUILD", "STOPSIGNAL", "HEALTHCHECK", "SHELL",
+	"MAINTAINER", "CROSS_BUILD", NULL };
+
+/* Lua */
+static char *LUA_HL_keywords[] = { "and", "break", "do", "else", "elseif",
+	"end", "false", "for", "function", "goto", "if", "in", "local", "nil",
+	"not", "or", "repeat", "return", "then", "true", "until", "while",
+	"assert|", "collectgarbage|", "dofile|", "error|", "getmetatable|",
+	"ipairs|", "load|", "loadfile|", "next|", "pairs|", "pcall|", "print|",
+	"rawequal|", "rawget|", "rawlen|", "rawset|", "require|", "select|",
+	"setmetatable|", "tonumber|", "tostring|", "type|", "xpcall|",
+	"string|", "table|", "math|", "io|", "os|", "debug|", "coroutine|",
+	"utf8|", NULL };
+
+/* Haskell */
+static char *HASKELL_HL_keywords[] = { "as", "case", "of", "class", "data",
+	"default", "deriving", "do", "forall", "foreign", "hiding", "if",
+	"then", "else", "import", "in", "infix", "infixl", "infixr", "instance",
+	"let", "module", "newtype", "qualified", "type", "where", "mdo", "rec",
+	"pattern", "Int|", "Integer|", "Float|", "Double|", "Char|", "String|",
+	"Bool|", "Maybe|", "Either|", "IO|", "True|", "False|", "Just|",
+	"Nothing|", "Left|", "Right|", "Show|", "Eq|", "Ord|", "Read|", "Num|",
+	"Monad|", "Functor|", "Applicative|", NULL };
+
+/* ISPC */
+static char *ISPC_HL_keywords[] = { "auto", "break", "case", "cdo", "cfor",
+	"cif", "class", "const", "constexpr", "continue", "cwhile", "default",
+	"delete", "do", "else", "enum", "export", "extern", "for", "foreach",
+	"foreach_active", "foreach_tiled", "foreach_unique", "goto", "if", "in",
+	"inline", "launch", "new", "noinline", "noreturn", "operator",
+	"register", "restrict", "return", "sizeof", "soa", "static", "struct",
+	"switch", "task", "template", "typedef", "typename", "uniform", "union",
+	"unmasked", "varying", "volatile", "while", "NULL", "nullptr", "true",
+	"false", "int|", "int8|", "int16|", "int32|", "int64|", "uint|",
+	"uint8|", "uint16|", "uint32|", "uint64|", "float|", "float16|",
+	"double|", "bool|", "void|", NULL };
+
+/* XML */
+static char *XML_HL_keywords[]
+    = { "<xml>", "</xml>", "<DOCTYPE>", "<xmlns>", "version=|", "encoding=|",
+	      "standalone=|", "xmlns=|", "id=|", "name=|", "type=|", NULL };
+
+/* DTD */
+static char *DTD_HL_keywords[] = { "ELEMENT", "ATTLIST", "ENTITY", "NOTATION",
+	"ANY", "EMPTY", "#PCDATA", "#REQUIRED", "#IMPLIED", "#FIXED", "IGNORE",
+	"INCLUDE", "SYSTEM", "PUBLIC", "CDATA|", "ID|", "IDREF|", "IDREFS|",
+	"NMTOKEN|", "NMTOKENS|", NULL };
+
+/* Linker script */
+static char *LINKERSCRIPT_HL_keywords[]
+    = { "ENTRY", "SECTIONS", "MEMORY", "PHDRS", "OVERLAY", "PROVIDE",
+	      "PROVIDE_HIDDEN", "KEEP", "ASSERT", "INCLUDE", "ORIGIN", "LENGTH",
+	      "ALIGN", "AT", "SUBALIGN", "NOLOAD", "DSECT", "COPY", "INFO",
+	      "/DISCARD/", "ADDR|", "LOADADDR|", "SIZEOF|", NULL };
+
+/* RON */
+static char *RON_HL_keywords[]
+    = { "true", "false", "Some|", "None|", "Ok|", "Err|", NULL };
+
+/* TableGen */
+static char *TABLEGEN_HL_keywords[] = { "class", "def", "defm", "defset",
+	"defvar", "let", "in", "include", "if", "then", "else", "foreach",
+	"multiclass", "field", "assert", "true", "false", "bit|", "bits|",
+	"int|", "string|", "list|", "dag|", "code|", NULL };
+
+/* re2c */
+static char *RE2C_HL_keywords[] = { "re2c", "local", "rules", "use", "max",
+	"maxnmatch", "types", "getstate", "stags", "mtags", "include", "header",
+	"!include", "!use", "api", "flags", "variable", "state", "tags",
+	"indent", NULL };
+
+/* Common Lisp */
+static char *COMMONLISP_HL_keywords[] = { "defun", "defmacro", "defgeneric",
+	"defmethod", "defvar", "defparameter", "defconstant", "defstruct",
+	"deftype", "let*", "let", "prog", "progn", "prog1", "prog2", "if",
+	"when", "unless", "cond", "case", "typecase", "loop", "do*", "do",
+	"dotimes", "dolist", "return", "return-from", "go", "throw", "catch",
+	"unwind-protect", "block", "tagbody", "quote", "function", "setq",
+	"setf", "lambda", "nil", "t", NULL };
+
+/* GLSL */
+static char *GLSL_HL_keywords[] = { "attribute", "const", "uniform", "varying",
+	"buffer", "shared", "coherent", "volatile", "restrict", "readonly",
+	"writeonly", "layout", "centroid", "flat", "smooth", "noperspective",
+	"patch", "sample", "invariant", "precise", "break", "continue", "do",
+	"for", "while", "switch", "case", "default", "if", "else", "subroutine",
+	"discard", "return", "in", "out", "inout", "highp", "mediump", "lowp",
+	"precision", "true", "false", "NULL", "void|", "bool|", "int|", "uint|",
+	"float|", "double|", "vec2|", "vec3|", "vec4|", "bvec2|", "bvec3|",
+	"bvec4|", "ivec2|", "ivec3|", "ivec4|", "uvec2|", "uvec3|", "uvec4|",
+	"dvec2|", "dvec3|", "dvec4|", "mat2|", "mat3|", "mat4|", "sampler1D|",
+	"sampler2D|", "sampler3D|", "samplerCube|", NULL };
+
+/* Properties */
+static char *PROPERTIES_HL_keywords[] = { NULL };
+
+/* CUDA */
+static char *CUDA_HL_keywords[] = { "auto", "break", "case", "catch", "class",
+	"concept", "const", "consteval", "constexpr", "constinit", "continue",
+	"decltype", "default", "delete", "do", "else", "enum", "explicit",
+	"extern", "for", "friend", "goto", "if", "inline", "mutable",
+	"namespace", "new", "noexcept", "nullptr", "operator", "private",
+	"protected", "public", "register", "requires", "restrict", "return",
+	"sizeof", "static", "static_assert", "struct", "switch", "template",
+	"this", "thread_local", "throw", "try", "typedef", "typename", "union",
+	"using", "virtual", "volatile", "while", "__global__", "__device__",
+	"__host__", "__constant__", "__shared__", "__managed__",
+	"__launch_bounds__", "__forceinline__", "__noinline__", "true", "false",
+	"NULL", "int|", "long|", "double|", "float|", "char|", "unsigned|",
+	"signed|", "void|", "short|", "bool|", "dim3|", "float2|", "float3|",
+	"float4|", "int2|", "int3|", "int4|", "cudaError_t|", NULL };
+
+/* Git attributes */
+static char *GITATTRIBUTES_HL_keywords[] = { "text", "eol", "crlf", "ident",
+	"filter", "diff", "merge", "whitespace", "export-ignore",
+	"export-subst", "binary", "delta", "encoding", NULL };
+
+/* Julia */
+static char *JULIA_HL_keywords[] = { "abstract", "baremodule", "begin", "break",
+	"catch", "const", "continue", "do", "else", "elseif", "end", "export",
+	"finally", "for", "function", "global", "if", "import", "let", "local",
+	"macro", "module", "mutable", "outer", "primitive", "public", "quote",
+	"return", "struct", "try", "type", "using", "where", "while", "true",
+	"false", "Int|", "Int8|", "Int16|", "Int32|", "Int64|", "Int128|",
+	"UInt|", "UInt8|", "UInt16|", "UInt32|", "UInt64|", "UInt128|",
+	"Float16|", "Float32|", "Float64|", "Bool|", "Char|", "String|",
+	"Symbol|", "Array|", "Vector|", "Matrix|", "Dict|", "Set|", "Tuple|",
+	"NamedTuple|", "Any|", "Nothing|", "Missing|", NULL };
+
+/* Diff */
+static char *DIFF_HL_keywords[]
+    = { "diff", "index", "similarity", "dissimilarity", "rename", "copy", "new",
+	      "deleted", "file", "mode", NULL };
+
+/* Doxygen */
+static char *DOXYGEN_HL_keywords[] = { "PROJECT_NAME|", "PROJECT_NUMBER|",
+	"OUTPUT_DIRECTORY|", "INPUT|", "FILE_PATTERNS|", "RECURSIVE|",
+	"EXCLUDE|", "GENERATE_HTML|", "GENERATE_LATEX|", "GENERATE_MAN|",
+	"GENERATE_XML|", "YES", "NO", NULL };
+
+/* Meson */
+static char *MESON_HL_keywords[] = { "and", "elif", "else", "endforeach",
+	"endif", "foreach", "if", "in", "not", "or", "true", "false",
+	"project|", "executable|", "library|", "shared_library|",
+	"static_library|", "both_libraries|", "dependency|",
+	"declare_dependency|", "find_program|", "import|",
+	"include_directories|", "custom_target|", "configure_file|", "subdir|",
+	"set_variable|", "get_variable|", "is_variable|", "message|",
+	"warning|", "error|", "assert|", "get_option|",
+	"add_project_arguments|", "add_global_arguments|", NULL };
+
+/* SSH config */
+static char *SSHCONFIG_HL_keywords[] = { "Host", "Match", "HostName|", "User|",
+	"Port|", "IdentityFile|", "IdentitiesOnly|", "ProxyCommand|",
+	"ProxyJump|", "ForwardAgent|", "ForwardX11|", "ControlMaster|",
+	"ControlPath|", "ControlPersist|", "ServerAliveInterval|",
+	"ServerAliveCountMax|", "StrictHostKeyChecking|", "UserKnownHostsFile|",
+	"LocalForward|", "RemoteForward|", "DynamicForward|", "SendEnv|",
+	"SetEnv|", "Include|", "yes", "no", "ask", "auto", NULL };
+
 static void markdown_syntax(struct editor_buffer *b, erow *row);
 static void makefile_syntax(struct editor_buffer *b, erow *row);
 static void gitcommit_syntax(struct editor_buffer *b, erow *row);
@@ -650,6 +813,52 @@ static const struct legacy_syntax_spec legacy_specs[] = {
 	{ KG_MODE_GIT_COMMIT, NULL, "", "", 0, gitcommit_syntax },
 	{ KG_MODE_GIT_REBASE, NULL, "", "", 0, gitrebase_syntax },
 	{ KG_MODE_YAML, NULL, "", "", 0, yaml_syntax },
+	{ KG_MODE_DOCKERFILE, DOCKERFILE_HL_keywords, "", "",
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_LUA, LUA_HL_keywords, "--[[", "]]",
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_HASKELL, HASKELL_HL_keywords, "{-", "-}",
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_ISPC, ISPC_HL_keywords, "/*", "*/",
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_XML, XML_HL_keywords, "<!--", "-->",
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_DTD, DTD_HL_keywords, "<!--", "-->",
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_LINKERSCRIPT, LINKERSCRIPT_HL_keywords, "/*", "*/",
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_RON, RON_HL_keywords, "/*", "*/",
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_TABLEGEN, TABLEGEN_HL_keywords, "/*", "*/",
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_RE2C, RE2C_HL_keywords, "/*", "*/",
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_COMMONLISP, COMMONLISP_HL_keywords, "#|", "|#",
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_GLSL, GLSL_HL_keywords, "/*", "*/",
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_PROPERTIES, PROPERTIES_HL_keywords, "", "",
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_PSV, NULL, "", "",
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_CSV, NULL, "", "",
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_TSV, NULL, "", "",
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_CUDA, CUDA_HL_keywords, "/*", "*/",
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_GITATTRIBUTES, GITATTRIBUTES_HL_keywords, "", "",
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_JULIA, JULIA_HL_keywords, "#=", "=#",
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_DIFF, DIFF_HL_keywords, "", "",
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_DOXYGEN, DOXYGEN_HL_keywords, "", "",
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_MESON, MESON_HL_keywords, "", "",
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
+	{ KG_MODE_SSH_CONFIG, SSHCONFIG_HL_keywords, "", "",
+	    HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS, NULL },
 };
 
 #define LEGACY_SPEC_ENTRIES                                                    \

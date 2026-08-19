@@ -342,6 +342,29 @@ static void test_registry_queries_compile(void)
 		{ KG_MODE_LISP, "init.el", "elisp" },
 		{ KG_MODE_MAKEFILE, "Makefile", "make" },
 		{ KG_MODE_SHELL, "a.sh", "bash" },
+		{ KG_MODE_DOCKERFILE, "Dockerfile", "dockerfile" },
+		{ KG_MODE_LUA, "a.lua", "lua" },
+		{ KG_MODE_HASKELL, "a.hs", "haskell" },
+		{ KG_MODE_ISPC, "a.ispc", "ispc" },
+		{ KG_MODE_XML, "a.xml", "xml" },
+		{ KG_MODE_DTD, "a.dtd", "dtd" },
+		{ KG_MODE_LINKERSCRIPT, "a.ld", "linkerscript" },
+		{ KG_MODE_RON, "a.ron", "ron" },
+		{ KG_MODE_TABLEGEN, "a.td", "tablegen" },
+		{ KG_MODE_RE2C, "a.re", "re2c" },
+		{ KG_MODE_COMMONLISP, "a.lisp", "commonlisp" },
+		{ KG_MODE_GLSL, "a.glsl", "glsl" },
+		{ KG_MODE_PROPERTIES, "a.properties", "properties" },
+		{ KG_MODE_PSV, "a.psv", "psv" },
+		{ KG_MODE_CSV, "a.csv", "csv" },
+		{ KG_MODE_TSV, "a.tsv", "tsv" },
+		{ KG_MODE_CUDA, "a.cu", "cuda" },
+		{ KG_MODE_GITATTRIBUTES, ".gitattributes", "gitattributes" },
+		{ KG_MODE_JULIA, "a.jl", "julia" },
+		{ KG_MODE_DIFF, "a.diff", "diff" },
+		{ KG_MODE_DOXYGEN, "Doxyfile", "doxygen" },
+		{ KG_MODE_MESON, "meson.build", "meson" },
+		{ KG_MODE_SSH_CONFIG, "ssh_config", "ssh-config" },
 	};
 	size_t i;
 
@@ -1258,6 +1281,77 @@ static void test_shell_command_substitution_is_not_a_variable(void)
 	load_mode("Shell", lines, 2);
 	check_hl(0, "222222222");
 	check_hl(1, "500055555555065560");
+	teardown();
+}
+
+static void test_dockerfile_instruction_and_comment(void)
+{
+	static const char *const lines[] = { "# base image", "FROM alpine" };
+
+	load_mode("Dockerfile", lines, 2);
+	check_hl(0, "222222222222");
+	check_hl(1, "44440555555");
+	teardown();
+}
+
+static void test_lua_function_and_comment(void)
+{
+	static const char *const lines[]
+	    = { "-- lua greet", "function greet(name)", "\treturn 42", "end" };
+
+	load_mode("Lua", lines, 4);
+	check_hl(0, "222222222222");
+	check_hl(1, "44444444055555000000");
+	check_hl(2, "00000000444444077");
+	check_hl(3, "444");
+	teardown();
+}
+
+static void test_haskell_type_and_comment(void)
+{
+	static const char *const lines[]
+	    = { "-- haskell data", "data Bool = True | False" };
+
+	load_mode("Haskell", lines, 2);
+	check_hl(0, "222222222222222");
+	check_hl(1, "444455555555555555555555");
+	teardown();
+}
+
+static void test_cuda_kernel_and_directive(void)
+{
+	static const char *const lines[]
+	    = { "#include <cuda.h>", "__global__ void add(int *a) {", "}" };
+
+	load_mode("CUDA", lines, 3);
+	check_hl(0, "44444444066666666");
+	check_hl(1, "44444444440555505550555000000");
+	check_hl(2, "0");
+	teardown();
+}
+
+static void test_julia_function_definition(void)
+{
+	static const char *const lines[]
+	    = { "# julia func", "function add(x, y)", "\treturn x + y", "end" };
+
+	load_mode("Julia", lines, 4);
+	check_hl(0, "222222222222");
+	check_hl(1, "444444440555000000");
+	check_hl(2, "00000000444444000000");
+	check_hl(3, "444");
+	teardown();
+}
+
+static void test_ssh_config_host_and_keyword(void)
+{
+	static const char *const lines[]
+	    = { "# ssh config", "Host github.com", "Port 22" };
+
+	load_mode("SSH config", lines, 3);
+	check_hl(0, "222222222222");
+	check_hl(1, "444400000000000");
+	check_hl(2, "5555577");
 	teardown();
 }
 
@@ -2710,6 +2804,12 @@ int main(void)
 	RUN(test_shell_heredocs_quoted_and_not);
 	RUN(test_shell_function_and_declaration);
 	RUN(test_shell_command_substitution_is_not_a_variable);
+	RUN(test_dockerfile_instruction_and_comment);
+	RUN(test_lua_function_and_comment);
+	RUN(test_haskell_type_and_comment);
+	RUN(test_cuda_kernel_and_directive);
+	RUN(test_julia_function_definition);
+	RUN(test_ssh_config_host_and_keyword);
 	RUN(test_prepare_rows_parses_and_paints);
 	RUN(test_edit_reparses_whole_buffer);
 	RUN(test_mode_change_acquires_and_releases_state);

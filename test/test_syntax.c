@@ -336,10 +336,10 @@ static void test_yaml_selection_unrelated_extension_unchanged(void)
  * outside HLDB and must not resolve at all. */
 static void test_mode_ids_are_unique_and_resolve(void)
 {
-	struct editor_syntax *seen[KG_MODE_YAML + 1];
+	struct editor_syntax *seen[KG_MODE_SSH_CONFIG + 1];
 	int id, other;
 
-	for (id = KG_MODE_C; id <= KG_MODE_YAML; id++) {
+	for (id = KG_MODE_C; id <= KG_MODE_SSH_CONFIG; id++) {
 		seen[id] = syntax_find_by_mode((enum kg_mode_id)id);
 		CHECK(seen[id] != NULL);
 		CHECK(seen[id]->id == (enum kg_mode_id)id);
@@ -366,6 +366,40 @@ static void test_mode_lookup_agrees_with_name_lookup(void)
 	CHECK(syntax_find_by_mode(KG_MODE_GIT_REBASE)
 	    == syntax_find_by_name("Git rebase"));
 	CHECK(syntax_find_by_mode(KG_MODE_YAML) == syntax_find_by_name("YAML"));
+	CHECK(syntax_find_by_mode(KG_MODE_DOCKERFILE)
+	    == syntax_find_by_name("Dockerfile"));
+	CHECK(syntax_find_by_mode(KG_MODE_LUA) == syntax_find_by_name("Lua"));
+	CHECK(syntax_find_by_mode(KG_MODE_HASKELL)
+	    == syntax_find_by_name("Haskell"));
+	CHECK(syntax_find_by_mode(KG_MODE_ISPC) == syntax_find_by_name("ISPC"));
+	CHECK(syntax_find_by_mode(KG_MODE_XML) == syntax_find_by_name("XML"));
+	CHECK(syntax_find_by_mode(KG_MODE_DTD) == syntax_find_by_name("DTD"));
+	CHECK(syntax_find_by_mode(KG_MODE_LINKERSCRIPT)
+	    == syntax_find_by_name("Linker script"));
+	CHECK(syntax_find_by_mode(KG_MODE_RON) == syntax_find_by_name("RON"));
+	CHECK(syntax_find_by_mode(KG_MODE_TABLEGEN)
+	    == syntax_find_by_name("TableGen"));
+	CHECK(syntax_find_by_mode(KG_MODE_RE2C) == syntax_find_by_name("re2c"));
+	CHECK(syntax_find_by_mode(KG_MODE_COMMONLISP)
+	    == syntax_find_by_name("Common Lisp"));
+	CHECK(syntax_find_by_mode(KG_MODE_GLSL) == syntax_find_by_name("GLSL"));
+	CHECK(syntax_find_by_mode(KG_MODE_PROPERTIES)
+	    == syntax_find_by_name("Properties"));
+	CHECK(syntax_find_by_mode(KG_MODE_PSV) == syntax_find_by_name("PSV"));
+	CHECK(syntax_find_by_mode(KG_MODE_CSV) == syntax_find_by_name("CSV"));
+	CHECK(syntax_find_by_mode(KG_MODE_TSV) == syntax_find_by_name("TSV"));
+	CHECK(syntax_find_by_mode(KG_MODE_CUDA) == syntax_find_by_name("CUDA"));
+	CHECK(syntax_find_by_mode(KG_MODE_GITATTRIBUTES)
+	    == syntax_find_by_name("Git attributes"));
+	CHECK(
+	    syntax_find_by_mode(KG_MODE_JULIA) == syntax_find_by_name("Julia"));
+	CHECK(syntax_find_by_mode(KG_MODE_DIFF) == syntax_find_by_name("Diff"));
+	CHECK(syntax_find_by_mode(KG_MODE_DOXYGEN)
+	    == syntax_find_by_name("Doxygen"));
+	CHECK(
+	    syntax_find_by_mode(KG_MODE_MESON) == syntax_find_by_name("Meson"));
+	CHECK(syntax_find_by_mode(KG_MODE_SSH_CONFIG)
+	    == syntax_find_by_name("SSH config"));
 }
 
 /* syntax_is_git_commit()/syntax_is_git_rebase() answer for the mode the

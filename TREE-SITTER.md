@@ -41,7 +41,11 @@ line. The same goes for a grammar whose ABI this `libtree-sitter` cannot read.
 
 Highlighted today: **C**, **Python**, **YAML**, **Markdown**,
 **JavaScript**, **React/JSX**, **TypeScript**, **TSX**, **Java**, **Rust**,
-**Go**, **HTML**, **Emacs Lisp**, **Makefile** and **Shell** — comments,
+**Go**, **HTML**, **Emacs Lisp**, **Makefile**, **Shell**, **Dockerfile**,
+**Lua**, **Haskell**, **ISPC**, **XML**, **DTD**, **Linker script**,
+**RON**, **TableGen**, **re2c**, **Common Lisp**, **GLSL**, **Properties**,
+**PSV**, **CSV**, **TSV**, **CUDA**, **Git attributes**, **Julia**,
+**Diff**, **Doxygen**, **Meson** and **SSH config** — comments,
 strings, numbers,
 keywords and types, from small kg-owned queries compiled into the binary,
 one per language. Every other mode is plain text under

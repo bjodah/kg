@@ -65,7 +65,7 @@ static enum kg_mode_id fuzz_syntax_mode(uint8_t tag)
 	case 'H':
 		return KG_MODE_HTML;
 	default:
-		return KG_MODE_C + tag % (KG_MODE_YAML - KG_MODE_C + 1);
+		return KG_MODE_C + tag % (KG_MODE_SSH_CONFIG - KG_MODE_C + 1);
 	}
 }
 
@@ -123,6 +123,52 @@ static const char *fuzz_syntax_filename(enum kg_mode_id mode)
 		return "git-rebase-todo";
 	case KG_MODE_YAML:
 		return "fuzz.yaml";
+	case KG_MODE_DOCKERFILE:
+		return "Dockerfile";
+	case KG_MODE_LUA:
+		return "fuzz.lua";
+	case KG_MODE_HASKELL:
+		return "fuzz.hs";
+	case KG_MODE_ISPC:
+		return "fuzz.ispc";
+	case KG_MODE_XML:
+		return "fuzz.xml";
+	case KG_MODE_DTD:
+		return "fuzz.dtd";
+	case KG_MODE_LINKERSCRIPT:
+		return "fuzz.ld";
+	case KG_MODE_RON:
+		return "fuzz.ron";
+	case KG_MODE_TABLEGEN:
+		return "fuzz.td";
+	case KG_MODE_RE2C:
+		return "fuzz.re";
+	case KG_MODE_COMMONLISP:
+		return "fuzz.lisp";
+	case KG_MODE_GLSL:
+		return "fuzz.glsl";
+	case KG_MODE_PROPERTIES:
+		return "fuzz.properties";
+	case KG_MODE_PSV:
+		return "fuzz.psv";
+	case KG_MODE_CSV:
+		return "fuzz.csv";
+	case KG_MODE_TSV:
+		return "fuzz.tsv";
+	case KG_MODE_CUDA:
+		return "fuzz.cu";
+	case KG_MODE_GITATTRIBUTES:
+		return ".gitattributes";
+	case KG_MODE_JULIA:
+		return "fuzz.jl";
+	case KG_MODE_DIFF:
+		return "fuzz.diff";
+	case KG_MODE_DOXYGEN:
+		return "Doxyfile";
+	case KG_MODE_MESON:
+		return "meson.build";
+	case KG_MODE_SSH_CONFIG:
+		return "ssh_config";
 	default:
 		return "fuzz.txt";
 	}

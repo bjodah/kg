@@ -101,7 +101,84 @@ char *MD_HL_extensions[] = { ".md", ".markdown", ".mkd", NULL };
 char *YAML_HL_extensions[] = { ".yaml", ".yml", NULL };
 
 /* Lisp */
-char *LISP_HL_extensions[] = { ".el", ".lisp", ".lsp", NULL };
+char *LISP_HL_extensions[] = { ".el", NULL };
+
+/* Dockerfile */
+char *DOCKERFILE_HL_extensions[]
+    = { "Dockerfile", "dockerfile", "Containerfile", "containerfile",
+	      ".dockerfile", ".containerfile", NULL };
+
+/* Lua */
+char *LUA_HL_extensions[] = { ".lua", NULL };
+
+/* Haskell */
+char *HASKELL_HL_extensions[] = { ".hs", ".lhs", NULL };
+
+/* ISPC */
+char *ISPC_HL_extensions[] = { ".ispc", ".isph", NULL };
+
+/* XML */
+char *XML_HL_extensions[] = { ".xml", ".xsl", ".xslt", ".xsd", ".svg", ".plist",
+	".wsdl", ".wsdd", NULL };
+
+/* DTD */
+char *DTD_HL_extensions[] = { ".dtd", ".ent", NULL };
+
+/* Linker script */
+char *LINKERSCRIPT_HL_extensions[] = { ".ld", ".lds", ".x", NULL };
+
+/* RON */
+char *RON_HL_extensions[] = { ".ron", NULL };
+
+/* TableGen */
+char *TABLEGEN_HL_extensions[] = { ".td", NULL };
+
+/* re2c */
+char *RE2C_HL_extensions[] = { ".re", NULL };
+
+/* Common Lisp */
+char *COMMONLISP_HL_extensions[] = { ".cl", ".lisp", ".lsp", ".asd", NULL };
+
+/* GLSL */
+char *GLSL_HL_extensions[]
+    = { ".glsl", ".vert", ".frag", ".geom", ".comp", ".tesc", ".tese", NULL };
+
+/* Properties */
+char *PROPERTIES_HL_extensions[] = { ".properties", NULL };
+
+/* PSV */
+char *PSV_HL_extensions[] = { ".psv", NULL };
+
+/* CSV */
+char *CSV_HL_extensions[] = { ".csv", NULL };
+
+/* TSV */
+char *TSV_HL_extensions[] = { ".tsv", NULL };
+
+/* CUDA */
+char *CUDA_HL_extensions[] = { ".cu", ".cuh", NULL };
+
+/* Git attributes */
+char *GITATTRIBUTES_HL_extensions[]
+    = { ".gitattributes", "gitattributes", NULL };
+
+/* Julia */
+char *JULIA_HL_extensions[] = { ".jl", NULL };
+
+/* Diff */
+char *DIFF_HL_extensions[] = { ".diff", ".patch", NULL };
+
+/* Doxygen */
+char *DOXYGEN_HL_extensions[]
+    = { "Doxyfile", "doxyfile", ".doxyfile", ".doxygen", NULL };
+
+/* Meson */
+char *MESON_HL_extensions[]
+    = { "meson.build", "meson_options.txt", ".meson", NULL };
+
+/* SSH config */
+char *SSHCONFIG_HL_extensions[] = { "ssh_config", "sshd_config", ".ssh/config",
+	"ssh/config", ".ssh_config", NULL };
 
 /* Git message files (.git/COMMIT_EDITMSG and friends).  Like the
  * rebase todo below, matched on the exact basename only in
@@ -152,6 +229,35 @@ struct editor_syntax HLDB[] = {
 	{ KG_MODE_GIT_COMMIT, "Git commit", GITCOMMIT_HL_extensions, "", NULL },
 	{ KG_MODE_GIT_REBASE, "Git rebase", GITREBASE_HL_extensions, "", NULL },
 	{ KG_MODE_YAML, "YAML", YAML_HL_extensions, "#", NULL },
+	{ KG_MODE_DOCKERFILE, "Dockerfile", DOCKERFILE_HL_extensions, "#",
+	    NULL },
+	{ KG_MODE_LUA, "Lua", LUA_HL_extensions, "--", NULL },
+	{ KG_MODE_HASKELL, "Haskell", HASKELL_HL_extensions, "--", NULL },
+	{ KG_MODE_ISPC, "ISPC", ISPC_HL_extensions, "//", NULL },
+	{ KG_MODE_XML, "XML", XML_HL_extensions, "<!--", NULL },
+	{ KG_MODE_DTD, "DTD", DTD_HL_extensions, "<!--", NULL },
+	{ KG_MODE_LINKERSCRIPT, "Linker script", LINKERSCRIPT_HL_extensions,
+	    "/*", NULL },
+	{ KG_MODE_RON, "RON", RON_HL_extensions, "//", NULL },
+	{ KG_MODE_TABLEGEN, "TableGen", TABLEGEN_HL_extensions, "//", NULL },
+	{ KG_MODE_RE2C, "re2c", RE2C_HL_extensions, "//", NULL },
+	{ KG_MODE_COMMONLISP, "Common Lisp", COMMONLISP_HL_extensions, ";",
+	    NULL },
+	{ KG_MODE_GLSL, "GLSL", GLSL_HL_extensions, "//", NULL },
+	{ KG_MODE_PROPERTIES, "Properties", PROPERTIES_HL_extensions, "#",
+	    NULL },
+	{ KG_MODE_PSV, "PSV", PSV_HL_extensions, "", NULL },
+	{ KG_MODE_CSV, "CSV", CSV_HL_extensions, "", NULL },
+	{ KG_MODE_TSV, "TSV", TSV_HL_extensions, "", NULL },
+	{ KG_MODE_CUDA, "CUDA", CUDA_HL_extensions, "//", NULL },
+	{ KG_MODE_GITATTRIBUTES, "Git attributes", GITATTRIBUTES_HL_extensions,
+	    "#", NULL },
+	{ KG_MODE_JULIA, "Julia", JULIA_HL_extensions, "#", NULL },
+	{ KG_MODE_DIFF, "Diff", DIFF_HL_extensions, "", NULL },
+	{ KG_MODE_DOXYGEN, "Doxygen", DOXYGEN_HL_extensions, "#", NULL },
+	{ KG_MODE_MESON, "Meson", MESON_HL_extensions, "#", NULL },
+	{ KG_MODE_SSH_CONFIG, "SSH config", SSHCONFIG_HL_extensions, "#",
+	    NULL },
 };
 
 #define HLDB_ENTRIES (sizeof(HLDB) / sizeof(HLDB[0]))
@@ -684,6 +790,8 @@ static const char *shebang_interp_to_ext(const char *interp)
 		{ "node", ".js" },
 		{ "nodejs", ".js" },
 		{ "perl", ".pl" },
+		{ "lua", ".lua" },
+		{ "julia", ".jl" },
 		{ NULL, NULL },
 	};
 	int i;

@@ -588,6 +588,384 @@ static const char SHELL_HIGHLIGHT_QUERY[]
       "(command_name) @type\n"
       "(function_definition name: (word) @type)\n";
 
+/* Dockerfile */
+static const char DOCKERFILE_HIGHLIGHT_QUERY[]
+    = "(comment) @comment\n"
+      "(double_quoted_string) @string\n"
+      "(single_quoted_string) @string\n"
+      "(heredoc_block) @string\n"
+      "[\n"
+      "  \"FROM\" \"AS\" \"RUN\" \"CMD\" \"LABEL\" \"EXPOSE\" \"ENV\" \"ADD\" "
+      "\"COPY\"\n"
+      "  \"ENTRYPOINT\" \"VOLUME\" \"USER\" \"WORKDIR\" \"ARG\" \"ONBUILD\"\n"
+      "  \"STOPSIGNAL\" \"HEALTHCHECK\" \"SHELL\" \"MAINTAINER\" "
+      "\"CROSS_BUILD\"\n"
+      "] @keyword\n"
+      "[ (image_name) (image_alias) (image_tag) (image_digest) ] @type\n"
+      "[ (expansion) (variable) ] @type\n";
+
+/* Lua */
+static const char LUA_HIGHLIGHT_QUERY[]
+    = "(comment) @comment\n"
+      "(hash_bang_line) @comment\n"
+      "(string) @string\n"
+      "(number) @number\n"
+      "[\n"
+      "  \"and\" \"do\" \"else\" \"elseif\" \"end\" \"for\" \"function\" "
+      "\"goto\" \"if\"\n"
+      "  \"in\" \"local\" \"not\" \"or\" \"repeat\" \"return\" \"then\" "
+      "\"until\" \"while\"\n"
+      "] @keyword\n"
+      "[ (break_statement) (nil) (true) (false) ] @keyword\n"
+      "(function_declaration name: (identifier) @type)\n"
+      "(function_call name: (identifier) @type)\n"
+      "(dot_index_expression field: (identifier) @type)\n"
+      "(method_index_expression method: (identifier) @type)\n";
+
+/* Haskell */
+static const char HASKELL_HIGHLIGHT_QUERY[]
+    = "(comment) @comment\n"
+      "(haddock) @comment\n"
+      "(cpp) @comment\n"
+      "(pragma) @keyword\n"
+      "(string) @string\n"
+      "(char) @string\n"
+      "(quasiquote_body) @string\n"
+      "[ (integer) (float) ] @number\n"
+      "[\n"
+      "  \"as\" \"case\" \"cases\" \"class\" \"data\" \"default\" \"deriving\" "
+      "\"do\"\n"
+      "  \"else\" \"family\" \"forall\" \"foreign\" \"hiding\" \"if\" "
+      "\"import\"\n"
+      "  \"in\" \"infix\" \"infixl\" \"infixr\" \"instance\" \"let\" \"mdo\" "
+      "\"module\"\n"
+      "  \"newtype\" \"of\" \"pattern\" \"qualified\" \"rec\" \"stock\" "
+      "\"then\"\n"
+      "  \"type\" \"using\" \"via\" \"where\"\n"
+      "] @keyword\n"
+      "[ (type_synonym) (data_type) (newtype) (class) (instance) ] @type\n"
+      "[ (type_params) (constructor) (constructor_synonym) (type_binder) "
+      "(type_role) ] @type\n";
+
+/* ISPC */
+static const char ISPC_HIGHLIGHT_QUERY[]
+    = "(comment) @comment\n"
+      "(string_content) @string\n"
+      "(character) @string\n"
+      "(system_lib_string) @string\n"
+      "(number_literal) @number\n"
+      "(preproc_directive) @keyword\n"
+      "[\n"
+      "  \"auto\" \"break\" \"case\" \"cdo\" \"cfor\" \"cif\" \"class\" "
+      "\"const\"\n"
+      "  \"constexpr\" \"continue\" \"cwhile\" \"default\" \"delete\" \"do\" "
+      "\"else\"\n"
+      "  \"enum\" \"export\" \"extern\" \"for\" \"foreach\" "
+      "\"foreach_active\"\n"
+      "  \"foreach_tiled\" \"foreach_unique\" \"goto\" \"if\" \"in\" "
+      "\"inline\"\n"
+      "  \"launch\" \"new\" \"noinline\" \"noreturn\" \"operator\" "
+      "\"register\"\n"
+      "  \"restrict\" \"return\" \"sizeof\" \"soa\" \"static\" \"struct\" "
+      "\"switch\"\n"
+      "  \"task\" \"template\" \"typedef\" \"typename\" \"uniform\" \"union\"\n"
+      "  \"unmasked\" \"varying\" \"volatile\" \"while\"\n"
+      "  \"nullptr\" \"NULL\"\n"
+      "  \"#define\" \"#elif\" \"#elifdef\" \"#elifndef\" \"#else\" "
+      "\"#endif\"\n"
+      "  \"#if\" \"#ifdef\" \"#ifndef\" \"#include\"\n"
+      "] @keyword\n"
+      "[ (primitive_type) (sized_type_specifier) (type_identifier) ] @type\n"
+      "[ (true) (false) ] @keyword\n"
+      "(function_declarator declarator: (identifier) @type)\n"
+      "(call_expression function: (identifier) @type)\n";
+
+/* XML */
+static const char XML_HIGHLIGHT_QUERY[]
+    = "(Comment) @comment\n"
+      "(CDSect) @string\n"
+      "(CharData) @string\n"
+      "(EntityRef) @keyword\n"
+      "(CharRef) @keyword\n"
+      "(STag (Name) @keyword)\n"
+      "(ETag (Name) @keyword)\n"
+      "(EmptyElemTag (Name) @keyword)\n"
+      "(Attribute (Name) @type)\n"
+      "[ (AttValue) (EntityValue) (SystemLiteral) (PubidLiteral) ] @string\n"
+      "[ (XMLDecl) (doctypedecl) (elementdecl) (AttlistDecl) ] @keyword\n";
+
+/* DTD */
+static const char DTD_HIGHLIGHT_QUERY[]
+    = "(Comment) @comment\n"
+      "(EntityRef) @keyword\n"
+      "(CharRef) @keyword\n"
+      "(PEReference) @keyword\n"
+      "[ (AttValue) (EntityValue) (SystemLiteral) (PubidLiteral) ] @string\n"
+      "[\n"
+      "  \"ELEMENT\" \"ATTLIST\" \"ENTITY\" \"NOTATION\"\n"
+      "  \"ANY\" \"EMPTY\" \"#PCDATA\" \"#REQUIRED\" \"#IMPLIED\" \"#FIXED\"\n"
+      "  \"IGNORE\" \"INCLUDE\"\n"
+      "] @keyword\n"
+      "(elementdecl (Name) @type)\n"
+      "(AttlistDecl (Name) @type)\n";
+
+/* Linker script */
+static const char LINKERSCRIPT_HIGHLIGHT_QUERY[]
+    = "(comment) @comment\n"
+      "(number) @number\n"
+      "[ (filename) (quoted_symbol) ] @string\n"
+      "[\n"
+      "  \"ENTRY\" \"SECTIONS\" \"MEMORY\" \"PHDRS\" \"OVERLAY\"\n"
+      "  \"PROVIDE\" \"PROVIDE_HIDDEN\" \"KEEP\" \"ASSERT\"\n"
+      "  \"ORIGIN\" \"LENGTH\" \"AT\"\n"
+      "  \"NOLOAD\" \"DSECT\" \"COPY\" \"INFO\"\n"
+      "  \"/DISCARD/\"\n"
+      "] @keyword\n"
+      "[ (output_section (section_type)) (section_type) ] @keyword\n"
+      "(entry_command (symbol) @type)\n"
+      "(output_section (symbol) @type)\n"
+      "(assignment (symbol) @type)\n"
+      "(provide_command (symbol) @type)\n"
+      "(call_expression (symbol) @type)\n";
+
+/* RON */
+static const char RON_HIGHLIGHT_QUERY[]
+    = "(line_comment) @comment\n"
+      "(block_comment) @comment\n"
+      "[ (string) (raw_string) (char) ] @string\n"
+      "[ (integer) (float) ] @number\n"
+      "[ (boolean) \"true\" \"false\" ] @keyword\n"
+      "[ (struct_name) (enum_variant) ] @type\n"
+      "(struct_entry (identifier) @type)\n";
+
+/* TableGen */
+static const char TABLEGEN_HIGHLIGHT_QUERY[]
+    = "(comment) @comment\n"
+      "(multiline_comment) @comment\n"
+      "[ (string) (code) ] @string\n"
+      "(integer) @number\n"
+      "(preprocessor_directive) @keyword\n"
+      "[\n"
+      "  \"class\" \"def\" \"defm\" \"defset\" \"defvar\" \"let\" \"in\"\n"
+      "  \"include\" \"if\" \"then\" \"else\" \"foreach\" \"multiclass\"\n"
+      "  \"field\" \"assert\"\n"
+      "] @keyword\n"
+      "(bang_operator) @keyword\n"
+      "(cond_operator) @keyword\n"
+      "(primitive_type) @type\n"
+      "(class_identifier) @type\n"
+      "(def_var (identifier) @type)\n";
+
+/* re2c */
+static const char RE2C_HIGHLIGHT_QUERY[]
+    = "(comment) @comment\n"
+      "[ (sstring) (dstring) (quote) ] @string\n"
+      "(number) @number\n"
+      "[\n"
+      "  \"re2c\" \"local\" \"rules\" \"use\" \"max\" \"maxnmatch\" \"types\"\n"
+      "  \"getstate\" \"stags\" \"mtags\" \"include\" \"header\" \"!include\" "
+      "\"!use\"\n"
+      "  \"api\" \"flags\" \"variable\" \"state\" \"tags\" \"indent\"\n"
+      "] @keyword\n"
+      "(named_definition name: (name) @type)\n"
+      "(option_name) @type\n";
+
+/* Common Lisp */
+static const char COMMONLISP_HIGHLIGHT_QUERY[]
+    = "(comment) @comment\n"
+      "(block_comment) @comment\n"
+      "[ (str_lit) (char_lit) ] @string\n"
+      "[ (num_lit) (complex_num_lit) ] @number\n"
+      "[\n"
+      "  \"defun\" \"defmacro\" \"defgeneric\" \"defmethod\"\n"
+      "  \"do\" \"if\" \"loop\" \"unless\" \"when\" \"while\"\n"
+      "  \"and\" \"repeat\" \"return\" \"else\" \"finally\" \"for\"\n"
+      "] @keyword\n"
+      "[ (nil_lit) ] @keyword\n"
+      "(kwd_lit) @type\n"
+      "(defun_header (sym_lit) @type)\n";
+
+/* GLSL */
+static const char GLSL_HIGHLIGHT_QUERY[]
+    = "(comment) @comment\n"
+      "(string_content) @string\n"
+      "(number_literal) @number\n"
+      "(preproc_directive) @keyword\n"
+      "[\n"
+      "  \"attribute\" \"const\" \"uniform\" \"varying\" \"buffer\" "
+      "\"shared\"\n"
+      "  \"coherent\" \"volatile\" \"restrict\" \"readonly\" \"writeonly\"\n"
+      "  \"layout\" \"centroid\" \"flat\" \"smooth\" \"noperspective\"\n"
+      "  \"patch\" \"sample\" \"invariant\" \"precise\" \"break\" "
+      "\"continue\"\n"
+      "  \"do\" \"for\" \"while\" \"switch\" \"case\" \"default\" \"if\" "
+      "\"else\"\n"
+      "  \"subroutine\" \"return\" \"in\" \"out\" \"inout\" \"highp\" "
+      "\"mediump\" \"lowp\" \"precision\"\n"
+      "  \"NULL\"\n"
+      "  \"#define\" \"#elif\" \"#elifdef\" \"#elifndef\" \"#else\" "
+      "\"#endif\"\n"
+      "  \"#if\" \"#ifdef\" \"#ifndef\" \"#include\"\n"
+      "] @keyword\n"
+      "[ (primitive_type) (sized_type_specifier) (type_identifier) (qualifier) "
+      "] @type\n"
+      "[ (true) (false) (null) ] @keyword\n"
+      "(function_declarator declarator: (identifier) @type)\n"
+      "(call_expression function: (identifier) @type)\n";
+
+/* Properties */
+static const char PROPERTIES_HIGHLIGHT_QUERY[]
+    = "(comment) @comment\n"
+      "(property (key) @type)\n"
+      "(property (value) @string)\n"
+      "(property (value (substitution) @keyword))\n";
+
+/* PSV */
+static const char PSV_HIGHLIGHT_QUERY[]
+    = "(number) @number\n"
+      "(float) @number\n"
+      "[ (boolean) \"true\" \"false\" ] @keyword\n"
+      "(text) @string\n";
+
+/* CSV */
+static const char CSV_HIGHLIGHT_QUERY[]
+    = "(number) @number\n"
+      "(float) @number\n"
+      "[ (boolean) \"true\" \"false\" ] @keyword\n"
+      "(text) @string\n";
+
+/* TSV */
+static const char TSV_HIGHLIGHT_QUERY[]
+    = "(number) @number\n"
+      "(float) @number\n"
+      "[ (boolean) \"true\" \"false\" ] @keyword\n"
+      "(text) @string\n";
+
+/* CUDA */
+static const char CUDA_HIGHLIGHT_QUERY[]
+    = "(comment) @comment\n"
+      "(string_literal) @string\n"
+      "(raw_string_literal) @string\n"
+      "(char_literal) @string\n"
+      "(system_lib_string) @string\n"
+      "(number_literal) @number\n"
+      "(preproc_directive) @keyword\n"
+      "[\n"
+      "  \"break\" \"case\" \"catch\" \"class\" \"concept\" \"const\"\n"
+      "  \"consteval\" \"constexpr\" \"constinit\" \"continue\" \"decltype\"\n"
+      "  \"default\" \"delete\" \"do\" \"else\" \"enum\" \"explicit\" "
+      "\"extern\"\n"
+      "  \"for\" \"friend\" \"goto\" \"if\" \"inline\" \"mutable\" "
+      "\"namespace\"\n"
+      "  \"new\" \"noexcept\" \"nullptr\" \"operator\" \"private\" "
+      "\"protected\"\n"
+      "  \"public\" \"register\" \"requires\" \"restrict\" \"return\" "
+      "\"sizeof\"\n"
+      "  \"static\" \"static_assert\" \"struct\" \"switch\" \"template\"\n"
+      "  \"thread_local\" \"throw\" \"try\" \"typedef\" \"typename\" "
+      "\"union\"\n"
+      "  \"using\" \"virtual\" \"volatile\" \"while\"\n"
+      "  \"co_await\" \"co_return\" \"co_yield\"\n"
+      "  \"__global__\" \"__device__\" \"__host__\" \"__constant__\" "
+      "\"__shared__\"\n"
+      "  \"__managed__\" \"__launch_bounds__\" \"__forceinline__\" "
+      "\"__noinline__\"\n"
+      "  \"#define\" \"#elif\" \"#elifdef\" \"#elifndef\" \"#else\" "
+      "\"#endif\"\n"
+      "  \"#if\" \"#ifdef\" \"#ifndef\" \"#include\"\n"
+      "] @keyword\n"
+      "[ (primitive_type) (sized_type_specifier) (type_identifier) "
+      "(type_descriptor) ] @type\n"
+      "[ (true) (false) (null) ] @keyword\n"
+      "(function_declarator declarator: (identifier) @type)\n"
+      "(call_expression function: (identifier) @type)\n";
+
+/* Git attributes */
+static const char GITATTRIBUTES_HIGHLIGHT_QUERY[]
+    = "(comment) @comment\n"
+      "[ (pattern) (quoted_pattern) ] @type\n"
+      "(attribute (attr_name) @keyword)\n"
+      "[ (boolean_value) (string_value) (attr_set) (attr_unset) (attr_reset) "
+      "(builtin_attr) ] @string\n"
+      "[\n"
+      "  \"text\" \"eol\" \"crlf\" \"ident\" \"filter\" \"diff\" \"merge\"\n"
+      "  \"whitespace\" \"export-ignore\" \"export-subst\"\n"
+      "] @keyword\n";
+
+/* Julia */
+static const char JULIA_HIGHLIGHT_QUERY[]
+    = "(line_comment) @comment\n"
+      "(block_comment) @comment\n"
+      "[ (string_literal) (prefixed_string_literal) (command_literal) "
+      "(character_literal) ] @string\n"
+      "[ (integer_literal) (float_literal) ] @number\n"
+      "[\n"
+      "  \"abstract\" \"baremodule\" \"begin\" \"catch\" \"const\"\n"
+      "  \"do\" \"else\" \"elseif\" \"end\" \"export\" \"finally\" \"for\" "
+      "\"function\"\n"
+      "  \"global\" \"if\" \"import\" \"let\" \"local\" \"macro\" \"module\" "
+      "\"mutable\"\n"
+      "  \"outer\" \"primitive\" \"public\" \"quote\" \"return\" \"struct\" "
+      "\"try\"\n"
+      "  \"type\" \"using\" \"where\" \"while\"\n"
+      "] @keyword\n"
+      "[ (break_statement) (continue_statement) (boolean_literal) \"true\" "
+      "\"false\" ] @keyword\n"
+      "(macro_identifier) @keyword\n"
+      "(macrocall_expression (macro_identifier) @keyword)\n"
+      "[ (type_head) (parametrized_type_expression) (typed_expression) ] "
+      "@type\n"
+      "(function_definition (signature (call_expression (identifier) @type)))\n"
+      "(call_expression (identifier) @type)\n";
+
+/* Diff */
+static const char DIFF_HIGHLIGHT_QUERY[] = "(comment) @comment\n"
+					   "(command) @keyword\n"
+					   "(file_change) @keyword\n"
+					   "(binary_change) @keyword\n"
+					   "(linerange) @number\n"
+					   "(location) @number\n"
+					   "(addition) @type\n"
+					   "(deletion) @string\n"
+					   "(context) @comment\n";
+
+/* Doxygen */
+static const char DOXYGEN_HIGHLIGHT_QUERY[]
+    = "(tag (tag_name) @keyword)\n"
+      "[ \"\\\\a\" ] @keyword\n"
+      "[ (type) (storageclass) ] @type\n"
+      "[ (function) (function_link) (qualified_identifier) ] @type\n"
+      "[ (brief_description) (description) (text) ] @comment\n";
+
+/* Meson */
+static const char MESON_HIGHLIGHT_QUERY[]
+    = "(comment) @comment\n"
+      "(string) @string\n"
+      "(number) @number\n"
+      "[\n"
+      "  \"and\" \"elif\" \"else\" \"endforeach\" \"endif\" \"foreach\" \"if\" "
+      "\"in\"\n"
+      "  \"not\" \"or\"\n"
+      "] @keyword\n"
+      "[ (bool) \"true\" \"false\" (keyword_break) (keyword_continue) ] "
+      "@keyword\n"
+      "(normal_command (identifier) @type)\n";
+
+/* SSH config */
+static const char SSHCONFIG_HIGHLIGHT_QUERY[]
+    = "(comment) @comment\n"
+      "[ (string) (uri) ] @string\n"
+      "(number) @number\n"
+      "[ (time) (bytes) ] @number\n"
+      "[\n"
+      "  (condition) \"Host\" \"Match\" \"all\" \"canonical\" \"final\" "
+      "\"exec\"\n"
+      "  \"host\" \"originalhost\" \"tagged\" \"user\" \"localuser\"\n"
+      "] @keyword\n"
+      "(parameter) @type\n"
+      "[ (ipqos) (verbosity) (facility) (authentication) (cipher) (kex) "
+      "(key_sig) (mac) (sig) (token) ] @keyword\n";
+
 /* ---- capture -> face, and the precedence between them -------------------
  *
  * Captures overlap: a block-comment opener inside a string literal, a
@@ -698,6 +1076,54 @@ static struct kg_ts_language ts_registry[] = {
 	    KG_TS_LANG_UNTRIED, NULL, NULL, 0, { 0 }, { 0 } },
 	{ KG_MODE_SHELL, NULL, "bash", SHELL_HIGHLIGHT_QUERY,
 	    KG_TS_LANG_UNTRIED, NULL, NULL, 0, { 0 }, { 0 } },
+	{ KG_MODE_DOCKERFILE, NULL, "dockerfile", DOCKERFILE_HIGHLIGHT_QUERY,
+	    KG_TS_LANG_UNTRIED, NULL, NULL, 0, { 0 }, { 0 } },
+	{ KG_MODE_LUA, NULL, "lua", LUA_HIGHLIGHT_QUERY, KG_TS_LANG_UNTRIED,
+	    NULL, NULL, 0, { 0 }, { 0 } },
+	{ KG_MODE_HASKELL, NULL, "haskell", HASKELL_HIGHLIGHT_QUERY,
+	    KG_TS_LANG_UNTRIED, NULL, NULL, 0, { 0 }, { 0 } },
+	{ KG_MODE_ISPC, NULL, "ispc", ISPC_HIGHLIGHT_QUERY, KG_TS_LANG_UNTRIED,
+	    NULL, NULL, 0, { 0 }, { 0 } },
+	{ KG_MODE_XML, NULL, "xml", XML_HIGHLIGHT_QUERY, KG_TS_LANG_UNTRIED,
+	    NULL, NULL, 0, { 0 }, { 0 } },
+	{ KG_MODE_DTD, NULL, "dtd", DTD_HIGHLIGHT_QUERY, KG_TS_LANG_UNTRIED,
+	    NULL, NULL, 0, { 0 }, { 0 } },
+	{ KG_MODE_LINKERSCRIPT, NULL, "linkerscript",
+	    LINKERSCRIPT_HIGHLIGHT_QUERY, KG_TS_LANG_UNTRIED, NULL, NULL, 0,
+	    { 0 }, { 0 } },
+	{ KG_MODE_RON, NULL, "ron", RON_HIGHLIGHT_QUERY, KG_TS_LANG_UNTRIED,
+	    NULL, NULL, 0, { 0 }, { 0 } },
+	{ KG_MODE_TABLEGEN, NULL, "tablegen", TABLEGEN_HIGHLIGHT_QUERY,
+	    KG_TS_LANG_UNTRIED, NULL, NULL, 0, { 0 }, { 0 } },
+	{ KG_MODE_RE2C, NULL, "re2c", RE2C_HIGHLIGHT_QUERY, KG_TS_LANG_UNTRIED,
+	    NULL, NULL, 0, { 0 }, { 0 } },
+	{ KG_MODE_COMMONLISP, NULL, "commonlisp", COMMONLISP_HIGHLIGHT_QUERY,
+	    KG_TS_LANG_UNTRIED, NULL, NULL, 0, { 0 }, { 0 } },
+	{ KG_MODE_GLSL, NULL, "glsl", GLSL_HIGHLIGHT_QUERY, KG_TS_LANG_UNTRIED,
+	    NULL, NULL, 0, { 0 }, { 0 } },
+	{ KG_MODE_PROPERTIES, NULL, "properties", PROPERTIES_HIGHLIGHT_QUERY,
+	    KG_TS_LANG_UNTRIED, NULL, NULL, 0, { 0 }, { 0 } },
+	{ KG_MODE_PSV, NULL, "psv", PSV_HIGHLIGHT_QUERY, KG_TS_LANG_UNTRIED,
+	    NULL, NULL, 0, { 0 }, { 0 } },
+	{ KG_MODE_CSV, NULL, "csv", CSV_HIGHLIGHT_QUERY, KG_TS_LANG_UNTRIED,
+	    NULL, NULL, 0, { 0 }, { 0 } },
+	{ KG_MODE_TSV, NULL, "tsv", TSV_HIGHLIGHT_QUERY, KG_TS_LANG_UNTRIED,
+	    NULL, NULL, 0, { 0 }, { 0 } },
+	{ KG_MODE_CUDA, NULL, "cuda", CUDA_HIGHLIGHT_QUERY, KG_TS_LANG_UNTRIED,
+	    NULL, NULL, 0, { 0 }, { 0 } },
+	{ KG_MODE_GITATTRIBUTES, NULL, "gitattributes",
+	    GITATTRIBUTES_HIGHLIGHT_QUERY, KG_TS_LANG_UNTRIED, NULL, NULL, 0,
+	    { 0 }, { 0 } },
+	{ KG_MODE_JULIA, NULL, "julia", JULIA_HIGHLIGHT_QUERY,
+	    KG_TS_LANG_UNTRIED, NULL, NULL, 0, { 0 }, { 0 } },
+	{ KG_MODE_DIFF, NULL, "diff", DIFF_HIGHLIGHT_QUERY, KG_TS_LANG_UNTRIED,
+	    NULL, NULL, 0, { 0 }, { 0 } },
+	{ KG_MODE_DOXYGEN, NULL, "doxygen", DOXYGEN_HIGHLIGHT_QUERY,
+	    KG_TS_LANG_UNTRIED, NULL, NULL, 0, { 0 }, { 0 } },
+	{ KG_MODE_MESON, NULL, "meson", MESON_HIGHLIGHT_QUERY,
+	    KG_TS_LANG_UNTRIED, NULL, NULL, 0, { 0 }, { 0 } },
+	{ KG_MODE_SSH_CONFIG, NULL, "ssh-config", SSHCONFIG_HIGHLIGHT_QUERY,
+	    KG_TS_LANG_UNTRIED, NULL, NULL, 0, { 0 }, { 0 } },
 };
 
 #define TS_NLANGS ((unsigned int)(sizeof(ts_registry) / sizeof(ts_registry[0])))
@@ -805,6 +1231,7 @@ static const TSLanguage *grammar_try(
 		const TSLanguage *(*fn)(void);
 	} sym;
 	char symbol[64];
+	char *c;
 	const TSLanguage *lang;
 	void *handle;
 	uint32_t abi;
@@ -814,6 +1241,11 @@ static const TSLanguage *grammar_try(
 		return NULL; /* not installed here; keep searching */
 	}
 	snprintf(symbol, sizeof(symbol), "tree_sitter_%s", grammar);
+	for (c = symbol; *c; c++) {
+		if (*c == '-') {
+			*c = '_';
+		}
+	}
 	sym.obj = dlsym(handle, symbol);
 	lang = sym.obj ? sym.fn() : NULL;
 	if (!lang) {
@@ -920,8 +1352,9 @@ static int query_compile(struct kg_ts_language *l, char *err, size_t errsz)
 	q = ts_query_new(l->language, l->query_text,
 	    (uint32_t)strlen(l->query_text), &off, &qerr);
 	if (!q) {
-		snprintf(err, errsz, "%s highlight query: error %d at byte %u",
-		    l->grammar, (int)qerr, (unsigned)off);
+		snprintf(err, errsz,
+		    "%s highlight query: error %d at byte %u: '%.20s'",
+		    l->grammar, (int)qerr, (unsigned)off, l->query_text + off);
 		return 0;
 	}
 	if (query_has_predicates(q)) {

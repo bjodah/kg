@@ -856,16 +856,22 @@ $(OBJDIR)/lisp_process.o: $(OBJDIR)/lisp_internal.h $(OBJDIR)/lisp_obj.h $(OBJDI
 $(OBJDIR)/lisp_require.o: $(OBJDIR)/lisp_internal.h
 $(OBJDIR)/main.o: $(OBJDIR)/lisp.h
 
-$(OBJDIR)/fe.o: fe/fe.c fe/fe.h fe/fe_internal.h
+# fe/fe_perf.h is a prerequisite of exactly the three fe translation units
+# that include it -- fe.c, fe_eval.c and fe_unwind.c.  fe_run.c has no
+# instrumented site and does not include it, so it does not get the edge:
+# a prerequisite nothing reads is a rebuild nobody needs.  This is stale-
+# rebuild hygiene, not a build fix; kg compiles fe with FE_PERF_COUNTERS
+# off here, where every macro in that header expands to nothing.
+$(OBJDIR)/fe.o: fe/fe.c fe/fe.h fe/fe_internal.h fe/fe_perf.h
 	$(CC) $(FE_CFLAGS) -c $< -o $@
 
-$(OBJDIR)/fe_eval.o: fe/fe_eval.c fe/fe.h fe/fe_internal.h
+$(OBJDIR)/fe_eval.o: fe/fe_eval.c fe/fe.h fe/fe_internal.h fe/fe_perf.h
 	$(CC) $(FE_CFLAGS) -c $< -o $@
 
 $(OBJDIR)/fe_run.o: fe/fe_run.c fe/fe.h fe/fe_internal.h
 	$(CC) $(FE_CFLAGS) -c $< -o $@
 
-$(OBJDIR)/fe_unwind.o: fe/fe_unwind.c fe/fe.h fe/fe_internal.h
+$(OBJDIR)/fe_unwind.o: fe/fe_unwind.c fe/fe.h fe/fe_internal.h fe/fe_perf.h
 	$(CC) $(FE_CFLAGS) -c $< -o $@
 
 check: header-check lisp-include-check docs-check lisp-compat-check lisp-prelude-check lisp-package-check forecast-check lisp-oracle-check lisp-gc-stress-check prelude-census-check forecast-init-check check-unit-decoding check-pty-tokens check-unit check-pty
@@ -1071,7 +1077,7 @@ $(PRELUDE_GC_PROBE_PERF): $(PERFOBJDIR)/prelude_gc_probe.o \
 GC_STRESS_KGBATCH = $(TESTDIR)/kgbatch-gcstress
 GC_STRESS_FE_OBJ = $(TESTDIR)/fe_gcstress.o
 
-$(TESTDIR)/fe_gcstress.o: fe/fe.c fe/fe.h fe/fe_internal.h
+$(TESTDIR)/fe_gcstress.o: fe/fe.c fe/fe.h fe/fe_internal.h fe/fe_perf.h
 	$(CC) $(FE_CFLAGS) -DFE_GC_STRESS=1 -c $< -o $@
 
 $(GC_STRESS_KGBATCH): test/kgbatch.c $(TESTDIR)/stubs_main.o \
@@ -1903,16 +1909,16 @@ $(FUZZBIN_DAP_DISPATCH): $(TESTDIR)/fuzz_dap_dispatch.c \
 		$(OBJDIR)/dap_transport.c $(OBJDIR)/announce.c \
 		$(OBJDIR)/framed_io.c $(OBJDIR)/json.c $(OBJDIR)/process.c
 
-$(TESTDIR)/fe_fuzz.o: fe/fe.c fe/fe.h fe/fe_internal.h
+$(TESTDIR)/fe_fuzz.o: fe/fe.c fe/fe.h fe/fe_internal.h fe/fe_perf.h
 	$(FUZZ_CC) $(FE_FUZZ_CFLAGS) -c $< -o $@
 
-$(TESTDIR)/fe_eval_fuzz.o: fe/fe_eval.c fe/fe.h fe/fe_internal.h
+$(TESTDIR)/fe_eval_fuzz.o: fe/fe_eval.c fe/fe.h fe/fe_internal.h fe/fe_perf.h
 	$(FUZZ_CC) $(FE_FUZZ_CFLAGS) -c $< -o $@
 
 $(TESTDIR)/fe_run_fuzz.o: fe/fe_run.c fe/fe.h fe/fe_internal.h
 	$(FUZZ_CC) $(FE_FUZZ_CFLAGS) -c $< -o $@
 
-$(TESTDIR)/fe_unwind_fuzz.o: fe/fe_unwind.c fe/fe.h fe/fe_internal.h
+$(TESTDIR)/fe_unwind_fuzz.o: fe/fe_unwind.c fe/fe.h fe/fe_internal.h fe/fe_perf.h
 	$(FUZZ_CC) $(FE_FUZZ_CFLAGS) -c $< -o $@
 
 clean:

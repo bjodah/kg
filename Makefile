@@ -1780,11 +1780,30 @@ $(PERF_KG): $(PERF_SRC_OBJS) $(FE_OBJ) $(REGEX_ENGINE_OBJ)
 
 # Wall-clock benchmarks, deliberately not a CI gate: see the note in
 # CLAUDE.md.  The gates that hold are the counter assertions in
-# test/test_perf.c, which run inside every `make check`.
-bench: $(PERF_KG)
+# test/test_perf.c, which run inside every `make check`.  $(TESTDIR)/kgbatch
+# is an ordinary (non-counting) build, separate from $(PERF_KG): utils/
+# bench.py's LISP_ANSWERS checks a Lisp case's computed value against it,
+# needing no terminal and no counters of its own.
+bench: $(PERF_KG) $(TESTDIR)/kgbatch
 	@mkdir -p $(dir $(BENCH_OUT))
-	@$(PYTHON) utils/bench.py --kg $(PERF_KG) --json $(BENCH_OUT) \
-		$(BENCH_ARGS)
+	@$(PYTHON) utils/bench.py --kg $(PERF_KG) --kgbatch $(TESTDIR)/kgbatch \
+		--json $(BENCH_OUT) $(BENCH_ARGS)
+
+# Phase 21's baseline report (doc/plans/2026-08-18-elisp-data-model.md,
+# Phase 21 "Gate and result") is written BY HAND from two files, not
+# generated here: Phase 21.2 forbids optimising from a counter and does not
+# ask for a combining framework, and neither does this target -- it exists
+# only so the two files a report is written from land in one command
+# rather than two remembered recipes.  fe's half is
+# fe/perfobj/workloads.json (schema fe-perf-workloads/1, fe's own Phase
+# 21.2 commit); kg's half is $(BENCH_OUT) (schema kg-bench/1, this file's
+# SCHEMA).  Neither schema is rewritten into the other's vocabulary: a
+# reader opens both and reads each one's own counter and arena key names,
+# which is what "kg's record sits beside fe's" means here.
+perf-baseline: bench
+	$(MAKE) -C fe perf-workloads
+	@echo "fe workloads: fe/perfobj/workloads.json (schema fe-perf-workloads/1)"
+	@echo "kg bench:     $(BENCH_OUT) (schema kg-bench/1)"
 
 # Not part of `bench` above, and not folded into it: this clean-rebuilds
 # both WITH_LISP configurations (restoring WITH_LISP=1, the default,
@@ -1958,7 +1977,7 @@ uninstall:
 	-rmdir $(DESTDIR)$(lispdir) $(DESTDIR)$(datadir)/kg
 
 .PHONY: all clean distclean check header-check lisp-include-check docs-check lisp-compat-check lisp-compat-oracle lisp-prelude-generate lisp-prelude-check lisp-package-check lisp-oracle-check forecast-audit forecast-check forecast-init-check check-unit check-pty-tokens check-pty check-regex-differential \
-	bench bench-lisp-toggle complexity complexity-check \
+	bench bench-lisp-toggle perf-baseline complexity complexity-check \
 	pmccabe pmccabe-check pmccabe-baseline gateway-check gateway-baseline prelude-census-check prelude-census-baseline coverage coverage-check coverage-baseline coverage-clean format format-check compile-db iwyu \
 	fuzz-keypress fuzz-keypress-seed fuzz-keypress-smoke \
 	fuzz-syntax fuzz-syntax-seed fuzz-syntax-smoke \

@@ -182,14 +182,50 @@ REPRESENTATIVE_INIT = (
 )
 
 
-def home_files_auto_fill():
+def home_files_require(feature):
+	"""init.el that adds lisp/ to the load-path and requires FEATURE --
+	the shape every "lisp-arena-<package>" case below shares, one per
+	shipped lisp/*.el package that is a require TARGET.  prelude.el is
+	not one of those: it is embedded (src/lisp_prelude_generated.inc)
+	and evaluated before any init file runs, never reached via
+	load-path, so "every shipped kg Lisp package" (Phase 21.2 item 3)
+	means the other five files in lisp/, and prelude.el's own load-time
+	cost is what lisp-arena-prelude and .ci/prelude-startup-census.json
+	already measure -- see the block comment above CASES."""
 	lisp_dir = repo_root() / "lisp"
-	init = (f'(add-to-load-path "{lisp_dir}")' "(require 'auto-fill)")
+	init = f'(add-to-load-path "{lisp_dir}")' f"(require '{feature})"
 	return {".config/kg/init.el": init}
+
+
+def home_files_auto_fill():
+	return home_files_require("auto-fill")
 
 
 def home_files_representative_init():
 	return {".config/kg/init.el": REPRESENTATIVE_INIT}
+
+
+# Phase 21.2 item 9: "an interactive command that calls a small Lisp
+# function on every invocation" -- a key bound to a Lisp `defun`, pressed
+# repeatedly, as opposed to lisp-command-latency's single M-: round trip or
+# lisp-arithmetic-loop's one Lisp-side `while`.  `my-tick' conses one small
+# list onto a retained log and bumps a counter; nothing here is reclaimed
+# (every case in this file reads lisp_gc_count 1, the post-prelude collect
+# and nothing after it -- see the block comment above CASES), so the
+# retained log is what a real per-keystroke Lisp hook's garbage would look
+# like if nothing ever collected it either.
+INTERACTIVE_COMMAND_TICKS = 100
+INTERACTIVE_COMMAND_INIT = (
+	"(defvar my-tick-count 0)"
+	"(defvar my-tick-log nil)"
+	"(defun my-tick () (interactive)"
+	" (setq my-tick-log (cons (list 'tick my-tick-count) my-tick-log))"
+	" (setq my-tick-count (+ my-tick-count 1)))"
+	'(global-set-key "C-c t" "my-tick")')
+
+
+def home_files_interactive_command():
+	return {".config/kg/init.el": INTERACTIVE_COMMAND_INIT}
 
 
 CORPORA = {
@@ -276,6 +312,42 @@ CASES = {
 	# under the 33 measured with auto-fill genuinely loaded.
 	"lisp-arena-auto-fill": (None, ["\x18\x03"], home_files_auto_fill(),
 				 {"lisp_peak_frame_depth": 20}),
+	# Phase 21.2 item 3 asks for "the representative init and EVERY
+	# SHIPPED KG LISP PACKAGE"; auto-fill above was the only lisp/*.el
+	# this file benched. These four are the rest of load-path (prelude.el
+	# is not a require target -- see home_files_require()'s docstring).
+	# Each is the same shape as lisp-arena-auto-fill: `(add-to-load-path
+	# ...)(require 'PACKAGE)` as init.el, threshold 20 for the same
+	# reason (clears the bare-prelude baseline of 8 with margin, well
+	# under every measured value below).
+	#
+	# Measured peak_frame_depth at this pin: grep-buffer 33, help-fns 33,
+	# pipeline 32, pipeline-text 48 (pipeline-text requires pipeline, so
+	# its nesting is the deeper of the two -- matching
+	# test_lisp_load_time_counters' finding that a chained require is
+	# timed inside its outermost one).  All four also read
+	# peak_native_reentry 1, same as auto-fill and the bare-prelude
+	# baseline -- consistent with that counter being "package loading
+	# touches a native at least once", not something that scales with
+	# which package.
+	"lisp-arena-grep-buffer": (
+		None, ["\x18\x03"], home_files_require("grep-buffer"),
+		{"lisp_peak_frame_depth": 20}),
+	"lisp-arena-help-fns": (
+		None, ["\x18\x03"], home_files_require("help-fns"),
+		{"lisp_peak_frame_depth": 20}),
+	# Pure half of Proof 3 (doc/plans §14): no buffer, no window, no
+	# interactive command -- see lisp/pipeline.el's own header.
+	"lisp-arena-pipeline": (
+		None, ["\x18\x03"], home_files_require("pipeline"),
+		{"lisp_peak_frame_depth": 20}),
+	# Editor half: requires 'pipeline itself (chained require, like
+	# test_lisp_load_time_counters' perfouter/perfinner pair), so this
+	# case's arena numbers are "prelude + pipeline + pipeline-text", not
+	# pipeline-text alone.
+	"lisp-arena-pipeline-text": (
+		None, ["\x18\x03"], home_files_require("pipeline-text"),
+		{"lisp_peak_frame_depth": 20}),
 	# A representative init evaluates real, moderately nested forms
 	# (measured peak_frame_depth 54, unchanged from the last measurement:
 	# the representative init's own forms dominate its nesting enough
@@ -396,6 +468,37 @@ CASES = {
 	# Lisp ran at all.
 	"lisp-command-latency": (None, ["\x1b:", "(+ 1 2)\r", "\x18\x03"],
 				 None, {"lisp_arena_total_slots": 0}),
+	# Phase 21.2 item 9: a key-bound interactive command that calls a
+	# small Lisp function on every invocation, pressed
+	# INTERACTIVE_COMMAND_TICKS (100) times -- the shape of a real
+	# per-keystroke Lisp hook,
+	# as opposed to lisp-command-latency's single M-: round trip above or
+	# lisp-arithmetic-loop's one Lisp-side `while' loop. See
+	# home_files_interactive_command()'s comment for what `my-tick' does
+	# and why it retains its own garbage.
+	#
+	# peak_frame_depth is NOT the signal here (measured flat at 13
+	# regardless of tick count, the same non-scaling this file's other
+	# iterative shapes hit -- see the block comment above CASES): a
+	# command handler returns to the top level between invocations, so
+	# nesting never accumulates. lisp_arena_peak_live is, but only past
+	# a threshold: per this file's own corrected understanding (see
+	# lisp-list-walk and lisp-arithmetic-loop's comments for the same
+	# trap in different shapes), peak_live_objects is a HIGH-WATER MARK
+	# since kg_lisp_init(), and the prelude's own construction already
+	# set it to 6819 before any user code runs -- a handful of ticks
+	# does not exceed that, so lisp_arena_peak_live reads exactly 6819,
+	# UNCHANGED, for 20 and 30 ticks (measured). It moves once retained
+	# per-tick garbage exceeds that old peak: measured 6819 (0/20/30
+	# ticks), 6906 (50), 7236 (80), 7456 (100), 8006 (150) via
+	# test/perfobj/kg. 100 ticks clears the baseline by 637 cells, a
+	# real margin without paying more than 100 keys' worth of this
+	# harness's 0.06s-per-key pacing (~6s, the same order
+	# yank-multiline-100k's 200 keys already costs).
+	"lisp-interactive-command": (
+		None, ["\x03t"] * INTERACTIVE_COMMAND_TICKS + ["\x18\x03"],
+		home_files_interactive_command(),
+		{"lisp_arena_peak_live": 7200}),
 	"open-lines-10k": ("lines-10k", ["\x18\x03"]),
 	"open-lines-100k": ("lines-100k", ["\x18\x03"]),
 	"open-long-line-1mib": ("long-line-1mib", ["\x18\x03"]),
@@ -586,6 +689,103 @@ BIG_CASES = {
 }
 
 
+def typed_expression(name):
+	"""The expression text an `M-:` case in CASES types, recovered from
+	its own key script rather than kept as a second copy: `keys[0]` is
+	the `M-:` prefix and `keys[1]` is the typed text with a trailing RET,
+	so LISP_ANSWERS below checks the exact source a pty case runs -- the
+	same trap this file's other duplicated-text case (REPRESENTATIVE_INIT,
+	kept identical to test/test_perf.c's copy only by a comment saying so)
+	exists to avoid where a second copy is avoidable at all."""
+	keys = CASES[name][1]
+	assert keys[0] == "\x1b:"
+	return keys[1].rstrip("\r")
+
+
+# Phase 21.2's rule ("each workload checks its answer") for the seven Lisp
+# cases above whose shape has one: name -> (source, expected value).
+# `kgbatch_answer()` (see bench_case()) evaluates `source` through
+# `test/kgbatch -r -b`, which needs no terminal and runs the identical
+# kg_lisp_eval_string() seam the M-: minibuffer path does, and compares its
+# `V:` payload byte for byte. Deliberately NOT a check of the pty's own
+# screen output: for an `M-:` case the typed expression's own digits are
+# already present in the terminal stream before RET is ever sent (they are
+# the self-insert echo of what was typed), so grepping the whole session's
+# bytes for "150" would pass whether or not evaluation happened at all --
+# exactly the silent-no-op failure mode assert_gt's docstring describes for
+# counters, here for the computed value instead.
+#
+# "lisp-arena-prelude" has no expression to check (its key script is just
+# `C-x C-c`) and is not here, matching fe's own context-open-close workload,
+# whose `answer` field is likewise not a computed value.
+LISP_ANSWERS = {
+	"lisp-list-walk": (typed_expression("lisp-list-walk"), "150"),
+	"lisp-arithmetic-loop": (
+		typed_expression("lisp-arithmetic-loop"), "199990000"),
+	"lisp-macro-heavy": (typed_expression("lisp-macro-heavy"), "2000"),
+	"lisp-deep-call-chain": (
+		typed_expression("lisp-deep-call-chain"), "300"),
+	"lisp-command-latency": (typed_expression("lisp-command-latency"), "3"),
+	# The same text home_files_representative_init() plants as init.el,
+	# evaluated directly rather than through kg's init-file loader (which
+	# kgbatch, having no $HOME of its own, does not run) -- kgbatch's
+	# wrapper is `(progn FILE-CONTENTS)`, the same "run every form, answer
+	# the last one's value" shape `-Q`-less kg gives an init file, so this
+	# is the same evaluation the pty case's init.el gets, not a different
+	# one. `my-loop` conses 1..25 in ascending order (it decrements n from
+	# 25, so the SMALLEST n is consed LAST, ending up at the list's head).
+	"lisp-arena-representative-init": (
+		REPRESENTATIVE_INIT,
+		"(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25)"),
+	# The same require home_files_auto_fill() plants as init.el, with one
+	# more form appended to turn "did not raise" into an answer: both the
+	# `provide` and one function the package defines.
+	"lisp-arena-auto-fill": (
+		home_files_auto_fill()[".config/kg/init.el"]
+		+ "(and (featurep 'auto-fill) (fboundp 'auto-fill-mode))",
+		"t"),
+	# Same "featurep and fboundp" shape as auto-fill above for the two
+	# packages with no natural numeric answer.
+	"lisp-arena-grep-buffer": (
+		home_files_require("grep-buffer")[".config/kg/init.el"]
+		+ "(and (featurep 'grep-buffer) (fboundp 'grep-buffer-word-at-point))",
+		"t"),
+	"lisp-arena-help-fns": (
+		home_files_require("help-fns")[".config/kg/init.el"]
+		+ "(and (featurep 'help-fns) (fboundp 'describe-function))",
+		"t"),
+	# pipeline.el is pure (no buffer, no window, no interactive command --
+	# see its header), so its answer check actually RUNS the package
+	# instead of only asking whether it loaded: pipeline-adder and
+	# pipeline-scaler are the closures its own header names as the
+	# closures bullet, funcalled left to right by pipeline-run, the fold
+	# its header names as the funcall/apply bullet -- (5+3)*2 = 16.
+	"lisp-arena-pipeline": (
+		home_files_require("pipeline")[".config/kg/init.el"]
+		+ "(pipeline-run (list (pipeline-adder 3) (pipeline-scaler 2)) 5)",
+		"16"),
+	# pipeline-text.el's commands read the current buffer (see its
+	# header); kgbatch's -b gives it one, but an empty one is enough for
+	# the same feature+fboundp shape the other non-numeric packages use.
+	"lisp-arena-pipeline-text": (
+		home_files_require("pipeline-text")[".config/kg/init.el"]
+		+ "(and (featurep 'pipeline-text) (featurep 'pipeline)"
+		  " (fboundp 'pipeline-text-run))",
+		"t"),
+	# The same definitions the pty case's init.el installs, but calling
+	# `my-tick' directly INTERACTIVE_COMMAND_TICKS times with `dotimes'
+	# rather than through a real key press each time -- kgbatch has no
+	# terminal to bind "C-c t" through, so this checks the same function
+	# was called the same number of times, not that key dispatch itself
+	# worked (the pty case's own counter check is what proves that).
+	"lisp-interactive-command": (
+		INTERACTIVE_COMMAND_INIT
+		+ f"(dotimes (i {INTERACTIVE_COMMAND_TICKS}) (my-tick))"
+		  " my-tick-count",
+		str(INTERACTIVE_COMMAND_TICKS)),
+}
+
+
 # ------------------------------------------------------------------- run
 
 def set_winsize(fd, rows, cols):
@@ -717,8 +917,46 @@ def percentile(values, pct):
 	return ordered[low] + (ordered[high] - ordered[low]) * (pos - low)
 
 
+def kgbatch_answer(kgbatch, source, timeout=10.0):
+	"""Evaluate `source` through `test/kgbatch -r -b` and return the tagged
+	record it prints, as (kind, value): ("V", printed value), ("E",
+	condition symbol) or ("Q", None).
+
+	Same output contract test/kgbatch.c's header comment documents and
+	utils/check_lisp_oracle.py's run_kg_case() already parses: on exit 0
+	stdout is `PATH: V:VALUE`/`PATH: E:CONDITION`/`PATH: Q:quit`, `-r`'s
+	wrapper is `(condition-case ... (format "V:%S" (progn SOURCE)) ...)`,
+	so the answer is SOURCE's last form's value. `-b` gives it a live
+	scratch buffer for parity with that caller; none of LISP_ANSWERS'
+	sources below read or move point.
+	"""
+	with tempfile.NamedTemporaryFile(mode="w", suffix=".el", delete=False,
+					 encoding="utf-8") as tmp:
+		tmp.write(source)
+		tmp_path = tmp.name
+	try:
+		proc = subprocess.run([kgbatch, "-r", "-b", tmp_path],
+				      capture_output=True, timeout=timeout)
+	finally:
+		os.unlink(tmp_path)
+	prefix = f"{tmp_path}: "
+	stream = proc.stdout if proc.returncode == 0 else proc.stderr
+	text = stream.decode("utf-8", "replace").strip("\n")
+	if not text.startswith(prefix):
+		raise RuntimeError(
+			f"kgbatch produced unparseable output: {text!r}")
+	payload = text[len(prefix):]
+	if payload.startswith("V:"):
+		return "V", payload[2:]
+	if payload.startswith("E:"):
+		return "E", payload[2:]
+	if payload == "Q:quit":
+		return "Q", None
+	raise RuntimeError(f"kgbatch printed an invalid record {payload!r}")
+
+
 def bench_case(kg, name, corpus_path, keys, runs, rows, cols, timeout,
-	       home_files=None, assert_gt=None):
+	       home_files=None, assert_gt=None, kgbatch=None, answer=None):
 	"""Run one case `runs` times and report wall time, RSS and counters.
 
 	`home_files` (relative path -> content) plants files under a fresh
@@ -730,6 +968,16 @@ def bench_case(kg, name, corpus_path, keys, runs, rows, cols, timeout,
 	the trap sub-plan 07C already found once -- a key script that
 	silently reached nothing, so the case measured the startup constant
 	instead of what it was named for.
+
+	`answer`, when given, is a (source, expected) pair from LISP_ANSWERS:
+	checked once via `kgbatch_answer()`, not once per run, since it is
+	the same deterministic evaluation every time and buys nothing repeated
+	that a wall-clock measurement would. This is Phase 21.2's "each
+	workload checks its answer" for the cases that have one -- a counter
+	threshold alone cannot tell a workload that computed the right answer
+	from one that silently computed nothing (or the wrong thing) at
+	exactly the same cost, which is exactly the bug the fe pin's commit
+	message found in the `lisp-macro-heavy` case this file used to have.
 	"""
 	times, rss, counters = [], 0, {}
 	with tempfile.TemporaryDirectory() as tmp:
@@ -762,6 +1010,21 @@ def bench_case(kg, name, corpus_path, keys, runs, rows, cols, timeout,
 						"is measuring nothing beyond the startup "
 						"constant (see bench_case()'s assert_gt "
 						"docstring)")
+	answer_value = None
+	if answer is not None:
+		source, expected = answer
+		if not kgbatch or not os.path.isfile(kgbatch):
+			raise RuntimeError(
+				f"bench case {name!r} needs test/kgbatch to check its "
+				"answer (run 'make kgbatch', or pass --kgbatch)")
+		kind, value = kgbatch_answer(kgbatch, source)
+		if kind != "V" or value != expected:
+			raise RuntimeError(
+				f"bench case {name!r}: kgbatch answered "
+				f"{kind}:{value!r}, expected V:{expected!r} -- this "
+				"workload computed the wrong thing (or raised, or "
+				"quit), which its counters alone would not show")
+		answer_value = value
 	size = os.path.getsize(corpus_path) if corpus_path else 0
 	return {
 		"name": name,
@@ -775,6 +1038,7 @@ def bench_case(kg, name, corpus_path, keys, runs, rows, cols, timeout,
 			"min": round(min(times), 2),
 		},
 		"max_rss_kb": rss,
+		"answer": answer_value,
 		"counters": counters,
 	}
 
@@ -816,6 +1080,13 @@ def main():
 	parser = argparse.ArgumentParser(description=__doc__)
 	parser.add_argument("--kg", required=True,
 			    help="counting kg binary (test/perfobj/kg)")
+	parser.add_argument("--kgbatch",
+			    default=str(repo_root() / "test" / "kgbatch"),
+			    help="terminal-free driver LISP_ANSWERS checks a "
+				 "Lisp case's computed value against (make "
+				 "kgbatch); a release build, not the counting "
+				 "one, since it reports no counters and needs "
+				 "none")
 	parser.add_argument("--json", help="write the report here")
 	parser.add_argument("--corpus-dir", default="test/.bench")
 	parser.add_argument("--runs", type=int, default=3)
@@ -910,7 +1181,8 @@ def main():
 		report["cases"].append(bench_case(
 			args.kg, name, paths.get(corpus), keys, args.runs,
 			args.rows, args.cols, args.timeout,
-			home_files=home_files, assert_gt=assert_gt))
+			home_files=home_files, assert_gt=assert_gt,
+			kgbatch=args.kgbatch, answer=LISP_ANSWERS.get(name)))
 
 	if args.kg_no_lisp and (not args.case or "startup-no-lisp" in args.case):
 		# Wall time only: a WITH_LISP=0 binary has no Lisp counters to

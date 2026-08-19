@@ -1,0 +1,7 @@
+{
+ "id": "prelude-autoload-inert",
+ "setup": [],
+ "expr": "(progn (autoload 'kg-autoload-probe \"kg-no-such-library\") 'accepted)",
+ "expect": "agree",
+ "note": "Phase C1: kg's `autoload' is a documented no-op macro (lisp/prelude.el, beside the `interactive' precedent).  What both dialects agree on is the INERT SHAPE -- the form is accepted at top level and evaluation continues past it -- which is the whole of what the name buys kg: a package's own header stops being the thing that ends the load at its first line (s.el:34, measured `void-function autoload').  (\"expect\": \"agree\": this case pins the part kg gets right; its feature is divergent because of the two sibling cases, which pin what kg's `autoload' does not do.)"
+}

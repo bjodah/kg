@@ -3256,6 +3256,21 @@
    "source_name": "assq-delete-all"
   },
   {
+   "id": "prelude-autoload",
+   "category": "loading",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-autoload-inert",
+    "prelude-autoload-first-call",
+    "prelude-autoload-fboundp"
+   ],
+   "kg_test": "test/test_lisp.c:test_autoload_no_op",
+   "rationale": "Phase C1 of doc/plans/2026-08-19-fe-simplification-and-cheap-compat.md: `autoload' is a no-op macro in lisp/prelude.el, beside the `interactive' precedent, and the divergence is stated rather than smoothed over. Emacs' `autoload' ARMS LAZY LOADING -- it puts an autoload object in the function cell, `fboundp' answers t immediately, and the first call loads the named library and re-dispatches. kg's records nothing and loads nothing, so the function cell stays empty (prelude-autoload-fboundp: t there, nil here) and a function that only an autoload would have provided is `void-function' at its first CALL (prelude-autoload-first-call: `file-missing' there, `void-function' here). That is the correct kg answer until kg has package loading at all: the alternative to a no-op is not lazy loading, it is raising on the declaration itself, which stops a package at its header instead of at the name it actually needs. What the macro buys is exactly that -- s.el:34 is the measured first blocker of a real package, `void-function autoload' -- and prelude-autoload-inert pins the inert shape both dialects agree on. A real definition later in the same file wins on both sides, since kg's macro wrote nothing for it to fight with.",
+   "source_name": "autoload"
+  },
+  {
    "id": "prelude-beginning-of-buffer",
    "category": "editor-primitives",
    "status": "divergent",

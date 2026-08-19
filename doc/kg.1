@@ -227,6 +227,18 @@ suffix and both spellings resolve to the same file, while a name
 containing a slash is a literal path, neither suffixed nor searched.
 .Li (add-to-load-path DIR)
 prepends a directory so it is searched first.
+.Li (autoload SYMBOL FILE ...)
+is accepted and inert.
+Emacs arms lazy loading with it \(em the first call loads
+.Li FILE
+\(em while kg records nothing and loads nothing, so a function that only
+an autoload would have provided is
+.Li void-function
+at its first call and
+.Li fboundp
+answers nil for it.
+The form exists so that a package's own header does not end the load
+before its first definition.
 .Pa lisp/auto-fill.el
 is a worked package: it
 .Li provide Ns s

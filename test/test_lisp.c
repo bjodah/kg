@@ -5865,8 +5865,9 @@ static void test_quit_uncaught(void)
  * source file's own top-level defalias count fell 129 -> 122; Phase A of
  * doc/plans/2026-08-19-fe-simplification-and-cheap-compat.md removed
  * internal--make-deferred-stub with the rest of the deferral machinery,
- * taking it to 121. */
-#define PRELUDE_DEFS 121
+ * taking it to 121, and that plan's Phase C1 added the no-op `autoload'
+ * macro, taking it to 122. */
+#define PRELUDE_DEFS 122
 
 /* What a value CAPTURED out of a symbol's function cell is: that symbol's
  * definition at the moment of capture, and it stays that definition
@@ -6218,6 +6219,37 @@ static void test_reader_form_feed_page_break(void)
 	/* Unmoved: a comment still ends at a newline and nothing else, so a
 	 * page break inside one is comment text. */
 	CHECK(eval_eq("(progn ; page \f break\n  42)", "42"));
+
+	kg_lisp_shutdown();
+}
+
+/* Phase C1: `autoload' is a documented no-op macro, and this is the
+ * "documented" half made checkable.  Emacs' arms lazy loading; kg's
+ * records nothing, so the declaration is accepted and the function it
+ * names is still void at its first CALL -- the correct kg answer until
+ * kg has package loading at all.  s.el:34's `void-function autoload' is
+ * the measured blocker the name exists for; the divergence itself is the
+ * `prelude-autoload' manifest row and its three oracle cases. */
+static void test_autoload_no_op(void)
+{
+	CHECK(kg_lisp_init() == 0);
+
+	/* Accepted at top level, and evaluation continues past it. */
+	CHECK(eval_eq("(progn (autoload 'kg-al-probe \"kg-no-such-library\")"
+		      " 'accepted)",
+	    "accepted"));
+	/* Nothing was recorded: the function cell is still empty ... */
+	CHECK(eval_eq("(fboundp 'kg-al-probe)", "nil"));
+	/* ... so the first call is `void-function', not a load attempt. */
+	CHECK(eval_error_contains("(kg-al-probe)", "void-function"));
+	/* A real definition afterwards is what defines the name, the macro
+	 * having written nothing for it to fight with. */
+	CHECK(eval_eq(
+	    "(progn (defun kg-al-probe () 'mine) (kg-al-probe))", "mine"));
+	/* And it says what it is rather than pretending. */
+	CHECK(eval_eq("(documentation 'autoload)",
+	    "Accept an autoload declaration; kg loads nothing and records "
+	    "nothing."));
 
 	kg_lisp_shutdown();
 }
@@ -7630,6 +7662,7 @@ int main(void)
 	RUN(test_phase8_constants_and_keywords);
 	RUN(test_phase8_reader_literals);
 	RUN(test_reader_form_feed_page_break);
+	RUN(test_autoload_no_op);
 	RUN(test_phase8_library);
 	RUN(test_captured_function_value);
 	RUN(test_native_reverse_gc_stack);

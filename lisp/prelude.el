@@ -774,6 +774,16 @@
   (cons 'progn (reverse forms))))
 ;; Inert outside defun: a stray top-level (interactive) is harmless.
 (defalias 'interactive (macro args nil))
+;; Emacs' `autoload' arms lazy loading: it puts an autoload object in the
+;; function cell, and the first call loads the file and re-dispatches.
+;; kg's records nothing and loads nothing, so a function that only an
+;; autoload would have provided stays `void-function' at its first CALL,
+;; and `fboundp' says nil where Emacs says t.  That is the correct kg
+;; answer until kg has package loading at all; what the form buys is that
+;; a package's own header no longer stops the load before its first
+;; definition -- s.el:34 is the measured first blocker, `void-function
+;; autoload'.  The divergence is the `prelude-autoload' manifest row.
+(defalias 'autoload (macro args nil))
 (defalias 'internal--declare-p (lambda (form)
   (and (consp form) (eq (car form) 'declare))))
 (defalias 'ignore-errors (macro body
@@ -1331,6 +1341,7 @@
   (assoc . "Return the first pair of ALIST whose car `equal's KEY.")
   (assq . "Return the first pair of ALIST whose car is `eq' to KEY.")
   (assq-delete-all . "Return ALIST without the pairs whose car is `eq' to KEY.")
+  (autoload . "Accept an autoload declaration; kg loads nothing and records nothing.")
   (beginning-of-buffer . "Move point to the start of the buffer.")
   (butlast . "Return LIST without its last element, or without its last N.")
   (caar . "Return the car of the car of X.")

@@ -754,6 +754,7 @@ editor.
 | `(require FEATURE &optional FILENAME)` | No-op (returns `FEATURE`) if already provided; else resolves `FILENAME` (or `FEATURE`'s own name) through `load-path` — written with or without the `.el` suffix, the same rule `load` applies to a bare name — and evaluates it nested, the way `load` nests; a `FILENAME` containing `/` is a literal path, neither suffixed nor searched; errors if the feature is still not provided afterward |
 | `(featurep FEATURE)` | `t`/`nil`, without loading anything |
 | `(add-to-load-path DIR)` | Prepend `DIR` to the bounded load-path, so it is searched before every directory already in it |
+| `(autoload SYMBOL FILE ...)` | Accepted and inert; returns nil, records nothing and loads nothing. **Divergence:** Emacs arms lazy loading here, so `fboundp` answers `t` at once and the first call loads `FILE`; in kg the function cell stays empty and a function only an autoload would have provided is `void-function` at its first call |
 
 `load-path` itself is not Lisp-visible as a list — it is a bounded
 C-side array of `LISP_MAX_LOAD_PATH` = 8 directories, each up to
@@ -782,6 +783,18 @@ accident of directory listing order.
 `require`'s cycle detection and `load`'s depth limit are different
 bounds answering different questions; see "Error handling and budget
 limits" above.
+
+`autoload` is a no-op macro (`lisp/prelude.el`) rather than a missing
+name, and the difference is what a package's header meets first: a real
+package opens with autoload declarations for names it defines later in
+the same file, so raising on the declaration ends the load before the
+file has defined anything, while accepting it costs only the lazy
+loading kg does not have yet. The honest consequence is that nothing is
+armed — the miss surfaces at the first CALL of a function no later form
+defined, as an ordinary `void-function`, which is the same answer a typo
+gets. It is recorded as the `prelude-autoload` row of
+`test/lisp-compat/features.json`, with an oracle case for the inert
+shape both dialects agree on and one for each half of the divergence.
 
 ## Strings and the prelude
 

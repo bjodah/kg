@@ -313,7 +313,7 @@ not move with it. The assertion in `src/lisp_core.c` fired at this pin.
 `FeVersion` is `"17.0"`.
 
 kg's own use of the new entry point is the one call `kg_lisp_init()` makes,
-once, right after `install_deferred_stubs()` and the `FeRestoreGC()` that
+once, right after `evaluate_prelude()` and the `FeRestoreGC()` that
 follows it — root safety depends on that order, since the collection has to
 run *after* the GC stack is back at its post-setup checkpoint or it would
 find the prelude's own transient garbage still rooted by the raw stack and

@@ -1503,7 +1503,7 @@
   "src/lisp_cmd.c:copy_command_name": 3,
   "src/lisp_cmd.c:find_command_by_function": 5,
   "src/lisp_cmd.c:find_command_slot": 4,
-  "src/lisp_cmd.c:lisp_call_primitive": 2,
+  "src/lisp_cmd.c:lisp_call_primitive": 3,
   "src/lisp_cmd.c:lisp_is_constant_binding_name": 5,
   "src/lisp_cmd.c:lisp_prefix_number": 8,
   "src/lisp_cmd.c:lisp_prefix_object": 6,

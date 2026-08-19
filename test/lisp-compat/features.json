@@ -4014,8 +4014,8 @@
    "cases": [
     "phase15-nconc"
    ],
-   "kg_test": "test/test_lisp.c:test_phase15_list_library",
-   "rationale": "Phase 15. Destructive, as Emacs': the result is the first non-nil argument with the rest spliced onto its tail, so the caller's own variable sees the join. It exists mostly because `mapcan' is defined over it and would otherwise have had to be a copying divergence.",
+   "kg_test": "test/test_lisp.c:test_phase15_list_library test/test_lisp.c:test_native_primitive_call_is_contained",
+   "rationale": "Phase 15. Destructive, as Emacs': the result is the first non-nil argument with the rest spliced onto its tail, so the caller's own variable sees the join. It exists mostly because `mapcan' is defined over it and would otherwise have had to be a copying divergence. Since Phase 2 it is a native that reaches `setcdr' by re-entering the evaluator (lisp_call_primitive, src/lisp_cmd.c); the second test is that an error raised down there reaches an enclosing condition-case rather than kg's host barrier (finding 2 of doc/reviews/2026-08-19-embedded-prelude-phase21-adversarial-review.md).",
    "source_name": "nconc"
   },
   {
@@ -4476,8 +4476,8 @@
    "cases": [
     "phase20-variable-documentation"
    ],
-   "kg_test": "test/test_lisp.c:test_phase20_variable_documentation",
-   "rationale": "Phase 20. A `defvar' or `defconst' with a docstring now also puts it on the symbol's `variable-documentation' property, which is where Emacs keeps one -- so `(get 'v 'variable-documentation)' answers, a program can `put' its own over it, and `describe-variable' reads it through `documentation-property' rather than through kg's own registry. Emacs' re-`defvar' rule comes with it and is measured: the value is not reassigned and the docstring IS replaced. `defcustom' inherits it by expanding to `defvar'. kg's registry (`internal--docs') still records the same string, because `apropos' asks `documentation' for a line about any name and the property is the only half Emacs has.",
+   "kg_test": "test/test_lisp.c:test_phase20_variable_documentation test/test_lisp.c:test_native_primitive_call_is_contained",
+   "rationale": "Phase 20. A `defvar' or `defconst' with a docstring now also puts it on the symbol's `variable-documentation' property, which is where Emacs keeps one -- so `(get 'v 'variable-documentation)' answers, a program can `put' its own over it, and `describe-variable' reads it through `documentation-property' rather than through kg's own registry. Emacs' re-`defvar' rule comes with it and is measured: the value is not reassigned and the docstring IS replaced. `defcustom' inherits it by expanding to `defvar'. kg's registry (`internal--docs') still records the same string, because `apropos' asks `documentation' for a line about any name and the property is the only half Emacs has. The native reaches `put' by re-entering the evaluator (lisp_call_primitive, src/lisp_cmd.c), so the second test is the containment that seam needs: an error from down there -- including one from a replaced `put' -- reaches an enclosing condition-case (finding 2 of doc/reviews/2026-08-19-embedded-prelude-phase21-adversarial-review.md).",
    "source_name": "internal--variable-doc-put"
   },
   {

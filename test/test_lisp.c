@@ -4495,6 +4495,58 @@ static void test_condition_case_native_error(void)
 	teardown_editor();
 }
 
+/* Finding 2 of doc/reviews/2026-08-19-embedded-prelude-phase21-adversarial-
+ * review.md.  Two Phase 2 natives reach an fe PRIMITIVE by building a form
+ * and re-entering the evaluator (lisp_call_primitive(), src/lisp_cmd.c):
+ * `internal--variable-doc-put' calls `put', `nconc' calls `setcdr'.  A
+ * plain nested evaluation transfers an abnormal completion to kg's
+ * outermost barrier, past every `condition-case' between the native and
+ * the raise -- so the two probes below killed the whole evaluation
+ * (kgbatch exit 1) instead of running their handlers.  What is pinned is
+ * the containment AND what survives it: the condition symbol, its data,
+ * and an evaluation that carries on afterwards. */
+static void test_native_primitive_call_is_contained(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	/* `put' rejects a non-symbol, from inside the nested run. */
+	CHECK(eval_eq("(condition-case e (internal--variable-doc-put 1 \"x\")"
+		      " (error (list 'caught (car e))))",
+	    "(caught wrong-type-argument)"));
+	/* Structured, not flattened to a message: the data rides through
+	 * the resignal, so a handler naming the condition matches too. */
+	CHECK(eval_eq("(condition-case e (internal--variable-doc-put 1 \"x\")"
+		      " (error e))",
+	    "(wrong-type-argument symbolp 1)"));
+	CHECK(eval_eq("(condition-case e (internal--variable-doc-put 1 \"x\")"
+		      " (wrong-type-argument 'typed))",
+	    "typed"));
+	CHECK(eval_eq("(+ 1 2)", "3"));
+
+	/* The path an ordinary `defvar' with a docstring takes.  Going
+	 * through the evaluator means the call resolves `put's function
+	 * cell, so a replacement really is reached -- and its error is
+	 * caught rather than fatal. */
+	CHECK(eval_ok("(defalias 'put (lambda (&rest args)"
+		      " (error \"replacement put failed\")))"));
+	CHECK(eval_eq("(condition-case e (defvar phase2-native-probe 2 \"doc\")"
+		      " (error (list 'caught (car e))))",
+	    "(caught error)"));
+
+	/* `nconc's own primitive, through the same helper: the splice is
+	 * reached only once a second non-empty argument needs one. */
+	CHECK(eval_ok("(defalias 'setcdr (lambda (&rest args)"
+		      " (error \"replacement setcdr failed\")))"));
+	CHECK(eval_eq("(condition-case e (nconc (list 1) (list 2))"
+		      " (error (list 'caught (car e))))",
+	    "(caught error)"));
+	CHECK(eval_eq("(+ 1 2)", "3"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
 static void test_catch_throw_unwind(void)
 {
 	setup_editor();
@@ -7592,6 +7644,7 @@ int main(void)
 	RUN(test_perf_dump_fe_json_facade);
 	RUN(test_arena_exhaustion_conditions);
 	RUN(test_condition_case_native_error);
+	RUN(test_native_primitive_call_is_contained);
 	RUN(test_catch_throw_unwind);
 	RUN(test_wrapping_native_transparency);
 	RUN(test_condition_case_kg_native_conditions);

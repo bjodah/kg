@@ -846,19 +846,37 @@ FeObject *native_current_local_map(FeContext *context, FeObject *arguments)
  * `FeTNativeFn' as `callable' (fe/fe_run.c's `FeCall' rejects anything
  * else with "tried to call non-callable value"), so a raw fe PRIMITIVE
  * such as `setcdr' or `put' cannot be invoked through them directly.
- * `FeEvaluateWithOptions' has no such restriction -- it runs a form
- * through the ordinary evaluator, primitive dispatch included, exactly
- * as evaluating `(put NAME 'variable-documentation DOC)' at prelude load
- * already does -- so this builds `(PRIM 'ARG...)' (each argument quoted,
- * since it is already an evaluated object rather than source to
- * re-evaluate) and evaluates that directly, shared by `native_nconc'
- * (`setcdr') and `native_internal_variable_doc_put' (`put') below. */
+ * The evaluator has no such restriction -- it runs a form through
+ * primitive dispatch, exactly as evaluating `(put NAME
+ * 'variable-documentation DOC)' at prelude load already does -- so this
+ * builds `(PRIM 'ARG...)' (each argument quoted, since it is already an
+ * evaluated object rather than source to re-evaluate), shared by
+ * `native_nconc' (`setcdr') and `native_internal_variable_doc_put'
+ * (`put') below.
+ *
+ * WHY THE NULLARY CLOSURE AND THE PROTECTED CALL, and not a plain
+ * `FeEvaluateWithOptions' of that form.  A native that re-enters the
+ * evaluator with `FeCall'/`FeEvaluate*' starts a nested run whose
+ * abnormal completion transfers to the OUTERMOST barrier -- kg's own
+ * error_jump -- past every `condition-case' lexically between the native
+ * and the raise.  `raise_signal_form' (src/lisp_core.c) documents that
+ * trap and avoids it; this helper had the plain shape until finding 2 of
+ * doc/reviews/2026-08-19-embedded-prelude-phase21-adversarial-review.md,
+ * so `(condition-case e (internal--variable-doc-put 1 "x") (error ...))'
+ * killed the evaluation instead of running its handler.  Wrapping the
+ * form as `(lambda () FORM)' is what makes it callable: evaluating the
+ * lambda form only builds a closure and cannot raise, and the closure is
+ * an ordinary `FeTFn' that `FeTryCallWithOptions' accepts and contains.
+ * `FeResignal' then puts the completion back in flight in the enclosing
+ * run with its kind, condition object and message intact, which is what
+ * an enclosing handler matches on. */
 static FeObject *lisp_call_primitive(FeContext *context, const char *name,
     FeObject *const *arguments, size_t count)
 {
 	const size_t gc = FeSaveGC(context);
 	FeObject *quote = FeMakeSymbol(context, "quote");
 	FeObject *form = FeNil(context);
+	FeObject *parts[3];
 	FeObject *result;
 	size_t i;
 
@@ -870,7 +888,19 @@ static FeObject *lisp_call_primitive(FeContext *context, const char *name,
 	}
 	form = FeCons(context, FeMakeSymbol(context, name), form);
 	FePushGC(context, form);
-	result = FeEvaluateWithOptions(context, form, &eval_options);
+	parts[0] = FeMakeSymbol(context, "lambda");
+	parts[1] = FeNil(context);
+	parts[2] = form;
+	form = FeMakeList(context, parts, 3);
+	FePushGC(context, form);
+	form = FeEvaluateWithOptions(context, form, &eval_options);
+	FePushGC(context, form);
+	if (!FeTryCallWithOptions(
+		context, form, nullptr, 0, &eval_options, &result)) {
+		/* No checkpoint restore on this path: `FeResignal' does not
+		 * return, and the enclosing run restores its own. */
+		FeResignal(context);
+	}
 	FeRestoreGC(context, gc);
 	return result;
 }

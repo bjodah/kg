@@ -42,16 +42,22 @@ than reimplemented, so the two arrays' formatting cannot drift.
 Usage:
     embed_lisp_split.py <lisp/prelude.el> <eager.inc> <deferred.inc>
         [--names FILE]
+    embed_lisp_split.py --self-test
 
 `make lisp-prelude-generate` runs this to refresh both checked-in files;
 `make lisp-prelude-check` runs it again into temporary files and fails if
-either differs from what is checked in.
+either differs from what is checked in, and runs `--self-test` first --
+the command line those two rely on is the one this script gets wrong
+silently, so it is checked before it is trusted.
 """
 
 from __future__ import annotations
 
+import argparse
 import re
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -59,6 +65,12 @@ import embed_lisp  # noqa: E402  (path set above)
 
 DEFAULT_NAMES_FILE = (
     Path(__file__).resolve().parent / "prelude_deferred_names.txt")
+
+# Only --self-test reads this; the ordinary run takes the prelude as its
+# first positional, since `make lisp-prelude-check' names the file it is
+# checking rather than letting the script assume one.
+DEFAULT_PRELUDE_FILE = (
+    Path(__file__).resolve().parent.parent / "lisp" / "prelude.el")
 
 DEFERRED_ARRAY_NAME = "lisp_prelude_deferred_generated"
 
@@ -203,16 +215,129 @@ def render_index(deferred_forms: list[tuple[str, bytes]]) -> str:
 	    entries="\n".join(entries))
 
 
+def run_split(args: list[str]) -> subprocess.CompletedProcess[str]:
+	"""One `embed_lisp_split.py ARGS...' run, as a child process.
+
+	The self-test below is about the COMMAND LINE, so it drives the real
+	entry point over a real argv rather than calling main() with a list:
+	an exit status and a usage message on stderr are the behaviour under
+	test, and neither is observable from inside the process.
+	"""
+	return subprocess.run(
+	    [sys.executable, str(Path(__file__).resolve())] + args,
+	    capture_output=True, text=True, check=False)
+
+
+def self_test() -> int:
+	"""Prove `--names FILE' is accepted and a malformed option is not.
+
+	Three cases, all writing into a temp directory and reading only this
+	repository's own inputs:
+
+	  * `--names FILE' with the operand the Makefile's default path would
+	    have used must succeed AND produce both .inc files byte-for-byte
+	    identical to the run that omits the option.  A documented option
+	    that silently changes the output would be a worse defect than one
+	    that refuses to run.
+	  * `--names' with its operand missing must exit non-zero with a
+	    message -- not an IndexError traceback out of the argv indexing.
+	  * an option this script does not define must be REFUSED, not
+	    dropped.  The old hand-rolled filter discarded every `--' word and
+	    then split the prelude anyway, so a typo'd flag was a silent
+	    success.
+	"""
+	prelude = DEFAULT_PRELUDE_FILE
+	if not prelude.is_file():
+		print(f"self-test: {prelude} is missing", file=sys.stderr)
+		return 1
+
+	with tempfile.TemporaryDirectory() as tmp:
+		root = Path(tmp)
+		default_eager = root / "default-eager.inc"
+		default_deferred = root / "default-deferred.inc"
+		named_eager = root / "named-eager.inc"
+		named_deferred = root / "named-deferred.inc"
+
+		base = run_split([str(prelude), str(default_eager),
+				  str(default_deferred)])
+		if base.returncode != 0:
+			print("self-test: the default-path run failed: "
+			      f"{base.stderr.strip()}", file=sys.stderr)
+			return 1
+
+		named = run_split([str(prelude), str(named_eager),
+				   str(named_deferred),
+				   "--names", str(DEFAULT_NAMES_FILE)])
+		if named.returncode != 0:
+			print("self-test: `--names FILE' was rejected: "
+			      f"{named.stderr.strip()}", file=sys.stderr)
+			return 1
+		if (named_eager.read_bytes() != default_eager.read_bytes()
+		    or named_deferred.read_bytes()
+		    != default_deferred.read_bytes()):
+			print("self-test: `--names' with the default path produced "
+			      "different .inc output than omitting it",
+			      file=sys.stderr)
+			return 1
+
+		missing = run_split([str(prelude), str(root / "x.inc"),
+				     str(root / "y.inc"), "--names"])
+		if missing.returncode == 0:
+			print("self-test: `--names' with no operand was accepted",
+			      file=sys.stderr)
+			return 1
+		if "Traceback" in missing.stderr:
+			print("self-test: `--names' with no operand died in a "
+			      f"traceback:\n{missing.stderr}", file=sys.stderr)
+			return 1
+
+		unknown = run_split([str(prelude), str(root / "x.inc"),
+				     str(root / "y.inc"), "--not-an-option"])
+		if unknown.returncode == 0:
+			print("self-test: an undefined option was accepted",
+			      file=sys.stderr)
+			return 1
+
+	print("self-test: `--names FILE' is accepted and reproduces the "
+	      "default path's output byte for byte")
+	print(f"self-test: a missing operand exits {missing.returncode} with a "
+	      "message, an undefined option exits "
+	      f"{unknown.returncode}, neither in a traceback")
+	return 0
+
+
 def main(argv: list[str]) -> int:
-	args = [a for a in argv[1:] if not a.startswith("--")]
-	names_path = DEFAULT_NAMES_FILE
-	if "--names" in argv:
-		names_path = Path(argv[argv.index("--names") + 1])
-	if len(args) != 3:
-		print(f"usage: {argv[0]} <lisp/prelude.el> <eager.inc> "
-		      "<deferred.inc> [--names FILE]", file=sys.stderr)
-		return 2
-	prelude_path, eager_path, deferred_path = (Path(a) for a in args)
+	parser = argparse.ArgumentParser(
+	    prog=Path(argv[0]).name,
+	    description="Split lisp/prelude.el into an eager and a deferred "
+			"array.")
+	# nargs="?" rather than three required positionals only because
+	# --self-test takes none of them; the check below restores the arity
+	# for every other run, with argparse's own usage message and exit 2.
+	parser.add_argument("prelude", nargs="?", type=Path,
+			    help="lisp/prelude.el")
+	parser.add_argument("eager", nargs="?", type=Path,
+			    help="the eager array, e.g. "
+				 "src/lisp_prelude_generated.inc")
+	parser.add_argument("deferred", nargs="?", type=Path,
+			    help="the deferred array plus its index table")
+	parser.add_argument("--names", type=Path, default=DEFAULT_NAMES_FILE,
+			    help="the deferred-name policy file "
+				 f"(default: {DEFAULT_NAMES_FILE})")
+	parser.add_argument("--self-test", action="store_true",
+			    help="prove this command line parses as documented; "
+				 "writes only into a temp directory")
+	args = parser.parse_args(argv[1:])
+
+	if args.self_test:
+		return self_test()
+	if args.prelude is None or args.eager is None or args.deferred is None:
+		parser.error("the prelude, eager and deferred paths are all "
+			     "required")
+
+	prelude_path, eager_path, deferred_path = (
+	    args.prelude, args.eager, args.deferred)
+	names_path = args.names
 
 	source = prelude_path.read_bytes()
 	if len(source) == 0:

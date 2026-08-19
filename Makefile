@@ -1012,7 +1012,13 @@ lisp-prelude-generate:
 		src/lisp_prelude_generated.inc \
 		src/lisp_prelude_deferred_generated.inc
 
+# The `--self-test` first, in check_lisp_oracle.py's mold: the generator
+# whose output the rest of this recipe compares is reached through a
+# command line, and that command line is what shipped broken -- the
+# documented `--names FILE` was unusable and an undefined option was
+# silently discarded.  It writes only into a temp directory.
 lisp-prelude-check:
+	@$(PYTHON) utils/embed_lisp_split.py --self-test
 	@tmp=$$(mktemp) && tmpd=$$(mktemp) && \
 	trap 'rm -f "$$tmp" "$$tmpd"' EXIT && \
 	$(PYTHON) utils/embed_lisp_split.py lisp/prelude.el "$$tmp" "$$tmpd" \

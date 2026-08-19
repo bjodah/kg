@@ -281,8 +281,7 @@ static void compilation_start_or_defer(int fd, const char *command,
 			strncpy(g_compilation.pending_command, command,
 			    sizeof(g_compilation.pending_command));
 			g_compilation.pending_command
-			    [sizeof(g_compilation.pending_command) - 1]
-			    = '\0';
+			    [sizeof(g_compilation.pending_command) - 1] = '\0';
 			strncpy(g_compilation.pending_directory, dir,
 			    sizeof(g_compilation.pending_directory));
 			g_compilation.pending_directory

@@ -843,6 +843,32 @@ gets. It is recorded as the `prelude-autoload` row of
 `test/lisp-compat/features.json`, with an oracle case for the inert
 shape both dialects agree on and one for each half of the divergence.
 
+### Features kg provides without a file
+
+`(require 'subr-x)` succeeds on a kg with no `load-path` entry at all,
+because the prelude `provide`s it: its names are already loaded, exactly
+as Emacs 31 answers `string-trim`, `string-empty-p` and `string-join`
+before any require. Phase 28's package census measured `subr-x` as the
+first blocker for 13 packages, and U.0 measured that the FEATURE is the
+blocker: with it standing in as a bare `provide`, not one of the four
+packages then blocked stops on a `subr-x` name at all.
+
+**`lexical-binding` is `nil`, always**, and that is a statement about kg
+rather than a convenience: kg's binder is dynamic, there are no
+first-class lexical environments, and `eval` refuses a non-nil `LEXICAL`
+argument by name. It is also Emacs' own `(default-value
+'lexical-binding)` — the `t` a file sees there is a per-file binding
+over that global. One consequence is worth knowing: `(eval FORM
+lexical-binding)`, the shape a package's `static-if` polyfill writes, is
+`(eval FORM nil)` here, which kg evaluates.
+
+**`emacs-major-version` is 31** because 31 is the Emacs whose behaviour
+every contract in this tree is measured against. That is the honest
+reading of a version gate: kg never implements an older Emacs' answer
+for a name, so a gate asking "at least N" gets the right answer for
+every name kg has, and a name kg lacks is `void-function` whichever
+branch the gate takes. It is not a claim to be Emacs.
+
 ## Strings and the prelude
 
 Fe has no string operations of its own; every one of these is a kg
@@ -1087,6 +1113,8 @@ before any init file runs — this is what makes `defun`, `let`, `cond`,
 | Editor | `string-empty-p` `thing-at-point` `multibyte-string-p` |
 | Small library | `identity` `prog2` `max` `min` `documentation` `number-to-string` `string-to-list` `kbd` |
 | Buffer-local | `setq-local` `setq-default` `set-default` `default-value` `make-local-variable` `kill-local-variable` `local-variable-p` `buffer-local-value` — see "Buffer-local variables" below |
+| Package preamble | `static-if` `eval-when-compile` `eval-and-compile` `make-obsolete-variable`, and the variables `lexical-binding` (always `nil` — see below) and `emacs-major-version` (31) — the names a package file reaches before any of its own code runs |
+| `subr-x` | `string-blank-p` `string-remove-prefix` `string-remove-suffix` `string-pad` `string-clean-whitespace` `thread-first` `thread-last`, joining `string-join` `string-trim` `string-empty-p` `string-prefix-p` above — provided as a feature, so `(require 'subr-x)` succeeds |
 
 The table is the whole startup surface, not only what the prelude adds:
 the forms in `Functions` and `Numbers`, like `setq` in `Binding`, are

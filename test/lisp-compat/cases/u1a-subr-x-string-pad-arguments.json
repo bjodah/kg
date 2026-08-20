@@ -1,0 +1,6 @@
+{
+ "id": "u1a-subr-x-string-pad-arguments",
+ "setup": [],
+ "expr": "(list (string-pad \"a\" 3 ?x) (string-pad \"a\" 3 nil t) (string-pad \"abcd\" 3) (string-pad \"\" 2))",
+ "note": "PADDING and START, the two `string-pad' arguments u0-subr-x-string-helpers does not reach, plus the case that decides whether the name is a padder or a formatter. Emacs answers (\"axx\" \"  a\" \"abcd\" \"  \"): PADDING replaces the space, a non-nil START pads on the LEFT, and a string ALREADY longer than LENGTH comes back untouched -- it never truncates. Recorded because U.1a's implementation relies on all three and the frozen row only pins the default."
+}

@@ -6444,6 +6444,115 @@ static void test_phase15_sort(void)
 	teardown_editor();
 }
 
+/* Phase 29's U.1a: the three library surfaces the demand census named.
+ * Every value asserted here is Emacs 31.0.91's own, measured, and
+ * recorded in test/lisp-compat/cases/u0-subr-x-*.json and
+ * u1a-subr-x-*.json. */
+static void test_phase29_subr_x(void)
+{
+	CHECK(kg_lisp_init() == 0);
+
+	/* The FEATURE is what 13 packages stop at; kg provides it from the
+	 * prelude, as Emacs 31 answers these names before any require. */
+	CHECK(eval_eq(
+	    "(list (require 'subr-x) (featurep 'subr-x))", "(subr-x t)"));
+
+	/* string-blank-p answers a MATCH POSITION, not t. */
+	CHECK(eval_eq("(list (string-blank-p \"  \") (string-blank-p \"\") "
+		      "(string-blank-p \"\\n\\t\") (string-blank-p \" a \") "
+		      "(string-blank-p \"a\"))",
+	    "(0 0 0 nil nil)"));
+	/* A prefix or suffix that does not match answers the STRING. */
+	CHECK(eval_eq("(list (string-remove-prefix \"ab\" \"abc\") "
+		      "(string-remove-prefix \"z\" \"abc\") "
+		      "(string-remove-prefix \"\" \"abc\") "
+		      "(string-remove-suffix \"bc\" \"abc\") "
+		      "(string-remove-suffix \"z\" \"abc\"))",
+	    "(\"c\" \"abc\" \"abc\" \"a\" \"abc\")"));
+	/* string-pad pads right, or left under START, and never truncates. */
+	CHECK(eval_eq("(list (string-pad \"a\" 3) (string-pad \"abcd\" 3) "
+		      "(string-pad \"a\" 3 ?x) (string-pad \"a\" 3 nil t) "
+		      "(string-pad \"\" 2))",
+	    "(\"a  \" \"abcd\" \"axx\" \"  a\" \"  \")"));
+	/* Any run of whitespace collapses, newlines included. */
+	CHECK(eval_eq("(list (string-clean-whitespace \"  a   b  \") "
+		      "(string-clean-whitespace \"a\\n\\nb\") "
+		      "(string-clean-whitespace \"\"))",
+	    "(\"a b\" \"a b\" \"\")"));
+	/* The threading pair differs in WHERE the value goes, which is why
+	 * the steps below are not commutative; a bare symbol step is a
+	 * one-argument call for both. */
+	CHECK(eval_eq("(list (thread-first 5 (- 1) (* 2)) "
+		      "(thread-last 5 (- 1) (* 2)) (thread-first 5 - (* 2)) "
+		      "(thread-last 5 - (* 2)) (thread-first 5))",
+	    "(8 -8 -10 -10 5)"));
+	CHECK(eval_eq("(list (thread-first (list 1 2) (append (list 3))) "
+		      "(thread-last (list 1 2) (append (list 3))))",
+	    "((1 2 3) (3 1 2))"));
+
+	kg_lisp_shutdown();
+}
+
+/* The names a package file reaches before any of its own code runs.
+ * Recorded in test/lisp-compat/cases/u1a-static-if-*.json,
+ * u1a-eval-when-compile-*.json, u1a-make-obsolete-variable-storage.json,
+ * u1a-emacs-major-version-is-an-integer.json and the
+ * u1a-lexical-binding-* pair. */
+static void test_phase29_package_preamble_names(void)
+{
+	CHECK(kg_lisp_init() == 0);
+
+	/* kg is dynamic-only, so lexical-binding is nil -- which is also
+	 * Emacs' own global value -- and it is special. */
+	CHECK(eval_eq("(list lexical-binding (boundp 'lexical-binding) "
+		      "(special-variable-p 'lexical-binding) "
+		      "(default-value 'lexical-binding))",
+	    "(nil t t nil)"));
+	/* And (eval FORM lexical-binding) is therefore (eval FORM nil),
+	 * which kg evaluates; a non-nil LEXICAL is its named refusal. */
+	CHECK(eval_eq("(eval (list '+ 1 2) lexical-binding)", "3"));
+	CHECK(eval_error_contains(
+	    "(eval (list '+ 1 2) t)", "eval lexical argument"));
+
+	CHECK(
+	    eval_eq("(list emacs-major-version (integerp emacs-major-version) "
+		    "(< emacs-major-version 25))",
+		"(31 t nil)"));
+
+	/* make-obsolete-variable is storage: (CURRENT-NAME ACCESS-TYPE WHEN),
+	 * which is not the argument order, and it answers OBSOLETE-NAME. */
+	CHECK(eval_eq("(list (make-obsolete-variable 'ob-v 'new-v \"1.0\") "
+		      "(get 'ob-v 'byte-obsolete-variable))",
+	    "(ob-v (new-v nil \"1.0\"))"));
+	CHECK(eval_eq("(progn (make-obsolete-variable 'ob-w 'new-w \"1.0\" "
+		      "'set) (get 'ob-w 'byte-obsolete-variable))",
+	    "(new-w set \"1.0\")"));
+
+	/* static-if evaluates its condition at EXPANSION time and does not
+	 * expand the branch it did not take -- an (error ...) in either arm
+	 * is harmless. */
+	CHECK(eval_eq("(list (static-if (fboundp 'car) 'yes 'no) "
+		      "(static-if nil (error \"boom\") 1) "
+		      "(static-if t 1 (error \"boom\")) (static-if nil 1))",
+	    "(yes 1 1 nil)"));
+	CHECK(eval_eq("(list (macroexpand '(static-if t 1 2)) "
+		      "(macroexpand '(static-if nil 1 2 3)))",
+	    "(1 (progn 2 3))"));
+
+	/* eval-when-compile and eval-and-compile EVALUATE their bodies and
+	 * answer the value quoted -- identically, in an interpreter. */
+	CHECK(eval_eq("(list (eval-when-compile 1 2 3) "
+		      "(eval-and-compile 4 5 6))",
+	    "(3 6)"));
+	CHECK(eval_eq("(progn (eval-when-compile (setq ewc-ran 'yes)) "
+		      "(list (boundp 'ewc-ran) ewc-ran))",
+	    "(t yes)"));
+	CHECK(eval_eq(
+	    "(progn (eval-and-compile (setq eac-ran 'yes)) eac-ran)", "yes"));
+
+	kg_lisp_shutdown();
+}
+
 static void test_phase15_seq_shim(void)
 {
 	setup_editor();
@@ -6734,8 +6843,15 @@ static void test_quit_uncaught(void)
  * `multibyte-string-p' and `regexp-opt', taking it to 139.  Phase 29's
  * U.1a added the docstring-taking `defalias', a prelude SHADOW of fe's
  * two-argument primitive placed below every definition in the file so
- * the prelude's own forms stay on the primitive, taking it to 140. */
-#define PRELUDE_DEFS 140
+ * the prelude's own forms stay on the primitive, taking it to 140, and
+ * then the three library surfaces the demand census named: subr-x's
+ * eight (string-blank-p, string-remove-prefix, string-remove-suffix,
+ * string-pad, string-clean-whitespace, internal--thread, thread-first,
+ * thread-last), the four package-preamble names that are functions or
+ * macros (make-obsolete-variable, static-if, eval-when-compile,
+ * eval-and-compile -- `lexical-binding' and `emacs-major-version' are
+ * variables and are not counted here), taking it to 152. */
+#define PRELUDE_DEFS 152
 
 /* What a value CAPTURED out of a symbol's function cell is: that symbol's
  * definition at the moment of capture, and it stays that definition
@@ -9233,6 +9349,8 @@ int main(void)
 	RUN(test_phase15_list_library);
 	RUN(test_phase15_sort);
 	RUN(test_phase15_seq_shim);
+	RUN(test_phase29_subr_x);
+	RUN(test_phase29_package_preamble_names);
 	RUN(test_phase15_arithmetic);
 	RUN(test_hook_quit_is_not_contained);
 	RUN(test_hook_throw_containment);

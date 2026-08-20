@@ -1684,6 +1684,144 @@ name inside the buffer it is filling.")
       (floor value (expt 2 (- count)))
     (* value (expt 2 count)))))
 
+;; --- subr-x, a module kg PROVIDES ------------------------------------
+;;
+;; `(require 'subr-x)' is the census's third-largest absent-library
+;; class.  U.0 measured what it costs and what it buys: four packages
+;; stop there today and NINE more reach it once `cl-lib' and `compat'
+;; exist, so the demand is 13; and standing the item in with a file that
+;; does nothing but `(provide 'subr-x)' advances all four, with not one
+;; of them then stopping on a subr-x NAME.  So the FEATURE is the
+;; blocker and the names are a short tail behind it.
+;;
+;; It is provided from the prelude rather than shipped as a lisp/*.el
+;; package because that is what Emacs 31 does: `string-trim' and
+;; `string-empty-p' live in subr.el, `string-join' is autoloaded, and
+;; all of them answer before any require.  kg's load-path defaults to
+;; one per-user directory and nothing installs into it, so a file would
+;; make `(require 'subr-x)' depend on the user having added a directory
+;; -- which is the opposite of what the four blocked packages need.
+;;
+;; The tail, ranked by U.0's source census over those 13 packages:
+;; `string-join' 11 packages (kg had it), `string-blank-p' 5,
+;; `string-remove-prefix' 3, `thread-last' 3, `string-remove-suffix' 3,
+;; `string-clean-whitespace' 2, then singletons.  `hash-table-keys',
+;; `-values' and `-empty-p' are one package's and belong to the dormant
+;; hash-table branch, not here; `named-let' is one package's and needs a
+;; self-referential local function, which is not the cheap thing this
+;; section is for.  Both are named so their absence is a decision.
+;;
+;; `string-blank-p' answers a MATCH POSITION and not `t' -- it is
+;; `string-match' over a whitespace-only regexp, measured: 0 for "  ",
+;; 0 for "", nil for " a " and for "a".
+(defalias 'string-blank-p (lambda (string)
+  (string-match "\\`[ \t\n\r]*\\'" string)))
+(defalias 'string-remove-prefix (lambda (prefix string)
+  (if (string-prefix-p prefix string)
+      (substring string (length prefix))
+    string)))
+(defalias 'string-remove-suffix (lambda (suffix string)
+  (if (string-suffix-p suffix string)
+      (substring string 0 (- (length string) (length suffix)))
+    string)))
+;; (string-pad STRING LENGTH &optional PADDING START): pad on the right,
+;; or on the left when START is non-nil, with PADDING or a space.  It
+;; never truncates -- (string-pad "abcd" 3) is "abcd", measured.
+(defalias 'string-pad (lambda (string length &optional padding start)
+  (internal--let pad (if (< (length string) length)
+                         (make-string (- length (length string))
+                                      (if padding padding 32))
+                       ""))
+  (if start (concat pad string) (concat string pad))))
+(defalias 'string-clean-whitespace (lambda (string)
+  (string-trim (replace-regexp-in-string "[ \t\n\r]+" " " string))))
+;; The threading macros.  They differ in WHERE the value goes: first
+;; argument for `thread-first', last for `thread-last', which is why
+;; U.0's case measures them on a non-commutative step and gets 8 and -8
+;; for the same text.  A step that is a bare symbol becomes a one-
+;; argument call either way, measured: (thread-first 5 - (* 2)) is -10.
+(defalias 'internal--thread (lambda (value steps last)
+  (while steps
+    (setq value
+      (if (atom (car steps))
+          (list (car steps) value)
+        (if last
+            (append (car steps) (list value))
+          (cons (car (car steps)) (cons value (cdr (car steps)))))))
+    (setq steps (cdr steps)))
+  value))
+(defalias 'thread-first (macro (form . steps)
+  (internal--thread form steps nil)))
+(defalias 'thread-last (macro (form . steps)
+  (internal--thread form steps t)))
+(provide 'subr-x)
+
+;; --- the names a package file reaches on its way past the top --------
+;;
+;; Not a module: six names with nothing in common except that U.0's
+;; demand probe found real package files stopping on them before any of
+;; their own code ran.  `dash.el' reaches five of the six, and the chain
+;; it walks is why they are here rather than in a package.
+;;
+;; `lexical-binding' IS NIL, AND THAT IS A STATEMENT ABOUT KG, not a
+;; convenience.  kg's binder is dynamic; there are no first-class
+;; lexical environments, and `eval' refuses a non-nil LEXICAL argument
+;; by name.  nil is also Emacs' own `(default-value 'lexical-binding)',
+;; measured -- the `t' an Emacs prints inside a file is a per-file
+;; binding, not the global value.  So this says what kg is and matches
+;; the oracle's global at the same time.  It has a measured consequence
+;; worth writing down: `(eval FORM lexical-binding)' -- dash.el:52's
+;; shape -- is `(eval FORM nil)' here, which kg EVALUATES, where
+;; `(eval FORM t)' is its named refusal.
+(defvar lexical-binding nil
+  "Non-nil means bind variables lexically; always nil in kg, whose
+binder is dynamic and whose `eval' refuses a non-nil LEXICAL argument.")
+;; `emacs-major-version' answers 31 because 31 is the Emacs whose
+;; behaviour every contract in this tree is measured against
+;; (test/lisp-compat's oracle is pinned to 31.0.91).  That is the honest
+;; reading of a version gate: kg never implements an OLDER Emacs' answer
+;; for a name, so `(< emacs-major-version 25)' -- dash.el:3980, which
+;; guards a font-lock list for pre-25 Emacsen -- is correctly false
+;; here, and a name kg does not have is `void-function' whichever branch
+;; the gate takes.  It is not a claim to be Emacs.
+(defconst emacs-major-version 31
+  "Major version number of the Emacs dialect kg implements.")
+;; `make-obsolete-variable' is STORAGE and a no-op, which is all of it
+;; that is observable outside a byte-compiler: Emacs stores
+;; (CURRENT-NAME ACCESS-TYPE WHEN) on `byte-obsolete-variable' and
+;; returns OBSOLETE-NAME, measured -- (u0-new nil "1.0") for three
+;; arguments and (u0-new set "1.0") with ACCESS-TYPE `set'.  kg has no
+;; byte-compiler to warn from, so the warning half is absent by
+;; construction rather than by choice.
+(defalias 'make-obsolete-variable (lambda (obsolete current when &optional access)
+  (put obsolete 'byte-obsolete-variable (list current access when))
+  obsolete))
+;; `static-if' is Emacs 30's, and DEFINING IT IS WHAT KEEPS A DORMANT
+;; BRANCH DORMANT.  dash.el polyfills it under (unless (fboundp
+;; 'static-if) ...), and the polyfill's body is (eval condition
+;; lexical-binding) -- the first-class-lexical-environment branch Phase
+;; 28 adjudicated dormant.  A kg that HAS the name never expands the
+;; polyfill, which U.0 measured (correction 4.2).  The condition is
+;; evaluated at EXPANSION time and the branch not taken is not expanded
+;; at all: measured, (macroexpand '(static-if t 1 2)) is 1 and
+;; (macroexpand '(static-if nil 1 2 3)) is (progn 2 3).
+(defalias 'static-if (macro (condition then . else)
+  (if (eval condition) then (cons 'progn else))))
+;; `eval-when-compile' and `eval-and-compile' EVALUATE their bodies and
+;; answer the value QUOTED -- both of them, identically, measured:
+;; (macroexpand '(eval-when-compile (list 1 2))) and the same for
+;; `eval-and-compile' are both '(1 2), and (eval-when-compile 1 2 3) is
+;; 3.  Modern Emacs defines the pair the same way; they differ only for
+;; a byte-compiler, which kg does not have.  Inert versions were tried
+;; first and are WRONG: U.0's reproduction of the Phase 28 census
+;; (correction 4.7) found that inert ones carry four packages past a
+;; `require' they should have stopped at, and that evaluating bodies is
+;; what reproduces the published column class for class.
+(defalias 'eval-when-compile (macro body
+  (list 'quote (eval (cons 'progn body)))))
+(defalias 'eval-and-compile (macro body
+  (list 'quote (eval (cons 'progn body)))))
+
 ;; --- defalias with a docstring ---------------------------------------
 ;; LAST, deliberately.  Everything above this line is defined with fe's
 ;; own two-argument `defalias' primitive, and this shadow is what USER

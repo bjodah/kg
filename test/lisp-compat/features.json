@@ -372,6 +372,19 @@
    "rationale": "`post-command-hook', Phase 18, landed on a measurement and divergent on its trigger. THE MEASUREMENT the plan demanded, from the counting build (test/perfobj/kg, $KG_PERF_OUT) over a 20-keystroke session: with an empty hook list post_command_hook_calls 24, post_command_hook_runs 0, arena free slots 46457, collections 0; with one small hook installed, calls 24, runs 24, free slots 46271 (186 slots for 24 invocations), collections 0. An unused hook therefore reaches fe zero times and allocates nothing -- what it costs a keystroke is one find_hook() string compare over a table that is empty -- which is the 'effectively zero' the plan made the condition for landing it. test_post_command_hook_empty_costs_nothing is the same shape as an assertion. THE DIVERGENCE is when it fires: Emacs runs it after each COMMAND, and kg runs it after each keystroke the main loop has finished processing. kg has no `self-insert-command' -- an ordinary character is inserted without going through cmd_invoke() -- so 'after each command' would leave typing out, and typing is the case a post-command hook is most often written for. The visible consequence is that a prefix keystroke that runs no command fires it too."
   },
   {
+   "id": "internal-string-designator",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "internal-string-designator"
+   ],
+   "kg_test": "test/test_lisp.c:test_assoc_string_and_designator",
+   "rationale": "The frontier demand phase's one new internal name: Emacs' string DESIGNATOR rule as a function, since `assoc-string' needs it twice and needs the two answers to differ. A string is itself, a symbol is its `symbol-name' (`nil' included, so a nil key is the string \"nil\" and finds an element whose car is \"nil\" -- measured on 31.0.91), and anything else is nil, meaning `this cannot be compared as a string'. What the callers do with that nil is the asymmetry the frozen cases pin: on the KEY side it becomes `(wrong-type-argument stringp KEY)', and on the ELEMENT side it means SKIP and keep scanning. comparison is kg-policy because the name is kg's own -- Emacs has no `internal--string-designator', it has the rule spread across the C of `assoc_string' -- so there is nothing to compare it against; the BEHAVIOUR it implements is compared, through frontier-assoc-string-*.",
+   "source_name": "internal--string-designator"
+  },
+  {
    "id": "lettag-let-binding-buffer-tag",
    "category": "bindings",
    "status": "supported",
@@ -454,19 +467,6 @@
    "kg_test": "test/test_lisp.c:test_load_error_condition_reachability",
    "rationale": "FLIPPED by Phase 12's fix cycle, having been opened by Phase 11 sub-plan 11D Part 3 in the same commit that closed load-error-condition-reachability. A `throw' out of a loaded file to a `catch' around the (load ...) reaches that catch and answers 99 in both dialects now: `load' is a prelude read-eval loop -- internal--read-form / `eval' inside the input unit internal--load-begin enters -- built on fe's FE_API_VERSION 8 entry trio (FeEnterInputUnit / FeReadInputForm / FeLeaveInputUnit), so the loaded forms run in the CURRENT run and no barrier stands between the throw and the catch. The old rationale said closing this meant Shape B, `load' as an fe primitive with a frame kind of its own; that text is retired -- the kg review's negative result showed what was actually needed was three fe entries letting the HOST drive a read-eval loop inside one input unit, which is smaller than a frame kind and keeps the loader kg's. The error half (load-error-condition-reachability) holds trivially in the same shape: with no barrier there is nothing to resignal across. Diagnostics keep their per-form path:LINE labels because FeReadInputForm latches the line each form STARTS on, the same latch fe's own EvaluateInput uses.",
    "source_name": null
-  },
-  {
-   "id": "internal-string-designator",
-   "category": "sequences",
-   "status": "supported",
-   "owner": "kg",
-   "comparison": "kg-policy",
-   "cases": [
-    "internal-string-designator"
-   ],
-   "kg_test": "test/test_lisp.c:test_assoc_string_and_designator",
-   "rationale": "The frontier demand phase's one new internal name: Emacs' string DESIGNATOR rule as a function, since `assoc-string' needs it twice and needs the two answers to differ. A string is itself, a symbol is its `symbol-name' (`nil' included, so a nil key is the string \"nil\" and finds an element whose car is \"nil\" -- measured on 31.0.91), and anything else is nil, meaning `this cannot be compared as a string'. What the callers do with that nil is the asymmetry the frozen cases pin: on the KEY side it becomes `(wrong-type-argument stringp KEY)', and on the ELEMENT side it means SKIP and keep scanning. comparison is kg-policy because the name is kg's own -- Emacs has no `internal--string-designator', it has the rule spread across the C of `assoc_string' -- so there is nothing to compare it against; the BEHAVIOUR it implements is compared, through frontier-assoc-string-*.",
-   "source_name": "internal--string-designator"
   },
   {
    "id": "loader-stream-load-end",
@@ -3835,6 +3835,19 @@
    "source_name": "elt"
   },
   {
+   "id": "prelude-emacs-major-version",
+   "category": "bindings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u1a-emacs-major-version-is-an-integer"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_package_preamble_names",
+   "rationale": "Phase 29 U.1a. `emacs-major-version' is 31 because 31 is the Emacs whose behaviour every contract in this corpus is measured against (the oracle is pinned to 31.0.91). That is the honest reading of a version gate: kg never implements an OLDER Emacs' answer for a name, so a gate asking `at least N' gets the right answer for every name kg has, and a name kg lacks is `void-function' whichever branch the gate takes. It is not a claim to be Emacs. dash.el:3980's (< emacs-major-version 25) is the measured consumer. source_name is null: a `defconst' is not in the prelude's defalias pool.",
+   "source_name": null
+  },
+  {
    "id": "prelude-end-of-buffer",
    "category": "editor-primitives",
    "status": "divergent",
@@ -3860,6 +3873,33 @@
    "kg_test": "test/test_lisp.c:test_list_library",
    "rationale": null,
    "source_name": "equal"
+  },
+  {
+   "id": "prelude-eval-and-compile",
+   "category": "control-flow",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u1a-eval-when-compile-and-eval-and-compile"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_package_preamble_names",
+   "rationale": "Phase 29 U.1a, and the measurement that surprised U.1a: in an interpreter it is INDISTINGUISHABLE from `eval-when-compile' -- modern Emacs defines both as quote-of-eval, measured, and they part company only inside a byte-compiler kg does not have. Recorded as its own row anyway, because the two names are separate source declarations and a future kg that compiles would split them here.",
+   "source_name": "eval-and-compile"
+  },
+  {
+   "id": "prelude-eval-when-compile",
+   "category": "control-flow",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u1a-eval-when-compile-and-eval-and-compile",
+    "u1a-eval-when-compile-runs-its-body"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_package_preamble_names",
+   "rationale": "Phase 29 U.1a. It EVALUATES its body at macroexpansion time and expands to the value QUOTED. Inert was tried first and is wrong: U.0's reproduction of the Phase 28 census (correction 4.7) found that inert `eval-when-compile'/`eval-and-compile' carry four packages past a `require' they should have stopped at, and that evaluating bodies is what reproduces the published column class for class. dash.el's whole preamble is one such form.",
+   "source_name": "eval-when-compile"
   },
   {
    "id": "prelude-ignore-errors",
@@ -4149,6 +4189,20 @@
    "source_name": "internal--seq-to-list"
   },
   {
+   "id": "prelude-internal-thread",
+   "category": "control-flow",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "u0-subr-x-thread-macros",
+    "u1a-subr-x-thread-bare-symbol-step"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_subr_x",
+   "rationale": "Phase 29 U.1a: the one loop both threading macros expand through, differing only in a flag. Internal, so it has no Emacs counterpart and no surface of its own; the cases are the two macros'.",
+   "source_name": "internal--thread"
+  },
+  {
    "id": "prelude-internal-trim-char-p",
    "category": "sequences",
    "status": "supported",
@@ -4236,6 +4290,20 @@
    "source_name": "let*"
   },
   {
+   "id": "prelude-lexical-binding",
+   "category": "bindings",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u1a-lexical-binding-default-value",
+    "u1a-lexical-binding-is-nil-in-kg"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_package_preamble_names",
+   "rationale": "Phase 29 U.1a. `lexical-binding' is a VARIABLE kg declares nil, and the nil is a statement about kg rather than a convenience: kg's binder is dynamic, there are no first-class lexical environments, and `eval' refuses a non-nil LEXICAL argument by name. nil is also Emacs' own `(default-value 'lexical-binding)' -- the `t' a file sees is a per-file binding over that global -- so the pair of cases splits the two halves: the default-value case AGREES and the bare-read case is a recorded divergence, because the oracle shim evaluates every case lexically. The measured consequence is in the divergent case's second element: `(eval FORM lexical-binding)', which is dash.el:52's exact shape, is `(eval FORM nil)' here and kg evaluates it. source_name is null: a `defvar' is not in the prelude's defalias pool.",
+   "source_name": null
+  },
+  {
    "id": "prelude-listp",
    "category": "values-and-equality",
    "status": "supported",
@@ -4260,6 +4328,19 @@
    "kg_test": "test/test_lisp.c:test_load_incremental_loop",
    "rationale": "The prelude half of the loader-stream-natives row: the read-eval loop itself, shared by `load' and `require'. The stream handle is bound INSIDE the unwind-protect so there is no window in which an open stream has no cleanup armed; the cleanup closes the stream on every completion kind via fe's cleanup drain.",
    "source_name": "internal--load-loop"
+  },
+  {
+   "id": "prelude-make-obsolete-variable",
+   "category": "bindings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u1a-make-obsolete-variable-storage"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_package_preamble_names",
+   "rationale": "Phase 29 U.1a, reached by dash.el:4137. Outside a byte-compiler the whole of this name is STORAGE: it puts (CURRENT-NAME ACCESS-TYPE WHEN) -- which is not the argument order -- on the symbol's `byte-obsolete-variable' property and answers OBSOLETE-NAME. kg has no byte-compiler, so the warning half is absent by construction rather than by choice.",
+   "source_name": "make-obsolete-variable"
   },
   {
    "id": "prelude-mapcan",
@@ -4707,6 +4788,46 @@
    "source_name": "split-string"
   },
   {
+   "id": "prelude-static-if",
+   "category": "control-flow",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u1a-static-if-expands-one-branch"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_package_preamble_names",
+   "rationale": "Phase 29 U.1a, Emacs 30's name, and DEFINING IT IS WHAT KEEPS A DORMANT BRANCH DORMANT. dash.el polyfills `static-if' under (unless (fboundp 'static-if) ...) and the polyfill's body is (eval condition lexical-binding) -- Phase 28's first-class-lexical-environment branch, which U.0 found six packages reaching two steps into the dash chain. A kg that HAS the name never expands the polyfill at all (U.0 correction 4.2), so the cheap answer was a name and not a branch. The condition is evaluated at EXPANSION time and the branch not taken is never expanded, which is what makes an (error ...) in either arm harmless.",
+   "source_name": "static-if"
+  },
+  {
+   "id": "prelude-string-blank-p",
+   "category": "strings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u0-subr-x-string-helpers",
+    "u1a-subr-x-string-blank-p-and-remove-misses"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_subr_x",
+   "rationale": "Phase 29 U.1a, subr-x's second-most-reached name (5 of the 13 packages). It answers a MATCH POSITION and not `t' -- it is `string-match' over a whitespace-only regexp -- which is the shape the frozen case exists to pin, and the empty string is blank.",
+   "source_name": "string-blank-p"
+  },
+  {
+   "id": "prelude-string-clean-whitespace",
+   "category": "strings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u1a-subr-x-string-clean-whitespace"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_subr_x",
+   "rationale": "Phase 29 U.1a, 2 of the 13 packages. A run of ANY whitespace -- newlines included -- becomes one space, and the ends are trimmed.",
+   "source_name": "string-clean-whitespace"
+  },
+  {
    "id": "prelude-string-empty-p",
    "category": "sequences",
    "status": "supported",
@@ -4786,6 +4907,20 @@
    "source_name": "string-match-p"
   },
   {
+   "id": "prelude-string-pad",
+   "category": "strings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u0-subr-x-string-helpers",
+    "u1a-subr-x-string-pad-arguments"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_subr_x",
+   "rationale": "Phase 29 U.1a. Named by a frozen case rather than by the demand ranking. It pads on the right, or on the left under a non-nil START, with PADDING or a space, and it NEVER TRUNCATES -- a string already longer than LENGTH comes back untouched.",
+   "source_name": "string-pad"
+  },
+  {
    "id": "prelude-string-prefix-p",
    "category": "sequences",
    "status": "supported",
@@ -4797,6 +4932,34 @@
    "kg_test": "test/test_lisp.c:test_phase15_string_library",
    "rationale": null,
    "source_name": "string-prefix-p"
+  },
+  {
+   "id": "prelude-string-remove-prefix",
+   "category": "strings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u0-subr-x-string-helpers",
+    "u1a-subr-x-string-blank-p-and-remove-misses"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_subr_x",
+   "rationale": "Phase 29 U.1a, 3 of the 13 packages. A prefix that does not match answers the STRING ITSELF rather than nil, which is the half a hits-only test would miss.",
+   "source_name": "string-remove-prefix"
+  },
+  {
+   "id": "prelude-string-remove-suffix",
+   "category": "strings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u0-subr-x-string-helpers",
+    "u1a-subr-x-string-blank-p-and-remove-misses"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_subr_x",
+   "rationale": "Phase 29 U.1a, 3 of the 13 packages, and the mirror of `string-remove-prefix' in every respect including the miss.",
+   "source_name": "string-remove-suffix"
   },
   {
    "id": "prelude-string-suffix-p",
@@ -4881,6 +5044,34 @@
    "kg_test": "test/test_lisp.c:test_thing_at_point",
    "rationale": null,
    "source_name": "thing-at-point"
+  },
+  {
+   "id": "prelude-thread-first",
+   "category": "control-flow",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u0-subr-x-thread-macros",
+    "u1a-subr-x-thread-bare-symbol-step"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_subr_x",
+   "rationale": "Phase 29 U.1a. The value is inserted as the FIRST argument of each step, which is why the frozen case measures the pair on a non-commutative step and gets 8 against `thread-last''s -8. A step that is a bare symbol becomes a one-argument call.",
+   "source_name": "thread-first"
+  },
+  {
+   "id": "prelude-thread-last",
+   "category": "control-flow",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u0-subr-x-thread-macros",
+    "u1a-subr-x-thread-bare-symbol-step"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_subr_x",
+   "rationale": "Phase 29 U.1a, 3 of the 13 packages -- the more-reached of the pair. The value is inserted as the LAST argument of each step.",
+   "source_name": "thread-last"
   },
   {
    "id": "prelude-unless",
@@ -5402,17 +5593,21 @@
   {
    "id": "u0-subr-x",
    "category": "loading",
-   "status": "divergent",
+   "status": "supported",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
     "u0-subr-x-require-returns-the-feature",
     "u0-subr-x-string-helpers",
     "u0-subr-x-thread-macros",
-    "u0-subr-x-names-kg-already-has"
+    "u0-subr-x-names-kg-already-has",
+    "u1a-subr-x-string-pad-arguments",
+    "u1a-subr-x-string-blank-p-and-remove-misses",
+    "u1a-subr-x-string-clean-whitespace",
+    "u1a-subr-x-thread-bare-symbol-step"
    ],
-   "kg_test": "test/test_lisp.c:test_require_provide",
-   "rationale": "Phase 29's U.0 freeze for `(require \\'subr-x)', the census's third-largest absent-library class (4 packages) -- and U.0 RE-RANKED IT: with `cl-lib' and `compat' provided as bare features, NINE more packages reach this same require (consult, rmsbolt, cape, corfu, eat, embark, jinx, marginalia, vertico), so the item's demand is 13 and not 4. THE MEASUREMENT THAT SIZES IT: standing in for the item with a file that does nothing but `(provide \\'subr-x)' advances all four of today's blocked packages, and NOT ONE of them then stops on a subr-x NAME -- they go to xml-query, cl-lib, cl-lib and seq. So the feature is the blocker and the names are the tail behind it. The tail, ranked by U.0's source census over the 13: `string-join' 11 packages, `string-blank-p' 5, `string-remove-prefix' 3, `thread-last' 3, `string-remove-suffix' 3, `string-clean-whitespace' 2, then singletons (`named-let', `thread-first'), plus `hash-table-keys'/`values'/`empty-p' from one package, which are the dormant hash-table branch and not this item. u0-subr-x-names-kg-already-has carries `expect: agree' and is the control that shrinks the item: three of the four most-reached names are already kg's.",
+   "kg_test": "test/test_lisp.c:test_phase29_subr_x",
+   "rationale": "Phase 29's U.0 freeze for `(require 'subr-x)', implemented in U.1a. It was the census's third-largest absent-library class (4 packages) -- and U.0 RE-RANKED IT: with `cl-lib' and `compat' provided as bare features, NINE more packages reach this same require (consult, rmsbolt, cape, corfu, eat, embark, jinx, marginalia, vertico), so the item's demand is 13 and not 4. THE MEASUREMENT THAT SIZED IT: standing in for the item with a file that does nothing but `(provide 'subr-x)' advances all four of the blocked packages, and NOT ONE of them then stops on a subr-x NAME -- they go to xml-query, cl-lib, cl-lib and seq. So the feature was the blocker and the names are the tail behind it. WHERE IT LIVES, AND WHY: the prelude, not a lisp/*.el package, because that is what Emacs 31 does -- `string-trim' and `string-empty-p' live in subr.el, `string-join' is autoloaded, and all of them answer before any require -- and because kg's load-path defaults to one per-user directory that nothing installs into, so a file would make the require depend on the user having added a directory. The tail, ranked by U.0's source census over those 13: `string-join' 11 packages (kg had it), `string-blank-p' 5, `string-remove-prefix' 3, `thread-last' 3, `string-remove-suffix' 3, `string-clean-whitespace' 2, then singletons. U.1a implements all of those plus `string-pad' and `thread-first' (both named by frozen cases). TWO NAMES ARE DELIBERATELY ABSENT and their absence is a decision: `hash-table-keys'/`-values'/`-empty-p' are one package's and belong to the dormant hash-table branch, and `named-let' is one package's and needs a self-referential local function. u0-subr-x-names-kg-already-has carries `expect: agree' and is the control that shrank the item: three of the four most-reached names were already kg's.",
    "source_name": null
   },
   {

@@ -1,0 +1,6 @@
+{
+ "id": "u1a-static-if-expands-one-branch",
+ "setup": [],
+ "expr": "(list (static-if (fboundp 'car) 'yes 'no) (static-if nil (error \"boom\") 1) (static-if t 1 (error \"boom\")) (static-if nil 1) (macroexpand '(static-if t 1 2)) (macroexpand '(static-if nil 1 2 3)))",
+ "note": "`static-if', Emacs 30's name, and THE REASON KG WANTS IT: dash.el polyfills it under (unless (fboundp 'static-if) ...) and the polyfill's body is (eval condition lexical-binding) -- the first-class-lexical-environment branch Phase 28 adjudicated dormant. A kg that HAS the name never expands the polyfill (U.0 correction 4.2). Emacs answers (yes 1 1 nil 1 (progn 2 3)): the condition is evaluated at EXPANSION time, the branch not taken is not expanded at all -- an (error \"boom\") in either arm is harmless -- a missing else is nil, and the else arm expands to a `progn' of the remaining forms."
+}

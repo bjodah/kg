@@ -1,0 +1,6 @@
+{
+ "id": "u1a-eval-when-compile-and-eval-and-compile",
+ "setup": [],
+ "expr": "(list (eval-when-compile 1 2 3) (eval-and-compile 4 5 6) (macroexpand '(eval-when-compile (list 1 2))) (macroexpand '(eval-and-compile (list 1 2))))",
+ "note": "THE TWO COMPILE-TIME MACROS, AND THE MEASUREMENT THAT SURPRISED U.0: they behave IDENTICALLY in an interpreter. Emacs answers (3 6 '(1 2) '(1 2)) -- each evaluates its body at MACROEXPANSION time and expands to the value QUOTED, which is the same definition for both; they part company only inside a byte-compiler, which kg does not have. U.0 correction 4.7 is the other half: INERT versions do not reproduce the Phase 28 census column, because they carry four packages past a `require' those packages should have stopped at."
+}

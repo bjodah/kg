@@ -1,0 +1,6 @@
+{
+ "id": "u1a-make-obsolete-variable-storage",
+ "setup": [],
+ "expr": "(list (make-obsolete-variable 'u1a-ob 'u1a-new \"1.0\") (get 'u1a-ob 'byte-obsolete-variable) (make-obsolete-variable 'u1a-o2 'u1a-n2 \"1.0\" 'set) (get 'u1a-o2 'byte-obsolete-variable))",
+ "note": "`make-obsolete-variable' is STORAGE plus a warning only a byte-compiler emits, so storage is all of it that is observable here. Emacs answers (u1a-ob (u1a-new nil \"1.0\") u1a-o2 (u1a-n2 set \"1.0\")): the call returns OBSOLETE-NAME and puts (CURRENT-NAME ACCESS-TYPE WHEN) -- in that order, which is NOT the argument order -- on `byte-obsolete-variable'. dash.el:4137 is the measured consumer."
+}

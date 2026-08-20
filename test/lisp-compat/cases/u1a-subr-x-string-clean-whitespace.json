@@ -1,0 +1,6 @@
+{
+ "id": "u1a-subr-x-string-clean-whitespace",
+ "setup": [],
+ "expr": "(list (string-clean-whitespace \"  a   b  \") (string-clean-whitespace \"a\\n\\nb\") (string-clean-whitespace \"\"))",
+ "note": "`string-clean-whitespace', two of the 13 packages' name and the one subr-x helper that both trims and collapses. Emacs answers (\"a b\" \"a b\" \"\"): a run of ANY whitespace -- newlines included -- becomes one space and the ends are trimmed, so the second element is what shows it is not a space-only rule."
+}

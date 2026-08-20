@@ -1,0 +1,7 @@
+{
+ "id": "u1a-lexical-binding-default-value",
+ "setup": [],
+ "expr": "(list (default-value 'lexical-binding) (boundp 'lexical-binding) (special-variable-p 'lexical-binding))",
+ "note": "THE CONTROL beside the divergence next door. Emacs answers (nil t t): the GLOBAL value of `lexical-binding' is nil even in an Emacs that is evaluating this lexically, because the `t' a file sees is a per-file binding over it. kg's global is nil too and its `defvar' marks the symbol special, so all three elements agree -- which is what makes u1a-lexical-binding-is-nil-in-kg attributable to kg's DIALECT and not to a missing variable.",
+ "expect": "agree"
+}

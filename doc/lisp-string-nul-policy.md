@@ -25,6 +25,11 @@ outside kg sees them, and a NUL cannot survive in them however carefully kg
 carries it.  What must not happen is a site that means to carry bytes and
 loses them by accident.
 
+Every row names a file and the line the pattern is on, the way
+`fe/doc/payload-pointer-census.md` does, and with the same caveat: the
+line numbers are as of the commit that last rewrote this file, and the
+function name beside them is the durable half.
+
 ## The rule
 
 * A site that hands the bytes to something that takes a POINTER AND A LENGTH
@@ -62,7 +67,7 @@ purpose.
 | `lisp_io.c:1074` `internal--resolve-load` | the same, plus `strchr(name, '/')` | **truncates by design**: a filesystem path |
 | `lisp_core.c:314` `describe_callable_failure` | the symbol's name interpolated into a diagnostic | **truncates by design**: a message for a human, and only a symbol NAME can reach it |
 | `lisp_core.c:1265` `copy_bounded` | an interactive spec's prompt and answers | **truncates by design**: prompt text |
-| `lisp_search.c:627` `looking-at` | the PATTERN handed to `kg_regex_compile` | **truncates by design**, and it is the regex engine's rule rather than this seam's: `src/regex.h` takes NUL-terminated patterns and subjects, which `doc/lisp-api.md` records as one of three engine-inherited divergences |
+| `lisp_search.c:734` `looking-at` | the PATTERN handed to `kg_regex_compile` | **truncates by design**, and it is the regex engine's rule rather than this seam's: `src/regex.h` takes NUL-terminated patterns and subjects, which `doc/lisp-api.md` records as one of three engine-inherited divergences |
 
 ## The other census rows, D2-D8
 
@@ -88,11 +93,11 @@ number -- and has nothing to carry.
 | --- | --- | --- |
 | `lisp_string.c:145` `substring` | the slice | wrote a NUL at the end and passed `text + from` |
 | `lisp_string.c:192` `concat` | the joined bytes | `FeMakeString` over the block |
-| `lisp_string.c:281` `char-to-string` | the encoded character | refused 0 outright |
-| `lisp_string.c:380` `upcase`/`downcase`/`capitalize` | the converted copy | `FeMakeString` over it |
-| `lisp_string.c:553` `make-string` | N copies of one character | refused 0 outright |
+| `lisp_string.c:303` `char-to-string` | the encoded character | refused 0 outright |
+| `lisp_string.c:402` `upcase`/`downcase`/`capitalize` | the converted copy | `FeMakeString` over it |
+| `lisp_string.c:575` `make-string` | N copies of one character | refused 0 outright |
 | `lisp_io.c:539` `format` | the formatted output | `FeMakeString` over the buffer; `%c` refused 0 |
-| `lisp_search.c:593` `regexp-quote` | the quoted rendering | `FeMakeString` over it |
+| `lisp_search.c:700` `regexp-quote` | the quoted rendering | `FeMakeString` over it |
 | `lisp_buffer.c:485` `buffer-substring` | the buffer text between two positions | `FeMakeString` over the span. A file kg opened may hold a NUL, so this one truncated real user data |
 | `lisp_process.c:162` a process filter's argument | the bytes the process wrote | `FeMakeString` over them, though the process table had already answered the length |
 

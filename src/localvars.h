@@ -5,6 +5,8 @@
 
 #define KG_COMPILE_COMMAND_MAX 1024
 
+#define DL_MAX_FILESIZE 65536
+
 /* Forward declaration; the full struct is defined in def.h.  localvars.c
  * includes def.h to reach its members. */
 typedef struct erow erow;
@@ -23,6 +25,15 @@ struct local_settings {
 
 	unsigned ignored_entries;
 	unsigned malformed_entries;
+};
+
+struct init_settings {
+	int tab_width;
+	bool tab_width_set;
+	bool inhibit_startup_screen;
+	bool inhibit_startup_screen_set;
+	bool inhibit_startup_message;
+	bool inhibit_startup_message_set;
 };
 
 /* What kind of value a file-local variable takes, or LOCAL_VAR_NONE for
@@ -44,6 +55,11 @@ void local_settings_init(struct local_settings *settings);
 
 void local_settings_merge(
     struct local_settings *destination, const struct local_settings *source);
+
+void init_settings_init(struct init_settings *settings);
+
+int init_config_parse(
+    const char *source, size_t source_len, struct init_settings *out);
 
 int localvars_parse_modeline(
     const erow *rows, int row_count, struct local_settings *out);

@@ -1,0 +1,20 @@
+# In a build without Lisp (WITH_LISP=0), loading init.el with (setq tab-width 4)
+# must set the default tab-width from 8 to 4.
+name: init-tab-width-without-lisp
+filename: init-tw.txt
+requires_feature: -lisp
+backend: tmux
+dimensions: [12, 40]
+config_files:
+  .config/kg/init.el: |
+    ;;; minimal init.el for -lisp build
+    (setq tab-width 4)
+initial: "\tX\n01234567X\n"
+keys:
+  - "C-x"
+  - "C-s"
+expected_saved: "\tX\n01234567X\n"
+expected_screen_contains:
+  - "    X"
+expected_screen_not_contains:
+  - "        X"

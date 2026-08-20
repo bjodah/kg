@@ -1,5 +1,6 @@
 #include "localvars.h"
 #include "def.h"
+#include "lisp.h"
 #include <ctype.h>
 #include <limits.h>
 #include <stdio.h>
@@ -540,7 +541,6 @@ int dirlocals_find(
 /* ---- safe .dir-locals.el S-expression parser ---- */
 
 enum {
-	DL_MAX_FILESIZE = 65536,
 	DL_MAX_NESTING = 64,
 	DL_MAX_TOKENS = 4096,
 };
@@ -1036,6 +1036,159 @@ int dirlocals_parse(
 
 	dlr_skip_ws(&r);
 	local_settings_merge(out, &tmp);
+	return 0;
+}
+
+/* ---- safe init.el S-expression parser (WITH_LISP=0 config loader) ---- */
+
+void init_settings_init(struct init_settings *settings)
+{
+	if (!settings) {
+		return;
+	}
+	memset(settings, 0, sizeof(*settings));
+	settings->tab_width = KG_TAB_WIDTH;
+}
+
+static bool is_integer_token(const char *s)
+{
+	if (!s || !*s) {
+		return false;
+	}
+	if (*s == '+' || *s == '-') {
+		s++;
+	}
+	if (!*s) {
+		return false;
+	}
+	while (*s) {
+		if (!ascii_is_digit((unsigned char)*s)) {
+			return false;
+		}
+		s++;
+	}
+	return true;
+}
+
+static void init_apply_setq(
+    struct dlr *r, struct init_settings *out)
+{
+	char varname[128];
+	int vlen;
+
+	dlr_skip_ws(r);
+	vlen = dlr_read_sym(r, varname, sizeof(varname));
+	if (vlen <= 0) {
+		return;
+	}
+	r->tokcount++;
+	dlr_skip_ws(r);
+	if (r->pos >= r->len) {
+		return;
+	}
+	if (r->src[r->pos] == '"') {
+		char sval[1024];
+		int svlen = dlr_read_str(r, sval, sizeof(sval));
+		if (svlen >= 0) {
+			r->tokcount++;
+		}
+	} else if (r->src[r->pos] == '(') {
+		(void)dlr_skip_sexp(r);
+	} else {
+		char atom[128];
+		int alen = dlr_read_sym(r, atom, sizeof(atom));
+		if (alen <= 0) {
+			return;
+		}
+		r->tokcount++;
+		if (strcmp(varname, "tab-width") == 0) {
+			if (is_integer_token(atom)) {
+				int val = atoi(atom);
+				if (val >= 1 && val <= KG_TAB_WIDTH_MAX) {
+					out->tab_width = val;
+					out->tab_width_set = true;
+				}
+			}
+		} else if (strcmp(varname, "inhibit-startup-screen") == 0) {
+			if (strcasecmp(atom, "t") == 0) {
+				out->inhibit_startup_screen = true;
+				out->inhibit_startup_screen_set = true;
+			} else if (strcasecmp(atom, "nil") == 0) {
+				out->inhibit_startup_screen = false;
+				out->inhibit_startup_screen_set = true;
+			}
+		} else if (strcmp(varname, "inhibit-startup-message") == 0) {
+			if (strcasecmp(atom, "t") == 0) {
+				out->inhibit_startup_message = true;
+				out->inhibit_startup_message_set = true;
+			} else if (strcasecmp(atom, "nil") == 0) {
+				out->inhibit_startup_message = false;
+				out->inhibit_startup_message_set = true;
+			}
+		}
+	}
+}
+
+int init_config_parse(
+    const char *source, size_t source_len, struct init_settings *out)
+{
+	struct dlr r;
+
+	init_settings_init(out);
+	if (!source || source_len > DL_MAX_FILESIZE) {
+		return -1;
+	}
+
+	r.src = source;
+	r.len = source_len;
+	r.pos = 0;
+	r.depth = 0;
+	r.tokcount = 0;
+
+	for (;;) {
+		char sym[128];
+		int slen;
+
+		dlr_skip_ws(&r);
+		if (r.pos >= r.len) {
+			break;
+		}
+		if (r.src[r.pos] != '(') {
+			if (dlr_skip_sexp(&r) != 0) {
+				return -1;
+			}
+			continue;
+		}
+		r.pos++;
+		r.depth++;
+		r.tokcount++;
+		if (r.depth > DL_MAX_NESTING || r.tokcount > DL_MAX_TOKENS) {
+			return -1;
+		}
+
+		slen = dlr_read_sym(&r, sym, sizeof(sym));
+		if (slen > 0) {
+			r.tokcount++;
+			if (strcmp(sym, "setq") == 0) {
+				init_apply_setq(&r, out);
+			}
+		}
+
+		while (r.depth > 0 && r.pos < r.len) {
+			dlr_skip_ws(&r);
+			if (r.pos >= r.len) {
+				return -1;
+			}
+			if (r.src[r.pos] == ')') {
+				r.pos++;
+				r.depth--;
+				break;
+			}
+			if (dlr_skip_sexp(&r) != 0) {
+				return -1;
+			}
+		}
+	}
 	return 0;
 }
 

@@ -1083,6 +1083,80 @@ static void test_same_value_through_every_envelope(void)
 	}
 }
 
+static void test_init_config_tab_width_simple(void)
+{
+	struct init_settings s;
+	const char *src = "(setq tab-width 4)\n";
+
+	CHECK(init_config_parse(src, strlen(src), &s) == 0);
+	CHECK(s.tab_width == 4);
+	CHECK(s.tab_width_set == true);
+	CHECK(s.inhibit_startup_screen_set == false);
+}
+
+static void test_init_config_tab_width_invalid(void)
+{
+	struct init_settings s;
+	const char *src1 = "(setq tab-width 0)\n";
+	const char *src2 = "(setq tab-width 1001)\n";
+	const char *src3 = "(setq tab-width (* 2 2))\n";
+	const char *src4 = "(setq tab-width \"4\")\n";
+
+	CHECK(init_config_parse(src1, strlen(src1), &s) == 0);
+	CHECK(s.tab_width == KG_TAB_WIDTH);
+	CHECK(s.tab_width_set == false);
+
+	CHECK(init_config_parse(src2, strlen(src2), &s) == 0);
+	CHECK(s.tab_width == KG_TAB_WIDTH);
+	CHECK(s.tab_width_set == false);
+
+	CHECK(init_config_parse(src3, strlen(src3), &s) == 0);
+	CHECK(s.tab_width == KG_TAB_WIDTH);
+	CHECK(s.tab_width_set == false);
+
+	CHECK(init_config_parse(src4, strlen(src4), &s) == 0);
+	CHECK(s.tab_width == KG_TAB_WIDTH);
+	CHECK(s.tab_width_set == false);
+}
+
+static void test_init_config_booleans(void)
+{
+	struct init_settings s;
+	const char *src = "(setq inhibit-startup-screen t)\n"
+	                  "(setq inhibit-startup-message nil)\n";
+
+	CHECK(init_config_parse(src, strlen(src), &s) == 0);
+	CHECK(s.inhibit_startup_screen == true);
+	CHECK(s.inhibit_startup_screen_set == true);
+	CHECK(s.inhibit_startup_message == false);
+	CHECK(s.inhibit_startup_message_set == true);
+}
+
+static void test_init_config_mixed_forms(void)
+{
+	struct init_settings s;
+	const char *src = ";;; My custom init.el\n"
+	                  ";; Turn off splash screen\n"
+	                  "(setq inhibit-startup-screen t)\n"
+	                  "(global-set-key (kbd \"C-x C-b\") 'list-buffers)\n"
+	                  "(defun my-fun () (interactive))\n"
+	                  "(setq tab-width 4)\n";
+
+	CHECK(init_config_parse(src, strlen(src), &s) == 0);
+	CHECK(s.tab_width == 4);
+	CHECK(s.tab_width_set == true);
+	CHECK(s.inhibit_startup_screen == true);
+	CHECK(s.inhibit_startup_screen_set == true);
+}
+
+static void test_init_config_unbalanced_paren(void)
+{
+	struct init_settings s;
+	const char *src = "(setq tab-width 4\n";
+
+	CHECK(init_config_parse(src, strlen(src), &s) == -1);
+}
+
 int main(void)
 {
 	RUN(test_compile_command_only);
@@ -1140,5 +1214,10 @@ int main(void)
 	RUN(test_dl_find_nearest_wins);
 	RUN(test_dl_find_nonexistent);
 	RUN(test_same_value_through_every_envelope);
+	RUN(test_init_config_tab_width_simple);
+	RUN(test_init_config_tab_width_invalid);
+	RUN(test_init_config_booleans);
+	RUN(test_init_config_mixed_forms);
+	RUN(test_init_config_unbalanced_paren);
 	return test_summary();
 }

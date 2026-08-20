@@ -1579,7 +1579,23 @@ void kg_lisp_perf_snapshot(void)
 
 #else
 
+#include <limits.h>
+#include <stdlib.h>
+#ifndef _WIN32
+#include <unistd.h>
+#endif
+
+#include "localvars.h"
+
 static char disabled_error[64] = "lisp not compiled in";
+static struct init_settings disabled_init_settings = {
+	.tab_width = KG_TAB_WIDTH,
+	.tab_width_set = false,
+	.inhibit_startup_screen = false,
+	.inhibit_startup_screen_set = false,
+	.inhibit_startup_message = false,
+	.inhibit_startup_message_set = false,
+};
 
 int kg_lisp_init(void)
 {
@@ -1588,7 +1604,10 @@ int kg_lisp_init(void)
 	return 1;
 }
 
-void kg_lisp_shutdown(void) { }
+void kg_lisp_shutdown(void)
+{
+	init_settings_init(&disabled_init_settings);
+}
 
 void kg_lisp_run_kill_buffer_hook(struct kg_buffer_handle handle)
 {
@@ -1616,7 +1635,70 @@ int kg_lisp_load_file(const char *path)
 	return 1;
 }
 
-int kg_lisp_load_init(void) { return 0; }
+int kg_lisp_load_init(void)
+{
+	char path[PATH_MAX];
+	const char *xdg = getenv("XDG_CONFIG_HOME");
+	const char *home;
+	int n;
+	FILE *f;
+	char *buf;
+	long sz;
+	size_t nread;
+	int rc;
+
+	init_settings_init(&disabled_init_settings);
+	if (xdg && xdg[0]) {
+		n = snprintf(path, sizeof(path), "%s/kg/init.el", xdg);
+	} else {
+		home = getenv("HOME");
+		if (!home || !home[0]) {
+			return 0;
+		}
+		n = snprintf(path, sizeof(path), "%s/.config/kg/init.el", home);
+	}
+	if (n < 0 || (size_t)n >= sizeof(path)) {
+		return 0;
+	}
+	if (access(path, F_OK) != 0) {
+		return 0;
+	}
+	f = fopen(path, "rb");
+	if (!f) {
+		return 0;
+	}
+	if (fseek(f, 0, SEEK_END) != 0) {
+		fclose(f);
+		return 0;
+	}
+	sz = ftell(f);
+	if (sz < 0 || sz > DL_MAX_FILESIZE) {
+		fclose(f);
+		return 0;
+	}
+	if (fseek(f, 0, SEEK_SET) != 0) {
+		fclose(f);
+		return 0;
+	}
+	buf = malloc((size_t)sz + 1);
+	if (!buf) {
+		fclose(f);
+		return 0;
+	}
+	nread = fread(buf, 1, (size_t)sz, f);
+	fclose(f);
+	buf[nread] = '\0';
+
+	rc = init_config_parse(buf, nread, &disabled_init_settings);
+	free(buf);
+	if (rc != 0) {
+		copy_result(disabled_error, sizeof(disabled_error),
+		    "malformed init.el");
+		return 1;
+	}
+	kg_lisp_sync_display_options();
+	return 0;
+}
 
 const char *kg_lisp_last_error(void) { return disabled_error; }
 
@@ -1650,11 +1732,30 @@ int kg_lisp_active(void) { return 0; }
 
 int kg_lisp_variable_non_nil(const char *name)
 {
-	(void)name;
+	if (!name) {
+		return 0;
+	}
+	if (strcmp(name, "inhibit-startup-screen") == 0) {
+		return disabled_init_settings.inhibit_startup_screen ? 1 : 0;
+	}
+	if (strcmp(name, "inhibit-startup-message") == 0) {
+		return disabled_init_settings.inhibit_startup_message ? 1 : 0;
+	}
 	return 0;
 }
 
-void kg_lisp_sync_display_options(void) { }
+void kg_lisp_sync_display_options(void)
+{
+	int width = disabled_init_settings.tab_width_set
+	    ? disabled_init_settings.tab_width
+	    : KG_TAB_WIDTH;
+
+	for (int i = 0; i < MAX_BUFFERS; i++) {
+		if (buflist[i].active) {
+			editor_set_tab_width(&buflist[i], width);
+		}
+	}
+}
 
 int kg_lisp_arena_stats(struct kg_lisp_arena_stats *out)
 {

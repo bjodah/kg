@@ -22,9 +22,11 @@ fi
 if [ "${CI_PARALLEL}" = 1 ]; then
 	JOBS=${JOBS:-$((CI_NPROC / CI_PARALLEL_LANES > 0 ? CI_NPROC / CI_PARALLEL_LANES : 1))}
 	PTY_TIMEOUT=${PTY_TIMEOUT:-40}
+	KG_TEST_TIME_SCALE=${KG_TEST_TIME_SCALE:-6}
 else
 	JOBS=${JOBS:-${CI_NPROC}}
 	PTY_TIMEOUT=${PTY_TIMEOUT:-20}
+	KG_TEST_TIME_SCALE=${KG_TEST_TIME_SCALE:-1}
 fi
 
 # The delay adds do not vary by mode, measurement having killed the

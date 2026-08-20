@@ -39,6 +39,23 @@
 #define PUMP_DEADLINE_SECONDS 10.0
 #define PUMP_QUIET_SECONDS 0.30
 
+/* The deadline is a budget, not a cost: pump_until() returns the moment
+ * its predicate holds, so only a test that is genuinely failing ever
+ * spends it.  KG_TEST_TIME_SCALE stretches the budget on a box where
+ * wall-clock is not the test's own -- the parallel CI runner sets it for
+ * the same reason PTY_TIMEOUT doubles there.  Clamped so a typo cannot
+ * make a real hang look like a pass that never returns. */
+static double pump_deadline_seconds(void)
+{
+	const char *scale_text = getenv("KG_TEST_TIME_SCALE");
+	double scale = scale_text != NULL ? atof(scale_text) : 1.0;
+
+	if (scale < 1.0 || scale > 30.0) {
+		scale = 1.0;
+	}
+	return PUMP_DEADLINE_SECONDS * scale;
+}
+
 /* Bounded well under PATH_MAX on purpose: it is interpolated into a
  * command line, and a destination the compiler cannot prove is big enough
  * is a truncation warning. */
@@ -291,7 +308,7 @@ typedef bool (*done_fn)(const struct dap_session_state *st);
 
 static bool pump_until(struct dap_session *s, done_fn done)
 {
-	double deadline = monotonic_seconds() + PUMP_DEADLINE_SECONDS;
+	double deadline = monotonic_seconds() + pump_deadline_seconds();
 	struct dap_session_state st;
 
 	for (;;) {

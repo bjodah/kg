@@ -2754,10 +2754,12 @@
     "phase26-count-matches-value-shape",
     "phase26-count-matches-empty-regexp",
     "phase26-count-matches-clobbers-match-data",
-    "phase26-s-count-matches-route"
+    "phase26-s-count-matches-route",
+    "r2-count-matches-window",
+    "r2-count-matches-greedy-and-empty"
    ],
    "kg_test": "test/test_lisp.c:test_s_el_vendored_load",
-   "rationale": "SUPPORTED SINCE 26.2, and all six cases agree. Phase 26.0 froze `count-matches' before kg bound it -- one of the two things Phase 25's honest-frontier probe measured unmodified s.el still stopping at, the other being the anchor spellings; kg answered `void-function' to all six cases then. It is prelude Lisp, not C, because the counting loop is a `while' over `re-search-forward' and the campaign binds a name in Lisp wherever the loop can be Lisp. What is frozen is more than the count: that a Lisp caller gets a VALUE and not a message (the INTERACTIVE argument is what makes it message, and s.el does not pass it), that point is where it was afterwards, that a zero-width match counts and the scan then advances one character, that reversed START and END are ORDERED rather than refused, and that the call CLOBBERS the match register on its last match -- which is why s.el wraps it in `save-match-data' and why a kg implementation is required to clobber it the same way rather than to preserve it. The sixth case calls `s-count-matches' itself, and unmodified s.el answers (3 2 2) now where it answered the missing NAME before. Two of the five were the ones a naive `while' gets wrong and both are in the implementation for that reason: the zero-width advance, and `save-excursion' around the whole thing. Emacs' INTERACTIVE argument is honoured rather than ignored, in Emacs' own two message spellings, because a function that reported through the echo area and returned nil would be a different function -- which is what phase26-count-matches-value-shape asks. Emacs' PRIMARY spelling is `how-many' and `count-matches' is the alias; kg binds only the name the demand asked for, so (how-many ...) is `void-function' here.",
+   "rationale": "SUPPORTED SINCE 26.2, and all six cases agree. Phase 26.0 froze `count-matches' before kg bound it -- one of the two things Phase 25's honest-frontier probe measured unmodified s.el still stopping at, the other being the anchor spellings; kg answered `void-function' to all six cases then. It is prelude Lisp, not C, because the counting loop is a `while' over `re-search-forward' and the campaign binds a name in Lisp wherever the loop can be Lisp. What is frozen is more than the count: that a Lisp caller gets a VALUE and not a message (the INTERACTIVE argument is what makes it message, and s.el does not pass it), that point is where it was afterwards, that a zero-width match counts and the scan then advances one character, that reversed START and END are ORDERED rather than refused, and that the call CLOBBERS the match register on its last match -- which is why s.el wraps it in `save-match-data' and why a kg implementation is required to clobber it the same way rather than to preserve it. The sixth case calls `s-count-matches' itself, and unmodified s.el answers (3 2 2) now where it answered the missing NAME before. Two of the five were the ones a naive `while' gets wrong and both are in the implementation for that reason: the zero-width advance, and `save-excursion' around the whole thing. Emacs' INTERACTIVE argument is honoured rather than ignored, in Emacs' own two message spellings, because a function that reported through the echo area and returned nil would be a different function -- which is what phase26-count-matches-value-shape asks. Emacs' PRIMARY spelling is `how-many' and `count-matches' is the alias; kg binds only the name the demand asked for, so (how-many ...) is `void-function' here.  R2b ADDED TWO CASES AND CHANGED NO LISP: r2-count-matches-window is the adversarial review's own probe -- (count-matches \"a.*b\\\\|x\" 1 4) over \"axxxb\" answered (0 1) here and (2 1) in Emacs, because this counting loop sits on `re-search-forward' with END as BOUND and BOUND was a post-match filter (Finding 2).  The loop was never wrong; the operation under it was.  r2-count-matches-greedy-and-empty adds the two shapes that make a bounded count loop or lie -- a pattern that matches empty, and a greedy one the window shortens -- which the Phase 26 rows did not have.",
    "source_name": "count-matches"
   },
   {
@@ -4986,6 +4988,42 @@
    ],
    "kg_test": "test/test_lisp.c:test_quit_uncaught",
    "rationale": null,
+   "source_name": null
+  },
+  {
+   "id": "r2-backward-empty-match-at-point",
+   "category": "sequences",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "r2-bound-backward-empty-at-point"
+   ],
+   "kg_test": "test/test_regex.c:test_match_window_backward",
+   "rationale": "THE ONE BACKWARD DIFFERENCE R2 DID NOT CLOSE, recorded beside the row that closed the others so the two are not confused.  Measured: searching backward for a pattern that can match empty, Emacs reports the EMPTY match at point -- (re-search-backward \"x*\" nil t) from position 3 of \"axxxb\" is (3 3 3) there -- while kg answers (2 2 3), the consuming match that ENDS there.  This is kg's backward SELECTION rule, not its window: kg_regex_match_backward_bounded() keeps the last match ending at or before the limit and deliberately excludes an empty match exactly AT it (an empty match at point is not a match BEFORE point), which is stated in src/regex.h and pinned by test_match_window_backward.  Finding 2's repair changed which matches EXIST under the window and left which of them the sweep prefers alone, so this row is unmoved by it and is expected to stay.  It is the same boundary make check-regex-differential draws: the backward direction is uncompared there because an oracle for it would have to encode kg's policy rather than read Emacs'.",
+   "source_name": null
+  },
+  {
+   "id": "r2-bounded-search",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "r2-bound-forward-alternation",
+    "r2-bound-forward-greedy",
+    "r2-bound-forward-exact-end",
+    "r2-bound-forward-empty-alternative",
+    "r2-bound-forward-later-match",
+    "r2-bound-subject-anchors",
+    "r2-bound-literal-control",
+    "r2-bound-backward-alternation",
+    "r2-bound-backward-greedy",
+    "r2-bound-backward-lower-bound",
+    "r2-bound-backward-anchors"
+   ],
+   "kg_test": "test/test_regex.c:test_match_window_forward, test/test_regex.c:test_match_window_backward",
+   "rationale": "ADVERSARIAL-REVIEW FINDING 2, closed, and the row that pins it closed.  What was measured: BOUND reached no matcher.  All four search names ran the pattern against the whole row and then tested the answer's end against BOUND, so a preferred branch that crossed it killed the row instead of being shortened, losing to another alternative at the same start, or giving way to a later start -- (re-search-forward \"a.*b\\\\|x\" 4 t) over \"axxxb\" was nil here and 3 in Emacs.  What closed it: a real match limit in the engine (tiny-regex-c 1bcd57b, through the R2 pin), published to kg as kg_regex_match_forward_bounded() and kg_regex_match_backward_bounded(), and handed BOUND by src/lisp_search.c for all four names.  `count-matches' needed NO Lisp change and is filed under its own name (phase26-count-matches) rather than here, because what was false was the operation and not the loop.  THE SET IS ADVERSARIAL BY CONSTRUCTION, one property per case: alternation forcing a later start, greedy repetition handing characters back, a match ending exactly at BOUND against one needing a byte more, an empty alternative, a later valid match with the alternation reversed, and BOTH ENDS of the backward window -- point above and BOUND below.  Two of them are CONTROLS and are what make the rest attributable: r2-bound-subject-anchors shows `\\\\''` and `$' still asking about the real end of the buffer under a BOUND, which is what makes a limit PARAMETER necessary and a truncated subject wrong; r2-bound-literal-control shows the literal path unchanged, where the post-test it kept is exact rather than a simplification.  source_name is null: the four search names are claimed by native-re-search-forward and its siblings.",
    "source_name": null
   },
   {

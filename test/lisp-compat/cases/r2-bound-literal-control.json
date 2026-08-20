@@ -1,0 +1,6 @@
+{
+ "id": "r2-bound-literal-control",
+ "setup": [],
+ "expr": "(with-temp-buffer (insert \"axxxb\") (list (progn (goto-char (point-min)) (search-forward \"xxx\" 4 t)) (progn (goto-char (point-min)) (search-forward \"ax\" 3 t)) (progn (goto-char (point-min)) (search-forward \"axx\" 4 t))))",
+ "note": "THE LITERAL HALF, unchanged by this repair and here to say so.  `search-forward' has no alternatives and no backtracking, so \"the first match ending past BOUND ends the row\" IS exact for it -- every later literal match starts no earlier and is the same length.  Emacs answers (nil 3 4)."
+}

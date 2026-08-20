@@ -1,0 +1,6 @@
+{
+ "id": "r2-bound-subject-anchors",
+ "setup": [],
+ "expr": "(with-temp-buffer (insert \"axxxb\") (list (progn (goto-char (point-min)) (re-search-forward \"x\\\\'\" 5 t)) (progn (goto-char (point-min)) (re-search-forward \"b\\\\'\" 5 t)) (progn (goto-char (point-min)) (re-search-forward \"b\\\\'\" nil t)) (progn (goto-char (point-min)) (re-search-forward \"x$\" 5 t))))",
+ "note": "THE CONTROL THAT SAYS BOUND IS NOT A SHORTER SUBJECT.  Emacs answers (nil nil 6 nil): `\\\\'' and `$' keep asking about the real end of the buffer, never about BOUND, so an anchored pattern does not become matchable by bounding the search -- while element three shows the same pattern matching with no bound at all.  Implementing BOUND by handing the matcher a truncated copy of the row would answer (5 5 6 5) and is the reason the engine takes a limit PARAMETER instead."
+}

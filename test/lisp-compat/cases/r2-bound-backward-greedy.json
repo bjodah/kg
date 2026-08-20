@@ -1,0 +1,6 @@
+{
+ "id": "r2-bound-backward-greedy",
+ "setup": [],
+ "expr": "(with-temp-buffer (insert \"axxxb\") (goto-char 4) (list (re-search-backward \"ax*\" nil t) (point) (match-end 0)))",
+ "note": "GREEDY REPETITION, BACKWARD: the repetition stops exactly at point rather than the start being refused.  Emacs answers (1 1 4), a match ending AT the search's upper end -- the backward direction's version of r2-bound-forward-exact-end."
+}

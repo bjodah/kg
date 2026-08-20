@@ -1,0 +1,7 @@
+{
+ "id": "r2-bound-backward-empty-at-point",
+ "setup": [],
+ "expr": "(with-temp-buffer (insert \"axxxb\") (goto-char 3) (list (re-search-backward \"x*\" nil t) (point) (match-end 0)))",
+ "note": "KG'S ONE REMAINING BACKWARD ASYMMETRY, recorded rather than fixed.  Emacs answers (3 3 3): searching backward for a pattern that can match empty, it reports the EMPTY match at point itself.  kg's backward rule (src/regex.h, pinned by test/test_regex.c:test_match_window_backward) is \"the last match ending at or before the limit\", with an empty match exactly AT the limit deliberately excluded -- an empty match at point is not a match BEFORE point -- so kg answers the consuming match that ends there instead.  That rule predates this repair and survived it unchanged: the limit now reaches the engine, which changes which matches EXIST under the window, not which of them the sweep prefers.  Emacs' backward search is not this sweep and an oracle for it would have to encode kg's policy rather than read Emacs', which is the same reason make check-regex-differential still compares only the forward direction.",
+ "expect": "diverge"
+}

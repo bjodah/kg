@@ -44,12 +44,19 @@ struct lisp_search_hit {
  * `from_col` whose end does not exceed `limit_col`.  Returns 1 with
  * *hit filled, 0 for no match in this row, -1 for KG_REGEX_TOO_COMPLEX.
  *
- * A match that starts within bounds but ends past `limit_col` ends the
- * search in this row rather than trying a later start: every later
- * literal match starts no earlier and is the same length, so it cannot
- * end sooner, and editor_query_replace_regexp() already makes the same
- * simplification for regex matches (its "match straddles the region
- * end" check stops rather than searching on). */
+ * `limit_col` REACHES THE ENGINE for the regexp kind (bytes of
+ * row->chars, the space every column here is in), so a preferred branch
+ * that would cross BOUND is shortened, loses to another alternative at
+ * the same start, or gives way to a later start -- all three inside the
+ * matcher.  This used to run the pattern against the whole row and then
+ * test the answer's end against `limit_col`, which reaches none of them:
+ * the engine's unbounded answer IS the over-BOUND one, so rejecting it
+ * ended the row and Emacs' `(re-search-forward "a.*b\|x" 4 t)' over
+ * "axxxb" answered nil here and 3 there (adversarial-review Finding 2).
+ *
+ * The LITERAL kind keeps its post-test, where the same reasoning is
+ * exact rather than a simplification: every later literal match starts
+ * no earlier and is the same length, so it cannot end sooner. */
 static int lisp_search_row_forward(erow *row, int from_col, int limit_col,
     bool regexp, const struct kg_regex *rx, const char *needle,
     size_t needle_len, struct lisp_search_hit *hit)
@@ -61,16 +68,13 @@ static int lisp_search_row_forward(erow *row, int from_col, int limit_col,
 		return 0;
 	}
 	if (regexp) {
-		int status = kg_regex_match_forward(
-		    rx, row->chars, from_col, &hit->match);
+		int status = kg_regex_match_forward_bounded(
+		    rx, row->chars, from_col, limit_col, &hit->match);
 
 		if (status == KG_REGEX_TOO_COMPLEX) {
 			return -1;
 		}
-		if (status != KG_REGEX_OK) {
-			return 0;
-		}
-		return hit->match.spans[0].end <= limit_col;
+		return status == KG_REGEX_OK;
 	}
 	if (needle_len == 0) {
 		/* An empty search string matches immediately, as in Emacs. */
@@ -168,14 +172,25 @@ static int lisp_search_row_backward_literal(erow *row, int before_col,
 
 /* Row-by-row, start_row..bound_row, no wraparound.
  *
- * The regex case is a known, documented simplification, not full Emacs
- * backward search: kg_regex_match_backward() answers "the last match in
- * this row ending at or before `before_col`", with no lower bound of its
- * own (see its header comment in src/regex.h and the CLAUDE.md note this
- * follows).  A row is tried exactly once here; if that one match starts
- * before `limit_col`, the row is treated as having no eligible match at
- * all, even though an earlier, in-bounds match may exist between
- * `limit_col` and it.  Emacs would find that match; this does not. */
+ * BOUND's two ends are one window here: backward, Emacs' BOUND is the
+ * lower one (the match may not START before it) and point is the upper
+ * one (it may not END past it), which is exactly
+ * kg_regex_match_backward_bounded()'s [start_offset, limit].  Both are
+ * bytes of row->chars.
+ *
+ * This used to sweep from column 0 with no limit and then test the one
+ * answer's start against `limit_col`, and the review's defect was in
+ * that sweep rather than in the test: a candidate start whose preferred
+ * branch crossed point was dropped instead of shortened, so a row could
+ * report no eligible match while holding one.  With the window inside
+ * the sweep, the last match it keeps is the one with the greatest start,
+ * and there is nothing left to filter.
+ *
+ * What is still NOT full Emacs backward search: which match kg prefers
+ * among those in the window.  kg takes the plain forward match at the
+ * latest candidate start; an empty match exactly at point is excluded
+ * (src/regex.h).  r2-bound-backward-empty-at-point records the one
+ * measured consequence. */
 static int lisp_search_backward(FeContext *ctx, struct editor_buffer *b,
     int start_row, int start_col, int bound_row, int bound_col, bool regexp,
     const struct kg_regex *rx, const char *needle, size_t needle_len,
@@ -196,15 +211,15 @@ static int lisp_search_backward(FeContext *ctx, struct editor_buffer *b,
 			continue;
 		}
 		if (regexp) {
-			int status = kg_regex_match_backward(
-			    rx, b->row[row].chars, before_col, &hit->match);
+			int status = kg_regex_match_backward_bounded(rx,
+			    b->row[row].chars, limit_col, before_col,
+			    &hit->match);
 
 			if (status == KG_REGEX_TOO_COMPLEX) {
 				FeHandleError(ctx,
 				    "search: regular expression too complex");
 			}
-			if (status == KG_REGEX_OK
-			    && hit->match.spans[0].start >= limit_col) {
+			if (status == KG_REGEX_OK) {
 				hit->found_row = row;
 				return 1;
 			}

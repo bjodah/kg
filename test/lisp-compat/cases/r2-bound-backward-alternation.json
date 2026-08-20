@@ -1,0 +1,6 @@
+{
+ "id": "r2-bound-backward-alternation",
+ "setup": [],
+ "expr": "(with-temp-buffer (insert \"axxxb\") (goto-char 4) (list (re-search-backward \"a.*b\\\\|ax\" nil t) (point) (match-end 0)))",
+ "note": "THE BACKWARD TWIN of the first probe, and the case re.h names for the sweep rule.  Searching back from position 4, the match at byte 0 would prefer `a.*b', which ends past point; Emacs answers (1 1 3) -- the same start, the shorter alternative.  kg answered (nil 4) until R2b: its backward sweep matched each candidate start UNBOUNDED and then rejected the over-point answer, which drops the start instead of shortening it.  The repair is to hand the same limit to every candidate."
+}

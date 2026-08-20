@@ -1,0 +1,6 @@
+{
+ "id": "r2-bound-backward-anchors",
+ "setup": [],
+ "expr": "(with-temp-buffer (insert \"axxxb\") (list (progn (goto-char 4) (re-search-backward \"x\\\\'\" nil t)) (progn (goto-char (point-max)) (re-search-backward \"b\\\\'\" nil t))))",
+ "note": "THE SUBJECT-ANCHOR CONTROL, backward.  Emacs answers (nil 5): `\\\\'' asks about the end of the buffer and not about the point the search runs back from, so bounding the search does not make an end-anchored pattern matchable -- and the second element shows it matching when point IS the end."
+}

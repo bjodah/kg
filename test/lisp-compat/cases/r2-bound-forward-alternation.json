@@ -1,0 +1,6 @@
+{
+ "id": "r2-bound-forward-alternation",
+ "setup": [],
+ "expr": "(with-temp-buffer (insert \"axxxb\") (goto-char (point-min)) (list (re-search-forward \"a.*b\\\\|x\" 4 t) (point)))",
+ "note": "THE ADVERSARIAL REVIEW'S FIRST PROBE (Finding 2), permanent.  Emacs answers (3 3); kg answered (nil 1) until R2b.  The preferred alternative reaches the `b' at the end of the row and cannot fit under BOUND, so Emacs takes the SECOND alternative at a LATER start.  A BOUND that is only a filter over the engine's unbounded answer can never reach that match: the unbounded answer IS the over-BOUND one, and rejecting it ended the row.  What makes it right now is that the bound reaches the engine (kg_regex_match_forward_bounded), where consumption stops at it and backtracking sees it."
+}

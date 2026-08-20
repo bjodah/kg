@@ -325,7 +325,7 @@ static void build_process_argv(FeContext *context, FeObject *program,
 	if (!buf) {
 		FeHandleError(context, "start-process: out of memory");
 	}
-	state.scratch = buf;
+	park_scratch(buf);
 	for (;;) {
 		size_t len;
 

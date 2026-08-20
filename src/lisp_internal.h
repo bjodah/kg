@@ -241,6 +241,7 @@ void copy_result(char *result, size_t result_size, const char *text);
 [[noreturn]] void command_error(
     FeContext *context, const char *prefix, const char *name);
 void release_scratch(void);
+char *park_scratch(char *text);
 char *copy_fe_string(FeContext *context, FeObject *object, size_t *length);
 /* Resolve a function designator to the object it names (lisp_core.c): a
  * symbol reads its function cell, anything else passes through unchanged.

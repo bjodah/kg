@@ -41,6 +41,9 @@ static void format_grow(FeContext *context, struct format_buffer *out)
 	if (!text) {
 		FeHandleError(context, "out of memory");
 	}
+	/* Not park_scratch(): realloc consumed the previous occupant, and
+	 * that occupant is this very slot -- freeing it again would be a
+	 * double free (or free the block just returned).  Assign only. */
 	state.scratch = out->text = text;
 	out->capacity = capacity;
 }
@@ -92,6 +95,9 @@ static void format_reserve(
 	if (!text) {
 		FeHandleError(context, "out of memory");
 	}
+	/* Not park_scratch(): realloc consumed the previous occupant, and
+	 * that occupant is this very slot -- freeing it again would be a
+	 * double free (or free the block just returned).  Assign only. */
 	state.scratch = out->text = text;
 	out->capacity = needed;
 }
@@ -521,7 +527,7 @@ static char *lisp_format_text(
 	 * on Emacs, measured. */
 	lisp_check_string(context, object);
 	out.text = copy_fe_string(context, object, &length);
-	state.scratch = out.text;
+	park_scratch(out.text);
 	out.start = length + 1;
 	out.capacity = length + 1;
 	format_walk(context, &out, length, arguments);

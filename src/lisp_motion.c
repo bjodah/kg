@@ -317,7 +317,7 @@ static FeObject *lisp_skip_chars(
 	spec = copy_fe_string(context, spec_object, &spec_length);
 	/* Parked, because the parse and the argument checks below both
 	 * raise and a raise longjmps past every free() here. */
-	state.scratch = spec;
+	park_scratch(spec);
 	if (spec_length > INT_MAX) {
 		FeHandleError(context, "skip-chars: set is too large");
 	}

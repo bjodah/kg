@@ -1599,6 +1599,7 @@
   "src/lisp_core.c:lisp_raise_wrong_type": 1,
   "src/lisp_core.c:lisp_settle_completion": 1,
   "src/lisp_core.c:lisp_take_command_value": 2,
+  "src/lisp_core.c:park_scratch": 1,
   "src/lisp_core.c:parse_arena_bytes": 7,
   "src/lisp_core.c:raise_signal_form": 2,
   "src/lisp_core.c:read_interactive_buffer_code": 1,

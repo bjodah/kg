@@ -448,7 +448,7 @@ static char *lisp_copy_span(FeContext *context, const struct editor_buffer *b,
 		}
 	}
 	text[size] = '\0';
-	state.scratch = text;
+	park_scratch(text);
 	*out_size = size;
 	return text;
 }

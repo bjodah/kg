@@ -40,7 +40,7 @@ static char *lisp_string_argument(
 		free(text);
 		FeHandleError(context, "string is too large");
 	}
-	state.scratch = text;
+	park_scratch(text);
 	*length = (int)bytes;
 	return text;
 }
@@ -180,7 +180,7 @@ FeObject *native_concat(FeContext *context, FeObject *arguments)
 	if (!text) {
 		FeHandleError(context, "out of memory");
 	}
-	state.scratch = text;
+	park_scratch(text);
 	while (!FeIsNil(rest)) {
 		FeObject *object = FeGetNextArgument(context, &rest);
 		size_t bytes = FeStringByteLength(context, object);
@@ -242,7 +242,7 @@ FeObject *native_string_equal(FeContext *context, FeObject *arguments)
 	if (!text) {
 		FeHandleError(context, "out of memory");
 	}
-	state.scratch = text;
+	park_scratch(text);
 	(void)FeCopyStringBytes(context, a, text, length);
 	(void)FeCopyStringBytes(context, b, text + length, length);
 	equal = memcmp(text, text + length, length) == 0;
@@ -569,7 +569,7 @@ FeObject *native_make_string(FeContext *context, FeObject *arguments)
 	if (!text) {
 		FeHandleError(context, "out of memory");
 	}
-	state.scratch = text;
+	park_scratch(text);
 	for (i = 0; i < total; i += (size_t)width) {
 		memcpy(text + i, encoded, (size_t)width);
 	}

@@ -265,7 +265,7 @@ static FeObject *lisp_search(FeContext *context, FeObject *arguments,
 	 * FeRequireNoArguments() below can both raise, and a raise longjmps
 	 * past every free() in this function.  .ci/ci-04's LeakSanitizer
 	 * caught exactly that. */
-	state.scratch = pattern;
+	park_scratch(pattern);
 	bound_off = lisp_search_bound(context, b, &arguments, default_bound);
 	FeRequireNoArguments(context, arguments);
 
@@ -554,7 +554,7 @@ static char *lisp_pattern_and_subject(FeContext *context, FeObject *pattern_obj,
 	if (!block) {
 		FeHandleError(context, "out of memory");
 	}
-	state.scratch = block;
+	park_scratch(block);
 	(void)FeCopyStringBytes(context, pattern_obj, block, *pattern_len);
 	block[*pattern_len] = '\0';
 	*subject_out = block + *pattern_len + 1;
@@ -689,7 +689,7 @@ FeObject *native_regexp_quote(FeContext *context, FeObject *arguments)
 	if (!block) {
 		FeHandleError(context, "out of memory");
 	}
-	state.scratch = block;
+	park_scratch(block);
 	(void)FeCopyStringBytes(context, object, block, length);
 	quoted = block + length;
 	for (i = 0; i < length; i++) {
@@ -733,7 +733,7 @@ FeObject *native_looking_at(FeContext *context, FeObject *arguments)
 
 	lisp_check_string(context, pattern_object);
 	pattern = copy_fe_string(context, pattern_object, &pattern_len);
-	state.scratch = pattern;
+	park_scratch(pattern);
 	FeRequireNoArguments(context, arguments);
 	lisp_compile_or_raise(context, &rx, pattern);
 	release_scratch();

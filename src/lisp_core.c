@@ -172,6 +172,18 @@ void release_scratch(void)
 	state.scratch = nullptr;
 }
 
+/* Park TEXT in state.scratch, releasing any previous occupant.  Frame
+ * recovery frees a parked buffer only when a raise unwinds all the way
+ * to the host barrier; one that Lisp catches (condition-case) never gets
+ * there, so the slot may still be occupied when the next native parks --
+ * assigning over it is how a caught raise used to leak its predecessor. */
+char *park_scratch(char *text)
+{
+	free(state.scratch);
+	state.scratch = text;
+	return text;
+}
+
 /* Emacs' `error-message-string' of the condition fe is reporting, spliced
  * over the bare condition NAME fe's own message ends in.
  *

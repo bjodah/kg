@@ -358,3 +358,53 @@ asserts the untrimmed string as a VALUE so that it cannot go quiet again.
 * **The frontier's next step is silent.**  Every frontier this program has
   measured so far announced itself as `void-function` or a named read
   error.  This one is a regexp that simply does not match.
+## 25.4 exit -- closed
+
+Phase 25 is complete.  The commit roll: this plan at `0e0cf9f`; 25.0's
+freeze at `8bd1696` (kg) and `e513c60`/`51c14e5`/`4fd4fe1` (fe); 25.1 as
+seven fe commits `48338f4..8718046`; 25.2 as `c204497` (the transition),
+`1806a7d` (NUL policy), `58d4cbe` (the match-data track) and `6791648`
+(the results above); then two findings the exit matrix itself
+contributed, `96e58f5` and `2ede342`.  The stopping rule (symbol lookup
+under a moving name payload) did not fire -- the evidence is
+`payload_tests.c`'s moving-name test, green under the poison lane.
+
+The exit gate was the full 16-step matrix with the expensive step armed.
+Getting to green took three runs and a serial confirmation, and every
+failure along the way was either a real finding or a diagnosed flake:
+
+* Run 1 (killed early): IWYU found `src/lisp_search.c` spelling
+  `RE_MAX_SPANS` while borrowing `re.h` through `src/regex.h` -- one
+  include line, `96e58f5`.  The run was also missing `CI_EXPENSIVE=1`,
+  so it would have SKIPped valgrind; a phase exit runs all sixteen.
+* Run 2: cppcheck flagged `char-to-string` passing `text` in the same
+  argument list whose neighbour filled it -- correct by C's evaluation
+  rules, fragile to read, hoisted in `2ede342`.  The run's only other
+  failure was `dabbrev-expand-exhausted-restores` ERRORing in the MSan
+  lane with `emacs run error: Timeout exceeded` and ZERO sanitizer
+  output: the Emacs ORACLE timing out on a box running six lanes under
+  valgrind and MSan at once.  The oracle has no readiness signal (its
+  startup is a fixed sleep by design), and the case is a dabbrev case
+  this phase never touched.  It passed in run 3.
+* Run 3, on the final tree: fifteen PASS; ci-15-valgrind alone failed,
+  on ONE case, `lisp-process-argv-not-shell` -- the saved file was
+  empty, i.e. the subprocess's output had not been delivered when the
+  pane went quiet, which is exactly the pane-quiet-is-not-done mode the
+  settle floor exists for.  Diagnosis, not assumption: the same lane
+  PASSED in run 2 on a tree differing only by the `2ede342` hoist (no
+  process code), every sibling `lisp-process-*` case passed in the
+  failing lane, and the case then passed 3 of 3 isolated runs under
+  ci-15's exact conditions (same valgrind command, settle floor 3.0,
+  timeout 90).
+* The confirmation: `.ci/ci-15-valgrind.sh` run serially on the final
+  tree, green.  Both flakes get the B+D-milestone disposition: recorded
+  here, hardened (a `SETTLE=<sec>:<text>` wait for the argv case, a
+  `startup_delay` raise for the dabbrev oracle) only if they recur.
+
+25.3's gates are each evidenced in the results section above: the
+cells-fell/payload-rose movement is the census table, the D-row review
+is `doc/lisp-string-nul-policy.md`, the oracle stands at 323/31/0 with
+ten flips, and the honest frontier moved from three missing names to one
+missing name plus one missing -- and silent -- regex spelling, which is
+Phase 26's demand signal.
+

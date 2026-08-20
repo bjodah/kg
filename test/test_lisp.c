@@ -6682,6 +6682,77 @@ static void test_phase24_vectors(void)
 	kg_lisp_shutdown();
 }
 
+/* Phase 24.3's last required case: the REAL package the synthetic
+ * sel-frontier fixture stood in for.  external/elpa/s.el is 793 lines of
+ * GPLv3+ Emacs Lisp vendored for testing only -- provenance in
+ * external/provenance-ledger.toml, quarantine enforced by
+ * utils/check_external_quarantine.py -- and kg could not READ it before
+ * this phase, because one `declare' debug spec at s.el:455 carries a
+ * vector literal and every top-level form has to be read before `load'
+ * can finish.
+ *
+ * What this pins is BOTH halves of the honest answer: the file loads
+ * unmodified, and the frontier moved rather than vanished.  The corpus
+ * cases s-el-vendored-load and s-el-vendored-call-frontier are the same
+ * two claims against a checked-in Emacs snapshot; this is the kg-side
+ * assertion the manifest row cites, and it names the missing functions
+ * exactly, which a comparison against Emacs cannot (Emacs has them). */
+static void test_s_el_vendored_load(void)
+{
+	static const char *const paths[] = {
+		"external/elpa/s.el",
+		"../external/elpa/s.el",
+	};
+	const char *path = nullptr;
+	char form[256];
+	size_t i;
+
+	for (i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
+		FILE *fp = fopen(paths[i], "r");
+
+		if (fp != nullptr) {
+			fclose(fp);
+			path = paths[i];
+			break;
+		}
+	}
+	CHECK(path != nullptr);
+	if (path == nullptr) {
+		return;
+	}
+
+	CHECK(kg_lisp_init() == 0);
+
+	/* It loads, unmodified, and answers t rather than a message. */
+	(void)snprintf(form, sizeof(form),
+	    "(condition-case e (load \"%s\") (error (error-message-string e)))",
+	    path);
+	CHECK(eval_eq(form, "t"));
+	CHECK(eval_eq("(list (fboundp 's-join) (fboundp 's-trim)"
+		      " (fboundp 's-word-wrap))",
+	    "(t t t)"));
+
+	/* And what it defines runs, where kg has what it reaches for. */
+	CHECK(eval_eq("(s-join \"-\" '(\"a\" \"b\" \"c\"))", "a-b-c"));
+	CHECK(eval_eq("(s-replace \"a\" \"X\" \"banana\")", "bXnXnX"));
+	CHECK(eval_eq("(s-repeat 2 \"ab\")", "abab"));
+
+	/* THE FRONTIER, named rather than described.  It is no longer the
+	 * reader: it is the match-data surface, and these three names are
+	 * Phase 25/26's demand signal, measured from a real package rather
+	 * than counted out of a corpus.  A phase that lands one of them
+	 * fails this line, which is the point of writing it down. */
+	CHECK(eval_eq("(list (condition-case e (s-trim \"  hi  \")"
+		      "        (void-function (car (cdr e))))"
+		      " (condition-case e (s-contains? \"an\" \"banana\")"
+		      "        (void-function (car (cdr e))))"
+		      " (condition-case e (s-equals? \"a\" \"a\")"
+		      "        (void-function (car (cdr e)))))",
+	    "(save-match-data string-match-p string-equal)"));
+
+	kg_lisp_shutdown();
+}
+
 static void test_phase8_library(void)
 {
 	struct kg_lisp_arena_stats before, after;
@@ -8107,6 +8178,7 @@ int main(void)
 	RUN(test_autoload_no_op);
 	RUN(test_sel_frontier_vector_literal);
 	RUN(test_phase24_vectors);
+	RUN(test_s_el_vendored_load);
 	RUN(test_phase8_library);
 	RUN(test_captured_function_value);
 	RUN(test_native_reverse_gc_stack);

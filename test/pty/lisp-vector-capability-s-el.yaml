@@ -1,0 +1,52 @@
+# Phase 24.3's "one named capability from Phase 21's shortlist that
+# previously failed at vector syntax, end to end".  The capability is
+# Entry 1 of doc/plans/2026-08-18-elisp-data-model-phase21-capabilities.md
+# -- VECTORS -- and the evidence package that document names for it is
+# `s.el`: 793 lines of Emacs Lisp that kg could not READ before this
+# phase, because one `declare' debug spec on line 455 carries a vector
+# literal and every top-level form has to be read before `load' can
+# finish.  Nothing in s.el ever constructs a vector; the one vector token
+# in it is pure Edebug metadata, which is exactly the shape the document
+# argued a reference count cannot price.
+#
+# So this case is a live editor loading the REAL vendored file from its
+# own init.el -- external/elpa/s.el, unmodified; its provenance is in
+# external/provenance-ledger.toml and utils/check_external_quarantine.py
+# is what guarantees nothing under external/ reaches a shipped artifact --
+# and then USING it.  `{REPO}` in a config_files: value is what lets a
+# case whose working directory is a fresh mkdtemp name a file in the
+# checkout.
+#
+# The saved file is the whole assertion, and it has two halves:
+#
+#   * the capabilities document's own acceptance form, verbatim --
+#     (let ((v [1 2 3])) (and (vectorp v) (= (aref v 1) 2) (= (length v) 3)))
+#     -- which answers t; and
+#   * a call into the loaded package, whose answer is text s.el computed
+#     through kg's own `mapconcat'.
+#
+# A failure to load would be visible as an empty save: the init.el error
+# leaves the editor running, so the M-: forms would still be typed and
+# the second would answer `void-function s-join' into the echo area
+# instead of inserting anything.
+#
+# No Emacs oracle, by design: Emacs has had vectors since long before kg
+# existed, so an oracle comparison would only restate that.  The corpus's
+# s-el-vendored-load case is the oracle-compared half of this pair, and
+# it is where the frontier s.el stops at NOW is recorded.
+name: lisp-vector-capability-s-el
+filename: s-el-capability.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    ;;; init.el --- load the real vendored s.el, unmodified.
+    (load "{REPO}/external/elpa/s.el")
+initial: ""
+keys:
+  - "M-:"
+  - (insert (format "%S " (let ((v [1 2 3])) (and (vectorp v) (= (aref v 1) 2) (= (length v) 3)))))
+  - RET
+  - "M-:"
+  - (insert (s-join "-" (list "s" "el" "joined")))
+  - RET
+expected_saved: "t s-el-joined"

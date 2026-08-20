@@ -1,0 +1,9 @@
+{
+ "id": "s-el-vendored-call-frontier",
+ "setup": [
+  "(setq s-el-path (if (fboundp 'expand-file-name) (expand-file-name \"external/elpa/s.el\") \"external/elpa/s.el\"))",
+  "(condition-case e (load s-el-path) (error nil))"
+ ],
+ "expr": "(list (condition-case e (s-join \"-\" '(\"a\" \"b\" \"c\")) (void-function (car (cdr e)))) (condition-case e (s-replace \"a\" \"X\" \"banana\") (void-function (car (cdr e)))) (condition-case e (s-upcase \"abc\") (void-function (car (cdr e)))) (condition-case e (s-repeat 2 \"ab\") (void-function (car (cdr e)))) (condition-case e (s-trim \"  hi  \") (void-function (car (cdr e)))) (condition-case e (s-contains? \"an\" \"banana\") (void-function (car (cdr e)))) (condition-case e (s-equals? \"a\" \"a\") (void-function (car (cdr e)))) (condition-case e (s-count-matches \"a\" \"banana\") (void-function (car (cdr e)))))",
+ "note": "WHERE THE LOADED PACKAGE STOPS, which is the honest measure this phase owes and the demand signal the next one starts from. Eight representative calls, each catching `void-function' and answering the NAME that was missing rather than a message, so the record reads as a list of frontier names instead of a diagnostic. Emacs answers all eight: (\"a-b-c\" \"bXnXnX\" \"ABC\" \"abab\" \"hi\" t t 3). kg answers the first four and stops at three names on the other four -- (\"a-b-c\" \"bXnXnX\" \"ABC\" \"abab\" save-match-data string-match-p string-equal save-match-data) -- so the frontier moved from the READER to the match-data surface, which is exactly what makes it a Phase 25/26 question rather than a Phase 24 failure. The four that work are not a coincidence either: `s-join' is `mapconcat' and `s-repeat' is a loop, both of which Phase 24 had to generalise anyway."
+}

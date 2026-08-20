@@ -4621,6 +4621,20 @@
    "source_name": null
   },
   {
+   "id": "s-el-vendored-load",
+   "category": "loading",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "s-el-vendored-load",
+    "s-el-vendored-call-frontier"
+   ],
+   "kg_test": "test/test_lisp.c:test_s_el_vendored_load",
+   "rationale": "THE REAL PACKAGE, not a fixture shaped like one. sel-frontier-vector-literal pinned kg's blocker with a SYNTHETIC file because vendoring a GPLv3+ elpa package was a licensing decision the maintainer had not made; the maintainer made it on 2026-08-20 (GPL for pure testing does not contaminate, the file lives under external/ with its provenance in external/provenance-ledger.toml, and utils/check_external_quarantine.py guarantees nothing under external/ reaches a shipped artifact), so this row asks the question of the file itself. THE ROW IS DELIBERATELY SPLIT ACROSS THE LINE. s-el-vendored-load carries \"expect\": \"agree\": the file LOADS, unmodified, both sides answering (t t t t) -- which is Phase 24's whole claim, since one `declare' debug spec at s.el:455 carries a vector literal and every top-level form has to be read before `load' can finish. s-el-vendored-call-frontier is the divergence, and it is what makes this row a FRONTIER rather than a victory lap: eight representative calls, four of which answer exactly what Emacs answers and four of which stop at a named missing function (`save-match-data', `string-match-p', `string-equal'). The frontier moved from the READER to the match-data surface. That is the demand signal for Phase 25/26 -- measured from a real package rather than counted out of a corpus -- and this case is where it will be seen to move again. The cited kg_test asserts what a comparison against Emacs cannot: the three missing names EXACTLY, since Emacs has all three and can only disagree, not enumerate.",
+   "source_name": null
+  },
+  {
    "id": "sel-frontier-vector-literal",
    "category": "loading",
    "status": "supported",

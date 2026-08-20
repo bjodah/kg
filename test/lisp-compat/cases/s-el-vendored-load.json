@@ -1,0 +1,9 @@
+{
+ "id": "s-el-vendored-load",
+ "setup": [
+  "(setq s-el-path (if (fboundp 'expand-file-name) (expand-file-name \"external/elpa/s.el\") \"external/elpa/s.el\"))"
+ ],
+ "expr": "(list (condition-case e (load s-el-path) (error (error-message-string e))) (fboundp 's-join) (fboundp 's-trim) (fboundp 's-word-wrap))",
+ "note": "THE REAL FILE the synthetic sel-frontier fixture stood in for, loaded UNMODIFIED: external/elpa/s.el, 793 lines of GPLv3+ Emacs Lisp vendored for testing only (external/provenance-ledger.toml carries its provenance; utils/check_external_quarantine.py guarantees nothing under external/ reaches a shipped artifact). Both sides answer (t t t t): the load returns t rather than a message string, and three of the package's names are defined afterwards. Before Phase 24 kg could not READ it -- one `declare' debug spec at s.el:455 carries a vector literal, and every top-level form has to be read before `load' can finish -- so this case is the one that could not be written until the reader landed. Carries \"expect\": \"agree\" inside a divergent row whose OTHER case is where the frontier now is: reading the file and calling what it defines are different questions, and Phase 24 only answered the first.",
+ "expect": "agree"
+}

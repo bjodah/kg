@@ -1,0 +1,6 @@
+{
+ "id": "string25-string-equal-symbol-argument",
+ "setup": [],
+ "expr": "(list (string= 'foo \"foo\") (string= \"foo\" 'foo))",
+ "note": "MEASURED FINDING, and the reason this row is separate: Emacs' string comparison takes a SYMBOL on either side and compares its name, answering (t t). kg's `string=` raises `wrong-type-argument` -- while kg's `string<` and `string>` accept symbols perfectly well (phase15-string-lessp and phase20-string-order both pass a symbol). So kg's string comparison family is inconsistent with itself today, and the equality half is the odd one out."
+}

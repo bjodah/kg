@@ -1,0 +1,6 @@
+{
+ "id": "string25-match-data-list",
+ "setup": [],
+ "expr": "(progn (string-match \"\\\\(b\\\\)\" \"abc\") (match-data))",
+ "note": "`match-data`'s shape, with one capture group so the answer is not ambiguous: Emacs answers (1 2 1 2) -- a flat list of BEGIN END pairs, group 0 first, then group 1, integers because the match was against a string rather than a buffer. kg answers `void-function`."
+}

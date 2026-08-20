@@ -1,0 +1,6 @@
+{
+ "id": "string25-nul-format-char",
+ "setup": [],
+ "expr": "(format \"%c\" 0)",
+ "note": "The fourth route, and kg's third distinct refusal: `%c` with a NUL. Emacs builds the one-character string \"\\0\". kg raises plain `error` -- \"format %c character is out of range\" -- not the `wrong-type-argument` its `char-to-string` gives, so a Phase 25.1 that teaches strings to hold a NUL has three separate kg refusals to retract, in three separate places."
+}

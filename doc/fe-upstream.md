@@ -528,6 +528,37 @@ must keep growing a host buffer rather than allocating an fe object. Phases
 23.1 and 23.2 touched no printer path, so A6-A10's re-derive-per-use property
 is exactly as the sweep found it.
 
+The pin then moved for section 25.0 of
+`doc/plans/2026-08-20-elisp-data-model-phase25-execution.md`, the
+instrumentation half of Phase 25's entry gate (fe `e513c60`..`4fd4fe1`).
+**Nothing a program can observe moves**, and this is the one pin row where
+that is the whole point: `fe.h` is untouched over the range, so
+`FE_API_VERSION` stays at **14**, `FE_LANGUAGE_VERSION` at **16** and
+`FeVersion` at **"20.0"**; `FeMinimumArenaSize()` is still **67664** bytes,
+kg's 10 MiB arena still partitions to **440489 slots**, and the prelude
+census is still **11248 / 10241** — all re-measured at this pin, not carried.
+Three things land, all of them measurement apparatus:
+
+* a **`string_object` counter** (`fe_perf.h`, charged in `BuildString`,
+  which both string constructors go through). It retires the Phase 22 ADR's
+  own follow-up: cells and bytes only BRACKET the number of strings, and the
+  payload pool a string representation needs is priced per object. Measured
+  over kg's two workloads through the counting build, the bracket was
+  [302, 1964] and [307, 1988] and the numbers are **672** and **686** — 15.0%
+  and 15.3% of a 1 MiB context's carve where the ADR could only argue that a
+  range topping out at 30.6% was under a third.
+* a **`vector` family in the workload battery**, the first shape in it that
+  opens a carved context, so the four payload counters and the five payload
+  arena gauges are no longer zero by construction in every record. The
+  battery's record schema moves `fe-perf-workloads/2` → **`/3`** for that:
+  a record's `arena` object gained the five payload fields, which
+  `FePerfWriteJson` has written since Phase 23 and this file had not.
+* a **payload carve in the fuzz harness**, so a generated `[1 2 3]` builds a
+  vector instead of raising `(payload-exhaustion)`. `FuzzArenaSize` is
+  re-derived 70 → **72.75 KiB** to hold the free portion at the 288 cell
+  slots it had before the carve, which is the property every tracked seed's
+  steering depends on; all fifteen still reach what they claim.
+
 Fe is MIT licensed. Copyright belongs to rxi and Chris Palmer; the complete
 license text is in `fe/LICENSE`.
 

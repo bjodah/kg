@@ -1,0 +1,6 @@
+{
+ "id": "string25-nul-read-and-length",
+ "setup": [],
+ "expr": "(list (length \"a\\0b\") \"a\\0b\")",
+ "note": "Embedded NUL, construction and length in one: `\\0` inside a string literal. Emacs reads it as one character among three and answers (3 \"a\\0b\"), the NUL printed as itself. kg never reaches the expression -- fe's reader refuses the escape by name, `unsupported read syntax: NUL character in string`, because `BuildString` writes at `strlen` and a stored NUL would silently shift every later character down. Compared by the message-source fallback, since a reader error happens before kgbatch's Lisp wrapper."
+}

@@ -1,0 +1,7 @@
+{
+ "id": "string25-aref-string-bounds",
+ "setup": [],
+ "expr": "(aref \"abc\" 5)",
+ "note": "The half of `aref` that already agrees: an index past the end is `args-out-of-range` on both sides, with data (\"abc\" 5) -- the offending STRING first, then the index, the same shape Phase 24.0 froze for vectors. A negative index takes the same route with the same symbol (measured: (aref \"abc\" -1) -> args-out-of-range (\"abc\" -1)) and is recorded here rather than as a second case whose comparison key would be identical. Carries `expect: agree` inside a divergent row, the native-type-of shape.",
+ "expect": "agree"
+}

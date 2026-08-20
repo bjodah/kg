@@ -1,0 +1,6 @@
+{
+ "id": "string25-string-equal-name",
+ "setup": [],
+ "expr": "(string-equal \"abc\" \"abc\")",
+ "note": "The name Phase 24's frontier probe stopped at, asked directly. Emacs answers t. kg answers `void-function`: kg HAS the operation, spelled `string=` (the `native-string-equal` row, supported), and lacks only the `string-equal` spelling of it. A one-line gap, recorded before Phase 25.2 closes it so the flip is evidence rather than an assertion."
+}

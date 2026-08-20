@@ -1,0 +1,6 @@
+{
+ "id": "string25-aset-width-change-errors",
+ "setup": [],
+ "expr": "(list (condition-case e (aset (copy-sequence \"abc\") 0 26085) (error (car (cdr e)))) (condition-case e (aset (copy-sequence \"héllo\") 1 122) (error (car (cdr e)))))",
+ "note": "THE WIDTH-CHANGE CONTRACT, half two, asked so the MESSAGE is the value -- both sides raise plain `error` here, so a case comparing condition symbols alone would call this an agreement and learn nothing. Emacs has two distinct refusals and they name the two directions: \"Attempt to store non-byte value into unibyte string\" for a codepoint above 255 into an ASCII string, and \"Attempt to replace non-ASCII char in multibyte string\" for any write over a multibyte character. So Emacs' `aset` never changes a string's width -- it refuses instead -- which is the property Phase 25.1's \"string mutation preserves the stable header even when a codepoint-width change requires a replacement block\" gate has to be read against. kg answers its own single message twice."
+}

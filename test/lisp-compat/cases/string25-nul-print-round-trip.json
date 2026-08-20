@@ -1,0 +1,6 @@
+{
+ "id": "string25-nul-print-round-trip",
+ "setup": [],
+ "expr": "(equal (car (read-from-string (format \"%S\" \"a\\0b\"))) \"a\\0b\")",
+ "note": "The round trip the master plan's first gate names: a string with an embedded NUL must survive write-then-read. Emacs answers t -- `%S` emits the NUL byte between the quotes and the reader takes it back. kg stops at the same reader error as its sibling case, so this records the CONTRACT rather than kg's writer, which has never been asked the question."
+}

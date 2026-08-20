@@ -1,0 +1,7 @@
+{
+ "id": "string25-match-data-clobbered",
+ "setup": [],
+ "expr": "(progn (string-match \"b+\" \"abbbc\") (string-match \"c\" \"xxc\") (list (match-beginning 0) (match-end 0)))",
+ "note": "The SENSITIVITY control, and the case without which string25-string-match-p-non-perturbing would prove nothing: a second `string-match` DOES move the match data, so both sides answer (2 3) and not (1 4). A probe that could not detect a move cannot testify that `string-match-p` does not make one.",
+ "expect": "agree"
+}

@@ -164,6 +164,53 @@ citations land in the same commits as the implementation, and until then
 this runner's XPASS rule is the pin — each case must keep diverging on
 every `make lisp-oracle-check`.
 
+## The same shape, for a type that already exists (`strings`)
+
+The 26 `string25-*` cases and their fourteen `category: strings` rows were
+recorded by Phase 25.0
+(`doc/plans/2026-08-20-elisp-data-model-phase25-execution.md`), whose entry
+gate is the `vectors` gate one phase on: *the cases exist and are green as
+recorded answers* before the representation moves. They read differently
+from the `vectors` group on purpose, because the subject is different. kg
+HAS strings, so nine of the 26 are agreements rather than two of 35, and
+each one is a control that makes a neighbouring divergence attributable:
+
+* `string25-multibyte-character-view` shows `length`, `substring`,
+  `string-to-char` and `%S` already answering exactly what Emacs answers on
+  multibyte text — so `string25-multibyte-aref-vs-elt`, where `aref` gives
+  195 and `elt` gives 233 for the same character of the same string, is
+  about ONE unwrapped name and not about UTF-8.
+* `string25-match-data-clobbered` shows that a second `string-match` moves
+  the match data, which is what gives
+  `string25-string-match-p-non-perturbing` its meaning: a probe that could
+  not see a move cannot testify that something did not make one.
+* `string25-substring-in-range` and `string25-aref-string-bounds` show the
+  in-range and out-of-bounds halves that already agree, beside the
+  clamp-versus-raise and the refuse-to-mutate halves that do not.
+
+Two mechanical points a reader of these cases should know:
+
+* **Some cases ask for a condition's MESSAGE or DATA as their value**, on
+  purpose. The runner compares condition SYMBOLS for structured records, and
+  three of the contracts here are invisible at that resolution: both of
+  Emacs' `aset` width-change refusals are plain `error`, as is kg's single
+  refusal, and `substring` out of range raises in Emacs and returns a
+  clamped string in kg. A `condition-case` that returns `(cdr e)` or the
+  message makes the difference part of the value, which is compared exactly.
+* **A case file cannot carry a raw invalid byte.** A case's `expr` is a JSON
+  string and JSON must be valid UTF-8, so the lone `0xE2` the master plan's
+  "invalid byte input" bullet asks about is written `\342` — the octal
+  escape both readers turn into that byte. It is the nearest expressible
+  form; a case carrying the byte itself would have to be a PTY case. The
+  limitation is recorded in `string25-raw-byte-length-and-aref`'s own note.
+
+Four rows carry `kg_test: null` for the 24.0 reason: no kg-side test asserts
+anything about `aref`/`aset` on a string, an embedded NUL, or the writer's
+treatment of an invalid byte. The rows for names kg does not have yet
+(`string-match-p`, `save-match-data`, `match-data`, `set-match-data`) cite
+the test that pins the match surface kg DOES have, and say so in their
+rationale; those names' own citations land with the implementation.
+
 ## Proof 2 — the representative user init, bullet by bullet
 
 The parent plan's §14 asks for "a tracked, isolated `.config/kg/init.el`

@@ -1,0 +1,6 @@
+{
+ "id": "string25-string-match-p-non-perturbing",
+ "setup": [],
+ "expr": "(progn (string-match \"b+\" \"abbbc\") (list (string-match-p \"c\" \"xxc\") (string-match-p \"z\" \"abc\") (match-beginning 0) (match-end 0)))",
+ "note": "THE CONTRACT `string-match-p` EXISTS FOR, frozen as a value rather than as prose. Emacs answers (2 nil 1 4): the two searches return their positions (and nil for no match), and the match data is STILL the (1 4) the earlier `string-match` left -- where the identical shape with `string-match` in its place answers (2 3), which string25-match-data-clobbered measures. So a Phase 25.2 `string-match-p` implemented as `(if (string-match ...) ...)` fails this case, which is exactly what it is for. kg answers `void-function` today."
+}

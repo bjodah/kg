@@ -1,0 +1,7 @@
+{
+ "id": "string25-raw-byte-length-and-aref",
+ "setup": [],
+ "expr": "(list (length \"a\\342b\") (aref \"a\\342b\" 1) (string-to-char \"\\342\"))",
+ "note": "A lone 0xE2 -- the leading byte of a three-byte UTF-8 sequence with nothing following it -- reaching every reader through the octal escape. Both sides answer (3 226 226): the byte counts as one unit, and both index it back out unchanged. FORMAT LIMIT, recorded honestly: a case's `expr` is a JSON string and JSON must be valid UTF-8, so a RAW 0xE2 byte cannot be written into a case file at all. `\\342` is the nearest expressible form and is what both readers turn into that byte; a case carrying the raw byte would have to be a PTY case, not a corpus case.",
+ "expect": "agree"
+}

@@ -1864,7 +1864,7 @@ bench: $(PERF_KG) $(TESTDIR)/kgbatch
 # ask for a combining framework, and neither does this target -- it exists
 # only so the two files a report is written from land in one command
 # rather than two remembered recipes.  fe's half is
-# fe/perfobj/workloads.json (schema fe-perf-workloads/2, fe's own Phase
+# fe/perfobj/workloads.json (schema fe-perf-workloads/3, fe's own Phase
 # 21.2 commit); kg's half is $(BENCH_OUT) (schema kg-bench/2, this file's
 # SCHEMA).  Each opens with its own artifact header, so a reader can see
 # whether the two halves came from the same pair of trees.  Neither schema is rewritten into the other's vocabulary: a
@@ -1872,7 +1872,7 @@ bench: $(PERF_KG) $(TESTDIR)/kgbatch
 # which is what "kg's record sits beside fe's" means here.
 perf-baseline: bench
 	$(MAKE) -C fe perf-workloads
-	@echo "fe workloads: fe/perfobj/workloads.json (schema fe-perf-workloads/2)"
+	@echo "fe workloads: fe/perfobj/workloads.json (schema fe-perf-workloads/3)"
 	@echo "kg bench:     $(BENCH_OUT) (schema kg-bench/2)"
 
 # Not part of `bench` above, and not folded into it: this clean-rebuilds

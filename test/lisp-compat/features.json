@@ -4662,6 +4662,200 @@
    "source_name": null
   },
   {
+   "id": "string25-embedded-nul-construction",
+   "category": "strings",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-nul-constructed",
+    "string25-nul-format-char"
+   ],
+   "kg_test": "test/test_lisp.c:test_char_string_round_trip, test/test_lisp.c:test_phase15_string_natives, test/test_lisp.c:test_format_natives",
+   "rationale": "Phase 25.0: the three ways to build a string containing a NUL that do NOT go through the reader -- `char-to-string`, `make-string` and `concat` of them, plus `format`'s `%c`. Emacs treats 0 as an ordinary character in all four. kg refuses in TWO different ways from TWO different places: `characterp` rejects 0 in the string natives (`wrong-type-argument`), and `format` rejects it with a plain `error` saying the character is out of range. Split from string25-embedded-nul-reader because that one is fe's reader and these are kg's own natives -- a Phase 25.1 that makes fe strings binary-safe closes that row and leaves this one open until kg's `characterp` gate is revisited too. source_name is null: `char-to-string`, `make-string`, `concat` and `format` are each already claimed by their own row.",
+   "source_name": null
+  },
+  {
+   "id": "string25-embedded-nul-reader",
+   "category": "strings",
+   "status": "divergent",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "string25-nul-read-and-length",
+    "string25-nul-print-round-trip"
+   ],
+   "kg_test": null,
+   "rationale": "Phase 25.0: the master plan's first Phase 25 gate -- \"embedded NUL round-trips through read/write and the C API\" -- frozen as the two questions a corpus case can ask: what `\"a\\0b\"` READS as, and whether what `%S` writes READS BACK. Emacs answers a three-character string and t. kg answers neither: fe's reader raises `unsupported read syntax: NUL character in string` by name, because `BuildString` writes at `strlen` and a stored NUL would shift every later character down -- the divergence fe's own reader-string-byte-limit family already records from the fe side. kg_test is null and that is the honest answer at 25.0: no kg test asserts anything about a NUL inside a string, because kg cannot build one; the citation lands with the implementation, and until then this runner's XPASS rule is the pin.",
+   "source_name": null
+  },
+  {
+   "id": "string25-match-data-accessors",
+   "category": "strings",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-match-data-list",
+    "string25-set-match-data-round-trip"
+   ],
+   "kg_test": "test/test_lisp.c:test_re_search_and_match_data",
+   "rationale": "Phase 25.0: `match-data` and `set-match-data`, the pair `save-match-data` is built out of. Both are `void-function` in kg, which has `match-beginning`, `match-end` and `match-string` and no list-valued accessor at all. The contracts frozen here are the SHAPE -- a flat list of BEGIN END pairs, group 0 first, integers for a string match -- and the round trip, that feeding `match-data`'s value back through `set-match-data` restores what the accessors read. The cited test pins the half kg has today; these two names' own citations land with Phase 25.2. source_name is null: neither name is bound, so neither is in any inventory this manifest claims from.",
+   "source_name": null
+  },
+  {
+   "id": "string25-match-data-current",
+   "category": "strings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-match-data-baseline",
+    "string25-match-data-clobbered"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_regex_seam",
+   "rationale": "Phase 25.0: the two controls that make the rest of this group attributable. kg's existing match surface -- `string-match` setting the data, `match-beginning`/`match-end`/`match-string` reading it, and a second `string-match` replacing it -- answers exactly what Emacs answers. So every match-data divergence beside this row is a missing NAME and not a broken matcher, and the second case in particular is what gives string25-string-match-p-non-perturbing its meaning: a probe that cannot see the match data move cannot testify that something did not move it.",
+   "source_name": null
+  },
+  {
+   "id": "string25-multibyte-aref-bytes",
+   "category": "strings",
+   "status": "divergent",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "string25-multibyte-aref-vs-elt"
+   ],
+   "kg_test": null,
+   "rationale": "Phase 25.0, and the measurement this group exists to take: `aref` on a multibyte string answers the first BYTE of the character in kg (195 for é, 230 for 日) where Emacs answers the character (233, 26085) -- while `elt`, asked the same question in the same case, answers 233 on both sides. kg's prelude wraps `length`, `elt` and `substring` for the character view and does not wrap `aref`, so this is not \"kg counts bytes\": it is one unwrapped name inside a surface that otherwise counts characters. Owner fe-core because the answer is fe's primitive reaching Lisp unwrapped; 25.1/25.2 may close it either side, and fe's `sequence-length-string-bytes` row is the fe-side record of the same representation fact. kg_test is null at 25.0: no kg test asserts `aref` on a string at all.",
+   "source_name": null
+  },
+  {
+   "id": "string25-multibyte-character-view",
+   "category": "strings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-multibyte-character-view"
+   ],
+   "kg_test": "test/test_lisp.c:test_string_length_and_substring",
+   "rationale": "Phase 25.0: the control for the non-ASCII group. `length`, `substring`, `string-to-char` and `%S` over multibyte text already answer exactly what Emacs answers, because lisp/prelude.el wraps the byte-indexed fe primitives for the character view. Recorded as a supported row rather than left implicit so that Phase 25.1's representation change, which moves what those primitives do underneath, fails HERE if it breaks the character view -- and so that the `aref` divergence beside it is attributable to one unwrapped name.",
+   "source_name": null
+  },
+  {
+   "id": "string25-raw-byte-round-trip",
+   "category": "strings",
+   "status": "divergent",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "string25-raw-byte-length-and-aref",
+    "string25-raw-byte-print"
+   ],
+   "kg_test": null,
+   "rationale": "Phase 25.0: what a byte that is not valid UTF-8 does, which the master plan lists beside NUL and non-ASCII. A lone 0xE2 written as `\\342` is read, counted and indexed identically by both sides (one unit, 226) -- the `expect: agree` case -- and then printed differently: Emacs escapes it back to `\\342`, so its output reads again, while kg emits the raw byte, so its own `%S` output is not valid UTF-8 and does not read back. A FORMAT LIMIT is recorded in the first case's note rather than worked around: a case's `expr` is a JSON string and JSON must be valid UTF-8, so a case file cannot carry a raw 0xE2 byte at all; the octal escape is the nearest expressible form, and a raw-byte case would have to be a PTY case. kg_test is null: no kg test asserts the writer's treatment of an invalid byte.",
+   "source_name": null
+  },
+  {
+   "id": "string25-save-match-data",
+   "category": "strings",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-save-match-data-restores"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_regex_seam",
+   "rationale": "Phase 25.0: `save-match-data`, one of the three names Phase 24's frontier probe named as unmodified s.el's next demand. `void-function` in kg. The case is a single expression whose value tells three implementations apart -- correct ((3 5) 1 2), restores-too-early ((1 2) 1 2), does-not-restore ((3 5) 3 5) -- so the freeze pins the BEHAVIOUR and leaves the spelling open; Emacs' own expansion is a `let` over `(match-data)` with an `unwind-protect` calling `(set-match-data SAVED t)`, which is recorded in prose rather than as a case so kg is not held to Emacs' macro body. source_name is null: the name is not bound.",
+   "source_name": null
+  },
+  {
+   "id": "string25-string-comparison-agreement",
+   "category": "strings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-string-order-multibyte",
+    "string25-string-equal-vs-eq-and-equal",
+    "string25-string-equal-non-string"
+   ],
+   "kg_test": "test/test_lisp.c:test_string_concat_and_equal",
+   "rationale": "Phase 25.0: the half of string comparison that already agrees, recorded before Phase 25.1 rewrites `Equal`'s word-compare arm. Ordering over multibyte text agrees because fe compares by byte, Emacs by character code, and UTF-8's byte order is its code-point order -- a property of the encoding, so the row is supported rather than lucky. The `eq` / `equal` / `string=` three-way distinction and the `wrong-type-argument` for a non-string argument agree exactly. These are the controls that make string25-string-equal-symbol-argument attributable to the symbol argument alone. source_name is null: `string=` is claimed by native-string-equal and `string<`/`string>` by fe's own rows.",
+   "source_name": null
+  },
+  {
+   "id": "string25-string-comparison-aliases",
+   "category": "strings",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-string-equal-name",
+    "string25-string-comparison-aliases"
+   ],
+   "kg_test": "test/test_lisp.c:test_string_concat_and_equal",
+   "rationale": "Phase 25.0: `string-equal`, `string-lessp` and `string-greaterp` are all `void-function` in kg, while `string=`, `string<` and `string>` are all bound -- so the whole gap is vocabulary. `string-equal` is one of the three names Phase 24's frontier probe stopped at, and this row is the measurement that says what closing it costs: an alias, not an implementation. Two cases rather than one because they fail differently -- calling the name raises, while the `fboundp` census is what still fails if Phase 25.2 adds one alias and forgets the other two. source_name is null: the three long spellings are not bound and the three short ones are claimed elsewhere.",
+   "source_name": null
+  },
+  {
+   "id": "string25-string-equal-symbol-argument",
+   "category": "strings",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-string-equal-symbol-argument"
+   ],
+   "kg_test": "test/test_lisp.c:test_string_concat_and_equal",
+   "rationale": "Phase 25.0, a divergence this work FOUND rather than planned: Emacs' string comparison accepts a SYMBOL on either side and compares its name, and kg's `string=` raises `wrong-type-argument` for one -- while kg's `string<` and `string>` accept symbols perfectly well, which phase15-string-lessp and phase20-string-order already pin. So kg's comparison family disagrees with itself, and the equality half is the odd one out. Its own row rather than a fourth case of string25-string-comparison-agreement so that Phase 25.2 can close the alias row in full while leaving this one open with a stated reason, instead of the two being one all-or-nothing verdict. source_name is null: `string=` is claimed by native-string-equal.",
+   "source_name": null
+  },
+  {
+   "id": "string25-string-index-and-mutation",
+   "category": "strings",
+   "status": "divergent",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "string25-aref-string-bounds",
+    "string25-aset-ascii-in-place",
+    "string25-aset-byte-into-unibyte",
+    "string25-aset-width-change-errors"
+   ],
+   "kg_test": null,
+   "rationale": "Phase 25.0: `aref`/`aset` on a STRING, the master plan's \"Emacs' answers to both, including `aset`'s width-change behaviour\". Bounds already agree -- `args-out-of-range` with data (STRING INDEX), the offending string first, exactly the shape Phase 24.0 froze for vectors, and a negative index takes the same route (recorded in that case's note rather than as a second case with an identical comparison key). Mutation does not: kg refuses every `aset` on a string by name, `unsupported: aset on a string`, which fe's own primitive-aset-string row records from the fe side. WHAT THE FREEZE ADDS is Emacs' width rule, which no fe-side case could state: Emacs never changes a string's width in place, it REFUSES -- \"Attempt to store non-byte value into unibyte string\" above 255, \"Attempt to replace non-ASCII char in multibyte string\" over any multibyte character -- and a byte value below 256 into a unibyte string succeeds, leaving the length alone and printing octally. Both refusals are plain `error`, as is kg's, so the case asks for the MESSAGE as its value; a case comparing condition symbols would have called this an agreement. kg_test is null at 25.0: no kg test asserts `aref` or `aset` on a string. source_name is null: both names are claimed by fe's own rows.",
+   "source_name": null
+  },
+  {
+   "id": "string25-string-match-p",
+   "category": "strings",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-string-match-p-non-perturbing"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_regex_seam",
+   "rationale": "Phase 25.0: `string-match-p`, the second of Phase 24's three frontier names, and the one with a contract rather than just a signature -- IT MUST NOT PERTURB THE MATCH DATA. `void-function` in kg. The case pins that as a value: an earlier `string-match`'s spans are still readable after two `string-match-p` calls, where the identical shape with `string-match` in its place answers differently (string25-match-data-clobbered is that measurement). A Phase 25.2 implementation spelled `(if (string-match ...) ...)` fails this case, which is the whole reason it is written before the code. source_name is null: the name is not bound.",
+   "source_name": null
+  },
+  {
+   "id": "string25-substring-bounds",
+   "category": "strings",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-substring-in-range",
+    "string25-substring-out-of-range-conditions"
+   ],
+   "kg_test": "test/test_lisp.c:test_string_length_and_substring",
+   "rationale": "Phase 25.0: `substring`'s bounds and conditions. Every in-range shape agrees, negative indices and an empty result included, which is the `expect: agree` case. Out of range, kg CLAMPS where Emacs RAISES: a start past the end and a reversed pair both give the empty string, an end past the end gives the whole string, and Emacs gives `args-out-of-range` with data (STRING START END) in all three. The case catches the condition so the DATA is its value -- kg raises nothing, so a case comparing condition symbols would only record that kg did not raise, not what it returned instead. source_name is null: `substring` is claimed by native-substring.",
+   "source_name": null
+  },
+  {
    "id": "vector-append-string-sequence",
    "category": "vectors",
    "status": "supported",

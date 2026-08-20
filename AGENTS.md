@@ -171,7 +171,7 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   --dirty` for this tree and for fe -- because a number whose artifact
   line is not the tree under discussion is not evidence about it. fe's
   own `perfobj/workloads.json` carries the same kind of header
-  (`fe-perf-workloads/2`).
+  (`fe-perf-workloads/3`).
 - Hosted CI is one Woodpecker step (`.woodpecker.yaml`): a prebuilt image
   with the whole toolchain in it, an interpreter activation, then
   `.ci/run-ci-steps.sh` -- the same runner, and the same steps discovered

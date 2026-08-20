@@ -94,14 +94,19 @@ trusting it.
   many a run performs. Without that release the 65th `save-excursion`
   between two collections failed — the Phase 11 acceptance review's
   blocker, pinned now by `test_save_excursion_pool_bound` and two PTY
-  cases. Since the pool went to 256 records (Phase 12), it no longer
-  bounds nesting at all: fe's evaluation frame limit fires first.
-  Re-measured at the let-binding-buffer-tag pin, nested `save-excursion`
-  runs to **217** and the 218th raises `evaluation frame limit
-  exceeded`; nested `with-current-buffer` over `(current-buffer)` runs
-  to **155** and the 156th raises the same — both the arena partition's
-  verdict (1086 frames at the payload-substrate pin, 1087 when those
-  depths were measured), not the pool's. `test/test_lisp.c`'s
+  cases. Which of the two bounds a nesting depth actually meets — the
+  256-record pool (Phase 12) or fe's evaluation frame limit — moved with
+  Phase B's arena default. At the 1 MiB arena that preceded it, frames
+  were the smaller: nested `save-excursion` ran to **217** and the 218th
+  raised `evaluation frame limit exceeded`, nested
+  `with-current-buffer` over `(current-buffer)` ran to **155**, both the
+  arena partition's verdict (1086 frames at the payload-substrate pin,
+  1087 when those depths were measured) rather than the pool's. The
+  10 MiB default opens 10917 frames and hands the bound back to the
+  pool: re-measured, nested `save-excursion` runs to **256** and the
+  257th raises `too many marker objects`, and nested
+  `with-current-buffer` runs to **256** and the 257th raises `cleanup
+  stack overflow`. `test/test_lisp.c`'s
   `test_save_excursion_pool_bound` pins its own probe's figures.
 - **Process objects** are deduplicated like buffer objects (one object
   per live table entry) and, like a buffer object, never change handle
@@ -257,8 +262,9 @@ Ordering rules that hold across every subscriber:
     about 2 frames per level (measured at the Phase 12 fix cycle:
     `(deep n)`-shaped recursion runs to 544 levels against the
     1095-frame arena of that pin), so in practice it stops such
-    recursion a few hundred levels in. kg's default 1 MiB arena measures
-    `frame_capacity` 1087; exceeding it raises
+    recursion a few thousand levels in. kg's default 10 MiB arena
+    measures `frame_capacity` 10917 (the 1 MiB arena that preceded
+    Phase B measured 1086); exceeding it raises
     `evaluation frame limit exceeded`. Macro expansion is bounded by the
     same limit, so a macro that expands into itself raises too.
   - **Native re-entry** (`FeEvalOptions.max_native_reentry`, 0 selecting
@@ -351,9 +357,11 @@ Ordering rules that hold across every subscriber:
   heap allocation that grows; hitting one is an ordinary Lisp error, not
   a crash.
 - **The object arena is fixed and exhaustible, and exhaustion is an
-  ordinary catchable condition.** kg opens Fe with a 1 MiB arena that
-  never grows (`KG_LISP_ARENA_SIZE`, `src/lisp_core.c`), measured at the
-  current pin as 56147 object slots and a 1087-frame evaluator stack.
+  ordinary catchable condition.** kg opens Fe with a 10 MiB arena that
+  never grows (`KG_LISP_ARENA_SIZE`, `src/lisp_core.c`;
+  `$KG_LISP_ARENA_BYTES` asks for another size), measured at the current
+  pin as 586986 object
+  slots and a 10917-frame evaluator stack.
   A program that consumes all of them raises `out of memory` under the
   condition `arena-exhaustion`, and a program that fills Fe's GC root
   stack raises `GC stack overflow` under `evaluation-stack-exhaustion`.
@@ -374,6 +382,16 @@ Ordering rules that hold across every subscriber:
   could not be built; a `quit` is unaffected, since it is matched by
   completion kind rather than by object shape. Budget exhaustion (steps,
   frames, native re-entry) remains catchable by nothing.
+
+  Reaching the end of 586986 slots takes more allocations than ONE
+  evaluation's step budget buys — measured, a `(while t (setq l (cons 1
+  l)))` costs about 10.7 steps per cons and `KG_LISP_STEP_LIMIT`'s 2^20
+  steps stop it at roughly 97000 — so a single runaway loop meets
+  `evaluation step limit exceeded`, a Budget wall catchable by nothing,
+  where the 1 MiB arena before Phase B let it meet `out of memory`
+  instead. A program that allocates into something reachable across
+  several evaluations still fills the arena and still raises the
+  catchable condition.
 
   **Recovery depends on what the exhausting data was reachable from.**
   Data held in a `let` local or an argument is unreachable the moment the

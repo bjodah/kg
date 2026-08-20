@@ -52,7 +52,7 @@
 
 #include "../fe/fe.h"
 
-/* Mirrors src/lisp_core.c's KG_LISP_ARENA_SIZE default (1 MiB). Not
+/* Mirrors src/lisp_core.c's KG_LISP_ARENA_SIZE default (10 MiB). Not
  * reachable from test/ -- it is a `#define' local to lisp_core.c, not a
  * declaration in lisp.h -- so it is restated here rather than shared.
  * Reading needs far fewer objects than kg_lisp_init()'s own arena ever
@@ -61,7 +61,7 @@
  * adds), so any arena at least this big never collects during the read
  * pass; this one matches kg's for a like-for-like frame_capacity/
  * total_slots printout, not because a smaller one would fail. */
-enum { kProbeArenaSize = 1024 * 1024 };
+enum { kProbeArenaSize = 10 * 1024 * 1024 };
 
 static long long elapsed_ns(struct timespec start, struct timespec end)
 {

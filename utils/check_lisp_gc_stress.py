@@ -33,6 +33,7 @@ STRESS_TIMEOUT_RATIO below is where that is measured and sized.
 """
 
 import argparse
+import os
 import pathlib
 import re
 import subprocess
@@ -119,9 +120,10 @@ EXPECTED = ('(40 (40 20) 2 "kept-name" nil nil '
             '("one,two,three" "one,two,three") (one "held-by-one") '
             '(two "held-by-two") the-default)')
 
-# The same script with enough iterations to fill kg's 1 MB arena at least
-# once, which the stress-affordable loop above does not: run through the
-# ORDINARY build only, to assert the collector is invoked at all.
+# The same script with enough iterations to fill at least once the 1 MiB
+# arena ARENA_BYTES below pins these runs to, which the stress-affordable
+# loop above does not: run through the ORDINARY build only, to assert the
+# collector is invoked at all.
 BIG_SCRIPT = SCRIPT.replace("< n 40", "< n 4000").replace(
     "(* 20 (/ n 20))", "(* 1000 (/ n 1000))")
 BIG_EXPECTED = ('(4000 (4000 3000 2000 1000) 4 "kept-name" nil nil '
@@ -226,6 +228,25 @@ STATS = re.compile(
 	r" payload-compactions=(\d+) payload-failures=(\d+)$")
 
 
+# An instrument holds its own conditions fixed.  What this lane measures
+# is collection CORRECTNESS -- the same answer from a build that collects
+# before every allocation as from one that collects when the free list
+# empties -- and that property does not depend on how big the arena is;
+# every number this file carries (the collection counts, the peak-live
+# figures, the BIG_SCRIPT sized to fill the arena at least once) was
+# measured against a 1 MiB one.  A stress collection is O(total_slots),
+# so inheriting the compiled default instead would scale the whole lane
+# with it and say nothing new: measured on this box, this run is 1.57 s
+# at 1 MiB and 10.64 s at 10 MiB, for the same 14856 collections and the
+# same peak-live 10411.  Phase B of
+# doc/plans/2026-08-19-fe-simplification-and-cheap-compat.md is what makes
+# holding it possible -- before the knob the arena was a constant of the
+# build and this lane simply inherited whatever it was.  All three runs
+# get it, since the ordinary run is also the scale factor the stress run's
+# budget is derived from.
+ARENA_BYTES = "1M"
+
+
 def run(binary: pathlib.Path, script: pathlib.Path, budget: float, why: str):
 	"""Evaluate `script` and return its value, arena stats and seconds.
 
@@ -234,10 +255,11 @@ def run(binary: pathlib.Path, script: pathlib.Path, budget: float, why: str):
 	enough to tell that apart from a box slower than the one the budget
 	was derived on -- which is the failure this replaced.
 	"""
+	env = dict(os.environ, KG_LISP_ARENA_BYTES=ARENA_BYTES)
 	start = time.monotonic()
 	try:
 		proc = subprocess.run(
-		    [str(binary), "-b", "-g", str(script)],
+		    [str(binary), "-b", "-g", str(script)], env=env,
 		    capture_output=True, text=True, timeout=budget)
 	except subprocess.TimeoutExpired:
 		raise SystemExit(

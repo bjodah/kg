@@ -445,9 +445,15 @@ own a payload until Phase 25, so a carve would cost a quarter of the cells
 arena partition is therefore **unmoved at this pin** — 56145 slots / 1086
 frames at 1 MiB, `FeMinimumArenaSize()` still 66544 bytes, the prelude census
 still 10993 / 10016 — and no PTY case, oracle snapshot or arena figure
-changes. What kg gains is the reporting: the five fields are appended, last,
-to `M-x lisp-arena-stats`, `test/kgbatch -g` and `test/prelude_gc_probe`, are
-mirrored into `KG_PERF_LISP_PAYLOAD_*`, and are held at **zero** by
+changes.  (Every arena figure in this table is quoted at 1 MiB, and stays
+quoted there so the pins remain comparable, but 1 MiB stopped being kg's
+compiled default after this pin: Phase B of
+`doc/plans/2026-08-19-fe-simplification-and-cheap-compat.md` made it 10 MiB,
+which the same fe partitions to 586986 slots / 10917 frames, and 440466
+slots under a 25% carve.) What kg gains is the reporting: the five fields
+are appended, last, to `M-x lisp-arena-stats`, `test/kgbatch -g` and
+`test/prelude_gc_probe`, are mirrored into `KG_PERF_LISP_PAYLOAD_*`, and
+are held at **zero** by
 `.ci/prelude-startup-census.json` and by `test/test_perf.c` — a ceiling, so
 that payload use appearing before its phase is caught on the run it appears.
 

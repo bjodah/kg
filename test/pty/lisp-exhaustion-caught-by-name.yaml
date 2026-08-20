@@ -52,6 +52,19 @@
 name: lisp-exhaustion-caught-by-name
 filename: lisp-exhaustion-caught.txt
 requires_feature: lisp
+# The arena is pinned to 1 MiB rather than inherited, and that is a
+# property of the arena and the STEP BUDGET together, not a preference:
+# a fill loop costs about 10.7 steps per cons, so KG_LISP_STEP_LIMIT's
+# 2^20 steps buy roughly 97000 of them and any arena with more slots than
+# that raises the uncatchable step-limit wall before it ever raises
+# arena-exhaustion.  Measured at the compiled 10 MiB default (586986
+# slots): `evaluation step limit exceeded', peak-live 97449.  So this case
+# holds the conditions it was written against -- 56145 slots -- the way
+# utils/check_lisp_gc_stress.py holds its own; Phase B of
+# doc/plans/2026-08-19-fe-simplification-and-cheap-compat.md is the knob
+# that makes that possible.
+env:
+  KG_LISP_ARENA_BYTES: "1M"
 config_files:
   .config/kg/init.el: |
     ;;; init.el --- catches its own out-of-memory, by name.

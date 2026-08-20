@@ -2,5 +2,5 @@
  "id": "arena-exhaustion-catchable-by-name",
  "setup": [],
  "expr": "(condition-case e (let ((l nil)) (while t (setq l (cons 1 l)))) (arena-exhaustion 'caught))",
- "note": "Exhausting kg's fixed 1 MiB arena from a let-local raises (arena-exhaustion) and the handler that names it catches: answers `caught`. Before the Phase 9 pin the same form let the error escape, because the condition object was degraded to nil and only a (t ...) handler matched. No Emacs equivalent: Emacs has no arena to exhaust."
+ "note": "Exhausting kg's fixed arena from a let-local raises (arena-exhaustion) and the handler that names it catches: answers `caught`. Before the Phase 9 pin the same form let the error escape, because the condition object was degraded to nil and only a (t ...) handler matched. No Emacs equivalent: Emacs has no arena to exhaust. The kg_test that runs this form pins the arena at 1 MiB with $KG_LISP_ARENA_BYTES: the compiled default is 10 MiB since Phase B of doc/plans/2026-08-19-fe-simplification-and-cheap-compat.md, and one evaluation's step budget runs out at roughly 97000 conses, so a fill loop in an arena of 586986 slots raises the uncatchable step-limit wall instead."
 }

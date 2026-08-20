@@ -1512,7 +1512,7 @@ static const char lisp_representative_init[]
 
 /* Arena margin, not "does it fit": doc/plans/2026-08-03-elisp-subset-and-
  * fe-evaluator-subplans/00d-baselines-and-arena-observability.md asks how
- * much of the fixed 1 MiB arena remains free after the prelude, the
+ * much of the fixed arena remains free after the prelude, the
  * prelude plus lisp/auto-fill.el, and the prelude plus a representative
  * init -- before Phases 3-6 add frames, symbol cells and condition
  * objects to every allocation path.  Bounds here, not exact counts (this
@@ -1551,8 +1551,9 @@ static void test_lisp_prelude_arena_margin(void)
 	 * not a tight fit. */
 	CHECK(stats.free_slots * 2 > stats.total_slots);
 	/* frame_capacity is a fixed property of the arena layout, not the
-	 * workload; asserted nonzero and stable here (measured 1087 on this
-	 * build) rather than to a specific number, per the same
+	 * workload; asserted nonzero and stable here (measured 10917 on this
+	 * build, at the 10 MiB default) rather than to a specific number,
+	 * per the same
 	 * bound-not-count convention as the slot counts above. */
 	CHECK(stats.frame_capacity > 0);
 	CHECK(stats.peak_frame_depth <= stats.frame_capacity);
@@ -1845,14 +1846,16 @@ static void test_lisp_evaluator_shapes(void)
 	 * level (`lw`'s body is one `if` wrapping the recursive call, no
 	 * extra arithmetic frame) -- exactly what fe's own Phase 21.2 commit
 	 * found for the equivalent bare-context shape, confirmed here for
-	 * kg's prelude-loaded evaluator too.  frame_capacity (1087 on this
-	 * build) is the ceiling this shape actually meets: n=600 saturates
-	 * it exactly and both this function's kg_lisp_eval_string() and
-	 * test/kgbatch raise "evaluation frame limit exceeded" somewhere
-	 * between n=520 (still fits) and n=540-545 (does not; the two entry
-	 * paths' own frame overhead differs by a handful, hence the range).
-	 * 150 leaves about 72% of frame_capacity free (305 of 1087) while
-	 * still being a real multi-hundred-cell walk. */
+	 * kg's prelude-loaded evaluator too.  frame_capacity is the ceiling
+	 * this shape actually meets: it was 1087 when those four n were
+	 * measured, n=600 saturated it exactly, and both this function's
+	 * kg_lisp_eval_string() and test/kgbatch raised "evaluation frame
+	 * limit exceeded" somewhere between n=520 (still fits) and n=540-545
+	 * (does not; the two entry paths' own frame overhead differs by a
+	 * handful, hence the range).  Phase B's 10 MiB default moves that
+	 * ceiling to 10917, an order of magnitude clear of this walk, which
+	 * is why the assertion below is against frame_capacity and not
+	 * against any of these numbers. */
 	CHECK(kg_lisp_init() == 0);
 	static const char list_walk[]
 	    = "(defun lw (n l) (if (<= n 0) l (lw (- n 1) (cons n l)))) "
@@ -1900,12 +1903,13 @@ static void test_lisp_evaluator_shapes(void)
 
 	/* Deep call chain: 300 levels of non-tail self-recursion, well under
 	 * both the GC-stack ceiling and the arena's own frame_capacity
-	 * (measured peak_frame_depth 904 of frame_capacity 1087 on this
+	 * (measured peak_frame_depth 904 of frame_capacity 10917 on this
 	 * build -- about 3 frames per recursion level for this chain's
 	 * shape: the `if`, the `+`, and the recursive call each open one).
 	 * Asserted against frame_capacity rather than a hardcoded number so
 	 * this stays meaningful if KG_LISP_ARENA_SIZE, or Fe's per-frame
-	 * arena partition, ever changes; the assertion is what
+	 * arena partition, ever changes -- as KG_LISP_ARENA_SIZE just did,
+	 * taking frame_capacity 1087 -> 10917; the assertion is what
 	 * test_recursion_depth's comment (test_lisp.c) also measures. */
 	CHECK(kg_lisp_init() == 0);
 	static const char deep_call_chain[]

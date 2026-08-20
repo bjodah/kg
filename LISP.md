@@ -17,10 +17,10 @@ collections, peak GC roots, peak frames against capacity, failed
 allocations, and the arena's own size in bytes — and allocates nothing
 itself.
 
-The arena is 1 MiB unless `$KG_LISP_ARENA_BYTES` says otherwise. It takes
+The arena is 10 MiB unless `$KG_LISP_ARENA_BYTES` says otherwise. It takes
 plain bytes or a `K`/`M` suffix (`2M`, `2048K` and `2097152` are one
 arena), is read once at startup, and is ignored — silently, leaving the
-1 MiB — when it is unset, empty or not a size. A size kg understands but
+10 MiB — when it is unset, empty or not a size. A size kg understands but
 will not run in, anything under 655360 bytes, is refused instead: kg says
 so, naming the variable and the floor, and comes up with Lisp switched off
 rather than on a smaller arena than was asked for. That floor is three

@@ -7,11 +7,15 @@
 #
 # The knob is proved by the two numbers moving together: 2M is echoed back
 # as the byte count, and the slot count is the 2 MiB partition (115127 at
-# this fe pin, against 56145 for the compiled 1 MiB default that
+# this fe pin, against 586986 for the compiled 10 MiB default that
 # test/pty/lisp-arena-stats-command.yaml pins -- fe re-partitions at some
 # pins, so both numbers are measured, never carried forward).  A screen
 # saying only "115127 slots" would not say which arena produced it, which
 # is the gap this phase closed.
+#
+# 2M is DOWN from the compiled default since Phase B raised it, which is
+# the same knob proved in the other direction: an editor whose arena is
+# smaller than the build's is as much the user's decision as a bigger one.
 #
 # No Emacs oracle, for lisp-arena-stats-command.yaml's reason: Emacs has no
 # arena.  120 columns because the line is ~95 of them now.
@@ -36,5 +40,5 @@ expected_screen_contains:
 expected_screen_not_contains:
   # Not the compiled default's arena, and not a session that quietly fell
   # back to it.
-  - "Arena: 56145 slots,"
+  - "Arena: 586986 slots,"
   - "Lisp not available"

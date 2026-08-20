@@ -295,7 +295,12 @@ seeded `error-message` properties moved three more; and at the Phase 20
 pin, where two string primitives and two condition rows moved one; and at
 the let-binding-buffer-tag pin, where a host tag on every cleanup entry
 moved two more.  The 1 MiB arena partitions to 56147 object slots and 1087
-frames now, against the 56224 and 1096 the table names.
+frames now, against the 56224 and 1096 the table names.  That arena is no
+longer the default either: Phase B of
+`doc/plans/2026-08-19-fe-simplification-and-cheap-compat.md` made it
+10 MiB, which the same fe partitions to 586986 slots and 10917 frames, so
+the percentages below are read against a denominator ten times smaller
+than a default build's.
 
 | §15 measurement | Counter | Reading |
 | --- | --- | --- |

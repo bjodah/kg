@@ -192,10 +192,14 @@ static size_t refused_arena_floor(void)
 	    : strtoul(found + sizeof(marker) - 1, nullptr, 10);
 }
 
-/* One size, three spellings, and everything that is not a size at all. */
+/* One size, three spellings, and everything that is not a size at all.
+ * The size is above the compiled default on purpose: the assertion that
+ * makes this more than a parser test is that the slots follow the bytes,
+ * and that reads clearest upwards.  Which number is above the default is
+ * Phase B's to keep -- it was 2M while the default was 1 MiB. */
 static void test_arena_env_parsing(void)
 {
-	static const char *const two_mib[] = { "2M", "2048K", "2097152" };
+	static const char *const twenty_mib[] = { "20M", "20480K", "20971520" };
 	/* Empty, blank, signed, hex, trailing text, a suffix kg does not
 	 * know, and two values that overflow size_t -- before scaling and
 	 * after it.  None of them is an answer, so each leaves the compiled
@@ -211,12 +215,12 @@ static void test_arena_env_parsing(void)
 	CHECK(kg_lisp_arena_stats(&compiled) == 0);
 	kg_lisp_shutdown();
 
-	for (i = 0; i < sizeof(two_mib) / sizeof(two_mib[0]); i++) {
-		setenv(arena_env, two_mib[i], 1);
+	for (i = 0; i < sizeof(twenty_mib) / sizeof(twenty_mib[0]); i++) {
+		setenv(arena_env, twenty_mib[i], 1);
 		CHECK(kg_lisp_init() == 0);
 		CHECK(kg_lisp_arena_stats(&measured) == 0);
-		CHECKF(measured.arena_bytes == 2U * 1024U * 1024U,
-		    "%s opened %zu bytes", two_mib[i], measured.arena_bytes);
+		CHECKF(measured.arena_bytes == 20U * 1024U * 1024U,
+		    "%s opened %zu bytes", twenty_mib[i], measured.arena_bytes);
 		/* A bigger arena is a bigger arena: the slots follow the
 		 * bytes, which is the whole point of the knob. */
 		CHECK(measured.total_slots > compiled.total_slots);
@@ -4385,14 +4389,15 @@ static void test_cyclic_result(void)
  * "GC stack overflow" the pre-frame-machine evaluator could hit.
  *
  * Measured on this build via kg_lisp_arena_stats(): frame_capacity is
- * 1090, and `(deep 200)` alone reaches peak_frame_depth 604 -- about 3.02
- * frames per recursion level for this chain's shape (`if`, `+`, and the
- * recursive call each open a frame). `(deep 1000000)` therefore asks for
- * roughly 3 million frames against a 1090-frame arena, more than 2700x
- * over capacity -- demonstrably above it without depending on the private
- * Fe frame-size struct or reverse-engineering the arena layout, only on
- * the public frame_capacity/peak_frame_depth counters this file already
- * asserts through. (frame_capacity itself is arena-derived and not
+ * 10917 at Phase B's 10 MiB default, and `(deep 200)` alone reaches
+ * peak_frame_depth 604 -- about 3.02 frames per recursion level for this
+ * chain's shape (`if`, `+`, and the recursive call each open a frame).
+ * `(deep 1000000)` therefore asks for roughly 3 million frames against a
+ * 10917-frame arena, more than 270x over capacity -- demonstrably above
+ * it without depending on the private Fe frame-size struct or
+ * reverse-engineering the arena layout, only on the public
+ * frame_capacity/peak_frame_depth counters this file already asserts
+ * through. (frame_capacity itself is arena-derived and not
  * asserted to a specific number here, since a KG_LISP_ARENA_SIZE override
  * or a Fe-side frame-size change would move it without changing this
  * test's property.)
@@ -4416,10 +4421,10 @@ static void test_recursion_depth(void)
 	CHECK(eval_ok("(defun deep (n) (if (<= n 0) 0 (+ 1 (deep (- n 1)))))"));
 	CHECK(eval_eq("(deep 200)", "200"));
 	CHECK(kg_lisp_arena_stats(&before) == 0);
-	/* 200 real recursion levels already cost the majority of a
-	 * default-sized arena's frame capacity; confirms the 3-frames-per-
-	 * level shape this comment's derivation relies on stays in that
-	 * ballpark rather than silently becoming O(1) or O(N^2). */
+	/* 200 real recursion levels cost 604 frames of a default-sized
+	 * arena's 10917; confirms the 3-frames-per-level shape this
+	 * comment's derivation relies on stays in that ballpark rather than
+	 * silently becoming O(1) or O(N^2). */
 	CHECK(before.peak_frame_depth > 200 * 2);
 	CHECK(before.peak_frame_depth < before.frame_capacity);
 
@@ -4501,6 +4506,22 @@ static void test_arena_exhaustion_conditions(void)
 	    = "(let ((l nil)) (while t (setq l (cons 1 l))))";
 	struct kg_lisp_arena_stats fresh, caught, pinned;
 	char form[256];
+
+	/* The arena this instrument needs is one a single evaluation can
+	 * actually run out of, and that is a property of the arena and the
+	 * STEP BUDGET together: `fill_local' costs about 10.7 steps per
+	 * cons, so KG_LISP_STEP_LIMIT's 2^20 steps buy roughly 97000 of
+	 * them, and every arena whose slot count is above that raises
+	 * Budget -- case 5's uncatchable wall -- before it raises
+	 * arena-exhaustion.  Measured at the compiled 10 MiB default: 586986
+	 * slots, "evaluation step limit exceeded", peak-live 97449.  So this
+	 * function pins the 1 MiB arena (56145 slots) it was written
+	 * against, the way utils/check_lisp_gc_stress.py pins its own; Phase
+	 * B of doc/plans/2026-08-19-fe-simplification-and-cheap-compat.md is
+	 * what makes that possible.  What it does NOT do is weaken the
+	 * contract: exhaustion is still catchable by name at any arena size
+	 * a single evaluation can exhaust. */
+	setenv(arena_env, "1M", 1);
 
 	CHECK(kg_lisp_init() == 0);
 	CHECK(kg_lisp_arena_stats(&fresh) == 0);
@@ -4628,6 +4649,7 @@ static void test_arena_exhaustion_conditions(void)
 				(void)close(fd);
 				(void)unlink(path);
 			}
+			unsetenv(arena_env);
 			return;
 		}
 		(void)fputc('\'', file);
@@ -4655,6 +4677,7 @@ static void test_arena_exhaustion_conditions(void)
 		kg_lisp_shutdown();
 		CHECK(unlink(path) == 0);
 	}
+	unsetenv(arena_env);
 }
 
 /* Sub-plan 01A's second test path: lisp/prelude.el is the canonical source
@@ -6674,7 +6697,11 @@ static void test_phase8_library(void)
 	 * never fall.  The claim worth making is margin, the same one
 	 * test_perf.c's prelude case makes: after the whole prelude and
 	 * every form above it, more than half the arena is still free and
-	 * the high-water mark is a small fraction of it.  Re-measured on this
+	 * the high-water mark is a small fraction of it.  The arena the slot
+	 * counts in this comment were measured in is the 1 MiB one that was
+	 * the compiled default until Phase B made it 10 MiB and 586986
+	 * slots; what the series tracks is fe's partitioning of a fixed size,
+	 * so it reads at the size it was taken at.  Re-measured on this
 	 * build via kg_lisp_arena_stats() at the let-binding-buffer-tag pin:
 	 * 56147 object slots (56263 at the Phase 20 pin, 56259 at the Phase
 	 * 19 pin, 56239 at the Phase 14
@@ -6763,20 +6790,22 @@ static void test_phase8_library(void)
 		      "'(\"1\" \"2\" \"3\" \"4\" \"5\") \":\")"));
 	CHECK(kg_lisp_arena_stats(&after) == 0);
 	CHECK(after.free_slots * 2 > after.total_slots);
-	/* Under a quarter of the arena now, where Phase 19 through the
-	 * let-binding-buffer-tag pin measured a third: the figure this line
-	 * bounds -- the high-water mark after the prelude AND every form
-	 * this function evaluated above -- measures 12617 of 56147 (22.47%)
-	 * at the prelude-embedding Phase 1 pin (doc/plans/2026-08-14-
-	 * embedded-prelude.md), against 14817 of 56147 (26.4%) at the
-	 * let-binding-buffer-tag pin, 14776 of 56263 (26.3%) at Phase 20's,
-	 * 14579 of 56259 (25.9%) at Phase 19's and 13238 of 56239 (23.5%)
-	 * before that -- the first fall in this comment's history, and the
-	 * point of the phase that produced it: fewer of the prelude's own
-	 * names are permanently live, not more docstrings or more library
-	 * added on top.  The claim being made is still margin, and just
-	 * over a fifth of a fixed arena for everything kg ships plus this
-	 * file's corpus is still margin; what would not be is a bound
+	/* Under a quarter of the arena when the arena was 1 MiB, where
+	 * Phase 19 through the let-binding-buffer-tag pin measured a third:
+	 * the figure this line bounds -- the high-water mark after the
+	 * prelude AND every form this function evaluated above -- measures
+	 * 12617 of 56147 (22.47%) at the prelude-embedding Phase 1 pin
+	 * (doc/plans/2026-08-14-embedded-prelude.md), against 14817 of 56147
+	 * (26.4%) at the let-binding-buffer-tag pin, 14776 of 56263 (26.3%)
+	 * at Phase 20's, 14579 of 56259 (25.9%) at Phase 19's and 13238 of
+	 * 56239 (23.5%) before that -- the first fall in this comment's
+	 * history, and the point of the phase that produced it: fewer of the
+	 * prelude's own names are permanently live, not more docstrings or
+	 * more library added on top.  Every denominator in that series is
+	 * the 1 MiB arena's; Phase B made the default 10 MiB and 586986
+	 * slots, so the same marks are now about a fortieth of it and the
+	 * numerator is the half of the fraction this file can move.  The
+	 * claim being made is still margin; what would not be is a bound
 	 * nobody re-measured. */
 	CHECK(after.peak_live_objects * 3 < after.total_slots);
 	CHECK(after.free_slots <= before.free_slots);
@@ -6874,19 +6903,24 @@ static void test_save_excursion_pool_bound(void)
 		      "(setq i (+ i 1)))) i)",
 	    "200"));
 
-	/* 5. Nesting is what the pool USED to bound, and since sub-plan 12D
-	 * Part 3 it does not.  Re-measured on this tree at
-	 * LISP_MAX_OBJECTS 256: 217 nested excursions answer `deep' and the
-	 * 218th raises "evaluation frame limit exceeded" -- fe's frame
-	 * limit, the same ceiling `with-current-buffer' has had all along
-	 * (155 deep, 156 raising, unchanged by this).  It was 218/219 until
-	 * the arena's frame partition fell 1089 -> 1087 at the
-	 * let-binding-buffer-tag pin, which is what a ceiling measured
-	 * rather than chosen does.  At 64 the pool was
-	 * the binding constraint and the 65th nested form raised.  Five
-	 * deep in the assertion, because a 218-form C string literal tests
-	 * nothing this does not; the ceiling itself is the measurement, and
-	 * it is recorded in the commit and in src/lisp_obj.h. */
+	/* 5. Nesting is bounded by whichever of the pool and fe's frame
+	 * capacity is smaller, and WHICH ONE moves with the arena.  At the
+	 * 1 MiB arena that was the default through Phase B, frames were the
+	 * smaller: 217 nested excursions answered `deep' and the 218th
+	 * raised "evaluation frame limit exceeded" (218/219 until the frame
+	 * partition fell 1089 -> 1087 at the let-binding-buffer-tag pin),
+	 * and `with-current-buffer' met the same ceiling at 155 deep, 156
+	 * raising.  Phase B's 10 MiB default takes frame_capacity to 10917
+	 * and hands the bound back to the pool, re-measured on this tree:
+	 * 256 nested excursions answer `deep' and the 257th raises "too many
+	 * marker objects" -- LISP_MAX_OBJECTS, the constraint sub-plan 12D
+	 * Part 3 raised 64 -> 256 to get out of the way, now the binding one
+	 * again at four times the depth it used to bind at.  Nested
+	 * `with-current-buffer' meets its own 256th-form wall, "cleanup stack
+	 * overflow".  Five deep in the assertion, because a 257-form C string
+	 * literal tests nothing this does not; the ceilings themselves are
+	 * the measurement, and they are recorded in the commit and in
+	 * src/lisp_obj.h. */
 	CHECK(eval_eq("(save-excursion (save-excursion (save-excursion "
 		      "(save-excursion (save-excursion 'deep)))))",
 	    "deep"));

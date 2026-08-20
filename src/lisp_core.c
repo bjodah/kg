@@ -60,7 +60,7 @@ static_assert(FE_API_VERSION == 13);
 static_assert(FE_LANGUAGE_VERSION == 15);
 
 #ifndef KG_LISP_ARENA_SIZE
-#define KG_LISP_ARENA_SIZE (1024U * 1024U)
+#define KG_LISP_ARENA_SIZE (10U * 1024U * 1024U)
 #endif
 
 #ifndef KG_LISP_STEP_LIMIT
@@ -70,9 +70,9 @@ static_assert(FE_LANGUAGE_VERSION == 15);
 /* The arena holds the whole Fe context, its 4096-slot GC stack and Fe's
  * arena-resident evaluator frames. FeMinimumArenaSize() measures 66544
  * bytes (~65.0 KiB) at the pinned Fe, so an override much below ~72 KiB
- * fails to start; the default's 1 MiB still leaves roughly 94% of the
- * arena for objects and frame growth -- 56145 object slots and a
- * 1086-frame evaluator stack, as kg_lisp_arena_stats() reports them.
+ * fails to start; the default's 10 MiB leaves roughly 99% of the
+ * arena for objects and frame growth -- 586986 object slots and a
+ * 10917-frame evaluator stack, as kg_lisp_arena_stats() reports them.
  * All three are measured at the pin, never carried forward. */
 static constexpr size_t lisp_arena_size = KG_LISP_ARENA_SIZE;
 
@@ -96,12 +96,12 @@ static constexpr size_t lisp_arena_min_size = 640U * 1024U;
  * refusal, not the record's default, which is fe's 25% split -- because
  * nothing kg runs can own a payload until Phase 25 of
  * doc/plans/2026-08-18-elisp-data-model.md migrates strings into one.
- * Carving today would take a quarter of the cells (42335 instead of
- * 56145 at 1 MiB) for storage nothing can allocate from, and every arena
- * number kg holds itself to -- the 3x floor above, the prelude census,
- * the PTY cases that name a slot count -- is a cell count.  Phase 25 is
- * where this becomes FeDefaultPayloadPercent, and where those numbers
- * move with it. */
+ * Carving today would take a quarter of the cells (440466 instead of
+ * 586986 at the default 10 MiB) for storage nothing can allocate from,
+ * and every arena number kg holds itself to -- the 3x floor above, the
+ * prelude census, the PTY cases that name a slot count -- is a cell
+ * count.  Phase 25 is where this becomes FeDefaultPayloadPercent, and
+ * where those numbers move with it. */
 static const FeOpenOptions lisp_arena_options
     = { .payload_percent = FePayloadPercentNone };
 

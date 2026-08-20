@@ -845,13 +845,35 @@ shape both dialects agree on and one for each half of the divergence.
 
 ### Features kg provides without a file
 
-`(require 'subr-x)` succeeds on a kg with no `load-path` entry at all,
-because the prelude `provide`s it: its names are already loaded, exactly
-as Emacs 31 answers `string-trim`, `string-empty-p` and `string-join`
-before any require. Phase 28's package census measured `subr-x` as the
-first blocker for 13 packages, and U.0 measured that the FEATURE is the
-blocker: with it standing in as a bare `provide`, not one of the four
-packages then blocked stops on a `subr-x` name at all.
+`(require 'subr-x)` and `(require 'cl-lib)` both succeed on a kg with no
+`load-path` entry at all, because the prelude `provide`s them: their
+names are already loaded, exactly as Emacs 31 answers `string-trim`,
+`string-empty-p` and `string-join` before any require. This is what
+Phase 28's package census measured as the two largest first blockers in
+the tree — `cl-lib` stops 35 of 110 packages and `subr-x` 13 — and in
+both cases the measurement was that the FEATURE is the blocker: with
+`cl-lib` standing in as a bare `provide`, only two of the 35 packages
+then stop on a `cl-` name at all.
+
+**What `(require 'cl-lib)` claims.** A NAMED SUBSET, listed in the
+surface table above and nowhere else: `cl-incf`, `cl-case` and
+`cl-find-if`. A package that reaches any other `cl-` name gets
+`void-function` **at the call**, not `file-missing` at the require — the
+failure moves from load time to run time, and it moves deliberately.
+Refusing the require instead would keep those 47 packages from loading
+at all, in exchange for a diagnostic they get anyway, one call later and
+with the name in it. Three names are absent on purpose and each has a
+measurement behind it: `cl-loop` is an iteration sub-language rather
+than a name; `cl-defun` is absent because of 533 `cl-defun` sites across
+the ELPA tree, 462 use `&key`, and a `cl-defun` that was `defun` would
+mis-bind 87% of its callers *silently*; `cl-defstruct` needs records.
+The three that are here match Emacs value for value, including the
+edges — `cl-case` compares with `eql` (a string key does not match an
+equal string, a float key does), treats `t` and `otherwise` alike, and
+answers `nil` for a clause with no body — but `cl-incf`'s PLACE must be
+a **symbol**: kg has no generalised variables, so anything else is
+refused at expansion with a message naming the limit (measured: 188 of
+212 `cl-incf` sites in the tree pass a bare symbol).
 
 **`lexical-binding` is `nil`, always**, and that is a statement about kg
 rather than a convenience: kg's binder is dynamic, there are no
@@ -1115,6 +1137,7 @@ before any init file runs — this is what makes `defun`, `let`, `cond`,
 | Buffer-local | `setq-local` `setq-default` `set-default` `default-value` `make-local-variable` `kill-local-variable` `local-variable-p` `buffer-local-value` — see "Buffer-local variables" below |
 | Package preamble | `static-if` `eval-when-compile` `eval-and-compile` `make-obsolete-variable`, and the variables `lexical-binding` (always `nil` — see below) and `emacs-major-version` (31) — the names a package file reaches before any of its own code runs |
 | `subr-x` | `string-blank-p` `string-remove-prefix` `string-remove-suffix` `string-pad` `string-clean-whitespace` `thread-first` `thread-last`, joining `string-join` `string-trim` `string-empty-p` `string-prefix-p` above — provided as a feature, so `(require 'subr-x)` succeeds |
+| `cl-lib` | `cl-incf` `cl-case` `cl-find-if` — a NAMED SUBSET behind a provided feature; see "What `(require 'cl-lib)` claims" below |
 
 The table is the whole startup surface, not only what the prelude adds:
 the forms in `Functions` and `Numbers`, like `setq` in `Binding`, are

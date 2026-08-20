@@ -1,0 +1,8 @@
+{
+ "id": "u1a-cl-find-if",
+ "setup": [
+  "(require 'cl-lib)"
+ ],
+ "expr": "(list (cl-find-if (lambda (x) (> x 2)) (list 1 2 3 4)) (cl-find-if (lambda (x) (> x 9)) (list 1 2 3 4)) (cl-find-if 'stringp (list 1 \"a\" 2)))",
+ "note": "`cl-find-if', 9 of the 35 packages. Emacs answers (3 nil \"a\"): the FIRST element satisfying the predicate, nil when none does, and a symbol designator works as the predicate. Every call here passes exactly two arguments, which is all kg implements -- Emacs' takes :key, :start, :end and :from-end, and measured across ELPA all 34 `cl-find-if' call sites pass exactly two."
+}

@@ -6553,6 +6553,58 @@ static void test_phase29_package_preamble_names(void)
 	kg_lisp_shutdown();
 }
 
+/* The cl-lib slice, and the policy behind it: kg answers (require
+ * 'cl-lib) with the feature and a NAMED SUBSET, so a name outside it is
+ * void-function at the call rather than file-missing at the require.
+ * Recorded in test/lisp-compat/cases/u1a-cl-*.json. */
+static void test_phase29_cl_lib(void)
+{
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(eval_eq(
+	    "(list (require 'cl-lib) (featurep 'cl-lib))", "(cl-lib t)"));
+
+	/* cl-incf answers the NEW value; the default increment is 1. */
+	CHECK(eval_eq("(list (let ((x 1)) (list (cl-incf x) x)) "
+		      "(let ((x 1)) (list (cl-incf x 5) x)) "
+		      "(let ((x 1.0)) (cl-incf x)))",
+	    "((2 2) (6 6) 2.0)"));
+	/* A generalised place is refused at expansion, by name. */
+	CHECK(eval_error_contains(
+	    "(macroexpand '(cl-incf (nth 0 lst)))", "must be a variable name"));
+
+	/* Every clause shape, including the two that pin the comparison as
+	 * `eql': a string key does not match an equal string, a float does. */
+	CHECK(eval_eq("(list (cl-case 2 (1 'one) (2 'two) (t 'other)) "
+		      "(cl-case 9 (1 'one) (t 'other)) (cl-case 9 (1 'one)) "
+		      "(cl-case 'b ((a b) 'ab) (t 'no)) "
+		      "(cl-case 3 (otherwise 'ow)) (cl-case 1 (1)) "
+		      "(cl-case \"a\" (\"a\" 'str) (t 'no)) "
+		      "(cl-case 2.0 (2.0 'flt) (t 'no)))",
+	    "(two other nil ab ow nil no flt)"));
+	/* The key form is evaluated ONCE however many clauses are tested. */
+	CHECK(eval_eq("(progn (setq cl-side 0) "
+		      "(list (cl-case (progn (setq cl-side (+ cl-side 1)) 2) "
+		      "(1 'one) (2 'two)) cl-side))",
+	    "(two 1)"));
+	/* The body sees the surrounding bindings: the temporary the
+	 * expansion binds is a gensym, so it shadows nothing. */
+	CHECK(eval_eq("(let ((v 5)) (cl-case 2 (2 v)))", "5"));
+
+	CHECK(eval_eq("(list (cl-find-if (lambda (x) (< 2 x)) '(1 2 3 4)) "
+		      "(cl-find-if (lambda (x) (< 9 x)) '(1 2 3 4)) "
+		      "(cl-find-if 'stringp (list 1 \"a\" 2)))",
+	    "(3 nil \"a\")"));
+
+	/* THE POLICY: a cl- name outside the subset is void-function at the
+	 * CALL, and the require above still succeeded. */
+	CHECK(eval_eq("(condition-case e (cl-loop for x in '(1 2) collect x) "
+		      "(error (car e)))",
+	    "void-function"));
+
+	kg_lisp_shutdown();
+}
+
 static void test_phase15_seq_shim(void)
 {
 	setup_editor();
@@ -6850,8 +6902,9 @@ static void test_quit_uncaught(void)
  * thread-last), the four package-preamble names that are functions or
  * macros (make-obsolete-variable, static-if, eval-when-compile,
  * eval-and-compile -- `lexical-binding' and `emacs-major-version' are
- * variables and are not counted here), taking it to 152. */
-#define PRELUDE_DEFS 152
+ * variables and are not counted here), and cl-lib's four (cl-incf,
+ * internal--cl-case-test, cl-case, cl-find-if), taking it to 156. */
+#define PRELUDE_DEFS 156
 
 /* What a value CAPTURED out of a symbol's function cell is: that symbol's
  * definition at the moment of capture, and it stays that definition
@@ -9351,6 +9404,7 @@ int main(void)
 	RUN(test_phase15_seq_shim);
 	RUN(test_phase29_subr_x);
 	RUN(test_phase29_package_preamble_names);
+	RUN(test_phase29_cl_lib);
 	RUN(test_phase15_arithmetic);
 	RUN(test_hook_quit_is_not_contained);
 	RUN(test_hook_throw_containment);

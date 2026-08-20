@@ -3697,6 +3697,46 @@
    "source_name": "cddr"
   },
   {
+   "id": "prelude-cl-case",
+   "category": "control-flow",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u1a-cl-case-shapes",
+    "u1a-cl-case-evaluates-its-key-once"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_cl_lib",
+   "rationale": "Phase 29 U.1a, 10 of the 35 packages. Keys compare with `eql' (so a STRING key does not match an equal string and a float key does), the key list may be an atom or a list, `t' and `otherwise' are both the default clause, no match is nil, and a clause with NO BODY is nil rather than the test's own value -- which is what a naive `cond' expansion answers and is why the expansion supplies a nil body. The key form is evaluated ONCE, into a `gensym'-named lambda parameter: an uninterned name no `defvar' of the user's can reach, the hygiene shape `save-excursion' uses.",
+   "source_name": "cl-case"
+  },
+  {
+   "id": "prelude-cl-find-if",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u1a-cl-find-if"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_cl_lib",
+   "rationale": "Phase 29 U.1a, 9 of the 35 packages. The FIRST element satisfying the predicate, nil when none does, over any sequence kg's `seq-find' walks. Two arguments and nothing else: Emacs' takes :key, :start, :end and :from-end, and measured across ELPA all 34 `cl-find-if' call sites pass exactly two, so the keywords are absent by measurement rather than by hope and a caller that passes one gets `wrong-number-of-arguments'.",
+   "source_name": "cl-find-if"
+  },
+  {
+   "id": "prelude-cl-incf",
+   "category": "bindings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u1a-cl-incf-symbol-place"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_cl_lib",
+   "rationale": "Phase 29 U.1a, 12 of the 35 cl-lib packages and the most-reached `cl-' name kg can implement honestly. The form's value is the NEW value and the default increment is 1. PLACE is a SYMBOL and nothing else: Emacs takes any generalised variable and kg has no `gv', so a non-symbol is refused AT EXPANSION with a message naming the limit rather than expanded into a `setq' nobody can read. Measured demand: of 212 `cl-incf' sites across ELPA, 188 pass a bare symbol.",
+   "source_name": "cl-incf"
+  },
+  {
    "id": "prelude-cond",
    "category": "control-flow",
    "status": "supported",
@@ -3965,6 +4005,19 @@
    "kg_test": "test/test_lisp.c:test_binding_forms",
    "rationale": "Tested-via-wrapper, same as internal--bind-name.",
    "source_name": "internal--bind-value"
+  },
+  {
+   "id": "prelude-internal-cl-case-test",
+   "category": "control-flow",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "u1a-cl-case-shapes"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_cl_lib",
+   "rationale": "Phase 29 U.1a: the clause-test builder `cl-case' expands through. It turns a key list into an `or' of `eql' tests rather than a `memql', which kg does not have. Internal, so the cases are `cl-case''s.",
+   "source_name": "internal--cl-case-test"
   },
   {
    "id": "prelude-internal-docstring-p",
@@ -5608,6 +5661,20 @@
    ],
    "kg_test": "test/test_lisp.c:test_phase29_subr_x",
    "rationale": "Phase 29's U.0 freeze for `(require 'subr-x)', implemented in U.1a. It was the census's third-largest absent-library class (4 packages) -- and U.0 RE-RANKED IT: with `cl-lib' and `compat' provided as bare features, NINE more packages reach this same require (consult, rmsbolt, cape, corfu, eat, embark, jinx, marginalia, vertico), so the item's demand is 13 and not 4. THE MEASUREMENT THAT SIZED IT: standing in for the item with a file that does nothing but `(provide 'subr-x)' advances all four of the blocked packages, and NOT ONE of them then stops on a subr-x NAME -- they go to xml-query, cl-lib, cl-lib and seq. So the feature was the blocker and the names are the tail behind it. WHERE IT LIVES, AND WHY: the prelude, not a lisp/*.el package, because that is what Emacs 31 does -- `string-trim' and `string-empty-p' live in subr.el, `string-join' is autoloaded, and all of them answer before any require -- and because kg's load-path defaults to one per-user directory that nothing installs into, so a file would make the require depend on the user having added a directory. The tail, ranked by U.0's source census over those 13: `string-join' 11 packages (kg had it), `string-blank-p' 5, `string-remove-prefix' 3, `thread-last' 3, `string-remove-suffix' 3, `string-clean-whitespace' 2, then singletons. U.1a implements all of those plus `string-pad' and `thread-first' (both named by frozen cases). TWO NAMES ARE DELIBERATELY ABSENT and their absence is a decision: `hash-table-keys'/`-values'/`-empty-p' are one package's and belong to the dormant hash-table branch, and `named-let' is one package's and needs a self-referential local function. u0-subr-x-names-kg-already-has carries `expect: agree' and is the control that shrank the item: three of the four most-reached names were already kg's.",
+   "source_name": null
+  },
+  {
+   "id": "u1a-cl-lib",
+   "category": "loading",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u1a-cl-lib-require-returns-the-feature",
+    "u1a-cl-lib-name-outside-the-subset"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_cl_lib",
+   "rationale": "Phase 29 U.1a: `(require 'cl-lib)', the census's largest blocker (35 of 110 packages, plus 12 more at `compat'), and THE POLICY ROW for what kg claims when it answers. U.0 measured what is behind the require and the answer decided the shape: with the feature standing in as a bare `provide', only TWO of the 35 then stop on a `cl-' name at all (`llm' at `cl-defstruct', `zmq' at `cl-deftype'), one loads to completion, and the other 32 stop somewhere else entirely -- so the FEATURE is the load-time blocker and the names are a run-time surface behind it. THE POLICY, STATED: kg provides the feature and a NAMED SUBSET (cl-incf, cl-case, cl-find-if at U.1a), so a package reaching any other `cl-' name gets `void-function' AT THE CALL rather than `file-missing' at the require -- the failure moves from load time to run time deliberately, because refusing the require keeps 47 packages from loading at all in exchange for a diagnostic they get anyway, one call later and with the name in it. u1a-cl-lib-name-outside-the-subset is that policy as a recorded divergence, on `cl-loop' -- the head of U.0's ranking (15 packages, 105 references) and an iteration sub-language rather than a name. WHAT IS DELIBERATELY NOT HERE, with the measurement that decided it: `cl-defun' (13 packages, 66 refs) is absent because of 533 `cl-defun' sites across ELPA, 462 use &key -- a `cl-defun' that was `defun' would mis-bind 87% of its callers SILENTLY, which is worse than not having the name; `cl-defstruct' needs records, which is a dormant branch.",
    "source_name": null
   },
   {

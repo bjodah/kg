@@ -1,0 +1,7 @@
+{
+ "id": "u1a-cl-lib-require-returns-the-feature",
+ "setup": [],
+ "expr": "(list (require 'cl-lib) (featurep 'cl-lib))",
+ "note": "THE BLOCKER, and the biggest one the census found: 35 of the 110 packages stop at `(require 'cl-lib)'. Emacs answers (cl-lib t). U.0 measured what is behind it and the answer sizes the item: with the feature standing in as a bare `provide', only TWO of the 35 then stop on a `cl-' name at all (`llm' at `cl-defstruct', `zmq' at `cl-deftype'), one loads to completion, and the other 32 stop somewhere else entirely -- so the FEATURE is the load-time blocker and the names are a run-time surface behind it.",
+ "expect": "agree"
+}

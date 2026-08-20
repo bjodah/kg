@@ -1,0 +1,8 @@
+{
+ "id": "u1a-cl-lib-name-outside-the-subset",
+ "setup": [
+  "(require 'cl-lib)"
+ ],
+ "expr": "(condition-case e (cl-loop for x in (list 1 2) collect x) (error (car e)))",
+ "note": "THE POLICY, MADE VISIBLE: kg answers `(require 'cl-lib)' with the feature and a NAMED SUBSET (cl-incf, cl-case, cl-find-if at U.1a), so a package reaching any other `cl-' name gets `void-function' AT THE CALL rather than `file-missing' at the require. Emacs answers (1 2) -- it has `cl-loop'. The divergence is the point of the row: the failure moved from load time to run time deliberately, because refusing the require keeps 47 packages from loading at all in exchange for a diagnostic they get anyway, one call later and with the name in it. `cl-loop' is the head of U.0's ranking (15 of the 35 packages, 105 references) and is an iteration sub-language, not a name."
+}

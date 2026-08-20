@@ -1822,6 +1822,91 @@ binder is dynamic and whose `eval' refuses a non-nil LEXICAL argument.")
 (defalias 'eval-and-compile (macro body
   (list 'quote (eval (cons 'progn body)))))
 
+;; --- cl-lib, a module kg PROVIDES and a POLICY it states -------------
+;;
+;; 35 of the 110 census packages stop at `(require 'cl-lib)' and 12 more
+;; at `(require 'compat)'.  U.0 measured what is behind those requires,
+;; and the answer decided the shape of this section: with the feature
+;; standing in as a bare `provide', only TWO of the 35 then stop on a
+;; `cl-' name at all (`llm' at `cl-defstruct', `zmq' at `cl-deftype'),
+;; one loads to completion, and the other 32 stop somewhere else
+;; entirely.  So the FEATURE is the load-time blocker and the names are
+;; a RUN-time surface behind it.
+;;
+;; THE POLICY, STATED RATHER THAN IMPLIED: kg answers `(require
+;; 'cl-lib)' with the feature and a NAMED SUBSET, listed here and
+;; nowhere else.  A package that reaches a `cl-' name kg does not have
+;; gets `void-function' AT THE CALL, not at the require -- the failure
+;; moves from load time to run time, and it moves deliberately.  The
+;; alternative -- refusing the require -- keeps 47 packages from
+;; loading at all in exchange for a diagnostic they get anyway, one
+;; call later and with the name in it.
+;;
+;; The subset is U.0's demand ranking, restricted to what can be
+;; implemented HONESTLY over what kg has (packages of 35 / references):
+;;
+;;     cl-incf     12 / 30   here
+;;     cl-case     10 / 23   here
+;;     cl-find-if   9 / 14   here
+;;     cl-loop     15 / 105  NOT here: an iteration sub-language
+;;     cl-defun    13 / 66   NOT here, and the measurement is why: of
+;;                           533 `cl-defun' sites across ELPA, 462 use
+;;                           &key.  A `cl-defun' that is `defun' would
+;;                           mis-bind 87% of its callers SILENTLY, which
+;;                           is worse than not having the name.
+;;     cl-defstruct 8 / 47   NOT here: records, a dormant branch
+;;
+;; `cl-incf' takes a SYMBOL place.  Emacs takes any generalised
+;; variable; kg has no `gv', so a non-symbol is refused at expansion
+;; with a message naming the limit rather than expanding into a `setq'
+;; nobody can read.  Measured demand: of 212 `cl-incf' sites across
+;; ELPA, 188 pass a bare symbol.  The value is the NEW one, and the
+;; default increment is 1.
+(defalias 'cl-incf (macro (place . rest)
+  (if (symbolp place)
+      (list 'setq place (list '+ place (if rest (car rest) 1)))
+    (error "cl-incf: PLACE must be a variable name"))))
+;; `cl-case' compares with `eql', takes an atom or a LIST of keys, and
+;; treats `t' and `otherwise' as the default clause; no clause matching
+;; is nil, and a clause with NO BODY is nil too rather than the test's
+;; own value, which is what `cond' would otherwise answer (all
+;; measured; the empty-body arm is why the expansion supplies a nil
+;; body).  The
+;; key expression is evaluated ONCE, into a `gensym'-named lambda
+;; parameter -- an uninterned name no `defvar' of the user's can reach,
+;; the hygiene shape `save-excursion' uses.  A list of keys becomes an
+;; `or' of `eql' tests rather than a `memql', which kg does not have.
+(defalias 'internal--cl-case-test (lambda (sym keys)
+  (if (if (eq keys t) t (eq keys 'otherwise))
+      t
+    (if (atom keys)
+        (list 'eql sym (list 'quote keys))
+      ((lambda (tests)
+         (while keys
+           (setq tests (cons (list 'eql sym (list 'quote (car keys))) tests))
+           (setq keys (cdr keys)))
+         (cons 'or (reverse tests)))
+       nil)))))
+(defalias 'cl-case (macro (expr . clauses)
+  (internal--let sym (gensym "internal--cl-case-"))
+  ((lambda (arms)
+     (while clauses
+       (setq arms (cons (cons (internal--cl-case-test sym (car (car clauses)))
+                          (if (cdr (car clauses)) (cdr (car clauses))
+                            (list nil)))
+                    arms))
+       (setq clauses (cdr clauses)))
+     (list (list 'lambda (list sym) (cons 'cond (reverse arms))) expr))
+   nil)))
+;; `cl-find-if' is the two-argument form and nothing else.  Emacs' takes
+;; :key, :start, :end and :from-end; measured across ELPA, all 34
+;; `cl-find-if' call sites pass exactly two arguments, so the keywords
+;; are absent by measurement rather than by hope, and a caller that
+;; passes one gets `wrong-number-of-arguments' from this parameter list.
+(defalias 'cl-find-if (lambda (predicate sequence)
+  (seq-find predicate sequence)))
+(provide 'cl-lib)
+
 ;; --- defalias with a docstring ---------------------------------------
 ;; LAST, deliberately.  Everything above this line is defined with fe's
 ;; own two-argument `defalias' primitive, and this shadow is what USER

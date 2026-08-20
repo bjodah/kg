@@ -85,15 +85,15 @@ static const char lisp_arena_env[] = "KG_LISP_ARENA_BYTES";
 
 /* The floor that variable may not go under.  An arena that holds the
  * prelude and little else is not an editor, so kg refuses it rather than
- * starting into it: 768 KiB opens 30911 object slots UNDER THE CARVE
- * below, against the 28008 that are three times the prelude's measured
+ * starting into it: 896 KiB opens 36441 object slots UNDER THE CARVE
+ * below, against the 31467 that are three times the prelude's measured
  * reachable set (.ci/prelude-startup-census.json,
- * reachable_live_objects 9336) -- the same 3x margin test/test_lisp.c
+ * reachable_live_objects 10489) -- the same 3x margin test/test_lisp.c
  * asserts of the default arena.  Both halves of that sentence are
  * re-derived by that file's test_arena_floor_matches_census(), from the
  * census file and from a real arena opened at exactly this size, so the
  * constant and the measurement cannot drift apart in silence. */
-static constexpr size_t lisp_arena_min_size = 768U * 1024U;
+static constexpr size_t lisp_arena_min_size = 896U * 1024U;
 /* How the arena is divided, which fe made the host's decision at
  * FE_API_VERSION 13.  kg names fe's own split rather than inheriting it
  * silently: it is the one field of the record, and the value kg asks for

@@ -1,0 +1,8 @@
+{
+ "id": "u1a-cl-incf-symbol-place",
+ "setup": [
+  "(require 'cl-lib)"
+ ],
+ "expr": "(list (let ((x 1)) (list (cl-incf x) x)) (let ((x 1)) (list (cl-incf x 5) x)) (let ((x 1.0)) (cl-incf x)))",
+ "note": "`cl-incf', 12 of the 35 packages and the most-reached `cl-' name kg can implement honestly. Emacs answers ((2 2) (6 6) 2.0): the form's value is the NEW value, the default increment is 1, an explicit X is used instead, and the arithmetic is ordinary so a float stays a float. Every place here is a bare SYMBOL, which is the whole of what kg supports -- Emacs takes any generalised variable and kg has no `gv'. Measured: of 212 `cl-incf' sites across ELPA, 188 pass a bare symbol."
+}

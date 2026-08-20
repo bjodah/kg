@@ -587,3 +587,58 @@ BEFORE Phase 27 builds on them; no Lisp hash table is exposed.
 * After Phase 26 closes: back to the user with the Phase 27 (user hash
   tables -- conditional on demand) and Phase 28 (choose-one-branch)
   decision points, carrying fresh Phase-21-style measurements as agreed.
+
+## 26.4 exit -- closed
+
+Phase 26 is complete.  The commit roll: the plan at `8315993`/`8fa132a`,
+26.0's freeze at `4ce245a`; 26.1 as six fe commits `08a7cd8..a66fc6d`;
+26.2 as tiny-regex-c `8e62ba7`, fe `657da21`, and kg `4673c6f`
+(transition), `713d032` (count-matches), `af9dc34` (replace-match),
+`6443516` (the s.el case), `c3f3477` (the review-doc restoration) and
+`f34bc4b` (the results); then the CI-multicore landing that rode in at
+the boundary (tiny-regex-c `..9850c2c`, fe `..7ef63ed`, kg `15038de`),
+and three findings the exit matrix itself contributed: `e8375fa`,
+`a7cbee8`, `0c10e1e`.  Neither 26.1's stopping rule (a symbol visible
+in one structure and not the other) nor 26.2's (cells moving
+materially) fired.
+
+The exit gate was the full 16-step matrix with the expensive step
+armed.  Getting to green took three runs and a serial confirmation, and
+every failure along the way was a real finding or a diagnosed flake:
+
+* Run 1: ci-07 found 26.2's new test code unformatted (whitespace only,
+  `e8375fa`), and ci-04 + ci-15 AGREED on a 2-byte leak in test_lisp --
+  the s.el frontier probe's caught arity raise leaves `lisp_search`'s
+  parked pattern in `state.scratch`, and a raise Lisp catches never
+  reaches frame recovery.  `park_scratch()` (`a7cbee8`) makes every
+  park free the previous occupant; the first draft converted lisp_io's
+  two realloc sites too and kgbatch died of heap corruption in `make
+  check` -- realloc consumes the previous occupant, which IS the slot,
+  so those two assign only, with the constraint written beside the
+  assignment.
+* Run 2: the same 2 bytes, teaching the class's second half -- in the
+  failing test no NEXT park ever comes: `kg_lisp_shutdown()` (and
+  `reset_state()`, the init-failure path) memset the state without
+  freeing the frame's heap side.  Both now run
+  `release_frame_buffers()` first (`0c10e1e`).  Proof by valgrind over
+  the whole test_lisp binary: zero definitely-lost, exit 0.
+* Run 3: fifteen PASS; ci-15 alone failed, on `test_dap_session`'s
+  `pump_until(s, is_configured)` -- a spawned-adapter handshake against
+  a 10 s wall-clock deadline, under valgrind with six lanes loading the
+  box.  Diagnosis, not assumption: DAP is untouched by this phase (zero
+  files), the same test passed the same lane in runs 1 and 2, and it
+  passed 3 of 3 isolated runs under ci-15's exact valgrind command.
+  B+D disposition: recorded here, hardened (a deadline scaled to the
+  runner, as the PTY settle floor does) only if it recurs.
+* The confirmation: `.ci/ci-15-valgrind.sh` run serially on the final
+  tree, green (`kg-ci15-serial-26.log`, EXIT=0).
+
+26.3's gates are each evidenced in the results section above: the
+probe gate is fe's CheckInternTiers (candidates/lookup <= 4 both
+tiers, ratio 0.898); miss-never-interns, payload-only allocation,
+no-tombstone policy, publish atomicity, no-finaliser close and the
+debug rebuild check are 26.1's tests; the hash contracts stand written
+in fe_internal.h before Phase 27 leans on them; and no Lisp hash table
+is exposed.  The honest frontier moved from one missing name and one
+silent misread to six named wants -- five names and one arity -- with
+zero silent gaps: everything s.el needs next now raises or is bound.

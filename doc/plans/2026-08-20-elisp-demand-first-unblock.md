@@ -434,3 +434,262 @@ ratchet moved and none was re-baselined.  Nothing under
 the census shim, the per-item stand-ins and the scratchpad copy of
 `dash.el` used to see past the reader escape all lived in the session
 scratchpad.
+## U.1a results -- the prelude/kg-side backlog slice
+
+Done on 2026-08-20/21 at kg `495f248`..`1214021` / fe `e1d4fbd`
+(unmoved), against GNU Emacs 31.0.91.  Five commits, one per backlog
+item except items 3 and 5, which landed together because they are one
+thing: the library surface a package file reaches before any of its own
+code runs.
+
+| Commit | Item | What it did |
+| --- | --- | --- |
+| `65f1ebb` | 1a | `defalias`/3: DOCSTRING is `put` on `function-documentation`, `documentation` reads it back FIRST |
+| `3de016d` | 1b | `require`/3: NOERROR, covering the missing file and nothing else |
+| `6a0aff9` | 1c | `regexp-opt`/2: PAREN, every value, reversing F.0's refuse-by-name decision |
+| `fec67c8` | 3, 5 | `subr-x` as a provided feature (7 names) + the six package-preamble names |
+| `1214021` | 6 | `cl-lib` as a provided feature, three names, and the POLICY stated |
+
+### 1. What flipped, item by item
+
+**Oracle gate, over the whole wave** (`make lisp-oracle-check`):
+
+    U.0 exit    482 comparison=emacs case(s), 409 passed, 73 divergence(s), 0 failed
+    U.1a exit   499 comparison=emacs case(s), 437 passed, 62 divergence(s), 0 failed
+
+Seventeen cases are NEW -- measured on the pinned 31.0.91 and recorded
+with `fe/utils/run-emacs-oracle.py` -- because U.1a relies on contracts
+the frozen rows do not reach.  Three of the seventeen carry `expect:
+agree` as controls and two are deliberate divergences.
+
+| Item | Row | Flipped | Still divergent, and why |
+| --- | --- | --- | --- |
+| 1 | `u0-defalias-docstring` | 4 of 5 (the 5th was the control) | -- row is now `supported` |
+| 1 | `u0-require-arity` | 3 of 4 (the 4th was the control) | -- row is now `supported` |
+| 1 | `u0-regexp-opt-paren` | 3 of 7 (a 4th was the control) | `words`, `symbols`: kg's engine reads `\<` `\>` `\_<` `\_>` as ORDINARY CHARACTERS, so the text is Emacs' exactly and the MATCH is wrong -- silently. A STRING opener naming a group number is a third engine gap and a louder one: `\(?2:` is `invalid regexp` where the shy `\(?:` beside it reads. **All three are U.2's.** |
+| 3 | `u0-subr-x` | 3 of 4 (the 4th was the control) | -- row is now `supported` |
+| 5 | (new rows) | -- | `prelude-lexical-binding` is `divergent` ON PURPOSE: the oracle shim evaluates every case with `(eval FORM t)`, so Emacs reads `t` where kg reads `nil`. The row beside it, on `(default-value 'lexical-binding)`, AGREES -- which is what makes the divergence attributable to kg's dialect and not to a missing variable. |
+| 6 | `u1a-cl-lib` | -- | `divergent` ON PURPOSE, on `cl-loop`: the row IS the policy (see §3). |
+
+`frontier-regexp-opt-paren-shapes` -- the case whose note held F.0's
+refuse-by-name decision -- is rewritten to hold the reversal (correction
+4.5), and it too is now divergent for a NARROWER reason than the one it
+was written with: its PAREN `t` half agrees and only its `words` half
+does not.
+
+### 2. What was implemented, and what was measured out
+
+Item 5's six names all landed.  `static-if` is the one that pays for
+itself twice: defining it means dash's `(unless (fboundp 'static-if)
+...)` polyfill is never expanded, so the `(eval condition
+lexical-binding)` inside it is never reached, and **Phase 28's Branch 1
+stays dormant on a name rather than a branch** (correction 4.2
+confirmed).  `lexical-binding` is `nil` and the nil is a statement about
+kg; U.1a additionally measured the consequence U.0 did not: kg's `eval`
+accepts a NIL second argument and refuses only a non-nil one, so `(eval
+FORM lexical-binding)` -- dash.el:52's exact shape -- EVALUATES here.
+
+Item 6's ranking was cut by measurement rather than by taste:
+
+| name | U.0 rank | in the slice? | the measurement |
+| --- | --- | --- | --- |
+| `cl-incf` | 12 pkgs / 30 refs | yes, SYMBOL places only | 188 of 212 ELPA sites pass a bare symbol |
+| `cl-case` | 10 / 23 | yes, all clause shapes | -- |
+| `cl-find-if` | 9 / 14 | yes, two arguments only | all 34 ELPA sites pass exactly two |
+| `cl-defun` | 13 / 66 | **no** | of 533 `cl-defun` sites across ELPA, **462 use `&key`** and 26 more a defaulted `&optional`; a `cl-defun` that was `defun` would mis-bind 87% of its callers SILENTLY |
+| `cl-loop` | 15 / 105 | no (out of scope) | an iteration sub-language, not a name |
+
+`named-let` and `hash-table-keys`/`-values`/`-empty-p` are the two
+subr-x names deliberately left out, and their absence is written down
+beside the code.
+
+### 3. The policy this wave had to state
+
+Phase 28's Branch 3 said the supported `cl-` neighbourhood must be
+stated before advertising it, and U.0 stated the numbers without
+deciding.  **U.1a decides**: kg answers `(require 'cl-lib)` with the
+feature and a NAMED SUBSET.  A package reaching any other `cl-` name
+gets `void-function` AT THE CALL, not `file-missing` at the require --
+the failure moves from load time to run time, deliberately, because
+refusing the require keeps 47 packages from loading at all in exchange
+for a diagnostic they get anyway, one call later and with the name in
+it.  `u1a-cl-lib-name-outside-the-subset` is that policy as a recorded
+divergence; `doc/lisp-api.md` carries it in prose.
+
+Both `subr-x` and `cl-lib` are provided from the PRELUDE rather than
+shipped as `lisp/*.el` packages, and that is Emacs' own shape as well as
+the only one that works here: kg's load-path defaults to one per-user
+directory that nothing installs into, so a file would make `(require
+'subr-x)` depend on the user having added a directory -- the opposite of
+what the blocked packages need.
+
+### 4. The demand probes, re-run
+
+The census's plain-`kgbatch` first-blocker method, re-run whole over the
+same 110 package main files.  The BEFORE column was re-measured here
+from a build of `495f248` rather than quoted, and **it reproduces Phase
+28's published plain column class for class**.
+
+| first blocker | before (`495f248`) | after (`1214021`) |
+| --- | ---: | ---: |
+| `require` of an absent library | 91 | 92 |
+| `void-function eval-when-compile` | 9 | **0** |
+| `void-function defgroup` | 2 | 7 |
+| `void-function make-variable-buffer-local` | 0 | 3 |
+| `void-function eval-and-compile` | 1 | **0** |
+| `Wrong number of arguments: require, 3` | 1 | **0** |
+| `void-function getenv` | 0 | 1 |
+| `expand-file-name` / `file-name-sans-extension` / `make-syntax-table` / `declare-function` | 1 each | 1 each |
+| `unsupported read syntax: unknown escape` | 1 | 1 |
+| **LOADS TO COMPLETION** | 1 | **2** |
+
+**44 of the 110 packages' first blocker moved**, which is the
+measurement correction 4.1 asked for and the one the loadable count
+alone hides.  The loadable count is **1 -> 2**: `inheritenv` joins `s`,
+having stopped at `(require 'cl-lib)` before.
+
+The absent-library tail is reshaped rather than shortened -- 42 distinct
+libraries before, 58 after, because packages that stopped at one shared
+blocker now stop at 32 different ones:
+
+| library | before | after |
+| --- | ---: | ---: |
+| `cl-lib` | 31 | **0** |
+| `compat` | 12 | 16 |
+| `subr-x` | 2 | **0** |
+| `map` | 2 | 4 |
+| `eieio` / `compile` / `rx` | 1-2 each | 3 each |
+
+`compat` is now the single largest class and nothing in this wave
+touched it.
+
+**dash.el's blocker line**, the chain U.0 mapped in §3.1:
+
+    U.0, plain          dash.el:46   void-function eval-when-compile
+    U.1a, plain         dash.el:46   Cannot open load file: cl
+
+Same line, different reason, and that is progress rather than a wash:
+`eval-when-compile` now RUNS, and what it runs is `(unless (fboundp
+'gv-define-setter) (require 'cl))`.  Standing in `gv-define-setter`
+alone -- one inert macro -- the chain walks:
+
+| # | dash.el | blocker | whose |
+| ---: | ---: | --- | --- |
+| 1 | :46 | `(require 'cl)` behind `(fboundp 'gv-define-setter)` | **new**: one name |
+| 2 | :822 | unknown reader escape, in a STRING (`\(fn ...)`) | backlog item 2 |
+| 3 | :3972 | the same rule in a CHARACTER literal (`?\(`) | **new detail**: item 2's other half, which U.0's map did not separate |
+| 4 | :3966 | `void-function rx` | the dash chain's remaining link |
+| 5 | :4096 | `void-function define-minor-mode` | the other remaining link |
+| 6 | :4127 | `void-function define-globalized-minor-mode` | **new** |
+| 7 | :4130 | `defcustom: semantic keyword is unsupported` (`:set`) | **new**: kg's `defcustom` refusing by name |
+| 8 | :4140 | `void-function define-obsolete-function-alias` | **new** |
+| 9 | -- | **dash.el LOADS**, 4177 lines | |
+
+U.0's steps 3, 5 and 7 (`void-variable lexical-binding`, `void-variable
+emacs-major-version`, `void-function make-obsolete-variable`) are all
+CLOSED by this wave and no longer appear.  Five steps are new, four of
+them one name each.
+
+The named consumers, before and after:
+
+| package | U.0 / census | U.1a |
+| --- | --- | --- |
+| `cython-mode` (`require`/3) | `Wrong number of arguments: require, 3` | `(require 'python)` -- exactly what U.0 predicted |
+| `yaml-mode` (`regexp-opt`/2) | `regexp-opt, 2` behind the shim | `yaml-mode.el:69 void-function defgroup` (plain; the shim's inert `defgroup` is what let U.0 see `make-sparse-keymap` past it) |
+| `elfeed` (subr-x) | `(require 'subr-x)` | `(require 'xml-query)` |
+| `simple-httpd` (subr-x) | `(require 'subr-x)` | `(require 'pp)` -- past `cl-lib`, which U.0 predicted as its next stop |
+| `xterm-color` (subr-x) | `(require 'subr-x)` | `void-function defgroup` -- likewise past `cl-lib` |
+| `yaml` (subr-x) | `(require 'subr-x)` | `(require 'seq)` |
+| `llm`, `zmq` (the two cl- first blockers U.0 found) | `(require 'cl-lib)` | `void-function defgroup` both -- neither reaches `cl-defstruct`/`cl-deftype` yet |
+| `inheritenv` | `(require 'cl-lib)` | **LOADS** |
+
+The nine packages U.0 said would reach `(require 'subr-x)` once `cl-lib`
+and `compat` existed do not reach it here, and the reason is in the
+prediction's own condition: kg provides `cl-lib` and NOT `compat`, so
+eight of the nine (`consult`, `cape`, `corfu`, `embark`, `marginalia`,
+`vertico`, `jinx`, `eat`) now stop at `(require 'compat)` and `rmsbolt`
+at `(require 'map)`.
+
+### 5. Ratchets and knobs that moved
+
+Every one carries its rationale and its measured before/after in its own
+commit message; this is the index.
+
+| knob | U.0 | U.1a | where |
+| --- | ---: | ---: | --- |
+| `peak_live_objects` | 10800 | 11899 | all five commits |
+| `reachable_live_objects` | 9633 | 10489 | all five commits |
+| `embedded_bytes` | 88866 | 108143 | all five commits |
+| `definition_count` | 139 | 156 | `65f1ebb` (+1), `fec67c8` (+12), `1214021` (+4) |
+| `payload_live_bytes` | 46120 | 48960 | all five commits |
+| `payload_peak_bytes` | 85344 | 90272 | all five commits |
+| `lisp_arena_min_size` | 768 KiB | **896 KiB** | `1214021` only |
+| `PRELUDE_DEFS` | 139 | 156 | tracks `definition_count` |
+| `utils/forecast/AUDIT.md` COVERED | 259 names | 265 names | regenerated in every commit |
+
+The arena floor is the one knob that is not a ratchet file, and only the
+last commit's four definitions force it:
+`test_arena_floor_matches_census` re-derives the 3x margin from the
+census against a real arena, and 3 x 10489 = 31467 is past the 30911
+slots 768 KiB opens (the previous commit's 3 x 10230 = 30690 still
+cleared).  Measured at this pin: 768 KiB opens 30911 slots, 800 KiB
+32293, 832 KiB 33676, 864 KiB 35058, 896 KiB 36441.  `README.md` and
+`doc/kg.1` carry the new figure; kg(1)'s was additionally STALE, naming
+655360 bytes from the floor before last.
+
+`src/lisp_core.c`'s prose citation of `reachable_live_objects` -- the
+second of the two evidence-machinery repairs this plan named -- is
+carried by the same commit, since raising the floor rewrites the
+sentence it lives in.  **The `make bench` repair is NOT done and is
+still owed.**
+
+### 6. What U.1a leaves for the rest of the phase
+
+* **U.2 owns three engine gaps this wave named precisely**: `\<` `\>`
+  `\_<` `\_>` (which `regexp-opt`'s `words`/`symbols` now produce and
+  kg's engine reads as ordinary characters -- a SILENT wrong match, and
+  `test_regexp_opt` asserts it so U.2 fails loudly there rather than
+  quietly fixing a case nothing watched); explicitly numbered groups
+  `\(?N:`, which the STRING PAREN value produces and the engine rejects
+  outright; and the unknown reader escape, whose CHARACTER-literal half
+  (`?\(`) is as load-bearing in dash.el as its string half.
+* **The dash chain's remaining links are five, not two**:
+  `gv-define-setter`, `rx`, `define-minor-mode`,
+  `define-globalized-minor-mode`, `define-obsolete-function-alias`, plus
+  `defcustom`'s `:set` keyword -- four of which are one name each, and
+  `gv-define-setter` is the cheapest thing in the tree that moves a
+  blocker (one inert macro moves dash from :46 to :822).
+* **`compat` is the largest absent-library class now** (16 packages),
+  and nothing has measured what is behind it.
+* **`defgroup` is the largest non-require blocker** (7 packages), with
+  `make-variable-buffer-local` (3) behind it -- both editor-surface
+  names rather than language ones.
+* `cl-defstruct` and `cl-deftype` are still the only `cl-` names that
+  are a first blocker anywhere, and both still sit behind `defgroup` for
+  their two packages.
+
+### 7. Verified
+
+    $ git rev-parse HEAD                    1214021
+    $ git -C fe rev-parse HEAD              e1d4fbd (unmoved)
+    $ make -j8 check                        EXIT=0, at every commit
+                                            unit 59/59 PASS
+                                            pty  594: 588 PASS, 6 SKIP, 0 FAIL, 0 XPASS
+    $ make format-check                     EXIT=0, at every commit
+    $ make prelude-census-check             EXIT=0, at every commit
+    $ make lisp-compat-check                635 feature(s), 0 problem(s)
+    $ make lisp-oracle-check                499 cases, 437 passed,
+                                            62 recorded divergences, 0 failed
+    $ make forecast-check                   EXIT=0 (rides in make check)
+    $ python3 fe/utils/run-emacs-oracle.py test/lisp-compat --emacs /opt-3/...
+                                            17 written/updated, 0 failed
+    $ ./test/kgbatch <110 ELPA main files>  before column re-measured from a
+                                            build of 495f248 and reproducing
+                                            Phase 28's published plain column
+
+`/proc/loadavg` was 0.7 .. 8.4 across the run; nothing here is timed.
+Nothing under `/root/.emacs.d/elpa/` was copied into the tree, modified,
+or committed: every ELPA file was read IN PLACE, and the census shim,
+the `gv-define-setter` stand-in and the escape-rewritten copy of
+`dash.el` used to walk past the reader all lived in the session
+scratchpad.

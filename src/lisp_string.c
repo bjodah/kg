@@ -283,6 +283,7 @@ FeObject *native_char_to_string(FeContext *context, FeObject *arguments)
 	FeDouble value;
 	char text[4];
 	long codepoint;
+	size_t length;
 
 	FeRequireNoArguments(context, arguments);
 	value = lisp_finite(context, object, "characterp");
@@ -300,8 +301,8 @@ FeObject *native_char_to_string(FeContext *context, FeObject *arguments)
 	if (codepoint >= 0xD800 && codepoint <= 0xDFFF) {
 		FeHandleError(context, "character code is a surrogate");
 	}
-	return FeMakeStringBytes(
-	    context, text, (size_t)lisp_encode_char(codepoint, text));
+	length = (size_t)lisp_encode_char(codepoint, text);
+	return FeMakeStringBytes(context, text, length);
 }
 
 /* ---- case conversion -------------------------------------------------

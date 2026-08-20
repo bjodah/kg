@@ -231,6 +231,7 @@ call below is one undo step:
 | ---- | ------ |
 | `(delete-region START END)` | Delete the region; positions in either order |
 | `(replace-region START END TEXT)` | The region becomes `TEXT`, as one edit |
+| `(fill-region START END)` | Reflow every paragraph in the region at `fill-column`, one undo step each; answers the fill prefix (`nil` for a region with no paragraph in it) and leaves point at the region's end |
 | `(search-forward STRING &optional BOUND)` | Literal search to `BOUND` (default `point-max`); moves point past the match, or `nil` |
 | `(search-backward STRING &optional BOUND)` | Literal search to `BOUND` (default `point-min`); moves point to the match's start, or `nil` |
 | `(re-search-forward PATTERN &optional BOUND)` | Regexp search forward; an error on a bad or too-complex pattern |

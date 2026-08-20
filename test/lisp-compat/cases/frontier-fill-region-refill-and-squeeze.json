@@ -2,5 +2,6 @@
  "id": "frontier-fill-region-refill-and-squeeze",
  "setup": [],
  "expr": "(list (with-temp-buffer (insert \"aa\\nbb\\ncc\") (let ((fill-column 20)) (fill-region (point-min) (point-max)) (buffer-substring (point-min) (point-max)))) (with-temp-buffer (insert \"aa   bb  cc \") (let ((fill-column 30)) (fill-region (point-min) (point-max)) (buffer-substring (point-min) (point-max)))))",
- "note": "FILLING IS NOT WRAPPING: it re-flows what is there. Emacs answers (\"aa bb cc\" \"aa bb cc\"). The first element shows existing newlines INSIDE a paragraph being joined away when the text now fits -- `s-word-wrap' on a string that already has newlines in it is therefore not a no-op -- and the second shows runs of spaces squeezed to one and trailing whitespace dropped, which is NOSQUEEZE nil, the default s.el gets. Both are properties a from-scratch wrapper that only ever inserts newlines would fail. kg answers `void-function' at this pin."
+ "note": "FILLING IS NOT WRAPPING: it re-flows what is there. Emacs answers (\"aa bb cc\" \"aa bb cc\"). The first element shows existing newlines INSIDE a paragraph being joined away when the text now fits -- `s-word-wrap' on a string that already has newlines in it is therefore not a no-op -- and the second shows runs of spaces squeezed to one and trailing whitespace dropped, which is NOSQUEEZE nil, the default s.el gets. Both are properties a from-scratch wrapper that only ever inserts newlines would fail. kg answers `void-function' at this pin.",
+ "expect": "agree"
 }

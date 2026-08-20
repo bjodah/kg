@@ -1303,6 +1303,85 @@ static void test_fill_column_variable(void)
 	teardown_editor();
 }
 
+/* `fill-region', the C contracts the oracle corpus cannot reach.  The
+ * seven frozen shapes -- one paragraph, many, refill/squeeze, a long
+ * word, the adaptive prefix, the empty region and the declined sentence
+ * nobreak -- are asserted against Emacs itself in
+ * test/lisp-compat/cases/frontier-fill-region-*, so what is here is the
+ * rest: the argument rules, the partial region, the buffer-local column
+ * and the two refusals. */
+static void test_fill_region(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	/* Order-insensitive, like every other region native. */
+	CHECK(eval_eq("(with-temp-buffer (insert \"aa bb cc dd\")"
+		      " (let ((fill-column 5))"
+		      "  (list (fill-region (point-max) (point-min))"
+		      "   (buffer-substring (point-min) (point-max)))))",
+	    "(\"\" \"aa bb\ncc dd\")"));
+
+	/* Point ends where the region's END moved to, not where it was:
+	 * squeezing three spaces out shortens the buffer under it, and
+	 * Emacs answers 9 for this one, measured. */
+	CHECK(eval_eq("(with-temp-buffer (insert \"aa   bb  cc \")"
+		      " (let ((fill-column 30))"
+		      "  (fill-region (point-min) (point-max)) (point)))",
+	    "9"));
+
+	/* START is rounded back to the beginning of its own LINE and END
+	 * is taken exactly -- Emacs' asymmetry, measured on 31.0.91:
+	 * `(fill-region 4 12)' over "aa bb cc dd" refills the whole line,
+	 * and a region ending inside a paragraph does not follow it. */
+	CHECK(eval_eq("(with-temp-buffer (insert \"aa bb cc dd\")"
+		      " (let ((fill-column 5))"
+		      "  (fill-region 4 (point-max))"
+		      "  (buffer-substring (point-min) (point-max))))",
+	    "aa bb\ncc dd"));
+	CHECK(eval_eq("(with-temp-buffer (insert \"aa bb\n\ncc dd\")"
+		      " (let ((fill-column 2))"
+		      "  (fill-region (point-min) 6)"
+		      "  (buffer-substring (point-min) (point-max))))",
+	    "aa\nbb\n\ncc dd"));
+
+	/* A region holding no word is not a paragraph: nil, and the text
+	 * is left alone (Emacs answers (nil "   ")). */
+	CHECK(eval_eq("(with-temp-buffer (insert \"   \")"
+		      " (let ((fill-column 5))"
+		      "  (list (fill-region (point-min) (point-max))"
+		      "   (buffer-substring (point-min) (point-max)))))",
+	    "(nil \"   \")"));
+
+	/* The column comes from the variable in force in the buffer being
+	 * filled, so a `setq-local' in one buffer is not the other's. */
+	CHECK(eval_eq("(with-temp-buffer (insert \"aa bb cc\")"
+		      " (setq-local fill-column 2)"
+		      "  (fill-region (point-min) (point-max))"
+		      "  (buffer-substring (point-min) (point-max)))",
+	    "aa\nbb\ncc"));
+	CHECK(eval_eq("fill-column", "70"));
+
+	/* And a column that is not a number is Emacs' own condition, with
+	 * Emacs' own predicate in it. */
+	CHECK(eval_eq("(condition-case e"
+		      " (with-temp-buffer (insert \"aa bb\")"
+		      "  (let ((fill-column \"x\"))"
+		      "   (fill-region (point-min) (point-max))))"
+		      " (wrong-type-argument (cdr e)))",
+	    "(number-or-marker-p \"x\")"));
+
+	/* A read-only buffer refuses, by name, before anything is
+	 * rewritten -- the rule insert and delete-region already state. */
+	bcur()->readonly = 1;
+	CHECK(eval_error_contains(
+	    "(fill-region (point-min) (point-max))", "read-only"));
+	bcur()->readonly = 0;
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
 static void test_define_and_run_command(void)
 {
 	setup_editor();
@@ -7586,7 +7665,7 @@ static void test_s_el_vendored_load(void)
 	    "   (void-function (car (cdr e))))"
 	    " (condition-case e (s-split-up-to \",\" \"a,b,c\" 1)"
 	    "   (wrong-number-of-arguments (cdr e))))",
-	    "(\"ab\" fill-region \"Xbc\" \"cba\""
+	    "(\"ab\" \"aa\nbb\" \"Xbc\" \"cba\""
 	    " \"1\" (\"a\" \"b,c\"))"));
 
 	/* THE REST OF WHAT THE FIVE SURFACES BOUGHT, one call per s.el
@@ -7602,12 +7681,28 @@ static void test_s_el_vendored_load(void)
 	    "(\"ar\" t t \"v\")"));
 
 	/* AND WHAT REMAINS, asserted as a value rather than described:
-	 * `fill-region' alone, which is F.1b's, and the ONLY name in the
-	 * six the frontier probe measured that this phase does not bind.
-	 * s-word-wrap is its one consumer. */
-	CHECK(eval_eq("(condition-case e (s-word-wrap 3 \"aa bb\")"
-		      " (void-function (cdr e)))",
-	    "(fill-region)"));
+	 * NOTHING.  This calls all six of the entry points the frontier
+	 * probe measured and collects the name of every one that still
+	 * answers `void-function\'; the list is nil, so the six wants are
+	 * six answers and the phase\'s demand track is closed.  A name that
+	 * regresses reappears here as itself rather than as a diff in a
+	 * comment. */
+	CHECK(eval_eq(
+	    "(let ((missing nil))"
+	    " (condition-case e (s-shared-start \"abc\" \"abd\")"
+	    "   (void-function (setq missing (cons (car (cdr e)) missing))))"
+	    " (condition-case e (s-word-wrap 3 \"aa bb\")"
+	    "   (void-function (setq missing (cons (car (cdr e)) missing))))"
+	    " (condition-case e (s-replace-all '((\"a\" . \"X\")) \"abc\")"
+	    "   (void-function (setq missing (cons (car (cdr e)) missing))))"
+	    " (condition-case e (s-reverse \"abc\")"
+	    "   (void-function (setq missing (cons (car (cdr e)) missing))))"
+	    " (condition-case e (s-format \"${a}\" 'aget '((\"a\" . \"1\")))"
+	    "   (void-function (setq missing (cons (car (cdr e)) missing))))"
+	    " (condition-case e (s-split-up-to \",\" \"a,b,c\" 1)"
+	    "   (void-function (setq missing (cons (car (cdr e)) missing))))"
+	    " missing)",
+	    "nil"));
 
 	kg_lisp_shutdown();
 }
@@ -8903,6 +8998,7 @@ int main(void)
 	RUN(test_sized_input);
 	RUN(test_variable_non_nil);
 	RUN(test_fill_column_variable);
+	RUN(test_fill_region);
 	RUN(test_load_file);
 	RUN(test_phase12_one_arg_defvar_file_scope);
 	RUN(test_load_file_error);

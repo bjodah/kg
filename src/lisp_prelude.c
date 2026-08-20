@@ -17,6 +17,10 @@ static const struct native_binding native_bindings[] = {
 	{ "delete-char", native_delete_char },
 	{ "erase-buffer", native_erase_buffer },
 	{ "replace-region", native_replace_region },
+	/* Emacs' own name for filling a span of the buffer, and the whole
+	   of the C fill Lisp can reach: the paragraph at point is M-q's,
+	   which is a command rather than a function. */
+	{ "fill-region", native_fill_region },
 	{ "buffer-name", native_buffer_name },
 	{ "buffer-file-name", native_buffer_file_name },
 	{ "buffer-modified-p", native_buffer_modified_p },

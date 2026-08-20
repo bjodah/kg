@@ -12,7 +12,9 @@
 #include "def.h"
 #include "edit.h"
 #include "lisp_internal.h"
+#include "lisp_locals.h"
 #include "lisp_obj.h"
+#include "word.h"
 
 /* ---- Formatting ------------------------------------------------------
  * `format` walks the format string a byte at a time and appends to a
@@ -672,6 +674,86 @@ FeObject *native_replace_region(FeContext *context, FeObject *arguments)
 	}
 	free(text);
 	return FeNil(context);
+}
+
+/* The `fill-column' in force in the buffer being filled: read through
+ * the buffer-local table, so a `setq-local' answers for that buffer and a
+ * `let' -- which binds whichever cell the swap has put there -- answers
+ * for its own extent.  `s-word-wrap' is exactly the second of those.
+ *
+ * A binding that is not a number is Emacs' error, measured on 31.0.91:
+ * `(let ((fill-column "x")) (fill-region ...))' is
+ * `(wrong-type-argument number-or-marker-p "x")'.  This is Lisp calling
+ * Lisp, so it raises where editor_fill_column()'s contained read for M-q
+ * falls back instead; the one shape not copied is Emacs' obsolete nil,
+ * which warns and fills nothing where this raises like any other
+ * non-number. */
+static int lisp_fill_column(FeContext *context, struct editor_buffer *b)
+{
+	FeObject *symbol = FeMakeSymbol(context, "fill-column");
+	FeObject *value
+	    = lisp_locals_buffer_value(context, symbol, buf_handle_of(b));
+	FeDouble column;
+
+	if (value == nullptr) {
+		lisp_raise_void_variable(context, symbol);
+	}
+	column = lisp_finite(context, value, "number-or-marker-p");
+	if (column > (FeDouble)INT_MAX) {
+		return INT_MAX;
+	}
+	if (column < -(FeDouble)INT_MAX) {
+		return -INT_MAX;
+	}
+	return (int)column;
+}
+
+/* (fill-region START END): fill every paragraph between the two
+ * positions at `fill-column', answering the fill PREFIX -- the last
+ * filled paragraph's indent, "" when it had none, nil when the region
+ * held no paragraph at all -- and leaving point at the end of the
+ * region.  All three are Emacs' contract, frozen case by case before
+ * this was written (test/lisp-compat/cases/frontier-fill-region-*).
+ *
+ * The filling itself is src/word.c's, the same word stream and wrap loop
+ * M-q runs, one gateway replacement per paragraph and therefore one undo
+ * step each.  What is NOT here is Emacs' `sentence-end-double-space'
+ * nobreak rule, which makes Emacs break earlier than the column allows
+ * after ". "; kg has no sentence machinery to hang it on and the demand
+ * behind this name is a column.  Declined at F.0 and recorded as a
+ * divergence in frontier-fill-region-sentence-nobreak. */
+FeObject *native_fill_region(FeContext *context, FeObject *arguments)
+{
+	FeObject *beg_object = FeGetNextArgument(context, &arguments);
+	FeObject *end_object = FeGetNextArgument(context, &arguments);
+	struct editor_buffer *b = lisp_exec_buffer(context);
+	size_t beg, end, moved;
+	char *prefix = nullptr;
+	int column;
+
+	FeRequireNoArguments(context, arguments);
+	lisp_region_arguments(context, b, beg_object, end_object, &beg, &end);
+	column = lisp_fill_column(context, b);
+	if (b->readonly) {
+		FeHandleError(context, "buffer is read-only");
+	}
+	if (!editor_fill_region(b, beg, end, column, &prefix, &moved)) {
+		FeHandleError(context, "out of memory");
+	}
+	lisp_exec_goto_char(b, lisp_char_offset_of(b, moved));
+	if (prefix == nullptr) {
+		return FeNil(context);
+	}
+	/* park_scratch() rather than free() after the make: FeMakeString
+	 * can raise on an exhausted arena, and a raise here never returns
+	 * to this frame. */
+	park_scratch(prefix);
+	{
+		FeObject *result = FeMakeString(context, prefix);
+
+		release_scratch();
+		return result;
+	}
 }
 
 /* The optional BUFFER argument the buffer-inspecting natives share: the

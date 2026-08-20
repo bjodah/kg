@@ -550,6 +550,7 @@ FeObject *native_buffer_file_name(FeContext *context, FeObject *arguments);
 FeObject *native_buffer_modified_p(FeContext *context, FeObject *arguments);
 FeObject *native_set_buffer_modified_p(FeContext *context, FeObject *arguments);
 FeObject *native_replace_region(FeContext *context, FeObject *arguments);
+FeObject *native_fill_region(FeContext *context, FeObject *arguments);
 FeObject *native_search_forward(FeContext *context, FeObject *arguments);
 FeObject *native_search_backward(FeContext *context, FeObject *arguments);
 FeObject *native_re_search_forward(FeContext *context, FeObject *arguments);

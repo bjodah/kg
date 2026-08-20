@@ -453,6 +453,7 @@ Editing and search go through the same gateway every command does, so each
 of these is one undo step:
 .Li (delete-region START END) ,
 .Li (replace-region START END TEXT) ,
+.Li (fill-region START END) ,
 .Li (search-forward STRING &optional BOUND) ,
 .Li (search-backward STRING &optional BOUND) ,
 .Li (re-search-forward PATTERN &optional BOUND) ,
@@ -463,6 +464,23 @@ of these is one undo step:
 .Li (set-marker MARKER POS &optional BUF)
 and
 .Li (marker-position MARKER) / (marker-buffer MARKER) .
+.Li fill-region
+fills EVERY paragraph between the two positions, at
+.Li fill-column ,
+one undo step per paragraph, and answers the fill prefix -- the last
+filled paragraph's indent,
+.Li \(dq\(dq
+when it had none, and
+.Li nil
+when the region held no paragraph at all.
+It is the fill
+.Ic M-q
+runs and has that fill's two limits: no
+.Li sentence-end-double-space
+rule (kg has no sentence machinery, so a period followed by one space is
+an ordinary break point where Emacs refuses one), and a column counted in
+bytes rather than in display cells, so non-ASCII text wraps early.
+.Pp
 None of the search natives wrap around the buffer the way
 .Ic C-s / C-r
 do, none fold case, and a match cannot span two lines.

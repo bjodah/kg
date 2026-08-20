@@ -504,6 +504,7 @@ and therefore one undo step:
 | `(delete-char &optional N)` | Delete `N` characters after point, or `-N` before it. Clamps where Emacs signals, so a count past the end deletes what is there |
 | `(erase-buffer)` | The whole buffer becomes empty |
 | `(replace-region START END TEXT)` | The region becomes `TEXT`, as one edit — never delete-then-insert |
+| `(fill-region START END)` | Reflow every paragraph between the two positions at `fill-column`, one gateway edit (one undo step) per paragraph. Answers the fill PREFIX — the last filled paragraph's indent, `""` when it had none, `nil` when the region held no paragraph — and leaves point at the end of the region. `START` is rounded back to the start of its line and `END` is taken exactly, as Emacs' is. No `sentence-end-double-space` nobreak rule: see below |
 | `(search-forward STRING &optional BOUND NOERROR)` | Literal search to `BOUND` (default `point-max`); moves point past the match. On failure `NOERROR` decides — see below |
 | `(search-backward STRING &optional BOUND NOERROR)` | Literal search to `BOUND` (default `point-min`); moves point to the match start. `NOERROR` as above |
 | `(re-search-forward PATTERN &optional BOUND NOERROR)` | Regexp search forward; error on a bad or too-complex pattern |
@@ -526,6 +527,17 @@ variation on the second: `t` and `'move` differ only in where point ends
 up, and a caller that wants the move has no other way to ask. Emacs' own
 fourth argument, `COUNT`, is not implemented and is
 `wrong-number-of-arguments` by name.
+
+`fill-region` is the same fill `M-q` runs — src/word.c's word stream and
+wrap loop, driven across a span instead of around point — and it carries
+that fill's limits. **Two recorded divergences from Emacs.** It does not
+implement `sentence-end-double-space`, the rule that makes Emacs break
+EARLIER than the column allows after `". "`, so a paragraph with a
+period in it fills to the obvious width here; kg has no sentence
+machinery to hang the rule on, and the declining is deliberate
+(`frontier-fill-region-sentence-nobreak`). And it counts BYTES against
+the column where Emacs counts display columns, so a paragraph of
+non-ASCII text wraps early — the same limit `M-q` has always had.
 
 None of the search natives wrap around the buffer (unlike `C-s`/`C-r`),
 none fold case, and a match cannot span two lines — the same limit

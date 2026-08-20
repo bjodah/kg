@@ -11,6 +11,7 @@
 #include "lisp_internal.h"
 #include "localvars.h"
 #include "marker.h"
+#include "re.h"
 #include "regex.h"
 
 /* ---- search-forward/-backward, re-search-forward/-backward -----------

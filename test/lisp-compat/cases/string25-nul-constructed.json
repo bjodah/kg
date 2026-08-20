@@ -2,5 +2,6 @@
  "id": "string25-nul-constructed",
  "setup": [],
  "expr": "(list (length (char-to-string 0)) (length (make-string 1 0)) (length (concat \"a\" (char-to-string 0) \"b\")))",
- "note": "The three routes to an embedded NUL that do not go through the reader. Emacs answers (1 1 3): a NUL is an ordinary character to `char-to-string`, `make-string` and `concat` alike. kg answers `wrong-type-argument` -- its `characterp` check rejects 0 before any string is built, so the refusal is kg's own natives and NOT fe's reader, which is why this is a separate case from string25-nul-read-and-length."
+ "note": "The three routes to an embedded NUL that do not go through the reader. Both sides answer (1 1 3): a NUL is an ordinary character to `char-to-string', `make-string' and `concat' alike. Recorded at 25.0 as kg's `wrong-type-argument' -- its `characterp' check rejected 0 before any string was built, which was kg's own natives and NOT fe's reader, and is why this was a separate case from string25-nul-read-and-length. Phase 25.2 dropped the gate once a fe string could hold the byte, and made the three constructors build their result from a length rather than from a terminator. Carries `expect: agree' inside a divergent row: the `format \"%c\"' case beside it still diverges, on how the NUL PRINTS.",
+ "expect": "agree"
 }

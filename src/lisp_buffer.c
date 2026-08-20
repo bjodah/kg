@@ -428,7 +428,7 @@ static size_t lisp_span_bytes(
  * Parked in state.scratch so frame recovery frees it if Fe raises before
  * the string object exists. */
 static char *lisp_copy_span(FeContext *context, const struct editor_buffer *b,
-    const int *rows, const int *cols)
+    const int *rows, const int *cols, size_t *out_size)
 {
 	size_t size = lisp_span_bytes(b, rows, cols);
 	size_t pos = 0;
@@ -449,6 +449,7 @@ static char *lisp_copy_span(FeContext *context, const struct editor_buffer *b,
 	}
 	text[size] = '\0';
 	state.scratch = text;
+	*out_size = size;
 	return text;
 }
 
@@ -461,6 +462,8 @@ FeObject *native_buffer_substring(FeContext *context, FeObject *arguments)
 	long beg, end, swap;
 	int rows[2], cols[2];
 	FeObject *result;
+	size_t span;
+	char *text;
 
 	FeRequireNoArguments(context, arguments);
 	beg = lisp_offset_argument(context, b, beg_object);
@@ -475,7 +478,11 @@ FeObject *native_buffer_substring(FeContext *context, FeObject *arguments)
 	}
 	lisp_rowcol_of_char_offset(b, beg, &rows[0], &cols[0]);
 	lisp_rowcol_of_char_offset(b, end, &rows[1], &cols[1]);
-	result = FeMakeString(context, lisp_copy_span(context, b, rows, cols));
+	/* By byte count, not by `strlen': buffer text is bytes -- a file kg
+	 * opened may hold a NUL -- and a fe string has held one since
+	 * FE_LANGUAGE_VERSION 17. */
+	text = lisp_copy_span(context, b, rows, cols, &span);
+	result = FeMakeStringBytes(context, text, span);
 	free(state.scratch);
 	state.scratch = nullptr;
 	return result;

@@ -318,10 +318,9 @@ static void format_write_text(FeContext *context, void *userdata, char chr)
 }
 
 /* %c: a codepoint, UTF-8 encoded, one display character wide whatever it
- * encodes to.  Emacs writes a NUL byte for (format "%c" 0); kg refuses
- * it, along with the surrogates and anything past U+10FFFF, because
- * nothing kg stores in a string may contain a NUL -- a recorded
- * divergence (doc/lisp-api.md). */
+ * encodes to.  0 writes a NUL byte, as in Emacs: kg refused it until
+ * FE_LANGUAGE_VERSION 17, when a fe string stopped ending at one.  The
+ * surrogates and anything past U+10FFFF are still refused. */
 static void format_character(FeContext *context, struct format_buffer *out,
     const struct format_spec *spec, FeObject *object)
 {
@@ -329,7 +328,7 @@ static void format_character(FeContext *context, struct format_buffer *out,
 	char utf8[4];
 	size_t length;
 
-	if (codepoint < 1 || codepoint > 0x10ffff
+	if (codepoint < 0 || codepoint > 0x10ffff
 	    || (codepoint >= 0xd800 && codepoint <= 0xdfff)) {
 		FeHandleError(context, "format %c character is out of range");
 	}
@@ -506,8 +505,13 @@ static void format_walk(FeContext *context, struct format_buffer *out,
 
 /* (format FORMAT &rest ARGS) without the string object: the result stays
  * in state.scratch so `message` can hand it straight to the editor.  The
- * caller releases the scratch. */
-static char *lisp_format_text(FeContext *context, FeObject *arguments)
+ * caller releases the scratch.  It is still NUL-terminated, because
+ * `message` wants a C string; *out_length, when asked for, is the byte
+ * count WITHOUT that terminator, which is what a caller building a fe
+ * string wants -- `%c` can write a NUL and the output is bytes, not a C
+ * string, from that point on. */
+static char *lisp_format_text(
+    FeContext *context, FeObject *arguments, size_t *out_length)
 {
 	FeObject *object = FeGetNextArgument(context, &arguments);
 	struct format_buffer out = { 0 };
@@ -522,13 +526,17 @@ static char *lisp_format_text(FeContext *context, FeObject *arguments)
 	out.capacity = length + 1;
 	format_walk(context, &out, length, arguments);
 	format_put(context, &out, '\0');
+	if (out_length != nullptr) {
+		*out_length = out.length - 1;
+	}
 	return out.text + out.start;
 }
 
 FeObject *native_format(FeContext *context, FeObject *arguments)
 {
-	FeObject *result
-	    = FeMakeString(context, lisp_format_text(context, arguments));
+	size_t length;
+	char *text = lisp_format_text(context, arguments, &length);
+	FeObject *result = FeMakeStringBytes(context, text, length);
 
 	release_scratch();
 	return result;
@@ -536,7 +544,10 @@ FeObject *native_format(FeContext *context, FeObject *arguments)
 
 FeObject *native_message(FeContext *context, FeObject *arguments)
 {
-	editor_set_status_message("%s", lisp_format_text(context, arguments));
+	/* The echo area takes a C string, so this one truncates at a NUL by
+	 * design -- doc/lisp-string-nul-policy.md's row for it. */
+	editor_set_status_message(
+	    "%s", lisp_format_text(context, arguments, nullptr));
 	release_scratch();
 	return FeNil(context);
 }

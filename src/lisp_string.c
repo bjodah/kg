@@ -11,7 +11,15 @@
 
 /* ---- Strings ---------------------------------------------------------
  * Fe has no string operations of its own.  These natives index by
- * codepoint, like the position API, so no result can be cut mid-glyph. */
+ * codepoint, like the position API, so no result can be cut mid-glyph.
+ *
+ * Every one of them BUILDS its result with `FeMakeStringBytes' and the
+ * length it already has, never with `FeMakeString' over the copy: since
+ * FE_API_VERSION 15 a fe string is bytes plus a length rather than bytes
+ * up to a terminator, so a NUL in the middle of one is data.  Reading
+ * back through `strlen' is how that data gets silently cut, and
+ * doc/lisp-string-nul-policy.md is the per-site record of which kg sites
+ * carry the length and which truncate on purpose. */
 
 /* Copy a string argument and park it in state.scratch, so a later Fe error
  * frees it.  Only one such copy is live at a time. */
@@ -134,8 +142,7 @@ FeObject *native_substring(FeContext *context, FeObject *arguments)
 	}
 	from = lisp_utf8_byte(text, length, from);
 	to = lisp_utf8_byte(text, length, to);
-	text[to] = '\0';
-	result = FeMakeString(context, text + from);
+	result = FeMakeStringBytes(context, text + from, (size_t)(to - from));
 	release_scratch();
 	return result;
 }
@@ -182,8 +189,7 @@ FeObject *native_concat(FeContext *context, FeObject *arguments)
 		    context, object, text + position, bytes);
 		position += bytes;
 	}
-	text[total] = '\0';
-	result = FeMakeString(context, text);
+	result = FeMakeStringBytes(context, text, total);
 	release_scratch();
 	return result;
 }
@@ -246,34 +252,34 @@ static int lisp_encode_char(long codepoint, char *out)
 	return 4;
 }
 
-/* (char-to-string N): the inverse of (char-after).  NUL and surrogates are
- * rejected so the result is always a well-formed one-character string. */
+/* (char-to-string N): the inverse of (char-after).  Surrogates are
+ * rejected so the result is always well-formed UTF-8; 0 is not, and
+ * answers the one-byte string Emacs answers. */
 FeObject *native_char_to_string(FeContext *context, FeObject *arguments)
 {
 	FeObject *object = FeGetNextArgument(context, &arguments);
 	FeDouble value;
-	char text[5];
+	char text[4];
 	long codepoint;
 
 	FeRequireNoArguments(context, arguments);
 	value = lisp_finite(context, object, "characterp");
 	/* Emacs' own answer for a code point outside Unicode, measured:
 	 * (char-to-string 4194304) is (wrong-type-argument characterp
-	 * 4194304), not a range error.  0 is on this side of the line
-	 * too, and that part is kg's own policy rather than Emacs' --
-	 * Emacs answers a one-NUL string there -- because nothing kg
-	 * stores in a string may contain a NUL, the same rule fe's reader
-	 * applies to the escape "\0".  Saying so as `characterp' keeps it
-	 * one predicate rather than two verdicts for one argument. */
-	if (value < 1 || value > 0x10FFFF) {
+	 * 4194304), not a range error.  0 used to be on this side of the
+	 * line as kg's own policy, because nothing kg stored in a string
+	 * could contain a NUL -- the same rule fe's reader applied to the
+	 * escape "\0".  Both ended at FE_LANGUAGE_VERSION 17, so this is
+	 * Emacs' range now and nothing else. */
+	if (value < 0 || value > 0x10FFFF) {
 		lisp_raise_wrong_type(context, "characterp", object);
 	}
 	codepoint = (long)value;
 	if (codepoint >= 0xD800 && codepoint <= 0xDFFF) {
 		FeHandleError(context, "character code is a surrogate");
 	}
-	text[lisp_encode_char(codepoint, text)] = '\0';
-	return FeMakeString(context, text);
+	return FeMakeStringBytes(
+	    context, text, (size_t)lisp_encode_char(codepoint, text));
 }
 
 /* ---- case conversion -------------------------------------------------
@@ -371,7 +377,7 @@ static FeObject *lisp_case(
 	}
 	text = lisp_string_argument(context, object, &length);
 	lisp_case_convert(text, length, kind);
-	result = FeMakeString(context, text);
+	result = FeMakeStringBytes(context, text, (size_t)length);
 	release_scratch();
 	return result;
 }
@@ -522,8 +528,11 @@ FeObject *native_make_string(FeContext *context, FeObject *arguments)
 	if (count > INT_MAX) {
 		FeHandleError(context, "string is too large");
 	}
+	/* Emacs' range, 0 included -- (make-string 1 0) is a one-NUL string
+	 * there and here.  See native_char_to_string() for the policy that
+	 * used to exclude it and for what ended it. */
 	codepoint = lisp_finite(context, char_object, "characterp");
-	if (codepoint < 1 || codepoint > 0x10FFFF
+	if (codepoint < 0 || codepoint > 0x10FFFF
 	    || (codepoint >= 0xD800 && codepoint <= 0xDFFF)) {
 		lisp_raise_wrong_type(context, "characterp", char_object);
 	}
@@ -541,8 +550,7 @@ FeObject *native_make_string(FeContext *context, FeObject *arguments)
 	for (i = 0; i < total; i += (size_t)width) {
 		memcpy(text + i, encoded, (size_t)width);
 	}
-	text[total] = '\0';
-	result = FeMakeString(context, text);
+	result = FeMakeStringBytes(context, text, total);
 	release_scratch();
 	return result;
 }

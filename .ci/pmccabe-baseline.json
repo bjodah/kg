@@ -1651,7 +1651,7 @@
   "src/lisp_io.c:format_write_text": 4,
   "src/lisp_io.c:lisp_buffer_argument": 3,
   "src/lisp_io.c:lisp_config_path": 6,
-  "src/lisp_io.c:lisp_format_text": 1,
+  "src/lisp_io.c:lisp_format_text": 2,
   "src/lisp_io.c:lisp_has_el_suffix": 2,
   "src/lisp_io.c:lisp_load_stream_begin": 3,
   "src/lisp_io.c:lisp_package_path": 4,

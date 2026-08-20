@@ -590,8 +590,7 @@ FeObject *native_regexp_quote(FeContext *context, FeObject *arguments)
 		}
 		quoted[out++] = block[i];
 	}
-	quoted[out] = '\0';
-	result = FeMakeString(context, quoted);
+	result = FeMakeStringBytes(context, quoted, out);
 	release_scratch();
 	return result;
 }

@@ -3276,8 +3276,9 @@ static void test_format_natives(void)
 	CHECK(eval_error_contains("(format 1)", "Wrong type argument"));
 	/* The spellings Emacs accepts and kg refuses, recorded rather than
 	 * quietly misread (manifest row phase8-format-strictness): Emacs'
-	 * remaining flags and its N$ field numbers, and %c of 0, which
-	 * Emacs writes as a NUL byte and kg cannot store in a string. */
+	 * remaining flags and its N$ field numbers.  `%c' of 0 left this
+	 * list in Phase 25 -- it writes a NUL byte here as it does in
+	 * Emacs, and test_phase25_strings asserts the whole route. */
 	CHECK(eval_error_contains(
 	    "(format \"%+d\" 1)", "invalid format operation"));
 	CHECK(eval_error_contains(
@@ -3286,7 +3287,6 @@ static void test_format_natives(void)
 	    "(format \"%#x\" 255)", "invalid format operation"));
 	CHECK(eval_error_contains(
 	    "(format \"%1$s\" 1)", "invalid format operation"));
-	CHECK(eval_error_contains("(format \"%c\" 0)", "out of range"));
 	/* Recovery after any of those leaves the interpreter usable. */
 	CHECK(eval_eq("(format \"%s\" 'ok)", "ok"));
 
@@ -3333,12 +3333,15 @@ static void test_char_string_round_trip(void)
 	CHECK(eval_eq("(char-to-string 233)", "\xc3\xa9"));
 	CHECK(eval_eq("(char-to-string 28450)", "\xe6\xbc\xa2"));
 	CHECK(eval_eq("(char-to-string 128169)", "\xf0\x9f\x92\xa9"));
-	CHECK(eval_error_contains("(char-to-string 0)", "Wrong type argument"));
 	/* Emacs' own answer for a code point outside Unicode is
-	 * (wrong-type-argument characterp 1114112), measured; 0 is kg's
-	 * own rejection and keeps its own prose. */
+	 * (wrong-type-argument characterp 1114112), measured.  0 was kg's
+	 * own rejection beside it until Phase 25; it is a one-byte string
+	 * now, asserted in test_phase25_strings with the other three
+	 * routes to one. */
 	CHECK(eval_error_contains(
 	    "(char-to-string 1114112)", "Wrong type argument"));
+	CHECK(eval_eq("(condition-case e (char-to-string -1) (error e))",
+	    "(wrong-type-argument characterp -1)"));
 	CHECK(eval_error_contains("(char-to-string 55296)", "surrogate"));
 
 	CHECK(eval_eq("(string-to-char \"abc\")", "97"));
@@ -5578,8 +5581,8 @@ static void test_phase15_string_natives(void)
 	 * (wrong-type-argument wholenump 2.0) in Emacs too. */
 	CHECK(eval_eq("(condition-case e (make-string 2.0 120) (error e))",
 	    "(wrong-type-argument wholenump 2.0)"));
-	CHECK(eval_eq("(condition-case e (make-string 2 0) (error e))",
-	    "(wrong-type-argument characterp 0)"));
+	CHECK(eval_eq("(condition-case e (make-string 2 -1) (error e))",
+	    "(wrong-type-argument characterp -1)"));
 	CHECK(eval_eq("(condition-case e (make-string -1 120) (error e))",
 	    "(wrong-type-argument wholenump -1)"));
 	CHECK(eval_eq("(condition-case e (make-string 2 \"x\") (error e))",
@@ -6752,6 +6755,36 @@ static void test_phase25_strings(void)
 	CHECK(eval_eq("(let ((s (intern (concat \"kg-phase25-\" \"name\"))))"
 		      " (list (eq s 'kg-phase25-name) (symbol-name s)))",
 	    "(t \"kg-phase25-name\")"));
+
+	/* THE FOUR ROUTES TO A NUL that do not go through the reader, all
+	 * of which kg refused before this phase in three different ways
+	 * from three different places.  Emacs' answer to the first three
+	 * is (1 1 3), which is the corpus case string25-nul-constructed. */
+	CHECK(eval_eq("(list (length (char-to-string 0))"
+		      " (length (make-string 1 0))"
+		      " (length (concat \"a\" (char-to-string 0) \"b\")))",
+	    "(1 1 3)"));
+	CHECK(eval_eq("(length (format \"%c\" 0))", "1"));
+	CHECK(eval_eq("(length (format \"x%cy\" 0))", "3"));
+	/* The range around it is Emacs' and nothing else: -1 is not a
+	 * character, and the surrogates and U+110000 are still refused. */
+	CHECK(eval_eq("(condition-case e (char-to-string -1) (error e))",
+	    "(wrong-type-argument characterp -1)"));
+	CHECK(eval_error_contains("(format \"%c\" -1)", "out of range"));
+
+	/* And the kg-side sites that COPY bytes out and back: each of them
+	 * carries the length now, where a `strlen' cut the value at the
+	 * NUL.  doc/lisp-string-nul-policy.md is the per-site record, and
+	 * these are its "carries the length" rows asked in Lisp. */
+	CHECK(eval_eq("(list (length (substring \"a\\0b\" 0 2))"
+		      " (length (upcase \"a\\0b\"))"
+		      " (length (regexp-quote \"a\\0b\"))"
+		      " (length (format \"%s\" \"a\\0b\")))",
+	    "(2 3 3 3)"));
+	/* `elt' answered nil for the middle of \"a\\0b\" before this, because
+	 * its prelude wrapper reaches `substring'. */
+	CHECK(eval_eq("(list (elt \"a\\0b\" 1) (string-to-list \"a\\0b\"))",
+	    "(0 (97 0 98))"));
 
 	kg_lisp_shutdown();
 }

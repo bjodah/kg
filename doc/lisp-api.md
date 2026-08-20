@@ -824,7 +824,14 @@ shape both dialects agree on and one for each half of the divergence.
 
 Fe has no string operations of its own; every one of these is a kg
 native (`src/lisp_string.c`), indexed by codepoint like the position API
-so no result is ever cut mid-glyph:
+so no result is ever cut mid-glyph.
+
+**A string is BYTES with a length**, not a C string: it may contain a
+NUL, `"a\0b"` reads as three units, and every native here carries its
+result's length rather than its terminator.  Where kg hands a string to
+something that takes a C string -- a file path, a hook name, an `execve`
+argument, the echo area -- it truncates at the first NUL on purpose;
+`doc/lisp-string-nul-policy.md` is the list of which sites do which.
 
 | Form | Result |
 | ---- | ------ |
@@ -832,9 +839,9 @@ so no result is ever cut mid-glyph:
 | `(substring S FROM &optional TO)` | 0-based character indices; negative counts from the end; clamps out of range; `TO` before `FROM` yields `""` |
 | `(concat A B ...)` | Joins any number of strings; `(concat)` is `""` |
 | `(string= A B)` | `t` when equal |
-| `(char-to-string N)` | One-character string for codepoint `N`; rejects 0, surrogates, values above `U+10FFFF` |
+| `(char-to-string N)` | One-character string for codepoint `N`; rejects surrogates and values above `U+10FFFF`. `N` may be 0, which builds a one-byte string holding a NUL, as in Emacs |
 | `(string-to-char S)` | First codepoint of `S`, `nil` for `""` |
-| `(format FORMAT ARG ...)` | `%s`/`%S`/`%d`/`%e`/`%f`/`%g`/`%c`/`%x`/`%X`/`%o`/`%%`; `-`/`0`, widths and precision are supported for numeric and string/character conversions; `%c` writes a UTF-8 codepoint, and refuses 0 where Emacs writes a NUL byte; Emacs' `+`, ` ` and `#` flags and its `N$` field numbers raise `invalid format operation`; extra arguments ignored, a missing one or an unknown specifier raises |
+| `(format FORMAT ARG ...)` | `%s`/`%S`/`%d`/`%e`/`%f`/`%g`/`%c`/`%x`/`%X`/`%o`/`%%`; `-`/`0`, widths and precision are supported for numeric and string/character conversions; `%c` writes a UTF-8 codepoint, 0 included (a NUL byte, as in Emacs); Emacs' `+`, ` ` and `#` flags and its `N$` field numbers raise `invalid format operation`; extra arguments ignored, a missing one or an unknown specifier raises |
 | `(make-string N CHAR)` | `N` copies of one character. Emacs' third `MULTIBYTE` argument is not accepted — every kg string is UTF-8 |
 | `(string-to-number S &optional BASE)` | `0` for anything that does not begin with a number, as in Emacs — including `"0x10"` and `"inf"`, which are not numbers to it either. `"1."` is the integer `1` and `"1.5"` is a float, the same split the reader makes. `BASE` is 2–16 |
 | `(upcase X)` / `(downcase X)` / `(capitalize X)` | `X` is a string or a character, and the result has `X`'s type. **ASCII only** — see the differences section |
@@ -1441,7 +1448,9 @@ primitive's function cell.
   sub-conditions of `error`. Two things are deliberately *not* claimed.
   A native whose failure Emacs itself reports unstructured keeps a plain
   `error`: resource exhaustion, a dead buffer, a NaN position, and kg's
-  own refusal of NUL and surrogate character codes, which Emacs accepts.
+  own refusal of surrogate character codes, which Emacs accepts.  (A NUL
+  character code was refused here too until Phase 25 gave fe strings a
+  length instead of a terminator; it is an ordinary character now.)
   An **uncaught** one reports Emacs' own sentence —
   `Wrong type argument: integer-or-marker-p, "x"` — since Phase 19 gave
   fe the `error-message` property and `error-message-string`; see below.

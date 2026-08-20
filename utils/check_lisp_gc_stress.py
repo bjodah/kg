@@ -175,13 +175,21 @@ MIN_STRESS_COLLECTIONS = 1000
 # scale factor.  Ratios measured per build, each ordinary run against its
 # own stress run over the same script:
 #
-#   gcc -O0 -g (make check)      0.03 s ->   1.55 s    52x
-#   gcc --coverage (ci-02)       0.03 s ->   3.24 s   108x
-#   clang ASan+UBSan (ci-04)     0.04 s ->  10.65 s   266x
-#   clang MSan (ci-05)           0.53 s -> 142.71 s   269x
-#   clang MSan, 3-vCPU CI box    2.10 s -> 644.40 s   307x
+#   gcc -O0 -g (make check)      0.014 s ->   1.97 s   140x
+#   clang MSan (ci-05)           0.185 s -> 213.97 s  1157x
+#   gcc --coverage (ci-02)       0.03 s  ->   3.24 s   108x  (older tree)
+#   clang ASan+UBSan (ci-04)     0.04 s  ->  10.65 s   266x  (older tree)
+#   clang MSan, 3-vCPU CI box    2.10 s  -> 644.40 s   307x  (older tree)
 #
-# The plain build's 52x is not the outlier it looks like: its ordinary
+# The two runs measure different things, so their ratio is not a
+# constant of the box: the ordinary run is eval over a prelude whose
+# arena rarely fills (0-1 collections), the stress run is ~15k of them,
+# and any change that speeds eval or adds per-collection work raises
+# the true ratio without touching either run's correctness.  MSan is
+# where that shows first, because its instrumentation multiplies the
+# collection loops far more than the eval path.
+#
+# The plain build's 140x is not the outlier it looks like: its ordinary
 # run is mostly process startup, which is why there is a floor as well as
 # a ratio.  The last row is why the number cannot be fixed at all.  That
 # box is ~3x slower per core than this one on the ordinary run and ~4.5x
@@ -194,12 +202,13 @@ MIN_STRESS_COLLECTIONS = 1000
 # 60% of one vCPU and taking 720.85 s.  A ratio moves with all of that
 # because both of its terms do.
 #
-# 1000 is 3.3x the worst ratio above; on that box it computes a 2100 s
-# budget for the 644.4 s run.
+# 4000 is 3.5x the worst ratio above; on this box it computes a 740 s
+# budget for the 214 s MSan run, and on the 3-vCPU box the cap takes
+# over before the scaled budget does.
 #
-# The floor is what every build except MSan actually gets, because their
-# ordinary run is too short to scale anything from: 120 s is 11x the ASan
-# stress run, 37x the coverage one, 77x the plain one.  The cap keeps "a
+# The floor is what the shortest ordinary runs still need, because they
+# are too short to scale anything from: at 0.014 s the plain build would
+# scale to 56 s, and 120 s is 61x its 1.97 s stress run.  The cap keeps "a
 # hang fails the build" true no matter what the calibration run reports:
 # an hour, not an unbounded multiple.  Both numbers are printed against
 # what they were given, so the next sizing decision is made from a CI log
@@ -213,7 +222,7 @@ MIN_STRESS_COLLECTIONS = 1000
 # here a slower box could still outgrow, and the run it bounds is the
 # cheap one, which is the trade.
 ORDINARY_TIMEOUT = 300
-STRESS_TIMEOUT_RATIO = 1000
+STRESS_TIMEOUT_RATIO = 4000
 STRESS_TIMEOUT_FLOOR = 120
 STRESS_TIMEOUT_CAP = 3600
 

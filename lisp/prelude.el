@@ -246,6 +246,33 @@
     (if (eq key (car (car alist))) (setq hit (car alist)))
     (setq alist (cdr alist)))
   hit))
+;; Emacs' string designator: a string is itself, a SYMBOL is its name
+;; (`nil' included, so a nil key is "nil"), anything else is nil meaning
+;; `not comparable as a string'.  What the two callers do with that nil
+;; is `assoc-string''s DELIBERATE ASYMMETRY, measured: a non-string KEY
+;; raises, a non-string ELEMENT is SKIPPED and the scan continues, so an
+;; alist of numbers answers nil rather than signalling.
+(defalias 'internal--string-designator (lambda (object)
+  (if (stringp object) object
+    (if (symbolp object) (symbol-name object)))))
+;; The ELEMENT comes back, not the key and not the cdr -- s--aget takes
+;; the `cdr' of this.  FOLD is `compare-strings'' own ASCII-only fold,
+;; one answer for both names.  `found' is separate from `hit' because a
+;; matched element may itself be nil.
+(defalias 'assoc-string (lambda (key alist &optional case-fold)
+  (internal--let name (internal--string-designator key))
+  (internal--let hit nil)
+  (internal--let found nil)
+  (if (null name) (signal 'wrong-type-argument (list 'stringp key)))
+  (while (and alist (null found))
+    (internal--let element (car alist))
+    (internal--let text (internal--string-designator
+                          (if (consp element) (car element) element)))
+    (if (and text
+             (eq t (compare-strings name nil nil text nil nil case-fold)))
+        (progn (setq found t) (setq hit element)))
+    (setq alist (cdr alist)))
+  hit))
 (defalias 'mapc (lambda (f sequence)
   ((lambda (lst)
      (while lst
@@ -1231,6 +1258,13 @@
 ;; "-a-b-c-".
 ;; All five temporaries are live across the `funcall' of a function REP,
 ;; so all five are lambda parameters rather than `let' bindings.
+;; A FUNCTION REP IS CALLED WITH THE MATCH DATA OF THE MATCHED TEXT, not
+;; of the subject: a replacer reads its groups with `(match-string N
+;; MATCHED-TEXT)', so subject offsets index the wrong string for every
+;; match that does not start at 0.  s-format is the measured case -- it
+;; answered the first ${...} and nothing for the rest.  Emacs re-matches
+;; the extracted text for the same reason.  Only a NON-EMPTY match:
+;; kg's one-character advance already agrees with Emacs on empty ones.
 (defalias 'replace-regexp-in-string (lambda
   (regexp rep string &optional fixedcase literal)
   ((lambda (start out limit)
@@ -1241,7 +1275,12 @@
                       (if (stringp rep)
                           (if literal rep
                             (internal--replace-expand rep string))
-                        (funcall rep (match-string 0 string)))))
+                        (if (= me mb)
+                            (funcall rep (match-string 0 string))
+                          ((lambda (str)
+                             (string-match regexp str)
+                             (funcall rep (match-string 0 str)))
+                           (substring string mb me))))))
           (if (= me mb)
               (progn
                 (if (< mb limit)
@@ -1528,6 +1567,7 @@
   (append . "Return the concatenation of the argument lists; the last may be any object.")
   (ash . "Return VALUE arithmetically shifted left by COUNT, or right when it is negative.")
   (assoc . "Return the first pair of ALIST whose car `equal's KEY.")
+  (assoc-string . "Return ALIST's first element whose string form matches KEY.")
   (assq . "Return the first pair of ALIST whose car is `eq' to KEY.")
   (assq-delete-all . "Return ALIST without the pairs whose car is `eq' to KEY.")
   (autoload . "Accept an autoload declaration; kg loads nothing and records nothing.")

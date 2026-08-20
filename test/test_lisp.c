@@ -3202,6 +3202,98 @@ static void test_marker_survives_buffer_kill(void)
  * existed here.  This is the kg-side half: the same contract asked of the
  * editor's own objects, plus the bounds TABLE, which is where three of
  * the rules are not what the name suggests. */
+/* Emacs' `assoc-string', the want behind s-format and s--aget, and the
+ * one internal name the frontier demand phase added under it.  Every rule
+ * was frozen as an oracle case first (frontier-assoc-string-*); what this
+ * adds is the DESIGNATOR asked directly, and the two ends of the
+ * asymmetry side by side, which is where a reimplementation goes wrong. */
+static void test_assoc_string_and_designator(void)
+{
+	CHECK(kg_lisp_init() == 0);
+
+	/* The designator: a string is itself, a symbol is its name -- `nil'
+	 * included -- and anything else answers nil, meaning `not
+	 * comparable as a string'. */
+	CHECK(eval_eq("(list (internal--string-designator \"a\")"
+		      " (internal--string-designator 'a)"
+		      " (internal--string-designator nil)"
+		      " (internal--string-designator 1)"
+		      " (internal--string-designator (list 1)))",
+	    "(\"a\" \"a\" \"nil\" nil nil)"));
+
+	/* THE ELEMENT COMES BACK, in every shape: a cons compared by its
+	 * car, or a bare string or symbol compared as itself, with
+	 * `symbol-name' coercing either side. */
+	CHECK(eval_eq("(assoc-string \"b\" (list (cons \"a\" 1)"
+		      " (cons \"b\" 2)))",
+	    "(\"b\" . 2)"));
+	CHECK(eval_eq("(assoc-string \"z\" (list (cons \"a\" 1)))", "nil"));
+	CHECK(eval_eq("(assoc-string \"a\" (list \"a\" \"b\"))", "a"));
+	CHECK(eval_eq("(assoc-string \"a\" (list 'a 'b))", "a"));
+	CHECK(eval_eq("(assoc-string 'a (list (cons \"a\" 1)))", "(\"a\" . 1)"));
+	CHECK(eval_eq("(assoc-string \"a\" (list (cons 'a 1)))", "(a . 1)"));
+	/* A nil KEY is the symbol `nil', so it is the string "nil" and
+	 * finds an element -- measured on 31.0.91, and the one row that
+	 * says the designator's nil answer is about TYPE and not about
+	 * emptiness. */
+	CHECK(eval_eq("(assoc-string nil (list (cons \"nil\" 1)))",
+	    "(\"nil\" . 1)"));
+
+	/* THE ASYMMETRY.  A non-string ELEMENT is skipped silently and the
+	 * scan CONTINUES past it; a non-string KEY raises.  An
+	 * implementation that treated the two ends alike gets one of them
+	 * wrong whichever way it chooses. */
+	CHECK(eval_eq("(assoc-string \"a\" (list 1 2))", "nil"));
+	CHECK(eval_eq("(assoc-string \"a\" (list (cons 1 2)))", "nil"));
+	CHECK(eval_eq("(assoc-string \"a\" (list 1 (cons 2 3)"
+		      " (cons \"a\" 4)))",
+	    "(\"a\" . 4)"));
+	CHECK(eval_eq("(assoc-string \"a\" nil)", "nil"));
+	CHECK(eval_eq("(condition-case e (assoc-string 1 (list (cons \"1\" 2)))"
+		      " (error (cons (car e) (cdr e))))",
+	    "(wrong-type-argument stringp 1)"));
+
+	/* Duplicates resolve to the FIRST match, and CASE-FOLD works in
+	 * both directions -- ASCII only, `compare-strings'' own fold, which
+	 * is why the É/é row beside these stays a divergence. */
+	CHECK(eval_eq("(assoc-string \"b\" (list (cons \"a\" 1) (cons \"b\" 2)"
+		      " (cons \"b\" 3)))",
+	    "(\"b\" . 2)"));
+	CHECK(eval_eq("(assoc-string \"A\" (list (cons \"a\" 1)))", "nil"));
+	CHECK(eval_eq("(assoc-string \"A\" (list (cons \"a\" 1)) t)",
+	    "(\"a\" . 1)"));
+	CHECK(eval_eq("(assoc-string \"a\" (list (cons \"A\" 1)) t)",
+	    "(\"A\" . 1)"));
+	CHECK(eval_eq("(assoc-string \"\xc3\x89\" (list (cons \"\xc3\xa9\" 1))"
+		      " t)",
+	    "nil"));
+
+	/* A FUNCTION REPLACER SEES THE MATCH DATA OF THE MATCHED TEXT, not
+	 * of the subject -- Emacs' rule, and what s-format needs: its
+	 * replacer reads `(match-string N MD)' where MD is the matched
+	 * text, so subject offsets index the wrong string for every match
+	 * after the first.  The second element is the one that answered
+	 * "<a>-<>" before. */
+	CHECK(eval_eq("(replace-regexp-in-string \"{\\\\([^}]+\\\\)}\""
+		      " (lambda (md) (format \"<%s>\" (match-string 1 md)))"
+		      " \"{a}-{b}\" t t)",
+	    "<a>-<b>"));
+	CHECK(eval_eq("(replace-regexp-in-string"
+		      " \"\\\\$\\\\({\\\\([^}]+\\\\)}\\\\|[0-9]+\\\\)\""
+		      " (lambda (md) (format \"<%s>\" (match-string 2 md)))"
+		      " \"${a}-${b}\" t t)",
+	    "<a>-<b>"));
+	/* An EMPTY match keeps the old path, where kg already agreed with
+	 * Emacs: both answer these two. */
+	CHECK(eval_eq("(replace-regexp-in-string \"x*\" \"-\" \"abc\")",
+	    "-a-b-c"));
+	CHECK(eval_eq("(replace-regexp-in-string \"x*\""
+		      " (lambda (m) (format \"[%s]\" m)) \"axb\")",
+	    "[]a[x][]b"));
+
+	kg_lisp_shutdown();
+}
+
 static void test_compare_strings(void)
 {
 	CHECK(kg_lisp_init() == 0);
@@ -6292,8 +6384,10 @@ static void test_quit_uncaught(void)
  * Phase 26.2 added `count-matches' and `replace-match', the two missing
  * NAMES Phase 25's honest frontier measured unmodified s.el stopping at,
  * both prelude Lisp because both are ordinary Lisp over what kg already
- * had. */
-#define PRELUDE_DEFS 135
+ * had.  The frontier demand phase added `assoc-string' and the one
+ * internal name under it, `internal--string-designator', taking it to
+ * 137. */
+#define PRELUDE_DEFS 137
 
 /* What a value CAPTURED out of a symbol's function cell is: that symbol's
  * definition at the moment of capture, and it stays that definition
@@ -7334,7 +7428,7 @@ static void test_s_el_vendored_load(void)
 	    " (condition-case e (s-split-up-to \",\" \"a,b,c\" 1)"
 	    "   (wrong-number-of-arguments (cdr e))))",
 	    "(\"ab\" fill-region regexp-opt multibyte-string-p"
-	    " assoc-string (\"a\" \"b,c\"))"));
+	    " \"1\" (\"a\" \"b,c\"))"));
 
 	kg_lisp_shutdown();
 }
@@ -8710,6 +8804,7 @@ int main(void)
 	RUN(test_process_callback_designator);
 	RUN(test_keymap_apis);
 	RUN(test_compare_strings);
+	RUN(test_assoc_string_and_designator);
 	RUN(test_string_length_and_substring);
 	RUN(test_string_concat_and_equal);
 	RUN(test_format_natives);

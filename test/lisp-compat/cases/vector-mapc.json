@@ -1,0 +1,6 @@
+{
+ "id": "vector-mapc",
+ "setup": [],
+ "expr": "(let ((acc nil)) (mapc (lambda (x) (setq acc (cons x acc))) [1 2 3]) acc)",
+ "note": "`mapc' over a vector, observed through the side effect it exists for: the accumulator ends (3 2 1), so the elements were visited in index order. 24.2's list."
+}

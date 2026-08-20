@@ -1,0 +1,6 @@
+{
+ "id": "vector-read-missing-bracket",
+ "setup": [],
+ "expr": "[1 2",
+ "note": "Reader error recovery for a missing closing bracket, frozen BY NAME before kg has an opinion. MEASURED SURPRISE: Emacs raises `end-of-file' -- the generic incomplete-input condition, not a vector-specific one -- with data nil. kg answers the recorded bracket rejection here for the opposite reason (it never starts reading a vector at all), so the two sides disagree today and 24.1 has to make kg raise end-of-file rather than invent a name of its own. Compared by the message-source fallback, since a reader error happens before kgbatch's Lisp wrapper."
+}

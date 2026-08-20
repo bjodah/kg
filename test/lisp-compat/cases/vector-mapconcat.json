@@ -1,0 +1,6 @@
+{
+ "id": "vector-mapconcat",
+ "setup": [],
+ "expr": "(mapconcat #'number-to-string [1 2 3] \"-\")",
+ "note": "`mapconcat' over a vector with a separator: \"1-2-3\". 24.2's list."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "vector-print-format-spec",
+ "setup": [],
+ "expr": "(format \"%S\" [1 (2) \"x\"])",
+ "note": "The printed form is the reader's own syntax, with each element printed as %S prints it: Emacs gives the string \"[1 (2) \\\"x\\\"]\". This is the re-readable-printing half of 24.1 stated as a value rather than as a round trip, because kg has neither `read-from-string' nor `prin1-to-string' at this pin and a round-trip case would pin a different frontier than the one this phase closes."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "vector-make-vector-shared-init",
+ "setup": [],
+ "expr": "(let ((v (make-vector 2 (list 1)))) (list (eq (aref v 0) (aref v 1)) v))",
+ "note": "The INIT argument is stored, not copied: every slot holds the same object, so (eq (aref v 0) (aref v 1)) is t. Emacs: (t [(1) (1)]). An implementation that deep-copied the initialiser, or that built each slot by evaluating something, would answer nil and print the same thing -- which is why the identity is asked for explicitly."
+}

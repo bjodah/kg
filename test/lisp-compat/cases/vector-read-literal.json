@@ -1,0 +1,6 @@
+{
+ "id": "vector-read-literal",
+ "setup": [],
+ "expr": "[1 2 3]",
+ "note": "Phase 24.0 (doc/plans/2026-08-20-elisp-data-model-phase24-execution.md): the anchor of the vector contract -- Emacs reads three integers into a vector object and prints it back in the same syntax. Deliberately the same expression as the Phase 8 row phase8-reader-vector, and kept separate from it because the two rows have different lifetimes: that row records a REJECTION POLICY that also owns `#:' (uninterned symbols), which Phase 24 does not close, so it survives this phase with one of its two cases flipped. This row is the contract 24.1 implements."
+}

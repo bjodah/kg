@@ -1,0 +1,6 @@
+{
+ "id": "vector-vectorp-non-vectors",
+ "setup": [],
+ "expr": "(list (vectorp '(1 2)) (vectorp \"ab\") (vectorp 1) (vectorp nil))",
+ "note": "HONEST ROW, not a bracket divergence: this expression contains no vector syntax at all, so kg reads it fine and answers `void-function' -- `vectorp' is simply not bound at this pin -- where Emacs answers (nil nil nil nil). The record kinds differ (condition vs value), which is what makes it a real divergence rather than a restatement of the reader gap, and it is the case that will still be doing work after 24.1 lands the reader: a `vectorp' that answers t for a string or a list would pass every bracket case above and fail this one."
+}

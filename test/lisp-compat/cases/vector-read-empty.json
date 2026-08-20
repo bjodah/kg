@@ -1,0 +1,6 @@
+{
+ "id": "vector-read-empty",
+ "setup": [],
+ "expr": "[]",
+ "note": "The zero-length vector is a distinct object, not nil: Emacs answers [] and (vectorp []) is t (vector-vectorp-vector). It is the n = 0 corner of the payload substrate -- a vector whose payload block is empty still needs a stable header -- which is why it is its own case rather than an element of vector-read-literal."
+}

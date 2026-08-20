@@ -1,0 +1,6 @@
+{
+ "id": "vector-aref-out-of-bounds",
+ "setup": [],
+ "expr": "(aref [10 20] 5)",
+ "note": "Bounds condition NAME AND DATA, which is the part a native implementation gets wrong silently: Emacs raises `args-out-of-range' with data ([10 20] 5) -- the OFFENDING VECTOR first, then the index, not the index alone and not a message string. The runner compares the condition symbol; the data shape is frozen in the snapshot for 24.1's native test to assert. A negative index takes the same route with the same symbol (measured: (aref [10 20] -1) is args-out-of-range with data ([10 20] -1)), so it is recorded here in prose rather than as a second case whose comparison key would be identical."
+}

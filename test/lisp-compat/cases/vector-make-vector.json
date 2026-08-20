@@ -1,0 +1,6 @@
+{
+ "id": "vector-make-vector",
+ "setup": [],
+ "expr": "(list (make-vector 3 'a) (make-vector 0 'a))",
+ "note": "`make-vector' with a positive and a zero length: ([a a a] []). The zero case is the one that decides whether a length-0 payload allocation is legal or a special case, which under Design B is a substrate question and not a Lisp one."
+}

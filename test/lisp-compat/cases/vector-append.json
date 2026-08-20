@@ -1,0 +1,6 @@
+{
+ "id": "vector-append",
+ "setup": [],
+ "expr": "(list (append [1 2] nil) (append [1] '(2)))",
+ "note": "`append' with a VECTOR argument flattens it into the result list: ((1 2) (1 2)). The first form is Emacs' idiomatic vector-to-list conversion and the one a package is most likely to use. 24.2's list."
+}

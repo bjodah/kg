@@ -4596,6 +4596,161 @@
    "source_name": null
   },
   {
+   "id": "vector-append-string-sequence",
+   "category": "vectors",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "vector-append-string"
+   ],
+   "kg_test": "test/test_lisp.c:test_list_library",
+   "rationale": "A divergence Phase 24.0 FOUND rather than planned, kept in this group because it is the same generic-sequence contract and would otherwise go unrecorded: kg's `append' rejects a STRING with `wrong-type-argument' where Emacs flattens it to its character codes, (append \"ab\" nil) -> (97 98). Nothing to do with vectors and no bracket in the expression, so it is honest about being a different gap: an `append' taught to accept a vector in 24.2 and nothing else would still fail this case. Its own row rather than a sixth case of vector-prelude-sequence-combinators so that 24.2 can close that row in full while leaving this one open with a stated reason, instead of the two being one all-or-nothing verdict. source_name is null: `append' is claimed by prelude-append.",
+   "source_name": null
+  },
+  {
+   "id": "vector-construction",
+   "category": "vectors",
+   "status": "divergent",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "vector-make-vector",
+    "vector-make-vector-shared-init",
+    "vector-vector-function",
+    "vector-vconcat",
+    "vector-large-payload"
+   ],
+   "kg_test": null,
+   "rationale": "Phase 24.0: `make-vector', `vector' and `vconcat', with the two contracts an implementation can satisfy by accident and then lose. First, `make-vector''s INIT argument is stored rather than copied, so every slot is `eq' to every other. Second, `vconcat' flattens a string to its CHARACTER CODES -- (vconcat \"ab\") is [97 98] -- which is a different rule from vector+vector and vector+list, and all four combinations are in one case. vector-large-payload is the master plan's required `more than 4032 elements' case stated as a language contract: 5000 elements past the point Design B's payload block stops being one small allocation, answering (5000 7 t), bounded and deterministic enough for the runner's timeout. Two of the five cases carry brackets and three do not; the three answer `void-function' today, since `make-vector', `vector' and `vconcat' are unbound at this pin.",
+   "source_name": null
+  },
+  {
+   "id": "vector-element-access",
+   "category": "vectors",
+   "status": "divergent",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "vector-aref-in-bounds",
+    "vector-aref-out-of-bounds",
+    "vector-aref-wrong-type",
+    "vector-aset-two-references",
+    "vector-aset-out-of-bounds"
+   ],
+   "kg_test": null,
+   "rationale": "Phase 24.0: `aref'/`aset' bounds and wrong-type condition data, plus the master plan's required `mutation observed through two references' case. MEASURED CONDITION DATA, which is the part this row exists to freeze and the part a native implementation gets wrong silently: out of range on either side is `args-out-of-range' with data (VECTOR INDEX) -- the offending vector FIRST, then the index -- and a non-array argument is `wrong-type-argument' with data (arrayp OBJ), naming `arrayp' rather than `vectorp' because `aref' is an array operation. A negative index is args-out-of-range too (measured (aref [10 20] -1) -> ([10 20] -1)); it is recorded in vector-aref-out-of-bounds's note rather than as a second case, because the runner compares the condition SYMBOL for structured records and a second case would have an identical comparison key. Three cases are bracket divergences; vector-aref-wrong-type contains no bracket and answers `void-function' today.",
+   "source_name": null
+  },
+  {
+   "id": "vector-generalised-length-and-elt",
+   "category": "vectors",
+   "status": "divergent",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "vector-length-sequences",
+    "vector-elt-sequences",
+    "vector-elt-out-of-range",
+    "vector-elt-list-out-of-range"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_list_library",
+   "rationale": "Phase 24.0's `list/string/vector oracle cases for every generalised sequence name', for the two names 24.1 generalises at fe's own layer rather than in kg's prelude. MEASURED ASYMMETRY worth the fourth case: `elt' past the end of a VECTOR raises args-out-of-range (it routes to `aref') while `elt' past the end of a LIST answers nil (it routes to `nth'), and kg already agrees with the list half. That case therefore carries \"expect\": \"agree\" inside this divergent row -- the native-type-of worked example's shape -- so a 24.1 that generalises `elt' by making it raise everywhere fails the run instead of passing it. The cited test pins kg's existing list/string answers for both names.",
+   "source_name": null
+  },
+  {
+   "id": "vector-identity-and-equality",
+   "category": "vectors",
+   "status": "divergent",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "vector-eq-eql-identity",
+    "vector-equal-structural",
+    "vector-equal-nested"
+   ],
+   "kg_test": null,
+   "rationale": "Phase 24.0: `eq'/`eql' identity and structural `equal', frozen before code because they are the pair an implementation is most likely to get backwards. Emacs: two reads of [1] are not eq, a vector is eq and eql to itself, `equal' compares contents recursively, unequal lengths are not equal, and a vector is never `equal' to a list with the same elements in either argument order. All three are bracket divergences today. kg_test is null on purpose and is the honest answer at 24.0: no kg-side test asserts anything about vector identity yet because kg has no vectors, and 24.1 lands the native eval_eqs beside the implementation. The oracle runner is what pins these until then -- each case must keep diverging on every `make lisp-oracle-check', and the XPASS rule fails the run the moment one stops.",
+   "source_name": null
+  },
+  {
+   "id": "vector-prelude-sequence-combinators",
+   "category": "vectors",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "vector-mapcar",
+    "vector-mapc",
+    "vector-mapconcat",
+    "vector-append",
+    "vector-copy-sequence",
+    "vector-sequence-list-baseline"
+   ],
+   "kg_test": "test/test_lisp.c:test_list_library, test/test_lisp.c:test_phase15_list_library, test/test_lisp.c:test_phase8_library",
+   "rationale": "Phase 24.0 recording 24.2's obligation: the master plan's rule is `do not publish vectors while these still fail three frames down in a list-only helper', and these are the cases that decide it. kg-owned because the combinators are kg's prelude (lisp/prelude.el), not fe's core -- which is also why this row has a kg_test where the fe-owned vector rows do not. `mapcar' over a vector returns a LIST, and `append' with a vector flattens it, so neither generalisation may change the RESULT type. vector-sequence-list-baseline is the control that makes the other five attributable and carries \"expect\": \"agree\": every one of these names, asked over a list, already answers exactly what Emacs answers (3 b (2 3 4) \"1-2-3\" (1 2)) on both sides, so each sibling fails for the ARGUMENT TYPE it was given and not because the name is missing. source_name is null because each of these names is already claimed once by its own row (prelude-mapcar, prelude-append, prelude-copy-sequence, phase8-library-mapc, phase8-library-mapconcat) and utils/check_lisp_compat.py requires exactly one claim per source name.",
+   "source_name": null
+  },
+  {
+   "id": "vector-printing",
+   "category": "vectors",
+   "status": "divergent",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "vector-print-format-spec",
+    "vector-print-self-referential",
+    "vector-print-self-referential-print-circle"
+   ],
+   "kg_test": null,
+   "rationale": "Phase 24.0's `printing (including nested and, decided explicitly, self-referential vectors -- freeze what Emacs actually does before choosing kg's policy)'. THE MEASUREMENT THAT MATTERS: a self-referential vector built with `aset' neither hangs Emacs nor signals. With `print-circle' at its nil default Emacs prints the lossy back-reference \"[0 #0]\" and terminates; with `print-circle' bound to t it prints the re-readable \"#1=[0 #1#]\". Both are recorded, so 24.1 chooses between three known options rather than discovering the question: adopt the `#N' spelling, adopt it only under a new `print-circle' variable kg does not have, or keep fe's deliberately bounded `#<cycle>' writer and record a documented divergence beside fe/compat's existing writer-policy rows. THE POLICY DECISION IS 24.1'S AND IS NOT MADE HERE. kg_test is null for the same reason vector-identity-and-equality's is.",
+   "source_name": null
+  },
+  {
+   "id": "vector-reader-missing-bracket",
+   "category": "vectors",
+   "status": "divergent",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "vector-read-missing-bracket"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_reader_literals",
+   "rationale": "24.1's `reader error recovery for a missing bracket (a named error)' item, with the name measured rather than assumed. MEASURED ANSWER: Emacs raises `end-of-file' with data nil -- the generic incomplete-input condition, NOT a vector-specific one -- so the named error 24.1 owes is end-of-file and not something like `unterminated vector'. Its own row rather than a case of vector-reader-syntax because it is the only case in this phase whose target is an ERROR that must survive the reader landing: the other reader cases stop diverging when kg reads brackets, this one only stops diverging when kg reads brackets AND raises the right condition at end of input. Compared through the message-source fallback both before and after, since a reader error never enters kgbatch's Lisp wrapper.",
+   "source_name": null
+  },
+  {
+   "id": "vector-reader-syntax",
+   "category": "vectors",
+   "status": "divergent",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "vector-read-literal",
+    "vector-read-empty",
+    "vector-read-nested",
+    "vector-read-inside-quoted-list"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_reader_literals",
+   "rationale": "Phase 24.0's entry gate (doc/plans/2026-08-20-elisp-data-model-phase24-execution.md section 24.0): freeze the vector contract against the pinned Emacs BEFORE any fe reader change lands, so 24.1 implements a recorded target instead of choosing one. Every case here is a recorded divergence for the same measured reason -- kg answers `unsupported read syntax: vector brackets' (test_phase8_reader_literals is the kg-side assertion of exactly that text) and never reaches the expression -- and every one of them flips to agreement in the commit that lands the reader. The four cases are separate because they fail together today and can succeed separately: a reader that handles [1 2 3] but not [] or not a bracket nested inside a quoted list is a real and likely intermediate state. Deliberately overlaps the Phase 8 row phase8-reader-unsupported-syntax on the expression [1 2 3]: that row records a POLICY (reject rather than misread) and also owns `#:', which Phase 24 does not close, so it survives this phase with one of its two cases flipped while this row is the contract itself.",
+   "source_name": null
+  },
+  {
+   "id": "vector-type-and-predicate",
+   "category": "vectors",
+   "status": "divergent",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "vector-type-of",
+    "vector-vectorp-vector",
+    "vector-vectorp-non-vectors"
+   ],
+   "kg_test": "test/test_lisp.c:test_type_predicates",
+   "rationale": "Phase 24.0: `type-of' answers the symbol `vector' and `vectorp' answers t for vectors only. Two of the three cases are bracket divergences; vector-vectorp-non-vectors is an HONEST ROW of the other kind the entry gate asks for -- it contains no vector syntax, so kg reads it and answers `void-function' (a condition record) where Emacs answers (nil nil nil nil) (a value record). That case therefore keeps working after 24.1 lands the reader and is what catches a `vectorp' that says t for a string or a list. The cited test pins kg's existing type-predicate answers, including the neighbouring native-type-of divergence (kg `pair' for Emacs' `cons'), which is why this row asks about the vector name alone.",
+   "source_name": null
+  },
+  {
    "id": "writer-quote-abbreviation",
    "category": "reader-and-literals",
    "status": "supported",

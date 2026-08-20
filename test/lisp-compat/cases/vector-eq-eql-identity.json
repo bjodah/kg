@@ -1,0 +1,6 @@
+{
+ "id": "vector-eq-eql-identity",
+ "setup": [],
+ "expr": "(let ((a [1]) (b [1])) (list (eq a b) (eq a a) (eql a a) (eql a b)))",
+ "note": "Vectors have object identity: two separate reads of [1] are two objects ((eq a b) is nil) and a vector is eq to itself. `eql' adds nothing for vectors -- it is `eq' plus number sameness -- so it answers exactly as `eq' does here, which is the claim worth freezing before kg has an implementation that could accidentally make it structural. Emacs: (nil t t nil)."
+}

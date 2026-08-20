@@ -1,0 +1,6 @@
+{
+ "id": "vector-print-self-referential",
+ "setup": [],
+ "expr": "(let ((v (make-vector 2 0))) (aset v 1 v) (format \"%S\" v))",
+ "note": "THE POLICY QUESTION 24.1 HAS TO ANSWER, frozen as what Emacs actually does rather than guessed. A vector that contains itself is buildable with `aset' and unprintable by naive recursion. Emacs does NOT hang and does NOT signal: with `print-circle' at its nil default it prints the back-reference as `#0' and terminates -- \"[0 #0]\". kg's writer is deliberately bounded and would print `#<cycle>' for the same shape (fe/compat records that as fe's own writer policy), so 24.1 must decide between adopting Emacs' `#N' spelling and recording a documented divergence with the bounded one. This case and its sibling below make that a decision rather than an accident."
+}

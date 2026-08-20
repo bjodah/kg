@@ -1,0 +1,6 @@
+{
+ "id": "vector-type-of",
+ "setup": [],
+ "expr": "(type-of [1 2 3])",
+ "note": "Emacs' type name for a vector is the symbol `vector'. kg's existing native-type-of row already records that kg says `pair' where Emacs says `cons' and `double' where Emacs says `float'; this case pins the one name Phase 24 introduces, so 24.1 has a target rather than a choice."
+}

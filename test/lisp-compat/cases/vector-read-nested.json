@@ -1,0 +1,6 @@
+{
+ "id": "vector-read-nested",
+ "setup": [],
+ "expr": "[[1] [2]]",
+ "note": "Nesting is the reader's recursion and the payload substrate's child tracing in one expression: the outer vector's elements are themselves payload-bearing objects, so a collection reached through the outer vector has to trace into both inner ones."
+}

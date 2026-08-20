@@ -1,0 +1,6 @@
+{
+ "id": "vector-vectorp-vector",
+ "setup": [],
+ "expr": "(list (vectorp [1]) (vectorp []))",
+ "note": "The predicate on both a populated and an empty vector: (t t). The empty case matters because nil is not a vector and [] is, which is exactly the confusion a length-0 representation invites."
+}

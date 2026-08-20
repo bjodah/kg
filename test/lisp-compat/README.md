@@ -123,6 +123,47 @@ uncatchable budget happens outside it; only those message-source records use
 fe's weaker fallback, requiring the oracle condition name to occur in kg's
 diagnostic. The runner's self-test pins the structured path.
 
+## A group recorded before its implementation exists (`vectors`)
+
+The 35 `vector-*` cases and their ten `category: vectors` rows were
+recorded by Phase 24.0
+(`doc/plans/2026-08-20-elisp-data-model-phase24-execution.md`), whose
+entry gate is: *the oracle cases exist and are green as divergences
+before any fe reader change lands.* They are the first group in this
+corpus written entirely **ahead** of the behaviour they describe, so
+they read strangely on purpose — 33 of the 35 are recorded divergences,
+and they are supposed to be.
+
+Two things make that honest rather than a placeholder:
+
+* every row is classified by what kg **measured**, not by what the phase
+  expects to change. 22 of the 33 divergences are the reader stopping at
+  `unsupported read syntax: vector brackets`; the other 11 contain no
+  bracket at all and record a real, different kg answer — ten are
+  `void-function`, from the first of `vectorp`/`aref`/`make-vector`/
+  `vector` the case reaches (none of the six names `vectorp`, `aref`,
+  `aset`, `make-vector`, `vector`, `vconcat` is bound at this pin), and
+  one is `wrong-type-argument`, the case where kg has the name and
+  answers differently anyway (`vector-append-string`, where kg's
+  `append` rejects a string Emacs flattens to `(97 98)`).
+* two cases carry `"expect": "agree"` inside divergent rows, and they
+  are what makes the other 33 attributable rather than a blanket
+  "vectors are missing". `vector-sequence-list-baseline` shows every
+  generalised name (`length`, `elt`, `mapcar`, `mapconcat`,
+  `copy-sequence`) already answering exactly what Emacs answers when
+  given a list, and `vector-elt-list-out-of-range` shows kg already
+  matching Emacs' measured asymmetry (`elt` past the end of a list is
+  `nil`; past the end of a vector it raises). A change that generalises
+  these names by breaking the list case fails the run instead of passing
+  it.
+
+Where a row's `kg_test` is `null` that is the honest answer at 24.0 and
+not an oversight: no kg-side test asserts anything about vector identity,
+printing, access or construction, because kg has no vectors. Those
+citations land in the same commits as the implementation, and until then
+this runner's XPASS rule is the pin — each case must keep diverging on
+every `make lisp-oracle-check`.
+
 ## Proof 2 — the representative user init, bullet by bullet
 
 The parent plan's §14 asks for "a tracked, isolated `.config/kg/init.el`

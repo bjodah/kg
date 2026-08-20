@@ -1,0 +1,7 @@
+{
+ "id": "vector-sequence-list-baseline",
+ "setup": [],
+ "expr": "(list (length '(1 2 3)) (elt '(a b c) 1) (mapcar #'1+ '(1 2 3)) (mapconcat #'number-to-string '(1 2 3) \"-\") (copy-sequence '(1 2)))",
+ "note": "The control for this whole group, and the reason its divergences are attributable: every generalised name 24.2 touches, asked over a LIST, already agrees with Emacs -- both sides answer (3 b (2 3 4) \"1-2-3\" (1 2)). So each sibling case above fails for the argument type it was given and not because the name is missing or broken, which is what makes 24.2's flip evidence rather than a coincidence. Carries \"expect\": \"agree\" inside a divergent feature, the shape sel-frontier-load-progress uses to measure how far kg gets.",
+ "expect": "agree"
+}

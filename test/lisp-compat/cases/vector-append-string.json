@@ -1,0 +1,6 @@
+{
+ "id": "vector-append-string",
+ "setup": [],
+ "expr": "(append \"ab\" nil)",
+ "note": "MEASURED SURPRISE, and a divergence that has nothing to do with vectors: kg's `append' already rejects a STRING with `wrong-type-argument' where Emacs flattens it to its character codes (97 98). It is recorded in this group because it is the same generic sequence contract 24.2 has to satisfy -- an `append' taught to accept a vector and not a string would still be wrong here -- and because nothing in the corpus asked the question before Phase 24.0 did."
+}

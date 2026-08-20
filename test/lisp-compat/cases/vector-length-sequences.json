@@ -1,0 +1,6 @@
+{
+ "id": "vector-length-sequences",
+ "setup": [],
+ "expr": "(list (length '(1 2 3)) (length \"abc\") (length [1 2 3]) (length []))",
+ "note": "`length' over all three sequence types in one expression: (3 3 3 0). The list and string halves already agree with Emacs today (vector-sequence-list-baseline is the case that shows it), so what this case adds -- and what makes it diverge -- is the vector half."
+}

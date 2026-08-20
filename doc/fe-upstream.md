@@ -12,7 +12,7 @@ rewritten.
 The supported embedding interface is `FE_API_VERSION 15`; `src/lisp_core.c`
 asserts it at compile time. Fe's *language* — its evaluated behaviour,
 independent of the C embedding contract — is versioned separately as
-`FE_LANGUAGE_VERSION 17`, which `src/lisp_core.c` also asserts at compile
+`FE_LANGUAGE_VERSION 18`, which `src/lisp_core.c` also asserts at compile
 time, beside the API assertion. The two move independently: language
 version 2 was the `setq`/`set`/numeric-`=` hard cut below, which broke no
 C function, type, or callback contract, so `FE_API_VERSION` stayed at 1
@@ -608,6 +608,59 @@ Three things land, all of them measurement apparatus:
   re-derived 70 → **72.75 KiB** to hold the free portion at the 288 cell
   slots it had before the carve, which is the property every tracked seed's
   steering depends on; all fifteen still reach what they claim.
+
+The pin then moved for the **frontier demand phase** of kg's Elisp campaign
+(`doc/plans/2026-08-20-elisp-frontier-demand-phase.md`, fe `f9bada2`), which
+adds ONE ROW to `condition_parents[]`: **`search-failed`**, a child of
+`error` with Emacs' own message text, measured on 31.0.91 —
+`(get 'search-failed 'error-conditions)` is `(search-failed error)` there.
+`FE_LANGUAGE_VERSION` 17 → **18** and `FeVersion` `"21.0"` → **`"22.0"`**;
+`FE_API_VERSION` stays at **15**, no declaration in `fe.h` having changed.
+It is a language move rather than a C one because the symbol is
+Lisp-visible: `IsConditionSymbol` gates `signal` on that table, so
+`(signal 'search-failed '("z"))` was `Invalid error symbol` here and is
+legal now, and an `error` handler catches it. Nothing in fe raises it. kg
+does: F.1's NOERROR-nil answer across `search-forward`,
+`search-backward`, `re-search-forward` and `re-search-backward` raises it
+carrying the pattern that was not found.
+
+**kg's side of this pin is number churn and nothing else** — no C call
+site, no Lisp source, no behaviour until the search commit that follows
+it. Every figure below is re-measured at this pin through
+`kg_lisp_arena_stats()` and a direct `FeMinimumArenaSize()` probe rather
+than carried. The row costs **nine cells** at context open, which fe's
+`GetConditionMessageObjectCount` itemizes as `SymbolObjectCount` (6) for a
+name no core table already interned, `StringObjectCount` (1) for its
+message and the usual 2 for the plist pair, and **96 region bytes** for
+the two payload blocks the name and the message own:
+`FeMinimumArenaSize()` 74248 → **74488 bytes** (+240 = 9 × 16 + 96). A
+fixed arena answers a bigger minimum by moving bytes between pools, so the
+10 MiB default partitions to **440101 object slots / 10909 frames /
+2350944 payload bytes** (440103 / 10909 / 2350896 before), 2 MiB to
+**86207** slots (86208) and 1 MiB to **41970** (41971) — the region's
+floor rising by both blocks while the cells it shares a surplus with fall.
+`lisp_arena_min_size` stays at **768 KiB** and is re-derived rather than
+moved: it opens **30911** slots against the 28008 that are three times the
+prelude's `reachable_live_objects` of 9336, inside the `[3×, 6×)` window
+`test/test_lisp.c`'s `test_arena_floor_matches_census()` enforces. The
+census banks five rises, all of them the same nine objects and 96 bytes:
+`peak_live_objects` 10400 → **10409**, `reachable_live_objects` 9327 →
+**9336**, `payload_capacity_bytes` 2350896 → **2350944**,
+`payload_live_bytes` 44776 → **44872** and `payload_peak_bytes` 82496 →
+**82592**. Five PTY cases and two `src/lisp_core.c` comments quote those
+slot counts literally and are corrected in the pin-moving commit.
+
+ONE fe-side test became knob-aware at this pin, which is worth recording
+because it is the only thing in fe's commit that is not the table.
+`perf_workloads.c`'s `CheckIntern` asserted zero collections; under
+`FE_DEBUG_PAYLOAD_MOVE=1` (ci-04's lane) that knob slides the live payload
+extent one alignment unit PER ALLOCATION, so the intern-8192 workload —
+one published block per interned name — drifts by its own length and the
+two extra blocks at context open now push it into one collection. Measured
+both ways: under the knob, 0 collections before the row and 1 after; a
+plain build is 0 either way. The assertion is guarded exactly as
+`gc_stress.c` already guards its own `collection_count == 0` for that
+knob.
 
 Fe is MIT licensed. Copyright belongs to rxi and Chris Palmer; the complete
 license text is in `fe/LICENSE`.

@@ -258,3 +258,103 @@ Oracle flips per the XPASS discipline; `make check` green at every
 commit; the full 16-step matrix with the expensive step armed at the
 head, run by the orchestrator, with the results and exit sections
 written into this document.
+
+## F.1 results -- all six wants bound
+
+F.1a (fe `f9bada2`, `FE_LANGUAGE_VERSION` 17 -> 18 for the
+`search-failed` condition row; kg `94694e6`..`6739e50`, seven commits)
+bound the search-name arm: NOERROR's three-way contract across all four
+search names (nil raises `search-failed` with the pattern as data and
+point unmoved; `t` answers nil with point unmoved; any other non-nil
+answers nil AND moves point to BOUND), `compare-strings` with F.0's
+measured clipping and error-data shape, `concat`'s
+list-of-character-codes arm, `multibyte-string-p`, `regexp-opt`,
+`assoc-string`.  Two fixes went two names deeper than the wants that
+exposed them: `goto-char` returns POSITION verbatim rather than
+clamped, and `replace-regexp-in-string`'s function replacer now
+receives the matched text's match data.
+
+F.1b (kg `094fa72`, `c630095`, `b809dd1`) bound the fill arm:
+`fill-column` as a special prelude defvar at Emacs' default 70, read
+through the `kg_lisp_variable_integer()` facade (buffer-local aware;
+`WITH_LISP=0` keeps the hard-coded 72), and `fill-region` as a native
+over M-q's own reflow machinery (START rounds to the line beginning,
+END is exact -- Emacs' own asymmetry -- and a whitespace-only region
+answers nil).  The default build's M-q reflow column therefore moved
+72 -> 70; flagged to the owner as a veto point, all four prior M-q PTY
+cases re-pinned proving the same word breaks at both columns, four new
+cases pin the new column.
+
+The s.el capability case flips all six wants and the frontier probe's
+NEXT list is asserted equal to nil.  Oracle at F.1's close: 423 cases,
+381 passed, 42 recorded divergences, 0 failed.
+
+Between F.1 and F.2 an external adversarial review of Phases 23-26
+arrived and was adjudicated
+(`doc/reviews/2026-08-20-elisp-phases23-26-review-adjudication.md`,
+`1d8f245`): three findings, all reproduced, all repaired before the
+exit matrix ran -- R1 (fe `9b09ad6`, pin `ebff28f`), R2a (tiny-regex-c
+`1bcd57b` + `29fc9fb`, fe pin `e1d4fbd`), R2b (kg
+`f2da3ff`..`91a9740`).  One of those repairs raised this plan's own
+tally: `regexp-opt`, an F.1a want, now answers one composable
+shy-grouped atom, and the differential gained a bounded mode `fb`.
+The exit matrix below names the repaired head, which is what an exit
+gate is for.
+
+## F.2 results -- the exit ledger
+
+**Run 1** (2026-08-20, head `b809dd1`, `CI_EXPENSIVE=1 --parallel`):
+12/16 PASS.  The four failures resolved to two findings:
+
+- `ci-07-format-check`, real: F.1's additions were unformatted.  Fixed
+  in `071b6f5` (whitespace only, by the tool's own construction).
+- `ci-03-gcc-analyzer` / `ci-04-clang-asan-ubsan` /
+  `ci-08-with-lisp-0`, one flake seen three times:
+  `test_dap_session`'s `pump_until` holds a 10 s wall-clock deadline,
+  and three sanitizer lanes driving PTYs at once blew through it.
+  Recurrence, so hardened per Phase 26's disposition: `b7ccb0f` scales
+  the deadline by `KG_TEST_TIME_SCALE` (clamped 1..30, garbage reads
+  as 1), set to 6 under `CI_PARALLEL` by `.ci/ci-env.sh` and exported
+  by the runner -- the exact route `PTY_TIMEOUT` already takes.
+- Recorded, not hardened: `test_compile.c:446` (SIGINT must not end
+  the run) failed once in one lane, first occurrence ever; its loop is
+  iteration-bounded so the budget-stretch above does not obviously
+  explain it.  Harden on recurrence.
+
+**Run 2** (2026-08-20, head `5d01690`, `CI_EXPENSIVE=1 --parallel`):
+15/16 PASS.  The one failure, `ci-05-clang-msan`, was
+`kgbatch-gcstress` hitting its derived 180 s deadline -- no sanitizer
+report anywhere in the lane, both suites green beside it.  Diagnosed
+rather than waved off, since this was the first MSan run over R1's
+reordered collector: the same binary, alone on a quiet box, answers
+correctly after 213.97 s of pure user CPU, so the collector terminates
+and the budget was simply crossed.  Three measured movements -- none a
+defect -- compounded: the MSan ordinary run (the budget's scale
+factor) got faster, 0.53 s -> 0.185 s, shrinking the budget 530 s ->
+180 s; the prelude's growth through this phase raised the stress run's
+collection count 12315 -> 14623; and R1's finalize pass costs ~27% per
+collection (plain build, same script: 1.55 s -> 1.97 s).  True MSan
+ratio 1157x against the 1000x ceiling.  Re-sized to 4000x in
+`b852d51` by the old ceiling's own precedent (3.5x the worst measured
+row), with FAIL-at-1000/PASS-at-4000 proof on the lane's own binaries
+in the commit message.
+
+**Run 3** (2026-08-20, head `b852d51`, `CI_EXPENSIVE=1 --parallel`):
+15/16 PASS, `ci-05` now green.  The one failure, `ci-16-with-dap-0`,
+was one PTY ERROR on the ORACLE side: the Emacs oracle for
+`dabbrev-expand-exhausted-restores` timed out mid-interaction (its
+pane showed dabbrev's own "No further dynamic expansion" message) with
+kg's side never failing, under the six-lane matrix's own load.  The
+case passes solo in the kept lane tree, and the full `ci-16` step
+re-run directly on the same head is green: all four of its builds green -- the
+WITH_DAP=0 build's full 594-case PTY suite among them -- step EXIT=0.
+Recorded as an environment flake, not hardened -- the oracle has no
+readiness signal to scale, and a fourth full matrix on a shared box
+would manufacture flakes faster than it retires them.
+
+Exit state: six of six wants bound and probed NEXT = nil; oracle 441
+cases / 399 passed / 42 recorded divergences / 0 failed; differential
+0 divergences at 6 000 and at 60 000 comparisons across modes
+`f,fa,fb`; the review's three probes answer Emacs' values on this
+tree.  The phase closes here; Phase 28's remeasurement and five-branch
+selection is next and takes the review's phases 29-34 sketch as input.

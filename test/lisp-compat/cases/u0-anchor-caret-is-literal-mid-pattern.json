@@ -1,0 +1,6 @@
+{
+ "id": "u0-anchor-caret-is-literal-mid-pattern",
+ "setup": [],
+ "expr": "(list (string-match \"a^b\" \"a^b\") (string-match \"a^b\" \"ab\") (string-match \"\\\\(b^a\\\\)\" \"b^a\"))",
+ "note": "THE SAME RULE FOR `^', whose anchoring contexts are the mirror image: the START of the regexp, or just after `\\\\(', `\\\\(?:' or `\\\\|'. Emacs answers (0 nil 0): \"a^b\" matches the literal text \"a^b\", refuses \"ab\", and a `^' in the middle of a group is a literal too. kg answers (nil nil nil). Recorded separately from the `$' case because the contexts are different lists and an implementation can get one right and the other wrong."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "u0-reader-fn-docstring-convention",
+ "setup": [],
+ "expr": "(let ((doc \"Doc.\\n\\(fn ARG)\")) (list (length doc) (substring doc 5)))",
+ "note": "THE CONVENTION THAT MADE THIS AN ITEM. `\\\\(fn ARG)' at the end of a docstring is how Emacs Lisp declares the calling convention of a macro or an alias, and it is why the escape shows up in ordinary package source rather than in someone's clever string: `cond-let.el:319' and `dash.el:822' are both this. Emacs answers (13 \"(fn ARG)\") -- the docstring is 13 characters and the tail reads back as an ordinary open paren. kg refuses the whole file."
+}

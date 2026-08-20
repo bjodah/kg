@@ -1,0 +1,6 @@
+{
+ "id": "u0-anchor-s-lex-format-pattern",
+ "setup": [],
+ "expr": "(let ((re \"${\\\\([^}]+\\\\)}\")) (list (string-match re \"x ${abc} y\") (match-beginning 0) (match-end 0) (match-string 1 \"x ${abc} y\")))",
+ "note": "THE PATTERN ITSELF -- `\"${\\\\([^}]+\\\\)}\"', character for character out of `s.el''s `s-lex-fmt|expand' -- because this is the one measured consumer of the contextual rule. Emacs answers (2 2 8 \"abc\"): the placeholder in \"x ${abc} y\" spans 2..8 and group 1 is the name inside the braces. kg answers (nil nil nil nil), which is why `s-lex-format' builds an EMPTY binding list and then raises. U.0 measured the other end of it: with the one pattern rewritten to a class kg's engine does read, `(let ((a 5)) (s-lex-format \"${a}\"))' answers \"5\" -- Emacs' answer -- so this item closes that want completely rather than advancing it."
+}

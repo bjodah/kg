@@ -1,0 +1,6 @@
+{
+ "id": "u0-defalias-docstring-not-a-string",
+ "setup": [],
+ "expr": "(list (defalias 'u0-n-fn (lambda () 1) 42) (u0-n-fn) (get 'u0-n-fn 'function-documentation))",
+ "note": "THE ARGUMENT EMACS DOES NOT CHECK. Emacs answers (u0-n-fn 1 42): a non-string DOCSTRING is accepted and stored verbatim on `function-documentation'. Measured rather than assumed because the tempting implementation -- `stringp' or raise -- would be stricter than Emacs and would turn a package's sloppy call into a load failure. kg answers `wrong-number-of-arguments' at this pin."
+}

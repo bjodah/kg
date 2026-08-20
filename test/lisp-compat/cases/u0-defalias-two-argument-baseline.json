@@ -1,0 +1,7 @@
+{
+ "id": "u0-defalias-two-argument-baseline",
+ "setup": [],
+ "expr": "(list (defalias 'u0-b-fn (lambda () 1)) (u0-b-fn) (documentation 'u0-b-fn))",
+ "note": "THE CONTROL: `defalias' with two arguments already agrees, both sides answering (u0-b-fn 1 nil) -- the symbol, a callable alias, and `documentation' answering nil for a definition that carries none. So the row beside it is about ONE argument and not about `defalias', and an implementation that broke the two-argument form fails here rather than passing.",
+ "expect": "agree"
+}

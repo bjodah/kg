@@ -1,0 +1,6 @@
+{
+ "id": "u0-regexp-opt-paren-any-other-value-captures",
+ "setup": [],
+ "expr": "(list (equal (regexp-opt (list \"a\" \"ab\") t) (regexp-opt (list \"a\" \"ab\") (quote nomatch))) (equal (regexp-opt (list \"a\" \"ab\") t) (regexp-opt (list \"a\" \"ab\") (quote zzz))))",
+ "note": "EVERY OTHER NON-NIL VALUE IS PAREN `t', which is the rule that keeps an implementation from needing a table of accepted symbols. Emacs answers (t t): `regexp-opt' with `nomatch' and with `zzz' returns TEXT EQUAL to what it returns for t. This is the one case in the group that compares Emacs' own strings, and it may: the comparison is between two Emacs answers, never against a spelling kg has to produce. kg answers `wrong-number-of-arguments'."
+}

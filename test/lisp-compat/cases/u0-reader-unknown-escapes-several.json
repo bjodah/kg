@@ -1,0 +1,6 @@
+{
+ "id": "u0-reader-unknown-escapes-several",
+ "setup": [],
+ "expr": "(list \"\\)\" \"\\{\" \"\\z\" \"\\.\" \"\\|\" \"\\<\")",
+ "note": "THE SAME RULE OVER SIX MORE ESCAPES, so an implementation is not written against one character. Emacs answers (\")\" \"{\" \"z\" \".\" \"|\" \"<\"): `\\\\)', `\\\\{', `\\\\z', `\\\\.', `\\\\|' and `\\\\<' are each just the character. Note what that means for a regexp written as a string: the reader has already eaten one backslash, so `\"\\\\|\"' reaches the engine as a bare `|' -- which is why a regexp alternation is spelled with TWO backslashes in source. kg refuses each of them."
+}

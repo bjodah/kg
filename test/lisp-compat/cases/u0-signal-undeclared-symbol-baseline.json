@@ -1,0 +1,7 @@
+{
+ "id": "u0-signal-undeclared-symbol-baseline",
+ "setup": [],
+ "expr": "(condition-case e (signal 'u0-never-declared (list 9)) (error (list (car e) (cdr e))))",
+ "note": "THE CONTROL, and it corrects the census: kg ALREADY AGREES about a symbol that was never declared. Both sides answer (error (\"Invalid error symbol\" u0-never-declared)). Phase 28's remeasurement (section 6.2) prints this shape as kg's WRONG answer against an Emacs of (my-err nil); the difference is that its Emacs side had a `put' in front of it. So the divergence is entirely about whether `signal' consults the plist -- with no plist, Emacs answers exactly what kg answers -- and an implementation that made every unknown symbol signalable would fail here rather than pass.",
+ "expect": "agree"
+}

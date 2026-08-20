@@ -5279,6 +5279,143 @@
    "source_name": null
   },
   {
+   "id": "u0-defalias-docstring",
+   "category": "functions-and-macros",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u0-defalias-docstring-argument",
+    "u0-defalias-docstring-plist-and-arity",
+    "u0-defalias-docstring-on-a-symbol-target",
+    "u0-defalias-docstring-not-a-string",
+    "u0-defalias-two-argument-baseline"
+   ],
+   "kg_test": "test/test_lisp.c:test_strict_arity, test/test_lisp.c:test_definition_forms",
+   "rationale": "Phase 29's U.0 freeze, recorded before the argument exists: `defalias' with a DOCSTRING is the first blocker for 7 of the 110 census packages, all of them through `dash.el:603'. What the rows pin is that the third argument is STORAGE and not decoration -- it lands on the symbol's `function-documentation' property, `documentation' reads it back, a symbol DEFINITION carries the alias's own docstring rather than the target's, a non-string is accepted verbatim, and a FOURTH argument is `wrong-number-of-arguments (defalias 4)'. u0-defalias-two-argument-baseline carries `expect: agree' and is the control: the two-argument form already agrees, so the divergence is attributable to one argument. THE DEMAND, MEASURED IN U.0 AND NOT REMEMBERED: with a stand-in that accepts and drops the third argument, all 7 packages advance to `dash.el:822' -- the `\\(fn ...)' reader escape, i.e. backlog item 2 -- so items 1 and 2 are in SERIES on one file and neither alone moves the count. kg answers `wrong-number-of-arguments' at this pin; source_name is null because `defalias' is already claimed by the entry that owns kg's two-argument native.",
+   "source_name": null
+  },
+  {
+   "id": "u0-define-error",
+   "category": "errors-and-non-local-exits",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u0-define-error-conditions-and-message",
+    "u0-define-error-parent-chain",
+    "u0-define-error-multiple-parents",
+    "u0-define-error-unknown-parent",
+    "u0-error-message-string-shapes"
+   ],
+   "kg_test": "test/test_lisp.c:test_signal, test/test_lisp.c:test_error_message_rendering",
+   "rationale": "Phase 29's U.0 freeze for `define-error', the NAME half of backlog item 4 (the plist half is u0-signal-error-conditions-plist, and the two are one feature: `define-error' is nothing but two `put's). The rows pin the whole shape a caller can observe -- conditions as symbol-consed-onto-parent, read at DEFINE time; multiple parents APPENDED in order, duplicates and all; and the edge that shows it does not validate, where an unknown parent yields a condition that `error' does NOT catch and `t' does. `error-message-string''s four renderings are here because they are the other thing packages read out of these plists and kg already has the name. DEMAND: 12 ELPA packages call `define-error', 66 times; none of them is a first blocker, so this item is measured in call sites rather than in unblocked loads -- U.0 says so plainly rather than inventing a load probe for it.",
+   "source_name": null
+  },
+  {
+   "id": "u0-reader-unknown-escape",
+   "category": "reader-and-literals",
+   "status": "divergent",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "u0-reader-unknown-escape-is-the-character",
+    "u0-reader-fn-docstring-convention",
+    "u0-reader-unknown-escapes-several",
+    "u0-reader-known-escapes-baseline",
+    "u0-reader-backslash-space-is-nothing",
+    "u0-reader-hex-escape-is-greedy"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_reader_literals",
+   "rationale": "Phase 29's U.0 freeze for the reader rule behind the census's `unsupported read syntax: unknown escape': Emacs reads an UNKNOWN string escape as the character itself, so `\"a\\\\(b)\"' is \"a(b)\". It is on an unconditional load path because `\\\\(fn ARG)' is the standard Emacs Lisp calling-convention docstring convention -- `cond-let.el:319' and `dash.el:822' are both exactly that -- and a reader refusal cannot be caught by any `condition-case' in the file. The rows pin the rule over six escapes, its FENCE (u0-reader-known-escapes-baseline, `expect: agree': the escapes kg already knows keep their meanings, so a blanket rule that broke `\\\\n' or the octal form fails here) and its COUNTEREXAMPLE (backslash-SPACE reads as nothing at all, the string-continuation escape, so `an unknown escape is its own character' is not the whole rule). u0-reader-hex-escape-is-greedy carries `expect: diverge' deliberately: both readers already agree that `\\\\x' eats hex digits greedily, and kg's refusal there is the unibyte-string divergence the `frontier-multibyte-string-p' row owns -- this item must NOT be read as closing it. owner is fe-core because the change is fe's reader and arrives as a pin move; kg_test cites the reader-literal battery that pins what kg reads today.",
+   "source_name": null
+  },
+  {
+   "id": "u0-regexp-contextual-anchors",
+   "category": "sequences",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u0-anchor-dollar-is-literal-mid-pattern",
+    "u0-anchor-dollar-anchors-at-the-end-and-before-alternation",
+    "u0-anchor-caret-is-literal-mid-pattern",
+    "u0-anchor-caret-anchors-at-the-start-and-after-alternation",
+    "u0-anchor-s-lex-format-pattern",
+    "u0-anchor-escaped-dollar-baseline"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_regex_seam",
+   "rationale": "Phase 29's U.0 freeze for Emacs' CONTEXTUAL anchor rule: `$' anchors only at the end of the regexp or before `\\\\|' or `\\\\)', `^' only at the start or after `\\\\(', `\\\\(?:' or `\\\\|', and anywhere else each is an ORDINARY CHARACTER. kg's engine anchors everywhere, so a pattern with a literal dollar in it never matches. Three of the six cases carry `expect: agree' and are the fence: the anchoring contexts already work in kg, so an implementation must make `$'/`^' literal in the OTHER positions without disturbing these. WHAT THIS ROW DOES NOT CLOSE, said here because the code is the same code: kg's anchors are SUBJECT anchors and Emacs' are LINE anchors, which is the separate recorded divergence `phase26-anchor-caret-is-not-backtick' -- after this item lands, `^' will be right about position and still wrong about newlines. DEMAND, MEASURED: the named consumer is `s-lex-format', whose expander matches `\"${\\\\([^}]+\\\\)}\"' -- U.0 pinned that exact pattern (u0-anchor-s-lex-format-pattern) and measured the far end too: with the one pattern rewritten to a character class kg's engine reads, `(let ((a 5)) (s-lex-format \"${a}\"))' answers \"5\", Emacs' own answer, so this item CLOSES that want rather than advancing it to a next blocker.",
+   "source_name": null
+  },
+  {
+   "id": "u0-regexp-opt-paren",
+   "category": "sequences",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u0-regexp-opt-paren-t-captures-the-whole-match",
+    "u0-regexp-opt-paren-nil-is-shy",
+    "u0-regexp-opt-paren-words-are-boundaries",
+    "u0-regexp-opt-paren-symbols-are-boundaries",
+    "u0-regexp-opt-paren-string-is-the-group-opener",
+    "u0-regexp-opt-paren-any-other-value-captures",
+    "u0-regexp-opt-paren-empty-members-never-match"
+   ],
+   "kg_test": "test/test_lisp.c:test_regexp_opt",
+   "rationale": "Phase 29's U.0 freeze for `regexp-opt''s PAREN argument, and THE ROW THAT REOPENS A DECISION rather than recording a new want. The frontier phase's F.0 froze the opposite: `frontier-regexp-opt-paren-shapes' says in its own note that kg's `regexp-opt' takes STRINGS and nothing else and that a second argument is a named arity error, on the Phase 14 `intern' precedent, because the vendored s.el calls it once with one argument. The census then named a consumer (`yaml-mode''s first blocker behind the shim is `Wrong number of arguments: regexp-opt, 2'), which is how this campaign says a dormant thing reopens. These seven cases measure every PAREN VALUE Emacs accepts -- nil (shy), t (capturing, and the group NUMBERING SHIFT it forces on the caller), `words' (\\\\< \\\\>), `symbols' (\\\\_< \\\\_>), a STRING used as the literal group opener, any other symbol behaving as t, and the empty member list still wrapped and still unmatchable. Every one is a CONTRACT case: it compiles the returned regexp with the running engine and asks what it matched, because Emacs' text is its optimizer's output -- the rule `frontier-regexp-opt' set. The single exception is u0-regexp-opt-paren-any-other-value-captures, which compares two EMACS answers to each other and never kg's spelling. u0-regexp-opt-paren-nil-is-shy carries `expect: agree': the PAREN-nil contract already holds, so the divergence is the argument. WHAT U.0 MEASURED AND AN IMPLEMENTATION MUST NOT SKIP: `words' and `symbols' need \\\\< \\\\> and \\\\_< \\\\_>, which kg's engine does not have, so those two values cost an engine change and the others do not.",
+   "source_name": null
+  },
+  {
+   "id": "u0-require-arity",
+   "category": "loading",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u0-require-noerror-absent-is-nil",
+    "u0-require-noerror-nil-raises",
+    "u0-require-three-arguments-on-a-provided-feature",
+    "u0-require-two-argument-baseline"
+   ],
+   "kg_test": "test/test_lisp.c:test_require_provide",
+   "rationale": "Phase 29's U.0 freeze for `require''s third argument, NOERROR -- the guarded-require idiom `(require \\'foo nil t)'. It is one package's first blocker in the census (`cython-mode'), and the rows pin both halves of the argument: non-nil returns nil for a missing feature and provides nothing, nil raises `file-missing' with the same data shape kg's own one-argument `require' already raises. u0-require-two-argument-baseline carries `expect: agree' and is what makes this an ARITY row and not a `require' row: kg's `require' ALREADY takes FILENAME, so the implementation has one slot to add. THE DEMAND, MEASURED IN U.0: with a stand-in that honours NOERROR, cython-mode advances to `(require \\'python)' -- an absent library, i.e. the census's largest class -- so this item unblocks a signature, not a package.",
+   "source_name": null
+  },
+  {
+   "id": "u0-signal-error-conditions-plist",
+   "category": "errors-and-non-local-exits",
+   "status": "divergent",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "u0-signal-consults-the-error-conditions-plist",
+    "u0-signal-undeclared-symbol-baseline",
+    "u0-builtin-error-conditions-are-plists",
+    "u0-condition-hierarchy-baseline"
+   ],
+   "kg_test": "test/test_lisp.c:test_signal, test/test_lisp.c:test_condition_case_kg_native_conditions",
+   "rationale": "Phase 29's U.0 freeze for the half of backlog item 4 that no bound name closes: Emacs' `signal' READS the signalled symbol's `error-conditions' property, and its own built-in conditions are the same readable plists. kg has a fixed condition table in fe, so `(get \\'wrong-type-argument \\'error-conditions)' is nil and a symbol declared by `put' alone is `Invalid error symbol'. THIS ROW ALSO CORRECTS THE CENSUS. Phase 28's remeasurement (section 6.2) prints kg's `(error (\"Invalid error symbol\" my-err))' against an Emacs of `(my-err nil)'; U.0 measured the same expression WITHOUT the `put' and Emacs answers exactly what kg answers -- u0-signal-undeclared-symbol-baseline, `expect: agree'. So the divergence is entirely the plist consultation, and u0-condition-hierarchy-baseline (also `expect: agree') shows kg's built-in hierarchy already BEHAVES correctly while being unreadable. DEMAND: 5 ELPA packages declare conditions through the plist directly (s, f, websocket, emacsql) or read one back (ellama.el:3607), and `s.el:627' is the measured one -- kg's `s-format' error path answers the wrong condition today. owner is fe-core: the change is fe's condition machinery and arrives as a pin move.",
+   "source_name": null
+  },
+  {
+   "id": "u0-subr-x",
+   "category": "loading",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u0-subr-x-require-returns-the-feature",
+    "u0-subr-x-string-helpers",
+    "u0-subr-x-thread-macros",
+    "u0-subr-x-names-kg-already-has"
+   ],
+   "kg_test": "test/test_lisp.c:test_require_provide",
+   "rationale": "Phase 29's U.0 freeze for `(require \\'subr-x)', the census's third-largest absent-library class (4 packages) -- and U.0 RE-RANKED IT: with `cl-lib' and `compat' provided as bare features, NINE more packages reach this same require (consult, rmsbolt, cape, corfu, eat, embark, jinx, marginalia, vertico), so the item's demand is 13 and not 4. THE MEASUREMENT THAT SIZES IT: standing in for the item with a file that does nothing but `(provide \\'subr-x)' advances all four of today's blocked packages, and NOT ONE of them then stops on a subr-x NAME -- they go to xml-query, cl-lib, cl-lib and seq. So the feature is the blocker and the names are the tail behind it. The tail, ranked by U.0's source census over the 13: `string-join' 11 packages, `string-blank-p' 5, `string-remove-prefix' 3, `thread-last' 3, `string-remove-suffix' 3, `string-clean-whitespace' 2, then singletons (`named-let', `thread-first'), plus `hash-table-keys'/`values'/`empty-p' from one package, which are the dormant hash-table branch and not this item. u0-subr-x-names-kg-already-has carries `expect: agree' and is the control that shrinks the item: three of the four most-reached names are already kg's.",
+   "source_name": null
+  },
+  {
    "id": "vector-append-string-sequence",
    "category": "vectors",
    "status": "supported",

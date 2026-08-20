@@ -1,0 +1,6 @@
+{
+ "id": "u0-require-noerror-nil-raises",
+ "setup": [],
+ "expr": "(condition-case e (require 'u0-no-such-feature-2 nil nil) (error (list (car e) (cdr e))))",
+ "note": "THE OTHER HALF OF THE SAME ARGUMENT, which is what makes NOERROR mean anything: with NOERROR nil the missing feature RAISES, and Emacs' condition is (file-missing (\"Cannot open load file\" \"No such file or directory\" \"u0-no-such-feature-2\")) -- the same condition and data shape kg's own one-argument `require' already raises (`src/lisp_require.c' cites the measurement). kg cannot reach it: it answers the ARITY error as a value, (wrong-number-of-arguments (require 3)), so the records differ on the data rather than on the kind."
+}

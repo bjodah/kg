@@ -1,0 +1,6 @@
+{
+ "id": "u0-signal-consults-the-error-conditions-plist",
+ "setup": [],
+ "expr": "(progn (put 'u0-p1 'error-conditions (list 'error 'u0-fmt 'u0-p1)) (put 'u0-p1 'error-message \"Cannot resolve\") (list (condition-case e (signal 'u0-p1 (list \"t\")) (u0-fmt (list 'by-middle (car e) (cdr e)))) (error-message-string (list 'u0-p1 \"t\"))))",
+ "note": "THE HALF THAT IS NOT A NAME, and s.el's own error path: `s.el:627' declares its condition with a bare `(put \\'s-format-resolve \\'error-conditions ...)' and signals it. Emacs answers ((by-middle u0-p1 (\"t\")) \"Cannot resolve: \\\"t\\\"\"): `signal' READS the plist, so a handler naming any middle member of the conditions list catches, and `error-message-string' renders the `error-message' property with the data appended. kg answers the condition `error' with data (\"Invalid error symbol\" u0-p1) -- it has a fixed built-in condition table and no plist route -- so `define-error' alone would NOT fix this: 5 ELPA packages (s, f, websocket, emacsql, ellama) go through the plist directly."
+}

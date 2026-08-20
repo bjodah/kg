@@ -1,0 +1,6 @@
+{
+ "id": "u0-define-error-multiple-parents",
+ "setup": [],
+ "expr": "(progn (define-error 'u0-e4 \"Base4\") (define-error 'u0-e5 \"Multi\" (list 'u0-e4 'arith-error)) (list (get 'u0-e5 'error-conditions) (condition-case e (signal 'u0-e5 nil) (arith-error (car e)))))",
+ "note": "PARENT AS A LIST. Emacs answers ((u0-e5 u0-e4 error arith-error) u0-e5): the conditions are the symbol followed by EVERY parent's conditions APPENDED IN ORDER, duplicates and all -- `error' appears once here only because the second parent's list happens to end with it -- and a handler for either parent catches. Measured because the single-parent implementation is the obvious one and the list form is what `plz' and `jupyter' write. kg answers `void-function'."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "u0-defalias-docstring-plist-and-arity",
+ "setup": [],
+ "expr": "(list (progn (defalias 'u0-p-fn (lambda () 1) \"Docs.\") (get 'u0-p-fn 'function-documentation)) (condition-case e (defalias 'u0-q-fn (lambda () 1) \"Docs.\" 'extra) (error (cdr e))))",
+ "note": "WHERE THE DOCSTRING GOES, and where Emacs' own arity stops. Emacs answers (\"Docs.\" (defalias 4)): the third argument lands on the symbol's `function-documentation' property -- so a docstring-taking `defalias' is a `put', not a wrapper object -- and a FOURTH argument is `wrong-number-of-arguments (defalias 4)'. That second half is the fence an implementation must keep: 2 or 3, never more. kg raises `wrong-number-of-arguments' on the first form of the pair at this pin, so the case cannot reach the arity it is here to pin."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "u0-subr-x-require-returns-the-feature",
+ "setup": [],
+ "expr": "(list (require 'subr-x) (featurep 'subr-x))",
+ "note": "THE BLOCKER ITSELF. Emacs answers (subr-x t): `(require \\'subr-x)' loads the library and the feature is provided afterwards -- and `(featurep \\'subr-x)' is nil before it, so this is a real load and not a preloaded no-op. kg answers `file-missing' at this pin, which is the first blocker for 4 packages today; U.0 measured that 9 MORE reach it once `cl-lib' and `compat' are provided, which is the number that reorders this item."
+}

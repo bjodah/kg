@@ -1,0 +1,7 @@
+{
+ "id": "u0-reader-hex-escape-is-greedy",
+ "setup": [],
+ "expr": "(list (length \"a\\x41b\") (aref \"a\\x41b\" 1))",
+ "note": "THE ESCAPE BOTH READERS ALREADY AGREE ABOUT, recorded because it is the trap next to this item: `\\\\x' consumes hex digits GREEDILY, so \"a\\\\x41b\" is not \"aAb\" -- Emacs answers (2 1051), a two-character string whose second character is U+041B. kg reads the same greedy sequence and then refuses it for a different reason (`character above 255 in string': a kg string is fe's unibyte byte string since Phase 25). So this divergence is NOT the unknown-escape item and must not be closed by it; it is the multibyte-string one, already recorded by the `frontier-multibyte-string-p' row.",
+ "expect": "diverge"
+}

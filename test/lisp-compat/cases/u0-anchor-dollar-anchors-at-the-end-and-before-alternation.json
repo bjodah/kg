@@ -1,0 +1,7 @@
+{
+ "id": "u0-anchor-dollar-anchors-at-the-end-and-before-alternation",
+ "setup": [],
+ "expr": "(list (string-match \"a$\" \"a\") (string-match \"a$\\\\|z\" \"a\") (string-match \"\\\\(a$\\\\)\" \"a\") (string-match \"\\\\(?:a$\\\\)\" \"a\"))",
+ "note": "THE CONTROL, and the three contexts an implementation must NOT break. Both sides answer (0 0 0 0): `$' at the end of the pattern, before `\\\\|', inside `\\\\( ... \\\\)' and inside a shy group all anchor today, in kg as in Emacs. So the divergence beside this case is about the contexts where Emacs makes `$' a literal, and a change that made `$' literal everywhere would fail here rather than pass.",
+ "expect": "agree"
+}

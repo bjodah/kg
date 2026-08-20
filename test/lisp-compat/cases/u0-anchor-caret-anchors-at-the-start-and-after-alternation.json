@@ -1,0 +1,7 @@
+{
+ "id": "u0-anchor-caret-anchors-at-the-start-and-after-alternation",
+ "setup": [],
+ "expr": "(list (string-match \"^a\" \"a\") (string-match \"z\\\\|^a\" \"a\") (string-match \"\\\\(^a\\\\)\" \"a\") (string-match \"\\\\(?:^a\\\\)\" \"a\"))",
+ "note": "THE CONTROL for `^'. Both sides answer (0 0 0 0): at the start of the pattern, after `\\\\|', after `\\\\(' and after `\\\\(?:'. Note what this case deliberately does NOT ask: whether `^' matches after a NEWLINE in the subject. It does in Emacs and does not in kg, that is a separate recorded divergence (`phase26-anchor-caret-is-not-backtick', line anchor versus subject anchor), and this item must not be read as closing it.",
+ "expect": "agree"
+}

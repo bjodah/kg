@@ -1,0 +1,6 @@
+{
+ "id": "u0-error-message-string-shapes",
+ "setup": [],
+ "expr": "(progn (define-error 'u0-e7 \"My error\") (list (error-message-string (list 'u0-e7 1 2)) (error-message-string (list 'u0-e7)) (error-message-string (list 'u0-e7 \"boom\")) (error-message-string (list 'u0-never-declared 9))))",
+ "note": "THE RENDERING, which is the other thing packages read out of these plists. Emacs answers (\"My error: 1, 2\" \"My error\" \"My error: \\\"boom\\\"\" \"peculiar error: 9\"): the message, then a comma-separated `prin1' of the data; no data means no colon; a STRING datum is still printed with its quotes; and a symbol with no `error-message' renders as \"peculiar error: ...\". kg HAS `error-message-string' already, so this case measures the rendering it will have to produce once the plists exist; at this pin it stops at `define-error' being `void-function'."
+}

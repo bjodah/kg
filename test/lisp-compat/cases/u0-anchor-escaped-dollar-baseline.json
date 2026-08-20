@@ -1,0 +1,7 @@
+{
+ "id": "u0-anchor-escaped-dollar-baseline",
+ "setup": [],
+ "expr": "(list (string-match \"a\\\\$b\" \"a$b\") (string-match \"[$]b\" \"$b\") (string-match \"$\" \"\"))",
+ "note": "THE CONTROL for the two spellings that already work: an ESCAPED `\\\\$', a bracketed `[$]', and a bare `$' against the empty subject. Both sides answer (0 0 0). They are the reason the divergence beside them is about CONTEXT and not about the character: kg can already match a literal dollar when the pattern says so explicitly, and can already anchor at the end of the subject. What it cannot do is decide between the two from position alone.",
+ "expect": "agree"
+}

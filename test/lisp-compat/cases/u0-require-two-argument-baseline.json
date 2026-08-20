@@ -1,0 +1,7 @@
+{
+ "id": "u0-require-two-argument-baseline",
+ "setup": [],
+ "expr": "(progn (provide 'u0-feat2) (list (require 'u0-feat2) (require 'u0-feat2 nil) (featurep 'u0-feat2)))",
+ "note": "THE CONTROL: kg's `require' ALREADY takes FILENAME. Both sides answer (u0-feat2 u0-feat2 t), so the census's `Wrong number of arguments: require, 3' is about the THIRD argument only -- an implementation has one argument to add, not two. Recorded as an agreement so that a change which regressed the two-argument form fails here.",
+ "expect": "agree"
+}

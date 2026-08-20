@@ -1,0 +1,6 @@
+{
+ "id": "u0-defalias-docstring-argument",
+ "setup": [],
+ "expr": "(list (defalias 'u0-doc-fn (lambda (x) x) \"Doubles nothing.\") (u0-doc-fn 7) (documentation 'u0-doc-fn))",
+ "note": "THE THIRD ARGUMENT ITSELF, and the reason 7 packages stop where they do: `dash.el:603' is `(defalias \\'-remove-item #\\'remove \"...\")' and kg answers `wrong-number-of-arguments (defalias 3)'. Emacs answers (u0-doc-fn 7 \"Doubles nothing.\"): the call returns the SYMBOL, the alias is callable, and DOCSTRING is what `documentation' then reads back -- so the argument is not decoration, it is where the docstring is stored. U.0 measured the demand behind it: with a stand-in that accepts and drops the third argument, all 7 packages advance past dash.el:603 to dash.el:822, which is backlog item 2. kg answers `wrong-number-of-arguments' at this pin."
+}

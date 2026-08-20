@@ -1,0 +1,7 @@
+{
+ "id": "u0-condition-hierarchy-baseline",
+ "setup": [],
+ "expr": "(list (condition-case e (signal 'arith-error (list 1)) (error (list (car e) (cdr e)))) (condition-case e (signal 'wrong-type-argument (list 'symbolp 1)) (wrong-type-argument (car e))))",
+ "note": "THE CONTROL: kg's built-in hierarchy already BEHAVES correctly even though it is not readable. Both sides answer ((arith-error (1)) wrong-type-argument) -- a built-in condition signalled by name carries its data, an `error' handler catches it, and a handler naming the exact symbol catches too. So the row beside this one is about the plists being ABSENT, not about the hierarchy being wrong, and an implementation that rebuilt the hierarchy out of plists must keep these two answers.",
+ "expect": "agree"
+}

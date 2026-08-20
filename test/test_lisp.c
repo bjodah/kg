@@ -6422,8 +6422,9 @@ static void test_phase8_reader_literals(void)
 	CHECK(eval_error_contains("(list ?\\^a)", "\\^ character modifier"));
 	CHECK(eval_error_contains(
 	    "(list \"\\x41f\")", "character above 255 in string"));
-	CHECK(
-	    eval_error_contains("(list \"\\0a\")", "NUL character in string"));
+	/* `"\\0"' left this list in Phase 25, which gave fe strings a
+	 * length instead of a terminator; test_phase25_strings is where
+	 * the escape is asserted to READ now. */
 	CHECK(eval_error_contains(
 	    "(list ?\\x110000)", "\\x character out of range"));
 
@@ -6665,19 +6666,92 @@ static void test_phase24_vectors(void)
 	    "((2 3) (0 0) [1 2] \"ab\" (1 2))"));
 
 	/* 3. THE PAYLOAD REGION, read at the end against the reading taken
-	 * before any of the above ran.  kg carves it (src/lisp_core.c's
-	 * lisp_arena_options) because a vector's elements live in it; a
-	 * session that has only booted has not used a byte of it, which is
-	 * what .ci/prelude-startup-census.json holds to zero; and a
-	 * thousand-element vector moves the high-water mark past the 8032
-	 * bytes fe prices it at (32 + 8n, fe's asserted equality and not
-	 * kg's to re-derive). */
+	 * before any of the above ran.  A vector's elements live in it,
+	 * and since Phase 25 so do every string's bytes -- so the region
+	 * is already in use when this test starts, which is what the
+	 * `before' reading is here to say: the numbers below are a DELTA a
+	 * vector made, not the region's whole story.
+	 * .ci/prelude-startup-census.json is the ratchet on the startup
+	 * figure itself.  A thousand-element vector costs 8032 bytes (32 +
+	 * 8n, fe's asserted equality and not kg's to re-derive), so the
+	 * high-water mark has to clear the live bytes that were there
+	 * before it by at least that. */
 	CHECK(eval_eq("(length (make-vector 1000 0))", "1000"));
 	CHECK(kg_lisp_arena_stats(&after) == 0);
 	CHECK(before.payload_capacity_bytes > 0);
-	CHECK(before.payload_peak_bytes == 0);
-	CHECK(after.payload_peak_bytes >= 8032);
+	CHECK(before.payload_live_bytes > 0);
+	CHECK(before.payload_live_bytes < before.payload_capacity_bytes);
+	CHECK(after.payload_peak_bytes >= before.payload_live_bytes + 8032);
+	CHECK(after.payload_peak_bytes >= before.payload_peak_bytes);
 	CHECK(after.payload_allocation_failures == 0);
+
+	kg_lisp_shutdown();
+}
+
+/* Phase 25's fe cut, from kg's side: a string is a header carrying a
+ * byte LENGTH over payload bytes, where it was a chain of seven-byte
+ * cells terminated by a NUL.  Everything asserted here is behaviour the
+ * pin moved and nothing kg wrote -- it is the kg-side citation
+ * test/lisp-compat's `string25-*' rows carried as `kg_test: null' while
+ * kg could not build such a string at all.
+ *
+ * What the NUL half pins is that a NUL is now DATA: it reads, it counts
+ * as one unit, it is indexable, it compares, and `%S' escapes it back
+ * into the octal form the reader accepts, which is fe's decision and not
+ * Emacs' (Emacs emits the raw byte).  The recorded divergence is that
+ * one printed character, not the round trip. */
+static void test_phase25_strings(void)
+{
+	CHECK(kg_lisp_init() == 0);
+
+	/* The reader takes the escape that used to be a named refusal, and
+	 * the NUL is one unit among three. */
+	CHECK(eval_eq("(length \"a\\0b\")", "3"));
+	CHECK(eval_eq("(list (aref \"a\\0b\" 0) (aref \"a\\0b\" 1)"
+		      " (aref \"a\\0b\" 2))",
+	    "(97 0 98)"));
+	CHECK(eval_eq("(format \"%S\" \"a\\0b\")", "\"a\\000b\""));
+	/* Equality is length-then-bytes, so a NUL neither ends a string nor
+	 * hides what follows it. */
+	CHECK(eval_eq("(equal \"a\\0b\" \"a\\0b\")", "t"));
+	CHECK(eval_eq("(list (string= \"a\\0b\" \"a\\0b\")"
+		      " (string= \"a\\0b\" \"a\\0c\"))",
+	    "(t nil)"));
+
+	/* `aset' on a string, which was `unsupported: aset on a string'
+	 * until this pin.  A fe string is a byte string, so this is Emacs'
+	 * UNIBYTE answer exactly: the stored value reads back, the length
+	 * does not move, and a value above 255 is refused in Emacs' own
+	 * words. */
+	CHECK(eval_eq("(let ((s (copy-sequence \"abc\")))"
+		      " (list (aset s 0 122) s))",
+	    "(122 \"zbc\")"));
+	CHECK(eval_eq("(let ((s (copy-sequence \"abc\")))"
+		      " (aset s 1 233) (list (length s) (aref s 1)))",
+	    "(3 233)"));
+	CHECK(eval_error_contains("(aset (copy-sequence \"abc\") 0 26085)",
+	    "Attempt to store non-byte value into unibyte string"));
+	/* The bounds half was already Emacs': the offending STRING first. */
+	CHECK(eval_eq("(condition-case e (aset (copy-sequence \"abc\") 5 97)"
+		      " (args-out-of-range (cdr e)))",
+	    "(\"abc\" 5)"));
+
+	/* The lengths the master plan's Phase 25 names, built and read back
+	 * through kg's own surface: 0, 7 and 8 bracket the seven-byte cell
+	 * a string used to be a chain of, and 256 and 8192 are past
+	 * anything such a chain kept contiguous.  That they survive a
+	 * COMPACTION is fe's own gate (fe/test/payload_tests.c), which can
+	 * force a collection where nothing in kg's Lisp surface can.  */
+	CHECK(eval_eq("(mapcar 'length (list \"\" (make-string 7 97)"
+		      " (make-string 8 98) (make-string 256 99)"
+		      " (make-string 8192 100)))",
+	    "(0 7 8 256 8192)"));
+	/* A symbol's name is one of those strings now, so a name built at
+	 * run time still interning to the symbol the reader made is the
+	 * same question asked of the length-then-bytes comparison. */
+	CHECK(eval_eq("(let ((s (intern (concat \"kg-phase25-\" \"name\"))))"
+		      " (list (eq s 'kg-phase25-name) (symbol-name s)))",
+	    "(t \"kg-phase25-name\")"));
 
 	kg_lisp_shutdown();
 }
@@ -8178,6 +8252,7 @@ int main(void)
 	RUN(test_autoload_no_op);
 	RUN(test_sel_frontier_vector_literal);
 	RUN(test_phase24_vectors);
+	RUN(test_phase25_strings);
 	RUN(test_s_el_vendored_load);
 	RUN(test_phase8_library);
 	RUN(test_captured_function_value);

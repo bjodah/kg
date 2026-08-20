@@ -2,5 +2,6 @@
  "id": "string25-aset-ascii-in-place",
  "setup": [],
  "expr": "(let ((s (copy-sequence \"abc\"))) (list (aset s 0 122) s))",
- "note": "The simplest string mutation there is: an ASCII character into an ASCII string. Emacs answers (122 \"zbc\") -- `aset` returns the character it stored and the string is changed in place. kg refuses by name, `unsupported: aset on a string`, because a fe string is a chain of seven-byte cells whose shape a byte write has to preserve. fe's own `primitive-aset-string` row records the same refusal from the fe side; this is the kg-side complement, and it is the one Phase 25.1 makes work."
+ "note": "The simplest string mutation there is: an ASCII character into an ASCII string. Both sides answer (122 \"zbc\") -- `aset' returns the character it stored and the string is changed in place. Recorded at 25.0 as kg's `unsupported: aset on a string' refusal, because a fe string was then a chain of seven-byte cells whose shape a byte write had to preserve; Phase 25.1 made a string a header with a length over payload bytes and the refusal went with it. Carries `expect: agree' inside a divergent row: the two `aset' cases beside it still diverge, on the writer's spelling of a raw byte and on Emacs' multibyte refusal.",
+ "expect": "agree"
 }

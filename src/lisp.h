@@ -121,13 +121,12 @@ struct kg_lisp_arena_stats {
 	/* Fe's payload region (FE_API_VERSION 13): the bytes carved for it,
 	 * the bytes live in it, the high-water mark of those, the
 	 * compactions that have run, and the requests it could not meet.
-	 * ALL FIVE ARE ZERO in kg, deliberately and until Phase 25 of
-	 * doc/plans/2026-08-18-elisp-data-model.md: kg opens its context
-	 * with no region at all (src/lisp_core.c's lisp_arena_options), so
-	 * a nonzero here means either that decision changed or that
-	 * something started allocating payloads -- which is what
-	 * .ci/prelude-startup-census.json's ceilings of zero exist to
-	 * catch. */
+	 * NONE of them is zero in a running kg: since FE_API_VERSION 15 a
+	 * string's bytes are payload and a symbol's name is a string, so a
+	 * context that has only opened already holds one block per core
+	 * name, and loading the prelude interns hundreds more.
+	 * .ci/prelude-startup-census.json holds all five to ceilings
+	 * measured at the pin rather than to zero. */
 	size_t payload_capacity_bytes;
 	size_t payload_live_bytes;
 	size_t payload_peak_bytes;

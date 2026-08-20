@@ -27,13 +27,13 @@ keys:
   - k
 expected_saved: ok
 expected_screen_contains:
-  # The counters, in the order the renderer writes them.  440489 slots,
-  # a 10916-frame capacity and 2344064 payload bytes are the COMPILED
-  # DEFAULT arena's measured partitioning at the vector pin
+  # The counters, in the order the renderer writes them.  440190 slots,
+  # a 10911-frame capacity and 2349296 payload bytes are the COMPILED
+  # DEFAULT arena's measured partitioning at the string pin
   # (doc/fe-upstream.md's row).
   # That default is 10 MiB since Phase B of
   # doc/plans/2026-08-19-fe-simplification-and-cheap-compat.md; the same fe
-  # partitions the 1 MiB arena it replaced into 42358/1085, which is the
+  # partitions the 1 MiB arena it replaced into 42059/1081, which is the
   # arena the pin series below was measured against -- 56147/1087 at the
   # let-binding-buffer-tag pin, 56263/1089 at the Phase 20 pin, 56259/1090
   # at the Phase 19 pin, 56225/1095 at the Phase 12 pin, 56226/1095 at the
@@ -41,7 +41,7 @@ expected_screen_contains:
   # pins and the host may ask for any size, so both numbers here are
   # measured, never carried forward.
   # The payload substrate took NO bytes at the pin that introduced it,
-  # because `FeOpenContext` carves no region; what moved there was
+  # because `FeOpenContext` carved no region; what moved there was
   # `FeMinimumArenaSize()`, by 280 bytes -- 224 for the fourteen objects the
   # `payload-exhaustion` condition row builds at context open, and 56 for
   # the seven `FeContext` fields the region's bookkeeping adds to the
@@ -49,7 +49,10 @@ expected_screen_contains:
   # region (src/lisp_core.c's lisp_arena_options), because a vector's
   # elements live in it, and a quarter of what is left after the frames
   # went to it: 586993 object slots became 440489 beside 2344064 payload
-  # bytes.
+  # bytes.  Phase 25 made a string's bytes payload too, so there is no
+  # longer an uncarved partition to compare against: the region is funded
+  # from `FeMinimumArenaSize()` before the percentage divides anything,
+  # and the same 10 MiB now reads 440190 / 10911 / 2349296.
   # Phase 14's fe widened a symbol object by one cons and added eight
   # primitives, which grew FeMinimumArenaSize by 2264 bytes; the arena
   # partition answers by moving two frame slots' worth of bytes to the
@@ -60,13 +63,20 @@ expected_screen_contains:
   # results") is kg_lisp_init()'s own last act, so a session that has only
   # booted has already collected exactly once by the time this command can
   # run.
-  - "Arena: 440489 slots,"
+  - "Arena: 440190 slots,"
   - " free, peak "
   - "; GC 1; roots "
-  - "/10916; fails 0"
-  # The payload region kg carves for vectors, from the same line: a
-  # session that has only booted has built no vector, so it holds 0 of
-  # the 2344064 bytes the 10 MiB default partitions to it.
-  - "; payload 0/2344064 bytes, peak 0; compactions 0; payload fails 0"
+  - "/10911; fails 0"
+  # The payload region, from the same line.  The CAPACITY is pinned here
+  # because it is a property of the arena, like the slot count above it,
+  # and `payload fails 0` because a booted session having been refused
+  # nothing is this case's claim.  What the session has USED of it is not
+  # pinned here: since Phase 25 that is every symbol name the prelude
+  # interned (35496 bytes live, 66128 peak, one compaction as this case
+  # was written), and .ci/prelude-startup-census.json is the ratchet that
+  # owns those three -- spelling them twice would only mean two places to
+  # correct when the prelude gains a definition.
+  - "/2349296 bytes, peak "
+  - "; payload fails 0"
 expected_screen_not_contains:
   - "Lisp not available"

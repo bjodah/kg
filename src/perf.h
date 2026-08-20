@@ -172,14 +172,15 @@ enum kg_perf_counter {
 					   */
 	KG_PERF_LISP_ALLOC_FAILURES, /* FeArenaStats.allocation_failures */
 	/* Fe's payload region (FE_API_VERSION 13), the same five gauges
-	 * kg_lisp_arena_stats() reports.  Every one of them is ZERO in kg
-	 * and asserted so by test/test_perf.c: kg opens its context with no
-	 * payload region until Phase 25 of
-	 * doc/plans/2026-08-18-elisp-data-model.md gives it an owner, so a
-	 * nonzero here is either that decision changing or something
-	 * allocating payloads early.  They are named now, rather than when
-	 * that phase lands, so its own assertions have a home and the
-	 * shipped kg has one place that says what the region is doing. */
+	 * kg_lisp_arena_stats() reports.  They were all zero, and asserted
+	 * so by test/test_perf.c, while a vector was the region's only
+	 * possible tenant and the prelude built none; Phase 25 of
+	 * doc/plans/2026-08-18-elisp-data-model.md made a string's bytes
+	 * payload, so the four USE gauges move before kg has evaluated
+	 * anything of its own -- interning `car' publishes a block.  What
+	 * test/test_perf.c asserts now is the SHAPE (live under capacity,
+	 * peak at or above live, no failures), and the numbers themselves
+	 * are .ci/prelude-startup-census.json's ratchet. */
 	KG_PERF_LISP_PAYLOAD_CAPACITY, /* bytes carved for the region */
 	KG_PERF_LISP_PAYLOAD_LIVE, /* bytes live in it */
 	KG_PERF_LISP_PAYLOAD_PEAK, /* high-water mark of those bytes */

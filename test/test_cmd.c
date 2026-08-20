@@ -621,20 +621,21 @@ static void test_lisp_arena_stats_renders(void)
 	/* A session that has only booted has never failed an allocation. */
 	CHECKF(strstr(editor.statusmsg, "; fails 0") != NULL, "rendered %s",
 	    editor.statusmsg);
-	/* And has a payload region it has not touched: kg carves one since
-	 * Phase 24 because a vector's elements live in it (src/lisp_core.c's
-	 * lisp_arena_options), and a session that has only booted has built
-	 * no vector, so live is 0 of a nonzero capacity and the three
-	 * counters after it are the literal zeros.  The whole-line
-	 * comparison above already pins the rendering; this pins the
-	 * DECISION, in the one place a reader of the command's output would
-	 * look for it. */
+	/* And has a payload region it is ALREADY USING: since Phase 25 a
+	 * string's bytes live there and a symbol's name is a string, so a
+	 * session that has only booted has interned hundreds of them --
+	 * where before Phase 25 the same four numbers were the literal
+	 * zeros this assertion used to spell out.  What is pinned here is
+	 * therefore the shape a reader of the command's output would check
+	 * it against (live inside capacity, peak at or above live, nothing
+	 * refused); the numbers themselves are
+	 * .ci/prelude-startup-census.json's ratchet, and the whole-line
+	 * comparison above already pins the rendering. */
 	CHECK(stats.payload_capacity_bytes > 0);
-	CHECKF(strstr(editor.statusmsg, "; payload 0/") != NULL, "rendered %s",
-	    editor.statusmsg);
-	CHECKF(strstr(editor.statusmsg,
-		   " bytes, peak 0; compactions 0; payload fails 0")
-		!= NULL,
+	CHECK(stats.payload_live_bytes > 0);
+	CHECK(stats.payload_live_bytes <= stats.payload_capacity_bytes);
+	CHECK(stats.payload_peak_bytes >= stats.payload_live_bytes);
+	CHECKF(strstr(editor.statusmsg, "; payload fails 0") != NULL,
 	    "rendered %s", editor.statusmsg);
 	kg_lisp_shutdown();
 }

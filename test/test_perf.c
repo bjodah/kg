@@ -1575,24 +1575,23 @@ static void test_lisp_prelude_arena_margin(void)
 	 * 0. */
 	CHECK(stats.peak_native_reentry == 1);
 
-	/* THE PAYLOAD REGION IS CARVED AND UNUSED: capacity nonzero,
-	 * the four USE numbers exactly zero.
+	/* THE PAYLOAD REGION IS CARVED AND IN USE: capacity nonzero, live
+	 * inside it, peak at or above live, nothing refused.
 	 *
 	 * Phase 24 of doc/plans/2026-08-18-elisp-data-model.md turned the
-	 * carve on, because a vector's elements live in that region and a
-	 * context that carves none cannot build a vector (src/lisp_core.c's
-	 * lisp_arena_options).  What the prelude does with it is nothing:
-	 * it defines `length', `elt', `equal' and the sequence combinators
-	 * over vectors without building one.  So the four zeros are the same
-	 * early-use ratchet .ci/prelude-startup-census.json holds to a
-	 * ceiling of zero -- a constructor that started publishing blocks at
-	 * startup moves every arena number kg pins elsewhere -- and the
-	 * nonzero capacity beside them is the decision itself, asserted in
-	 * the place a reader would look for it. */
+	 * carve on for a vector's elements, and this assertion read "the
+	 * four USE numbers are exactly zero" while a vector was the only
+	 * thing that could reach the region and the prelude built none.
+	 * Phase 25 made a string's bytes payload and a symbol's name a
+	 * string, so the region is in use before kg evaluates anything of
+	 * its own -- interning `car' publishes a block.  What is pinned
+	 * here is the SHAPE; the startup numbers themselves are
+	 * .ci/prelude-startup-census.json's ratchet, which is where a
+	 * constructor that started publishing more blocks shows up. */
 	CHECK(stats.payload_capacity_bytes > 0);
-	CHECK(stats.payload_live_bytes == 0);
-	CHECK(stats.payload_peak_bytes == 0);
-	CHECK(stats.payload_compaction_count == 0);
+	CHECK(stats.payload_live_bytes > 0);
+	CHECK(stats.payload_live_bytes <= stats.payload_capacity_bytes);
+	CHECK(stats.payload_peak_bytes >= stats.payload_live_bytes);
 	CHECK(stats.payload_allocation_failures == 0);
 
 	/* The same five through the counter surface a bench case reads,
@@ -1607,9 +1606,12 @@ static void test_lisp_prelude_arena_margin(void)
 	CHECK(counter(KG_PERF_LISP_ARENA_TOTAL_SLOTS) == stats.total_slots);
 	CHECK(counter(KG_PERF_LISP_PAYLOAD_CAPACITY)
 	    == (unsigned long long)stats.payload_capacity_bytes);
-	CHECK(counter(KG_PERF_LISP_PAYLOAD_LIVE) == 0);
-	CHECK(counter(KG_PERF_LISP_PAYLOAD_PEAK) == 0);
-	CHECK(counter(KG_PERF_LISP_PAYLOAD_COMPACTIONS) == 0);
+	CHECK(counter(KG_PERF_LISP_PAYLOAD_LIVE)
+	    == (unsigned long long)stats.payload_live_bytes);
+	CHECK(counter(KG_PERF_LISP_PAYLOAD_PEAK)
+	    == (unsigned long long)stats.payload_peak_bytes);
+	CHECK(counter(KG_PERF_LISP_PAYLOAD_COMPACTIONS)
+	    == (unsigned long long)stats.payload_compaction_count);
 	CHECK(counter(KG_PERF_LISP_PAYLOAD_FAILURES) == 0);
 
 	CHECK(kg_lisp_load_file("lisp/auto-fill.el") == 0);

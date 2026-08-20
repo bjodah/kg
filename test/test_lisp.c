@@ -4689,6 +4689,44 @@ static void test_definition_forms(void)
 	CHECK(eval_ok("(defun quiet-lisp () (message \"no\"))"));
 	CHECK(!kg_lisp_command_exists("quiet-lisp"));
 
+	/* `defalias' takes a DOCSTRING (Phase 29 U.1a), and the argument is
+	 * storage: it lands on the symbol's `function-documentation'
+	 * property, where `documentation' reads it back ahead of the
+	 * definition registry.  Every answer here is Emacs 31.0.91's,
+	 * recorded in test/lisp-compat/cases/u0-defalias-*.json. */
+	CHECK(eval_eq(
+	    "(defalias 'aliased-doc (lambda (x) x) \"Doc.\")", "aliased-doc"));
+	CHECK(eval_eq("(aliased-doc 7)", "7"));
+	CHECK(eval_eq("(documentation 'aliased-doc)", "Doc."));
+	CHECK(eval_eq("(get 'aliased-doc 'function-documentation)", "Doc."));
+	/* The docstring is the ALIAS's own, not the target's, and a symbol
+	 * DEFINITION still resolves at call time. */
+	CHECK(eval_ok("(defalias 'aliased-car 'car \"Take the first.\")"));
+	CHECK(eval_eq("(aliased-car (list 1 2))", "1"));
+	CHECK(eval_eq("(documentation 'aliased-car)", "Take the first."));
+	/* Emacs does not type-check DOCSTRING: a non-string is stored
+	 * verbatim, and `documentation' then answers nil for it because a
+	 * non-string property indexes nothing. */
+	CHECK(eval_ok("(defalias 'aliased-42 (lambda () 1) 42)"));
+	CHECK(eval_eq("(get 'aliased-42 'function-documentation)", "42"));
+	CHECK(eval_eq("(documentation 'aliased-42)", "nil"));
+	/* A nil DOCSTRING stores nothing rather than clearing what is
+	 * there, and neither does the two-argument form. */
+	CHECK(eval_ok("(defalias 'aliased-keep (lambda () 1) \"Kept.\")"));
+	CHECK(eval_ok("(defalias 'aliased-keep (lambda () 2) nil)"));
+	CHECK(eval_eq("(documentation 'aliased-keep)", "Kept."));
+	CHECK(eval_ok("(defalias 'aliased-keep (lambda () 3))"));
+	CHECK(eval_eq("(documentation 'aliased-keep)", "Kept."));
+	/* The fence: 2 or 3 arguments, never more. */
+	CHECK(eval_eq("(condition-case e "
+		      "(defalias 'aliased-4 (lambda () 1) \"D.\" 'extra) "
+		      "(error (cdr e)))",
+	    "(defalias 4)"));
+	/* And a non-symbol target is still refused. */
+	CHECK(eval_eq("(condition-case e (defalias 5 (lambda () 1)) "
+		      "(error (car e)))",
+	    "wrong-type-argument"));
+
 	kg_lisp_shutdown();
 	teardown_editor();
 }
@@ -6627,8 +6665,11 @@ static void test_quit_uncaught(void)
  * both prelude Lisp because both are ordinary Lisp over what kg already
  * had.  The frontier demand phase added `assoc-string' and the one
  * internal name under it, `internal--string-designator', and then
- * `multibyte-string-p' and `regexp-opt', taking it to 139. */
-#define PRELUDE_DEFS 139
+ * `multibyte-string-p' and `regexp-opt', taking it to 139.  Phase 29's
+ * U.1a added the docstring-taking `defalias', a prelude SHADOW of fe's
+ * two-argument primitive placed below every definition in the file so
+ * the prelude's own forms stay on the primitive, taking it to 140. */
+#define PRELUDE_DEFS 140
 
 /* What a value CAPTURED out of a symbol's function cell is: that symbol's
  * definition at the moment of capture, and it stays that definition

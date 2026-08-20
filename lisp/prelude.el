@@ -654,15 +654,25 @@
 (defalias 'documentation-property (lambda (symbol property &optional raw)
   (internal--let text (get symbol property))
   (if (stringp text) text nil)))
-;; The registry first, then the command table: a BUILT-IN command has no
-;; Lisp definition to have recorded a docstring, and the one-line summary
+;; The symbol's own `function-documentation' property first, then the
+;; registry, then the command table: a BUILT-IN command has no Lisp
+;; definition to have recorded a docstring, and the one-line summary
 ;; cmd.c carries -- the same text M-x and the help screen show -- is the
-;; honest answer for it.
+;; honest answer for it.  The property comes FIRST because Emacs answers
+;; it first, measured: with (defun ff () "own doc" 1) and a
+;; `function-documentation' of "prop doc" on the same symbol, Emacs
+;; answers "prop doc".  It is read through `documentation-property'
+;; rather than `get' for the other half of that measurement -- a
+;; NON-STRING property answers nil, which is what Emacs answers for the
+;; 42 `defalias' happily stored.
 (defalias 'documentation (lambda (name)
+  (internal--let stored (documentation-property name 'function-documentation))
   (internal--let entry (assq name internal--docs))
-  (if (and entry (cdr entry))
-      (cdr entry)
-    (internal--command-documentation name))))
+  (if stored
+      stored
+    (if (and entry (cdr entry))
+        (cdr entry)
+      (internal--command-documentation name)))))
 ;; Every name the registry knows, newest first and with duplicates, which
 ;; is the shape the alist has; `apropos' filters and de-duplicates.
 (defalias 'internal--defined-names (lambda ()
@@ -1589,11 +1599,42 @@ name inside the buffer it is filling.")
       (floor value (expt 2 (- count)))
     (* value (expt 2 count)))))
 
+;; --- defalias with a docstring ---------------------------------------
+;; LAST, deliberately.  Everything above this line is defined with fe's
+;; own two-argument `defalias' primitive, and this shadow is what USER
+;; code gets.  Placed earlier it would put every definition below it
+;; through a Lisp call apiece, and kg's arena collects nothing during
+;; startup, so each of those frames would be permanent peak.
+;;
+;; (defalias SYMBOL DEFINITION &optional DOCSTRING).  Emacs 31.0.91,
+;; measured: the third argument is STORAGE and not decoration -- it lands
+;; on SYMBOL's `function-documentation' property, where `documentation'
+;; reads it back, and it is NOT type-checked, so a 42 is stored verbatim
+;; (and `documentation' then answers nil for it, because a non-string
+;; property indexes nothing).  A nil DOCSTRING stores nothing rather than
+;; clearing what is there: (put 'zz 'function-documentation "old") then
+;; (defalias 'zz f nil) still answers "old", and so does the
+;; two-argument form.  The fence is the arity -- a FOURTH argument is
+;; (wrong-number-of-arguments (defalias 4)), which this lambda's own
+;; parameter list gives for free.
+;;
+;; `fset' rather than the name being shadowed: it writes the same
+;; function cell through the same validation (a non-symbol target is
+;; (wrong-type-argument symbolp ...)), and it is a primitive nothing
+;; here shadows.  The return value is the SYMBOL, which is `defalias''s
+;; answer and not `fset''s.
+(defalias 'defalias (lambda (symbol definition &optional docstring)
+  (fset symbol definition)
+  (if docstring (put symbol 'function-documentation docstring))
+  symbol))
+
 ;; --- documentation for the definitions above -------------------------
 ;;
 ;; One table rather than a docstring on each `defalias' above, for a
-;; mechanical reason: the definitions ARE `defalias' calls, which take no
-;; documentation -- only `defun', `defmacro', `defvar' and `defconst' feed
+;; mechanical reason: the definitions ARE `defalias' calls, and they run
+;; on fe's own two-argument primitive -- the docstring-taking `defalias'
+;; is defined below all of them, on purpose.  Only `defun', `defmacro',
+;; `defvar' and `defconst' feed
 ;; `internal--doc-put', and the prelude cannot use `defun' before it
 ;; defines it.  Rewriting the file around that would reorder the
 ;; bootstrap; a table at the end does not, and it keeps the cost visible
@@ -1652,6 +1693,7 @@ name inside the buffer it is filling.")
   (copy-sequence . "Return a fresh copy of the list SEQUENCE.")
   (count-matches . "Return how many matches for REGEXP lie between START and END.")
   (custom-set-variables . "Set each quoted (SYMBOL VALUE) pair, as a Custom file does.")
+  (defalias . "Install DEFINITION in SYMBOL's function cell, with an optional DOCSTRING.")
   (defconst . "Define NAME as a constant with VALUE, and mark it special.")
   (defcustom . "Define NAME as a user option with STANDARD value; a declaration over `defvar'.")
   (defmacro . "Define NAME as a macro taking PARAMS.")

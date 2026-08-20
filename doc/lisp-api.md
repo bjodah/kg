@@ -1385,7 +1385,7 @@ read the two cells directly with `(symbol-function 'NAME)` and
 | `(funcall F &rest ARGS)` | Call function object or designator `F` with `ARGS` |
 | `(apply F &rest ARGS LIST)` | Like `funcall`, with the final operand a list whose elements are appended as arguments |
 | `(fset 'NAME FN)` | Write `FN` into `NAME`'s function cell |
-| `(defalias 'NAME FN)` | Emacs' spelling for installing `FN` in `NAME`'s function cell; the cell may hold a symbol, which is resolved at call time, so a `defalias` chain is late-bound |
+| `(defalias 'NAME FN &optional DOCSTRING)` | Emacs' spelling for installing `FN` in `NAME`'s function cell; the cell may hold a symbol, which is resolved at call time, so a `defalias` chain is late-bound. `DOCSTRING` is STORAGE, not decoration: it is `put` on `NAME`'s `function-documentation` property, where `documentation` reads it back ahead of anything `defun` recorded, and it is the ALIAS's own — `(defalias 'first 'car "Take the first.")` documents `first`, not `car`. Emacs does not type-check it, so a non-string is stored verbatim and `documentation` then answers `nil` for it; a `nil` `DOCSTRING` stores nothing rather than clearing what is there, as the two-argument form does not either. A fourth argument is `wrong-number-of-arguments` |
 | `(fboundp 'NAME)` | `t` if `NAME`'s function cell holds anything, else `nil` — never consults the value cell, never errors |
 | `(symbol-function 'NAME)` | `NAME`'s function cell, without resolving a designator (`void-function` when empty) |
 | `(symbol-value 'NAME)` | `NAME`'s value cell, without evaluating it (`void-variable` when empty) |
@@ -1618,7 +1618,11 @@ primitive's function cell.
   also answers here, where Emacs reserves `documentation` for functions
   and raises `void-function`. A BUILT-IN command's documentation is the
   one-line summary `cmdtable` carries for it, which is the same text
-  `M-x` and the help screen show.
+  `M-x` and the help screen show. Since Phase 29 the symbol's own
+  `function-documentation` property is consulted **first**, which is
+  Emacs' own order (measured: a `defun` with a docstring and a
+  `function-documentation` property on the same symbol answers the
+  property), and it is how a three-argument `defalias` documents a name.
 - A **variable's** docstring additionally lives where Emacs puts one,
   on the symbol's `variable-documentation` property, since Phase 20:
   `(get 'my-var 'variable-documentation)` answers it, a program can

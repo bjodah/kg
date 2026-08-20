@@ -5281,7 +5281,7 @@
   {
    "id": "u0-defalias-docstring",
    "category": "functions-and-macros",
-   "status": "divergent",
+   "status": "supported",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -5292,8 +5292,8 @@
     "u0-defalias-two-argument-baseline"
    ],
    "kg_test": "test/test_lisp.c:test_strict_arity, test/test_lisp.c:test_definition_forms",
-   "rationale": "Phase 29's U.0 freeze, recorded before the argument exists: `defalias' with a DOCSTRING is the first blocker for 7 of the 110 census packages, all of them through `dash.el:603'. What the rows pin is that the third argument is STORAGE and not decoration -- it lands on the symbol's `function-documentation' property, `documentation' reads it back, a symbol DEFINITION carries the alias's own docstring rather than the target's, a non-string is accepted verbatim, and a FOURTH argument is `wrong-number-of-arguments (defalias 4)'. u0-defalias-two-argument-baseline carries `expect: agree' and is the control: the two-argument form already agrees, so the divergence is attributable to one argument. THE DEMAND, MEASURED IN U.0 AND NOT REMEMBERED: with a stand-in that accepts and drops the third argument, all 7 packages advance to `dash.el:822' -- the `\\(fn ...)' reader escape, i.e. backlog item 2 -- so items 1 and 2 are in SERIES on one file and neither alone moves the count. kg answers `wrong-number-of-arguments' at this pin; source_name is null because `defalias' is already claimed by the entry that owns kg's two-argument native.",
-   "source_name": null
+   "rationale": "Phase 29's U.0 freeze, implemented in U.1a: `defalias' with a DOCSTRING was the first blocker for 7 of the 110 census packages, all of them through `dash.el:603'. What the rows pin is that the third argument is STORAGE and not decoration -- it lands on the symbol's `function-documentation' property, `documentation' reads it back, a symbol DEFINITION carries the alias's own docstring rather than the target's, a non-string is accepted verbatim, and a FOURTH argument is `wrong-number-of-arguments (defalias 4)'. u0-defalias-two-argument-baseline carries `expect: agree' and is the control: the two-argument form already agreed, so the divergence was attributable to one argument. THE DEMAND, MEASURED IN U.0 AND NOT REMEMBERED: with a stand-in that accepts and drops the third argument, all 7 packages advance to `dash.el:822' -- the `\\(fn ...)' reader escape, i.e. backlog item 2 -- so items 1 and 2 are in SERIES on one file and neither alone moves the count. U.1a implements it as a prelude SHADOW of fe's two-argument primitive, defined below every definition in the file so the prelude's own 139 forms stay on the primitive; source_name is `defalias' in the kg-prelude pool, beside fe's own claim on the primitive (lisp2-defalias-symbol), exactly as `let' is claimed in both pools.",
+   "source_name": "defalias"
   },
   {
    "id": "u0-define-error",

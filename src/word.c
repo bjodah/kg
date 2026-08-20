@@ -1401,8 +1401,8 @@ static void reflow_append_line(
  * needs and the paragraph at point does not: M-q always passes that
  * row's whole `size`, and a region whose end falls inside a row passes
  * the column it falls at. */
-static char *reflow_word_stream(const struct editor_buffer *b, int para_start,
-    int para_end, int last_len)
+static char *reflow_word_stream(
+    const struct editor_buffer *b, int para_start, int para_end, int last_len)
 {
 	int total = 0;
 	int words_len = 0;
@@ -1588,7 +1588,8 @@ static bool reflow_fill_one(struct editor_buffer *b, int para_start,
 	}
 
 	indent_len = reflow_indent_len(&b->row[para_start]);
-	reflow_lines_init(&lines, b->row[para_start].chars, indent_len, fill_col);
+	reflow_lines_init(
+	    &lines, b->row[para_start].chars, indent_len, fill_col);
 	reflow_wrap(&lines, words, fill_col);
 	free(words);
 	joined = lines.failed ? NULL : reflow_join(&lines, &joined_len);
@@ -1695,8 +1696,8 @@ bool editor_fill_region(struct editor_buffer *b, size_t beg, size_t end,
 		int para_start, para_end, last_len, rows;
 
 		if (kg_marker_resolve(end_marker, &end_byte) != KG_MARKER_OK
-		    || !reflow_region_paragraph(b, row, end_byte, &para_start,
-			&para_end, &last_len)) {
+		    || !reflow_region_paragraph(
+			b, row, end_byte, &para_start, &para_end, &last_len)) {
 			break;
 		}
 		if (!reflow_fill_one(b, para_start, para_end, last_len,

@@ -160,8 +160,7 @@ static int lisp_encode_char(long codepoint, char *out);
  * codepoints, so re-encoding them here makes the round trip a CHARACTER
  * reversal rather than a byte one.  A NON-INTEGER element is
  * `(wrong-type-argument characterp X)', Emacs' own predicate for it. */
-static size_t lisp_concat_argument_bytes(
-    FeContext *context, FeObject *object)
+static size_t lisp_concat_argument_bytes(FeContext *context, FeObject *object)
 {
 	size_t total = 0;
 	char encoded[4];
@@ -212,8 +211,7 @@ static size_t lisp_concat_bytes(FeContext *context, FeObject *arguments)
 
 /* Copy ONE argument's bytes into `text', answering how many it wrote --
  * the same two shapes, in the same order, as the counting pass. */
-static size_t lisp_concat_copy(
-    FeContext *context, FeObject *object, char *text)
+static size_t lisp_concat_copy(FeContext *context, FeObject *object, char *text)
 {
 	size_t position = 0;
 
@@ -534,14 +532,14 @@ struct lisp_compare_span {
  * is what this builds.  Clip before converting a negative, or the -5 row
  * reports -2. */
 static struct lisp_compare_span lisp_compare_bounds(FeContext *context,
-    FeObject *string, FeObject *start_object, FeObject *end_object,
-    long chars)
+    FeObject *string, FeObject *start_object, FeObject *end_object, long chars)
 {
 	struct lisp_compare_span span = { 0, chars };
 	FeObject *reported_end = end_object;
 
 	if (!FeIsNil(start_object)) {
-		span.from = (long)lisp_finite(context, start_object, "integerp");
+		span.from
+		    = (long)lisp_finite(context, start_object, "integerp");
 		if (span.from < 0) {
 			span.from += chars;
 		}
@@ -642,8 +640,8 @@ FeObject *native_compare_strings(FeContext *context, FeObject *arguments)
 	park_scratch(text);
 	(void)FeCopyStringBytes(context, a, text, a_bytes);
 	(void)FeCopyStringBytes(context, b, text + a_bytes, b_bytes);
-	sa = lisp_compare_bounds(context, a, start1, end1,
-	    lisp_utf8_length(text, (int)a_bytes));
+	sa = lisp_compare_bounds(
+	    context, a, start1, end1, lisp_utf8_length(text, (int)a_bytes));
 	sb = lisp_compare_bounds(context, b, start2, end2,
 	    lisp_utf8_length(text + a_bytes, (int)b_bytes));
 	result = lisp_compare_spans(context, text, (int)a_bytes, sa,

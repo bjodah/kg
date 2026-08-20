@@ -284,8 +284,8 @@ FeObject *lisp_callable_designator(FeContext *context, FeObject *object,
 /* The three-element form of the same, which `compare-strings' needs:
  * (args-out-of-range STRING START END), naming the string whose span was
  * bad (lisp_core.c). */
-[[noreturn]] void lisp_raise_args_out_of_range3(FeContext *context,
-    FeObject *first, FeObject *second, FeObject *third);
+[[noreturn]] void lisp_raise_args_out_of_range3(
+    FeContext *context, FeObject *first, FeObject *second, FeObject *third);
 /* Raise Emacs' `(search-failed PATTERN)' -- what a failed search whose
  * NOERROR argument is nil answers, carrying the pattern it did not find.
  * The symbol became raisable at the frontier demand phase's fe pin, which

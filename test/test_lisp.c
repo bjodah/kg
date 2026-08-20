@@ -3033,25 +3033,25 @@ static void test_search_noerror_three_ways(void)
 	 * binding that moved to point-max in both directions would pass the
 	 * two forward ones. */
 	CHECK(eval_ok("(goto-char (point-min))"));
-	CHECK(eval_eq("(list (re-search-forward \"z\" nil 'move) (point))",
-	    "(nil 7)"));
+	CHECK(eval_eq(
+	    "(list (re-search-forward \"z\" nil 'move) (point))", "(nil 7)"));
 	CHECK(eval_ok("(goto-char (point-min))"));
-	CHECK(eval_eq("(list (search-forward \"z\" 3 'move) (point))",
-	    "(nil 3)"));
+	CHECK(eval_eq(
+	    "(list (search-forward \"z\" 3 'move) (point))", "(nil 3)"));
 	CHECK(eval_ok("(goto-char (point-max))"));
-	CHECK(eval_eq("(list (re-search-backward \"z\" nil 'move) (point))",
-	    "(nil 1)"));
+	CHECK(eval_eq(
+	    "(list (re-search-backward \"z\" nil 'move) (point))", "(nil 1)"));
 	CHECK(eval_ok("(goto-char (point-max))"));
-	CHECK(eval_eq("(list (search-backward \"z\" 3 'move) (point))",
-	    "(nil 3)"));
+	CHECK(eval_eq(
+	    "(list (search-backward \"z\" 3 'move) (point))", "(nil 3)"));
 
 	/* A SUCCESSFUL search is unchanged by any of the three: NOERROR
 	 * decides only what a failure does. */
 	CHECK(eval_ok("(goto-char (point-min))"));
 	CHECK(eval_eq("(list (search-forward \"cd\") (point))", "(5 5)"));
 	CHECK(eval_ok("(goto-char (point-min))"));
-	CHECK(eval_eq("(list (search-forward \"cd\" nil 'move) (point))",
-	    "(5 5)"));
+	CHECK(eval_eq(
+	    "(list (search-forward \"cd\" nil 'move) (point))", "(5 5)"));
 
 	/* Emacs' FOURTH argument, COUNT, stays refused BY NAME rather than
 	 * accepted and ignored -- frontier-search-count-argument pins the
@@ -3159,8 +3159,8 @@ static void test_re_search_backward(void)
 
 	/* No match: nil, and point plus the previous match data are left
 	 * exactly as the successful search above left them. */
-	fe_regex_source(source, sizeof(source),
-	    "(re-search-backward \"%s\" nil t)", "zzz");
+	fe_regex_source(
+	    source, sizeof(source), "(re-search-backward \"%s\" nil t)", "zzz");
 	CHECK(eval_eq(source, "nil"));
 	CHECK(eval_eq("(point)", "8"));
 	CHECK(eval_eq("(match-beginning 0)", "8"));
@@ -3427,14 +3427,15 @@ static void test_assoc_string_and_designator(void)
 	CHECK(eval_eq("(assoc-string \"z\" (list (cons \"a\" 1)))", "nil"));
 	CHECK(eval_eq("(assoc-string \"a\" (list \"a\" \"b\"))", "a"));
 	CHECK(eval_eq("(assoc-string \"a\" (list 'a 'b))", "a"));
-	CHECK(eval_eq("(assoc-string 'a (list (cons \"a\" 1)))", "(\"a\" . 1)"));
+	CHECK(
+	    eval_eq("(assoc-string 'a (list (cons \"a\" 1)))", "(\"a\" . 1)"));
 	CHECK(eval_eq("(assoc-string \"a\" (list (cons 'a 1)))", "(a . 1)"));
 	/* A nil KEY is the symbol `nil', so it is the string "nil" and
 	 * finds an element -- measured on 31.0.91, and the one row that
 	 * says the designator's nil answer is about TYPE and not about
 	 * emptiness. */
-	CHECK(eval_eq("(assoc-string nil (list (cons \"nil\" 1)))",
-	    "(\"nil\" . 1)"));
+	CHECK(eval_eq(
+	    "(assoc-string nil (list (cons \"nil\" 1)))", "(\"nil\" . 1)"));
 
 	/* THE ASYMMETRY.  A non-string ELEMENT is skipped silently and the
 	 * scan CONTINUES past it; a non-string KEY raises.  An
@@ -3457,10 +3458,10 @@ static void test_assoc_string_and_designator(void)
 		      " (cons \"b\" 3)))",
 	    "(\"b\" . 2)"));
 	CHECK(eval_eq("(assoc-string \"A\" (list (cons \"a\" 1)))", "nil"));
-	CHECK(eval_eq("(assoc-string \"A\" (list (cons \"a\" 1)) t)",
-	    "(\"a\" . 1)"));
-	CHECK(eval_eq("(assoc-string \"a\" (list (cons \"A\" 1)) t)",
-	    "(\"A\" . 1)"));
+	CHECK(eval_eq(
+	    "(assoc-string \"A\" (list (cons \"a\" 1)) t)", "(\"a\" . 1)"));
+	CHECK(eval_eq(
+	    "(assoc-string \"a\" (list (cons \"A\" 1)) t)", "(\"A\" . 1)"));
 	CHECK(eval_eq("(assoc-string \"\xc3\x89\" (list (cons \"\xc3\xa9\" 1))"
 		      " t)",
 	    "nil"));
@@ -3482,8 +3483,8 @@ static void test_assoc_string_and_designator(void)
 	    "<a>-<b>"));
 	/* An EMPTY match keeps the old path, where kg already agreed with
 	 * Emacs: both answer these two. */
-	CHECK(eval_eq("(replace-regexp-in-string \"x*\" \"-\" \"abc\")",
-	    "-a-b-c"));
+	CHECK(eval_eq(
+	    "(replace-regexp-in-string \"x*\" \"-\" \"abc\")", "-a-b-c"));
 	CHECK(eval_eq("(replace-regexp-in-string \"x*\""
 		      " (lambda (m) (format \"[%s]\" m)) \"axb\")",
 	    "[]a[x][]b"));
@@ -3520,7 +3521,8 @@ static void test_compare_strings(void)
 	 * rather than as the length it stands for. */
 	CHECK(eval_eq("(compare-strings \"abc\" 0 10 \"abc\" 0 3)", "t"));
 	CHECK(eval_eq("(compare-strings \"abc\" 0 4 \"abcd\" 0 4)", "-4"));
-	CHECK(eval_eq("(compare-strings \"abc\" -1 nil \"xbc\" nil nil)", "-1"));
+	CHECK(
+	    eval_eq("(compare-strings \"abc\" -1 nil \"xbc\" nil nil)", "-1"));
 	CHECK(eval_eq("(compare-strings \"abc\" 3 3 \"abc\" 0 3)", "-1"));
 	CHECK(eval_eq("(condition-case e (compare-strings \"abc\" 5 6 \"abc\""
 		      " 0 3) (error (cons (car e) (cdr e))))",
@@ -3553,8 +3555,9 @@ static void test_compare_strings(void)
 
 	/* THE INDEX IS IN CHARACTERS, not bytes: a byte-shaped
 	 * implementation answers -3 for the first of these. */
-	CHECK(eval_eq(
-	    "(compare-strings \"\xc3\xa9""a\" nil nil \"\xc3\xa9""b\" nil nil)",
+	CHECK(eval_eq("(compare-strings \"\xc3\xa9"
+		      "a\" nil nil \"\xc3\xa9"
+		      "b\" nil nil)",
 	    "-2"));
 	CHECK(eval_eq("(compare-strings \"a\xc3\xa9\" nil nil \"a\xc3\xa9\""
 		      " nil nil)",
@@ -3565,10 +3568,10 @@ static void test_compare_strings(void)
 	 * is -1 because the fold makes it "A" (0x41), before "_" (0x5F).
 	 * The non-ASCII pair is the RECORDED DIVERGENCE this phase chose
 	 * and did not close: kg answers -1 where Emacs answers t. */
-	CHECK(eval_eq("(compare-strings \"ABC\" nil nil \"abc\" nil nil t)",
-	    "t"));
-	CHECK(eval_eq("(compare-strings \"ABC\" nil nil \"abc\" nil nil nil)",
-	    "-1"));
+	CHECK(eval_eq(
+	    "(compare-strings \"ABC\" nil nil \"abc\" nil nil t)", "t"));
+	CHECK(eval_eq(
+	    "(compare-strings \"ABC\" nil nil \"abc\" nil nil nil)", "-1"));
 	CHECK(eval_eq("(compare-strings \"a\" nil nil \"_\" nil nil t)", "-1"));
 	CHECK(eval_eq("(compare-strings \"_\" nil nil \"a\" nil nil t)", "1"));
 	CHECK(eval_eq("(compare-strings \"\xc3\x89\" nil nil \"\xc3\xa9\""

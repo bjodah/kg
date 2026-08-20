@@ -6,10 +6,10 @@
 struct editor_buffer;
 
 /* The column both of kg's fills wrap at: the Lisp variable
- * `fill-column' as the current buffer sees it, or 72 for a build with no
- * evaluator to ask.  A number of BYTES of `row->chars` compared against
- * a display column, which is the same number for the ASCII a fill column
- * is a statement about. */
+ * `fill-column' as the current buffer sees it, or the same 70 for a
+ * build with no evaluator to ask.  A number of BYTES of `row->chars` compared
+ * against a display column, which is the same number for the ASCII a fill
+ * column is a statement about. */
 [[nodiscard]] int editor_fill_column(void);
 
 /* Fill every paragraph of `b` between the buffer byte positions `beg`

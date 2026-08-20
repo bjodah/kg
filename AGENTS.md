@@ -534,7 +534,8 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   operator before Phase 2's hard cut, and this bullet said so until the
   Phase 11 docs sweep found it still saying it.
 - `WITH_LISP=1` is the default build; `make WITH_LISP=0` must reproduce the
-  pre-Lisp editor. CI stage `.ci/ci-08-with-lisp-0.sh` enforces the disabled
+  pre-Lisp editor, with one deliberate exception: M-q wraps at 70, Emacs'
+  `fill-column` default, in every build (`src/word.c`'s fallback). CI stage `.ci/ci-08-with-lisp-0.sh` enforces the disabled
   configuration; keep both configurations green.
 - Lisp is trusted code: init files and packages run with full editor
   privileges, bounded by a step budget and C-g cancellation. Do not present

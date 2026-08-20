@@ -1260,9 +1260,9 @@ static void test_variable_non_nil(void)
 static void test_fill_column_variable(void)
 {
 	setup_editor();
-	/* No interpreter yet: the fill still has a column, and it is the
-	 * pre-Lisp 72 that a WITH_LISP=0 build wraps at. */
-	CHECK(editor_fill_column() == 72);
+	/* No interpreter yet: the fill still has a column, and the
+	 * fallback is the same 70 a WITH_LISP=0 build wraps at. */
+	CHECK(editor_fill_column() == 70);
 	CHECK(kg_lisp_init() == 0);
 
 	/* Emacs' own default, and special -- so s-word-wrap's
@@ -1289,7 +1289,7 @@ static void test_fill_column_variable(void)
 	 * editor command.  (`fill-region' does raise -- it is Lisp calling
 	 * Lisp, where Emacs raises too.) */
 	CHECK(eval_ok("(setq fill-column \"wide\")"));
-	CHECK(editor_fill_column() == 72);
+	CHECK(editor_fill_column() == 70);
 
 	/* A `defvar' over a name a user has already set does NOT clobber
 	 * it, which is what lets lisp/auto-fill.el (and any package) keep
@@ -1299,7 +1299,7 @@ static void test_fill_column_variable(void)
 	    "33"));
 
 	kg_lisp_shutdown();
-	CHECK(editor_fill_column() == 72);
+	CHECK(editor_fill_column() == 70);
 	teardown_editor();
 }
 

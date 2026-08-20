@@ -12,14 +12,14 @@
 #include "word.h"
 #include "yank.h"
 
-/* The fill column a build with no evaluator in it wraps at.  It is not
- * the editor's default any more: `fill-column' is a prelude `defvar'
- * (70, Emacs' own) that both fills read, and this is what
- * kg_lisp_variable_integer() answers when there is nothing to ask --
- * WITH_LISP=0, an interpreter that has not started, or a binding that is
- * not an integer.  Deliberately still 72, so a WITH_LISP=0 build
- * reproduces the pre-Lisp editor exactly. */
-#define FILL_COLUMN_FALLBACK 72
+/* The fill column when there is no evaluator to ask.  `fill-column' is
+ * a prelude `defvar' (70, Emacs' own) that both fills read, and this is
+ * what kg_lisp_variable_integer() answers when there is nothing to
+ * ask -- WITH_LISP=0, an interpreter that has not started, or a binding
+ * that is not an integer.  The same 70, so M-q wraps where Emacs would
+ * in every build: the one place a WITH_LISP=0 editor deliberately does
+ * not reproduce its pre-Lisp self, which wrapped at 72. */
+#define FILL_COLUMN_FALLBACK 70
 
 static int is_word_char(int c) { return isalnum((unsigned char)c) || c == '_'; }
 

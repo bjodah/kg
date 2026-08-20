@@ -142,11 +142,14 @@ long long lisp_monotonic_ns(void)
 }
 #endif
 
+static void release_frame_buffers(void);
+
 static void reset_state(void)
 {
 	char error[sizeof(state.error)];
 
 	copy_result(error, sizeof(error), state.error);
+	release_frame_buffers();
 	memset(&state, 0, sizeof(state));
 	copy_result(state.error, sizeof(state.error), error);
 }
@@ -635,6 +638,10 @@ void kg_lisp_shutdown(void)
 	release_lisp_commands();
 	FeCloseContext(state.context);
 	lisp_free_arena(state.arena);
+	/* The frame's heap side: a raise Lisp caught can leave a parked
+	 * scratch (and, mid-load, load buffers) that frame recovery never
+	 * saw; zeroing the pointers without this would leak them. */
+	release_frame_buffers();
 	memset(&state, 0, sizeof(state));
 }
 

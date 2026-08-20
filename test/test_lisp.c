@@ -7536,6 +7536,26 @@ static void test_s_el_vendored_load(void)
 	    "(\"ab\" fill-region \"Xbc\" \"cba\""
 	    " \"1\" (\"a\" \"b,c\"))"));
 
+	/* THE REST OF WHAT THE FIVE SURFACES BOUGHT, one call per s.el
+	 * entry point the probe above does not reach: the other two
+	 * `compare-strings' callers, and `s--aget', which is the wrapper
+	 * `s-format''s replacer goes through.  Values, not `fboundp': a
+	 * name that is bound and answers the wrong thing is the failure
+	 * this whole phase exists to make visible. */
+	CHECK(eval_eq("(list (s-shared-end \"bar\" \"far\")"
+		      " (s-ends-with? \"bar\" \"foobar\")"
+		      " (s-ends-with? \"BAR\" \"foobar\" t)"
+		      " (s--aget (list (cons \"k\" \"v\")) \"k\"))",
+	    "(\"ar\" t t \"v\")"));
+
+	/* AND WHAT REMAINS, asserted as a value rather than described:
+	 * `fill-region' alone, which is F.1b's, and the ONLY name in the
+	 * six the frontier probe measured that this phase does not bind.
+	 * s-word-wrap is its one consumer. */
+	CHECK(eval_eq("(condition-case e (s-word-wrap 3 \"aa bb\")"
+		      " (void-function (cdr e)))",
+	    "(fill-region)"));
+
 	kg_lisp_shutdown();
 }
 

@@ -876,11 +876,13 @@ matches exactly as in Emacs, so a search of either kind replaces what
 the other left — which is what `save-match-data` is for. Three
 properties are inherited from the engine and are recorded divergences
 rather than surprises: `^` and `$` anchor the whole subject rather than
-each line of it (and kg's engine does not know Emacs' ``\\` `` and
-`\\'` spellings for that, which is one of the two things unmodified
-`s.el` still stops at), matching is always case-**sensitive** (there is no
+each line of it, matching is always case-**sensitive** (there is no
 `case-fold-search`), and the subject is NUL-terminated, so a match stops
-at an embedded NUL.
+at an embedded NUL.  Emacs' own subject anchors ``\\` `` and `\\'` ARE
+understood, since Phase 26 — they compile to the same two assertions
+`^` and `$` already make here, so on a subject with no newline in it all
+four spellings pick the same two offsets, which is the only condition
+under which they agree with Emacs at all.
 
 `match-data` answers INTEGERS for a buffer match where Emacs answers
 markers unless its `INTEGERS` argument says otherwise — kg's answer is
@@ -1423,7 +1425,10 @@ primitive's function cell.
   match the start and end of the whole subject, not of each line in it —
   except in the buffer, where the subject *is* one line, which is why
   `looking-at`'s anchors behave exactly as Emacs' do and why no pattern
-  it is given can match across a line break.
+  it is given can match across a line break. Emacs' ``\\` `` and `\\'`
+  are the *same* two assertions here rather than a second pair, which is
+  why they are right where `^`/`$` are wrong: on a multi-line subject
+  ``\\`b`` agrees with Emacs and `^b` does not, from one node.
 - **The writer does not re-escape a backslash inside a string.**
   `(format "%S" "a\\b")` is `"a\b"` here and `"a\\b"` in Emacs, so a
   printed string holding backslashes — anything `regexp-quote` returns,

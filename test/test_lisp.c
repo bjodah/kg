@@ -6972,23 +6972,26 @@ static void test_s_el_vendored_load(void)
 		      " (s-match \"\\\\(b+\\\\)\" \"abbc\"))",
 	    "(t t (\"bb\" \"bb\"))"));
 
-	/* THE FRONTIER, named rather than described, and it MOVED -- which
-	 * is what this line is for.  It is no longer the reader (Phase 24)
-	 * and no longer the match-data surface (Phase 25.2).  Two things
-	 * are left, and they are different in kind:
+	/* THE FRONTIER, named rather than described, and it MOVED again --
+	 * which is what this line is for.  Phase 26.2 taught the engine
+	 * (fe/tiny-regex-c) Emacs' subject anchors, so `string-match' finds
+	 * s-trim's own leading run where it used to answer nil -- and the
+	 * SILENT gap Phase 25.2 recorded became a LOUD one.  s.el's `if'
+	 * takes the THEN branch now and calls `replace-match', which kg
+	 * does not bind yet, so `s-trim' RAISES `void-function' instead of
+	 * quietly returning its argument untrimmed.  That is the whole
+	 * value of landing the spellings first: what is missing announces
+	 * itself.  Two missing NAMES are left, and nothing silent:
 	 *
-	 *   * a missing NAME.  `s-count-matches' reaches `count-matches',
-	 *     which kg does not bind.
-	 *   * a missing regex SPELLING, which is worse because it is
-	 *     SILENT.  `s-trim' asks for "\\`[ \t\n\r]+", and kg's engine
-	 *     does not know \` (nor \'), so `string-match' answers nil,
-	 *     s.el's own `if' takes the else branch, and the string comes
-	 *     back untrimmed instead of erroring.  kg's `^' and `$' ALREADY
-	 *     mean what \` and \' mean -- they anchor the whole subject,
-	 *     which doc/lisp-api.md records as an engine divergence -- so
-	 *     the gap here is the two spellings, not the semantics.
-	 *     `replace-match', which s-trim would reach next, is missing
-	 *     too and is masked by this.
+	 *   * `count-matches', which `s-count-matches' reaches through
+	 *     `with-temp-buffer';
+	 *   * `replace-match', which `s-trim-left' and `s-trim-right'
+	 *     reach as (replace-match "" t t s).
+	 *
+	 * The two `string-match' elements are the spelling's own before and
+	 * after, in one call each: "\\` " matches at offset 0 where "\\`h"
+	 * cannot, and `^ ' beside them is the control that has always
+	 * worked.
 	 *
 	 * Phase 26's demand signal, measured from a real package rather
 	 * than counted out of a corpus.  A phase that lands one of them
@@ -6996,11 +6999,13 @@ static void test_s_el_vendored_load(void)
 	CHECK(
 	    eval_eq("(list (condition-case e (s-count-matches \"a\" \"banana\")"
 		    "        (void-function (car (cdr e))))"
-		    " (s-trim \"  hi  \")"
+		    " (condition-case e (s-trim \"  hi  \")"
+		    "   (void-function (car e)))"
 		    " (string-match \"\\\\`h\" \"  hi\")"
+		    " (string-match \"\\\\` \" \"  hi\")"
 		    " (string-match \"^ \" \"  hi\")"
 		    " (fboundp 'replace-match))",
-		"(count-matches \"  hi  \" nil 0 nil)"));
+		"(count-matches void-function nil 0 0 nil)"));
 
 	kg_lisp_shutdown();
 }

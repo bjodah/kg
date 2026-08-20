@@ -2584,7 +2584,7 @@
   {
    "id": "phase26-anchor-spellings",
    "category": "sequences",
-   "status": "divergent",
+   "status": "supported",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -2597,7 +2597,7 @@
     "phase26-anchor-never-matches"
    ],
    "kg_test": "test/test_lisp.c:test_phase15_regex_seam",
-   "rationale": "Phase 26.0 froze Emacs' answers for `\\\\`' and `\\\\'' through `string-match' and `string-match-p' before kg's engine knows either spelling. Two of the seven cases are the controls that make the other five attributable. phase26-anchor-ends-coincide shows that on a subject with no newline Emacs' `^'/`$' and `\\\\`'/`\\\\'' select the SAME offsets, which is what licenses 26.2 to implement the new spellings as the anchors kg's engine already has rather than as new semantics -- and phase26-anchor-line-vs-subject beside this row is where that licence stops. phase26-anchor-never-matches ALREADY AGREES ((nil nil) both sides) and carries `expect: agree' inside this divergent row, the native-type-of shape: an anchor written where it can never match must still match nothing after the spellings land. The finding this row exists to record is phase26-anchor-literal-backtick-today: kg does not REJECT either spelling, it drops the backslash and matches the punctuation, so `(string-match \"\\\\`abc\" \"x`abc\")' answers 1 here and nil in Emacs. A pattern containing either spelling can therefore match the WRONG THING today, silently, which is a sharper statement of the gap than `s-trim returns its argument'. source_name is null: `string-match' and `string-match-p' have their own rows.",
+   "rationale": "SUPPORTED SINCE 26.2, and all seven cases agree. Phase 26.0 froze Emacs' answers for `\\\\`' and `\\\\'' through `string-match' and `string-match-p' before kg's engine knew either spelling; 26.2 taught them to fe/tiny-regex-c, where they compile to the BEGIN and END nodes `^' and `$' already produce -- an alias, not a second semantics, which is exactly the licence phase26-anchor-ends-coincide measured. Two of the seven cases are the controls that make the other five attributable. Two of the seven cases are the controls that make the other five attributable. phase26-anchor-ends-coincide shows that on a subject with no newline Emacs' `^'/`$' and `\\\\`'/`\\\\'' select the SAME offsets, which is what licenses 26.2 to implement the new spellings as the anchors kg's engine already has rather than as new semantics -- and phase26-anchor-line-vs-subject beside this row is where that licence stops. phase26-anchor-never-matches AGREED BEFORE THE WORK TOO ((nil nil) both sides) and keeps its `expect: agree' now that the row is supported, because it agreed for the WRONG REASON first -- kg matched nothing because it read `\\\\`' as a literal backtick the subject did not hold -- and agrees for the right one now. The finding this row was written to record is phase26-anchor-literal-backtick-today: kg did not REJECT either spelling, it dropped the backslash and matched the punctuation, so `(string-match \"\\\\`abc\" \"x`abc\")' answered 1 here and nil in Emacs. A pattern containing either spelling could therefore match the WRONG THING, silently, which is a sharper statement of the gap that was than `s-trim returns its argument'; it answers nil on both sides now. source_name is null: `string-match' and `string-match-p' have their own rows.",
    "source_name": null
   },
   {

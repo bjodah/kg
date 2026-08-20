@@ -2,5 +2,5 @@
  "id": "phase26-anchor-s-trim-patterns",
  "setup": [],
  "expr": "(list (string-match \"\\\\`[ \\t\\n\\r]+\" \"  hi  \") (match-end 0) (string-match \"[ \\t\\n\\r]+\\\\'\" \"  hi  \") (match-beginning 0))",
- "note": "s-trim's OWN TWO PATTERNS, character for character (s.el:40 and s.el:48), with the span each one selects. Emacs answers (0 2 4 4): the leading run is 0..2 and the trailing run starts at 4, which is exactly what `replace-match' is then handed. kg answers (nil nil nil nil) -- the match fails, so the register is never set and the accessors have nothing to read. THIS IS THE SILENT GAP: s.el's own `if' takes the else branch and `s-trim' returns its argument untrimmed, with no error anywhere (phase26-s-trim-untrimmed is the same failure one level up)."
+ "note": "s-trim's OWN TWO PATTERNS, character for character (s.el:40 and s.el:48), with the span each one selects. Emacs answers (0 2 4 4): the leading run is 0..2 and the trailing run starts at 4, which is exactly what `replace-match' is then handed. kg answered (nil nil nil nil) before 26.2 -- the match failed, so the register was never set and the accessors had nothing to read. THAT WAS THE SILENT GAP: s.el's own `if' took the else branch and `s-trim' returned its argument untrimmed, with no error anywhere (phase26-s-trim-untrimmed is the same failure one level up). kg answers (0 2 4 4) now."
 }

@@ -2,5 +2,5 @@
  "id": "phase26-anchor-empty-subject",
  "setup": [],
  "expr": "(list (string-match \"\\\\`\" \"\") (string-match \"\\\\'\" \"\") (string-match \"\\\\`\\\\'\" \"\") (string-match \"^$\" \"\"))",
- "note": "THE DEGENERATE SUBJECT, where all four spellings have to agree with each other. Emacs answers (0 0 0 0): an empty string has a start and an end at the same offset and every anchor matches there. kg answers (nil nil nil 0) -- the `^$' element is the control that shows kg's own anchors already handle the empty subject, so the three nils are the missing spellings and nothing else. Worth freezing separately because an implementation that special-cases `end of subject' as `after the last character' has no last character here."
+ "note": "THE DEGENERATE SUBJECT, where all four spellings have to agree with each other. Emacs answers (0 0 0 0): an empty string has a start and an end at the same offset and every anchor matches there. kg answered (nil nil nil 0) before 26.2 -- the `^$' element was the control that showed kg's own anchors already handled the empty subject, so the three nils were the missing spellings and nothing else; kg answers (0 0 0 0) now. Worth freezing separately because an implementation that special-cases `end of subject' as `after the last character' has no last character here."
 }

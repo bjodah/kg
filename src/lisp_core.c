@@ -70,13 +70,13 @@ static_assert(FE_LANGUAGE_VERSION == 17);
 /* The arena holds the whole Fe context, its 4096-slot GC stack, Fe's
  * arena-resident evaluator frames and the payload region a vector's
  * elements and a string's bytes live in. FeMinimumArenaSize() measures
- * 72136 bytes (~70.4 KiB) at the pinned Fe -- it funds the core symbol
- * names' own blocks, 6232 bytes of them -- so an override much below ~71
- * KiB fails to start; the default's 10 MiB leaves roughly 99% of the
- * arena for the three pools, partitioned into 440190 object slots, a
- * 10911-frame evaluator stack and 2349296 payload bytes, as
- * kg_lisp_arena_stats() reports them. All four are measured at the pin,
- * never carried forward. */
+ * 74248 bytes (~72.5 KiB) at the pinned Fe -- it funds the core symbol
+ * names' own blocks and the symbol index's first table block -- so an
+ * override much below ~73 KiB fails to start; the default's 10 MiB
+ * leaves roughly 99% of the arena for the three pools, partitioned into
+ * 440103 object slots, a 10909-frame evaluator stack and 2350896 payload
+ * bytes, as kg_lisp_arena_stats() reports them. All four are measured at
+ * the pin, never carried forward. */
 static constexpr size_t lisp_arena_size = KG_LISP_ARENA_SIZE;
 
 /* The size the environment sets instead, read once per kg_lisp_init(),
@@ -85,10 +85,10 @@ static const char lisp_arena_env[] = "KG_LISP_ARENA_BYTES";
 
 /* The floor that variable may not go under.  An arena that holds the
  * prelude and little else is not an editor, so kg refuses it rather than
- * starting into it: 768 KiB opens 31000 object slots UNDER THE CARVE
- * below, against the 26847 that are three times the prelude's measured
+ * starting into it: 768 KiB opens 30912 object slots UNDER THE CARVE
+ * below, against the 27243 that are three times the prelude's measured
  * reachable set (.ci/prelude-startup-census.json,
- * reachable_live_objects 8949) -- the same 3x margin test/test_lisp.c
+ * reachable_live_objects 9081) -- the same 3x margin test/test_lisp.c
  * asserts of the default arena.  Both halves of that sentence are
  * re-derived by that file's test_arena_floor_matches_census(), from the
  * census file and from a real arena opened at exactly this size, so the
@@ -102,10 +102,11 @@ static constexpr size_t lisp_arena_min_size = 768U * 1024U;
  * name is a string and a string's bytes are payload, so a context with
  * no region cannot finish opening -- and what this percentage divides is
  * only the SURPLUS above the floor FeMinimumArenaSize() funds.  Measured
- * at the 10 MiB default: 440190 cells beside 2349296 payload bytes, of
- * which 6232 are already spent on the core names when the context
- * opens.  Every arena number kg holds itself to, the 3x floor above
- * included, is re-measured at each pin rather than carried over. */
+ * at the 10 MiB default: 440103 cells beside 2350896 payload bytes, of
+ * which the core names' blocks and the symbol index's first table block
+ * are already spent when the context opens.  Every arena number kg holds
+ * itself to, the 3x floor above included, is re-measured at each pin
+ * rather than carried over. */
 static const FeOpenOptions lisp_arena_options
     = { .payload_percent = FeDefaultPayloadPercent };
 

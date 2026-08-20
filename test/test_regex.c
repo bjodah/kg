@@ -385,6 +385,57 @@ static void test_caret_anchors_at_line_start(void)
 	CHECK(match.spans[0].end == 3);
 }
 
+/* Emacs' subject anchors, through kg's own seam.  "\\`" and "\\'" are the
+ * SAME two assertions "^" and "$" already make here -- one node each in
+ * fe/tiny-regex-c -- so everything this asserts of them is asserted of
+ * the anchors above too.  Until Phase 26 the engine's escaped-character
+ * fall-through made a literal '`' or '\'' of them, which is why the
+ * first two lines matter: the pattern used to MATCH the punctuation
+ * rather than fail. */
+static void test_subject_anchors(void)
+{
+	struct kg_regex rx;
+	struct kg_match match;
+
+	CHECK(kg_regex_compile(&rx, "\\`abc", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "x`abc", 0, &match)
+	    == KG_REGEX_NOMATCH);
+	CHECK(kg_regex_match_forward(&rx, "abcd", 0, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0);
+	CHECK(match.spans[0].end == 3);
+	/* Like "^", it holds at the START OF THE ROW and not at the offset
+	 * the scan resumes from. */
+	CHECK(
+	    kg_regex_match_forward(&rx, "abcd", 1, &match) == KG_REGEX_NOMATCH);
+
+	CHECK(kg_regex_compile(&rx, "abc\\'", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "abcd", 0, &match)
+	    == KG_REGEX_NOMATCH);
+	CHECK(kg_regex_match_forward(&rx, "xabc", 0, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 1);
+	CHECK(match.spans[0].end == 4);
+
+	/* The whole-subject idiom, and the zero-width reading of it: an
+	 * implementation that consumed a character here would fail the
+	 * empty subject and the doubled anchor. */
+	CHECK(kg_regex_compile(&rx, "\\`a\\'", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "a", 0, &match) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "ab", 0, &match) == KG_REGEX_NOMATCH);
+	CHECK(kg_regex_compile(&rx, "\\`\\'", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "", 0, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0);
+	CHECK(match.spans[0].end == 0);
+	CHECK(kg_regex_compile(&rx, "\\`\\`a", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "a", 0, &match) == KG_REGEX_OK);
+
+	/* Where it can never hold, it matches nothing rather than the
+	 * punctuation it is spelled with. */
+	CHECK(kg_regex_compile(&rx, "a\\`b", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "ab", 0, &match) == KG_REGEX_NOMATCH);
+	CHECK(kg_regex_match_forward(&rx, "a`b", 0, &match)
+	    == KG_REGEX_NOMATCH);
+}
+
 /* "?" is greedy, as it is in Emacs. */
 static void test_question_mark_is_greedy(void)
 {
@@ -878,6 +929,7 @@ int main(void)
 	RUN(test_intervals);
 	RUN(test_posix_class_names);
 	RUN(test_caret_anchors_at_line_start);
+	RUN(test_subject_anchors);
 	RUN(test_question_mark_is_greedy);
 	RUN(test_utf8_glyph_boundaries);
 	RUN(test_utf8_engine_counts_characters);

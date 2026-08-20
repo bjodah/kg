@@ -136,14 +136,28 @@ def rnd_alt(rng, depth):
 	return "\\|".join(parts)
 
 
+# The four anchor spellings, in the two positions the generator puts one.
+# In kg all four are the same two assertions -- the start and the end of
+# the whole subject -- and in Emacs they are not: `^' also holds after
+# every newline and `$' before every one, while "\\`" and "\\'" hold only at
+# the subject's own ends.  Generating both spellings is therefore safe
+# under this file's subject policy AND ONLY UNDER IT: subjects are
+# single-line, so the two readings pick the same offsets.  A generator
+# that grew multi-line subjects would start failing on `^'/`$' for a
+# reason Phase 26 did not cause (doc/lisp-api.md's recorded engine
+# divergence, and the phase26-anchor-line-vs-subject compat row).
+LEADING_ANCHORS = ["^", "\\`"]
+TRAILING_ANCHORS = ["$", "\\'"]
+
+
 def rnd_pattern(rng):
 	pattern = rnd_alt(rng, 2)
 	# '^' anchors at offset 0 and '$' at the end; subjects are single-line,
 	# so neither has a second place to match.
 	if rng.random() < 0.12:
-		pattern = "^" + pattern
+		pattern = rng.choice(LEADING_ANCHORS) + pattern
 	if rng.random() < 0.12:
-		pattern = pattern + "$"
+		pattern = pattern + rng.choice(TRAILING_ANCHORS)
 	return pattern
 
 
@@ -198,7 +212,16 @@ def rnd_bad_pattern(rng):
 		("\\(?" + body + "\\)", "group-question"),
 		("\\(a\\)" * (MAX_GROUPS + rng.randint(1, 3)), "group-count"),
 		(rng.choice(["*", "+", "?"]) + body, None),
-		("^" + rng.choice(["*", "+", "?"]) + body, None),
+		# A quantifier with nothing to repeat is the literal
+		# character after either leading anchor, in both dialects.
+		# The TRAILING ones are deliberately absent: Emacs reads
+		# "$*" and "\\'*" as a quantified assertion and matches the
+		# empty string, where kg reads the '*' as a literal -- a
+		# divergence this file has never generated and which the
+		# subject anchors inherit unchanged from the anchors they
+		# alias.
+		(rng.choice(LEADING_ANCHORS) + rng.choice(["*", "+", "?"])
+		 + body, None),
 		("[]" + rng.choice(ASCII) + "]" + body, None),
 	]
 	return rng.choice(kinds)

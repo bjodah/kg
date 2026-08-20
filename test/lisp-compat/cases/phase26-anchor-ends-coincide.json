@@ -2,5 +2,5 @@
  "id": "phase26-anchor-ends-coincide",
  "setup": [],
  "expr": "(list (string-match \"^a\" \"abc\") (string-match \"\\\\`a\" \"abc\") (string-match \"c$\" \"abc\") (string-match \"c\\\\'\" \"abc\"))",
- "note": "THE EQUIVALENCE THAT MAKES THIS A SPELLING AND NOT A SEMANTICS, said explicitly rather than left as a claim in a plan. On a subject with no newline in it Emacs' `^'/`$' and `\\\\`'/`\\\\'' pick the same two offsets: (0 0 2 2). kg answers (0 nil 2 nil) -- it HAS the anchors and lacks only the second way of writing them, so 26.2's implementation is allowed to be an alias of what the engine already does. phase26-anchor-caret-is-not-backtick is the case that says where that licence stops."
+ "note": "THE EQUIVALENCE THAT MAKES THIS A SPELLING AND NOT A SEMANTICS, said explicitly rather than left as a claim in a plan. On a subject with no newline in it Emacs' `^'/`$' and `\\\\`'/`\\\\'' pick the same two offsets: (0 0 2 2). kg answered (0 nil 2 nil) before 26.2 -- it HAD the anchors and lacked only the second way of writing them, which is what allowed 26.2's implementation to be an alias of what the engine already does; it answers (0 0 2 2) now. phase26-anchor-caret-is-not-backtick is the case that says where that licence stops."
 }

@@ -7,6 +7,7 @@
  *
  *	f	the first match from offset 0
  *	fa	every successive match, iterated the way a caller must
+ *	fb	the first match from offset 0 under a MATCH WINDOW
  *
  * and the answers are:
  *
@@ -22,6 +23,17 @@
  * Byte offsets, not character offsets: Emacs reports character offsets and
  * the oracle converts.  utils/regex_differential.py drives both sides and
  * compares the two streams; `make check-regex-differential` runs it.
+ *
+ * Mode fb asks the same question as mode f under a bounded window, which
+ * is what a bounded search (Emacs' BOUND) is.  THE LIMIT IS NOT IN THE
+ * PROTOCOL: both sides derive it from the subject, as half its length in
+ * bytes, so the case lines are unchanged and a case means the same thing
+ * in every mode.  The oracle has no bounded string matcher, so it asks
+ * `re-search-forward' in a temp buffer with BOUND at the character offset
+ * that byte limit names -- see utils/regex_oracle.el, which is where the
+ * two halves of that conversion are spelled out.  A limit is NOT a
+ * shorter subject: `\'` and `$` still ask about the real end, which is
+ * exactly what this mode is here to keep comparing.
  *
  * Mode fa is where empty-match progress is decided: the scan position
  * after a match comes from kg_regex_next_offset(), never from "end + 1",
@@ -49,11 +61,13 @@ static void print_spans(const struct kg_match *m)
 	}
 }
 
-static void run_forward(const struct kg_regex *rx, const char *text)
+/* `limit` is KG_REGEX_LIMIT_NONE in mode f and half the subject in mode
+ * fb; both sides compute the same number from the same subject. */
+static void run_forward(const struct kg_regex *rx, const char *text, int limit)
 {
 	struct kg_match m;
 
-	switch (kg_regex_match_forward(rx, text, 0, &m)) {
+	switch (kg_regex_match_forward_bounded(rx, text, 0, limit, &m)) {
 	case KG_REGEX_OK:
 		printf("match ");
 		print_spans(&m);
@@ -115,7 +129,9 @@ static void run_case(const char *mode, const char *pattern, const char *text)
 		return;
 	}
 	if (strcmp(mode, "f") == 0) {
-		run_forward(&rx, text);
+		run_forward(&rx, text, KG_REGEX_LIMIT_NONE);
+	} else if (strcmp(mode, "fb") == 0) {
+		run_forward(&rx, text, (int)strlen(text) / 2);
 	} else if (strcmp(mode, "fa") == 0) {
 		run_forward_all(&rx, text);
 	} else {

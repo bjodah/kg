@@ -1308,6 +1308,19 @@
    "source_name": "match-beginning"
   },
   {
+   "id": "native-match-data",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-match-data-list"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase25_match_data",
+   "rationale": "Phase 25.2. The whole match register as one value: a flat list of BEGIN END pairs, group 0 first, (nil nil) for a group that did not participate, and nil when no search has run. C rather than prelude Lisp because the register is C. kg always answers INTEGERS, where Emacs answers markers for a buffer match unless its INTEGERS argument says otherwise -- Emacs' own `(match-data t)' -- because kg has no marker in the register to hand out and one would promise that saved spans follow a later edit. INTEGERS is accepted and ignored.",
+   "source_name": "match-data"
+  },
+  {
    "id": "native-match-end",
    "category": "editor-primitives",
    "status": "supported",
@@ -1735,6 +1748,19 @@
    "kg_test": "test/test_lisp.c:test_markers",
    "rationale": null,
    "source_name": "set-marker"
+  },
+  {
+   "id": "native-set-match-data",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-set-match-data-round-trip"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase25_match_data",
+   "rationale": "Phase 25.2, and `match-data''s inverse: the property `save-match-data' is built on. It records what it is given as a STRING match whatever produced it, which is not a shortcut -- the numbers in the list are already in the units `match-beginning' answers, so replaying them unconverted is exactly what makes (set-match-data (match-data)) the identity it has to be over either kind of search. Emacs' RESEAT argument is accepted and ignored, for native-match-data's reason.",
+   "source_name": "set-match-data"
   },
   {
    "id": "native-set-process-filter",
@@ -3217,6 +3243,20 @@
    "source_name": "append"
   },
   {
+   "id": "prelude-aref",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-multibyte-aref-vs-elt",
+    "string25-aref-string-bounds"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase25_match_data",
+   "rationale": "Phase 25.2. The third fe sequence primitive kg's prelude wraps, and the one this file had forgotten: a fe string indexes by BYTE and Emacs by CHARACTER, so a string argument routes to `elt' -- literally, so the two names cannot answer differently again -- and every other sequence is fe's primitive unwrapped. The bounds behaviour is unchanged by the wrapper, because `elt''s string arm raises `args-out-of-range' with the offending STRING first, which is what `aref' already did and what Emacs does.",
+   "source_name": "aref"
+  },
+  {
    "id": "prelude-ash",
    "category": "values-and-equality",
    "status": "supported",
@@ -3669,6 +3709,19 @@
    "kg_test": "test/test_lisp.c:test_phase24_vectors",
    "rationale": "Phase 24.2: `equal''s vector arm, split out of the lambda so the atom rule beside it stays one readable chain. Lengths first, then elements from the end through `aref', recursing through `equal' itself. comparison is kg-policy for prelude-internal-seq-to-list's reason -- the behaviour it implements is oracle-compared under vector-identity-and-equality, which is where the frozen Emacs answers live.",
    "source_name": "internal--equal-vectors"
+  },
+  {
+   "id": "prelude-internal-fe-aref",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "string25-multibyte-aref-vs-elt"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase25_match_data",
+   "rationale": "Phase 25.2. fe's generic `aref', captured before the prelude shadows the name -- prelude-internal-fe-length's idiom and its reason. Everything that is not a string reaches it unchanged: a vector's element is a field read there, and a non-array is fe's own `arrayp' refusal, which Phase 24.0 froze against Emacs.",
+   "source_name": "internal--fe-aref"
   },
   {
    "id": "prelude-internal-fe-elt",
@@ -4256,6 +4309,19 @@
    "source_name": "save-excursion"
   },
   {
+   "id": "prelude-save-match-data",
+   "category": "control-flow",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-save-match-data-restores"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase25_match_data",
+   "rationale": "Phase 25.2. A macro: a `let' over `(match-data)' and an `unwind-protect' that calls `(set-match-data SAVED t)', which is Emacs' own expansion. The `unwind-protect' is the load-bearing half -- it is what makes a body that raises, or that C-g interrupts, still restore the caller's match -- and the temporary is a `gensym' so a body that binds the same name cannot capture it, the same hygiene `save-excursion' has had since Phase 14.",
+   "source_name": "save-match-data"
+  },
+  {
    "id": "prelude-seq-filter",
    "category": "sequences",
    "status": "supported",
@@ -4386,6 +4452,33 @@
    "source_name": "string-empty-p"
   },
   {
+   "id": "prelude-string-equal",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-string-equal-name",
+    "string25-string-comparison-aliases"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase25_match_data",
+   "rationale": "Phase 25.2. Emacs' long spelling of `string=', bound to the very same object through `symbol-function' rather than defined again: one implementation, so the symbol-argument rule and the `stringp' refusal cannot differ between the two names. It is the first of the three names Phase 24's frontier probe stopped unmodified s.el at, and s.el's `s-equals?' is a one-line wrapper over it.",
+   "source_name": "string-equal"
+  },
+  {
+   "id": "prelude-string-greaterp",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-string-comparison-aliases"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase25_match_data",
+   "rationale": "Phase 25.2. Emacs' long spelling of `string>', aliased for prelude-string-equal's reason. The `fboundp' census case is what fails if a later change adds two of the three long spellings and forgets this one.",
+   "source_name": "string-greaterp"
+  },
+  {
    "id": "prelude-string-join",
    "category": "sequences",
    "status": "supported",
@@ -4397,6 +4490,32 @@
    "kg_test": "test/test_lisp.c:test_phase15_string_library",
    "rationale": null,
    "source_name": "string-join"
+  },
+  {
+   "id": "prelude-string-lessp",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-string-comparison-aliases"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase25_match_data",
+   "rationale": "Phase 25.2. Emacs' long spelling of `string<', aliased to the fe primitive itself for prelude-string-equal's reason. The ordering it inherits already matched Emacs over multibyte text (string25-string-order-multibyte), because fe compares by byte and UTF-8's byte order is its code-point order.",
+   "source_name": "string-lessp"
+  },
+  {
+   "id": "prelude-string-match-p",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-string-match-p-non-perturbing"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase25_match_data",
+   "rationale": "Phase 25.2, and Emacs' own definition: `(save-match-data (string-match REGEXP STRING START))'. The `-p' spelling does not make it a predicate -- it answers the same index `string-match' does -- it promises that the match data is not perturbed, which is the whole contract and the whole reason it is written over the macro rather than over an `if'.",
+   "source_name": "string-match-p"
   },
   {
    "id": "prelude-string-prefix-p",
@@ -4631,7 +4750,7 @@
     "s-el-vendored-call-frontier"
    ],
    "kg_test": "test/test_lisp.c:test_s_el_vendored_load",
-   "rationale": "THE REAL PACKAGE, not a fixture shaped like one. sel-frontier-vector-literal pinned kg's blocker with a SYNTHETIC file because vendoring a GPLv3+ elpa package was a licensing decision the maintainer had not made; the maintainer made it on 2026-08-20 (GPL for pure testing does not contaminate, the file lives under external/ with its provenance in external/provenance-ledger.toml, and utils/check_external_quarantine.py guarantees nothing under external/ reaches a shipped artifact), so this row asks the question of the file itself. THE ROW IS DELIBERATELY SPLIT ACROSS THE LINE. s-el-vendored-load carries \"expect\": \"agree\": the file LOADS, unmodified, both sides answering (t t t t) -- which is Phase 24's whole claim, since one `declare' debug spec at s.el:455 carries a vector literal and every top-level form has to be read before `load' can finish. s-el-vendored-call-frontier is the divergence, and it is what makes this row a FRONTIER rather than a victory lap: eight representative calls, four of which answer exactly what Emacs answers and four of which stop at a named missing function (`save-match-data', `string-match-p', `string-equal'). The frontier moved from the READER to the match-data surface. That is the demand signal for Phase 25/26 -- measured from a real package rather than counted out of a corpus -- and this case is where it will be seen to move again. The cited kg_test asserts what a comparison against Emacs cannot: the three missing names EXACTLY, since Emacs has all three and can only disagree, not enumerate.",
+   "rationale": "THE REAL PACKAGE, not a fixture shaped like one. sel-frontier-vector-literal pinned kg's blocker with a SYNTHETIC file because vendoring a GPLv3+ elpa package was a licensing decision the maintainer had not made; the maintainer made it on 2026-08-20 (GPL for pure testing does not contaminate, the file lives under external/ with its provenance in external/provenance-ledger.toml, and utils/check_external_quarantine.py guarantees nothing under external/ reaches a shipped artifact), so this row asks the question of the file itself. THE ROW IS DELIBERATELY SPLIT ACROSS THE LINE. s-el-vendored-load carries \"expect\": \"agree\": the file LOADS, unmodified, both sides answering (t t t t) -- Phase 24's whole claim, since one `declare' debug spec at s.el:455 carries a vector literal and every top-level form has to be read before `load' can finish. s-el-vendored-call-frontier is the divergence, and it is what makes this row a FRONTIER rather than a victory lap. IT HAS MOVED TWICE NOW. At Phase 24 it was the reader; the case then recorded four calls answering exactly what Emacs answers and four stopping at three named missing functions (`save-match-data', `string-match-p', `string-equal'). Phase 25.2 landed all three, so seven of the eight calls agree and what is left is ONE call and TWO kinds of gap: `s-count-matches' reaches `count-matches', a name kg does not bind; and `s-trim' answers its argument UNCHANGED rather than raising, because s.el asks for \"\\\\`[ \\t\\n\\r]+\" and kg's regex engine does not know the \\\\` spelling (nor \\\\'), so `string-match' answers nil and s.el's own `if' takes the else branch. That second one is the more interesting demand signal: kg's `^' and `$' already MEAN what \\\\` and \\\\' mean, anchoring the whole subject, so the gap is two spellings rather than a semantics -- and it is silent, which is why the cited kg_test asserts the untrimmed string as a VALUE. `replace-match', which `s-trim' would reach next, is missing too and is masked by it. That is Phase 26's demand signal, and this case is where it will be seen to move again.",
    "source_name": null
   },
   {
@@ -4692,15 +4811,15 @@
   {
    "id": "string25-match-data-accessors",
    "category": "strings",
-   "status": "divergent",
+   "status": "supported",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
     "string25-match-data-list",
     "string25-set-match-data-round-trip"
    ],
-   "kg_test": "test/test_lisp.c:test_re_search_and_match_data",
-   "rationale": "Phase 25.0: `match-data` and `set-match-data`, the pair `save-match-data` is built out of. Both are `void-function` in kg, which has `match-beginning`, `match-end` and `match-string` and no list-valued accessor at all. The contracts frozen here are the SHAPE -- a flat list of BEGIN END pairs, group 0 first, integers for a string match -- and the round trip, that feeding `match-data`'s value back through `set-match-data` restores what the accessors read. The cited test pins the half kg has today; these two names' own citations land with Phase 25.2. source_name is null: neither name is bound, so neither is in any inventory this manifest claims from.",
+   "kg_test": "test/test_lisp.c:test_phase25_match_data",
+   "rationale": "Phase 25.0 froze `match-data' and `set-match-data' -- the pair `save-match-data' is built out of -- as a SHAPE and a round trip: a flat list of BEGIN END pairs, group 0 first, integers for a string match, and feeding that value back through `set-match-data' restores what the accessors read. Phase 25.2 implements both in C, because the register is C: there is no Lisp-visible object it could be read out of. ONE DIVERGENCE IS DELIBERATE and outside what these two cases can see: Emacs answers MARKERS for a BUFFER match unless its INTEGERS argument says otherwise, and kg always answers integers, which is Emacs' own `(match-data t)'. kg has no marker in the register to hand out -- `match-beginning' resolves a row and a byte column into a position at the READ -- and a marker would promise that saved spans follow a later edit, which kg cannot keep. INTEGERS, and `set-match-data''s RESEAT, are accepted and ignored for the same reason. source_name is null: each name has its own native-* row.",
    "source_name": null
   },
   {
@@ -4720,14 +4839,14 @@
   {
    "id": "string25-multibyte-aref-bytes",
    "category": "strings",
-   "status": "divergent",
-   "owner": "fe-core",
+   "status": "supported",
+   "owner": "kg",
    "comparison": "emacs",
    "cases": [
     "string25-multibyte-aref-vs-elt"
    ],
-   "kg_test": null,
-   "rationale": "Phase 25.0, and the measurement this group exists to take: `aref` on a multibyte string answers the first BYTE of the character in kg (195 for é, 230 for 日) where Emacs answers the character (233, 26085) -- while `elt`, asked the same question in the same case, answers 233 on both sides. kg's prelude wraps `length`, `elt` and `substring` for the character view and does not wrap `aref`, so this is not \"kg counts bytes\": it is one unwrapped name inside a surface that otherwise counts characters. Owner fe-core because the answer is fe's primitive reaching Lisp unwrapped; 25.1/25.2 may close it either side, and fe's `sequence-length-string-bytes` row is the fe-side record of the same representation fact. kg_test is null at 25.0: no kg test asserts `aref` on a string at all.",
+   "kg_test": "test/test_lisp.c:test_phase25_match_data",
+   "rationale": "Phase 25.0's measurement, closed in 25.2 on the kg side. `aref' on a multibyte string answered the first BYTE of the character (195 for é, 230 for 日) where Emacs answers the character, while `elt' -- asked the same question in the same case -- answered 233 on both sides: kg's prelude wrapped `length', `elt' and `substring' for the character view and had simply not wrapped `aref'. It does now, and the wrapper IS `elt''s, so the two cannot drift apart again. Closed on the kg side rather than in fe because fe's contract is deliberate -- `length'/`aref'/`elt' answer BYTES there, frozen at FE_LANGUAGE_VERSION 17 -- and the inconsistency was never fe's: it was one unwrapped name inside a surface that counts characters everywhere else. s.el:200 is the measured reason it matters, `(aref s1 (- l1 i 1))' with l1 from `length', where a character count and a byte index meet in one expression. source_name is null: `aref' has its own prelude-aref row.",
    "source_name": null
   },
   {
@@ -4760,14 +4879,14 @@
   {
    "id": "string25-save-match-data",
    "category": "strings",
-   "status": "divergent",
+   "status": "supported",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
     "string25-save-match-data-restores"
    ],
-   "kg_test": "test/test_lisp.c:test_phase15_regex_seam",
-   "rationale": "Phase 25.0: `save-match-data`, one of the three names Phase 24's frontier probe named as unmodified s.el's next demand. `void-function` in kg. The case is a single expression whose value tells three implementations apart -- correct ((3 5) 1 2), restores-too-early ((1 2) 1 2), does-not-restore ((3 5) 3 5) -- so the freeze pins the BEHAVIOUR and leaves the spelling open; Emacs' own expansion is a `let` over `(match-data)` with an `unwind-protect` calling `(set-match-data SAVED t)`, which is recorded in prose rather than as a case so kg is not held to Emacs' macro body. source_name is null: the name is not bound.",
+   "kg_test": "test/test_lisp.c:test_phase25_match_data",
+   "rationale": "Phase 25.0 froze the behaviour and left the spelling open, in a single expression whose value tells three implementations apart: ((3 5) 1 2) correct, ((1 2) 1 2) restoring too early, ((3 5) 3 5) not restoring. Phase 25.2's macro answers the first. It is Emacs' own expansion -- a `let' over `(match-data)' and an `unwind-protect' calling `(set-match-data SAVED t)' -- not because kg is held to Emacs' macro body, but because the `unwind-protect' is what makes a body that RAISES, or that C-g interrupts, restore as well; no case in this corpus can ask that, and the cited kg_test does. The temporary is a `gensym', so a body that binds the same name cannot capture it. source_name is null: the name has its own prelude-save-match-data row.",
    "source_name": null
   },
   {
@@ -4788,28 +4907,28 @@
   {
    "id": "string25-string-comparison-aliases",
    "category": "strings",
-   "status": "divergent",
+   "status": "supported",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
     "string25-string-equal-name",
     "string25-string-comparison-aliases"
    ],
-   "kg_test": "test/test_lisp.c:test_string_concat_and_equal",
-   "rationale": "Phase 25.0: `string-equal`, `string-lessp` and `string-greaterp` are all `void-function` in kg, while `string=`, `string<` and `string>` are all bound -- so the whole gap is vocabulary. `string-equal` is one of the three names Phase 24's frontier probe stopped at, and this row is the measurement that says what closing it costs: an alias, not an implementation. Two cases rather than one because they fail differently -- calling the name raises, while the `fboundp` census is what still fails if Phase 25.2 adds one alias and forgets the other two. source_name is null: the three long spellings are not bound and the three short ones are claimed elsewhere.",
+   "kg_test": "test/test_lisp.c:test_phase25_match_data",
+   "rationale": "Phase 25.0 measured the gap and Phase 25.2 closed it: `string-equal', `string-lessp' and `string-greaterp' are all bound now, as `defalias' of the very objects `string=', `string<' and `string>' already were. It was vocabulary rather than behaviour throughout -- an alias through `symbol-function' keeps one implementation, so a later divergence has one place to live -- and `string-equal' is the first of the three names Phase 24's frontier probe stopped unmodified s.el at. Two cases rather than one because they failed differently and now agree differently: calling the name, and the `fboundp' census that is what still fails if a later change drops one of the three. source_name is null on this ROW: each long spelling has its own prelude-* row claiming it.",
    "source_name": null
   },
   {
    "id": "string25-string-equal-symbol-argument",
    "category": "strings",
-   "status": "divergent",
+   "status": "supported",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
     "string25-string-equal-symbol-argument"
    ],
-   "kg_test": "test/test_lisp.c:test_string_concat_and_equal",
-   "rationale": "Phase 25.0, a divergence this work FOUND rather than planned: Emacs' string comparison accepts a SYMBOL on either side and compares its name, and kg's `string=` raises `wrong-type-argument` for one -- while kg's `string<` and `string>` accept symbols perfectly well, which phase15-string-lessp and phase20-string-order already pin. So kg's comparison family disagrees with itself, and the equality half is the odd one out. Its own row rather than a fourth case of string25-string-comparison-agreement so that Phase 25.2 can close the alias row in full while leaving this one open with a stated reason, instead of the two being one all-or-nothing verdict. source_name is null: `string=` is claimed by native-string-equal.",
+   "kg_test": "test/test_lisp.c:test_phase25_match_data",
+   "rationale": "Phase 25.0 FOUND this divergence rather than planning it -- Emacs' string comparison accepts a SYMBOL on either side and compares its name, kg's `string=' raised `wrong-type-argument' for one, and kg's `string<'/`string>' accepted them perfectly well, so the family disagreed with itself and the equality half was the odd one out. Phase 25.2 closed it in `native_string_equal': an operand is a string's bytes, a symbol's name, or the three characters of `nil' -- fe's own `StringOperand' rule for the ordering pair -- and (string= 'foo \"foo\") is t both ways round. What did NOT move is the refusal for anything else: (string= \"abc\" 3) is still (wrong-type-argument stringp 3), which string25-string-equal-non-string pins beside this. source_name is null: `string=' is claimed by native-string-equal.",
    "source_name": null
   },
   {
@@ -4831,14 +4950,14 @@
   {
    "id": "string25-string-match-p",
    "category": "strings",
-   "status": "divergent",
+   "status": "supported",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
     "string25-string-match-p-non-perturbing"
    ],
-   "kg_test": "test/test_lisp.c:test_phase15_regex_seam",
-   "rationale": "Phase 25.0: `string-match-p`, the second of Phase 24's three frontier names, and the one with a contract rather than just a signature -- IT MUST NOT PERTURB THE MATCH DATA. `void-function` in kg. The case pins that as a value: an earlier `string-match`'s spans are still readable after two `string-match-p` calls, where the identical shape with `string-match` in its place answers differently (string25-match-data-clobbered is that measurement). A Phase 25.2 implementation spelled `(if (string-match ...) ...)` fails this case, which is the whole reason it is written before the code. source_name is null: the name is not bound.",
+   "kg_test": "test/test_lisp.c:test_phase25_match_data",
+   "rationale": "Phase 25.0 froze `string-match-p''s contract as a VALUE -- it must not perturb the match data -- and Phase 25.2 implemented it the only way that satisfies the case: `(save-match-data (string-match ...))', which is Emacs' own definition too. The case is what makes that non-optional. An implementation spelled `(if (string-match ...) ...)' answers the same INDEX and fails here, because its two calls would leave the match data at (2 3) where the earlier `string-match' left (1 4); string25-match-data-clobbered is the control that gives that its meaning. source_name is null: the name has its own prelude-string-match-p row.",
    "source_name": null
   },
   {

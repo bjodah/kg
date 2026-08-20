@@ -838,7 +838,8 @@ argument, the echo area -- it truncates at the first NUL on purpose;
 | `(string-length S)` | Length of `S` in characters |
 | `(substring S FROM &optional TO)` | 0-based character indices; negative counts from the end; clamps out of range; `TO` before `FROM` yields `""` |
 | `(concat A B ...)` | Joins any number of strings; `(concat)` is `""` |
-| `(string= A B)` | `t` when equal |
+| `(string= A B)` | `t` when equal. Either argument may be a SYMBOL, whose name is compared, or `nil`, which compares as `"nil"` — Emacs' rule, and already `string<`'s. Anything else is `(wrong-type-argument stringp X)` |
+| `(string-equal A B)` / `(string-lessp A B)` / `(string-greaterp A B)` | Emacs' long spellings of `string=`, `string<` and `string>`; aliases of the same objects, so they cannot differ |
 | `(char-to-string N)` | One-character string for codepoint `N`; rejects surrogates and values above `U+10FFFF`. `N` may be 0, which builds a one-byte string holding a NUL, as in Emacs |
 | `(string-to-char S)` | First codepoint of `S`, `nil` for `""` |
 | `(format FORMAT ARG ...)` | `%s`/`%S`/`%d`/`%e`/`%f`/`%g`/`%c`/`%x`/`%X`/`%o`/`%%`; `-`/`0`, widths and precision are supported for numeric and string/character conversions; `%c` writes a UTF-8 codepoint, 0 included (a NUL byte, as in Emacs); Emacs' `+`, ` ` and `#` flags and its `N$` field numbers raise `invalid format operation`; extra arguments ignored, a missing one or an unknown specifier raises |
@@ -865,14 +866,27 @@ groups and up to nine of them.
 | `(match-beginning N)` / `(match-end N)` | 0-based character indices after a `string-match`, 1-based buffer positions after a buffer search — the units of whichever subject was matched |
 | `(replace-regexp-in-string REGEXP REP STRING &optional FIXEDCASE LITERAL)` | `REP` is a replacement string understanding `\\&`, `\\N` and `\\\\`, or a function of the matched text. `LITERAL` suppresses the escapes; `FIXEDCASE` is accepted and ignored (kg never case-adjusts, because it never case-folds) |
 | `(regexp-quote S)` | `S` as a regexp matching itself |
+| `(string-match-p REGEXP STRING &optional START)` | The same index `string-match` answers, WITHOUT touching the match data. That is its whole contract, and it is why it is `(save-match-data (string-match …))` here as in Emacs |
+| `(match-data &optional INTEGERS)` | The whole register as a flat list of BEGIN END pairs, group 0 first, `nil nil` for a group that did not participate, `nil` when nothing has matched |
+| `(set-match-data LIST &optional RESEAT)` | `match-data`'s inverse: the accessors read `LIST` afterwards |
+| `(save-match-data BODY…)` | A macro. Runs BODY with the register restored on every way out, including a raise and a `C-g` |
 
 There is **one** match-data register, shared by string and buffer
 matches exactly as in Emacs, so a search of either kind replaces what
-the other left. Three properties are inherited from the engine and are
-recorded divergences rather than surprises: `^` and `$` anchor the whole
-subject rather than each line of it, matching is always
-case-**sensitive** (there is no `case-fold-search`), and the subject is
-NUL-terminated, so a match stops at an embedded NUL.
+the other left — which is what `save-match-data` is for. Three
+properties are inherited from the engine and are recorded divergences
+rather than surprises: `^` and `$` anchor the whole subject rather than
+each line of it (and kg's engine does not know Emacs' ``\\` `` and
+`\\'` spellings for that, which is one of the two things unmodified
+`s.el` still stops at), matching is always case-**sensitive** (there is no
+`case-fold-search`), and the subject is NUL-terminated, so a match stops
+at an embedded NUL.
+
+`match-data` answers INTEGERS for a buffer match where Emacs answers
+markers unless its `INTEGERS` argument says otherwise — kg's answer is
+Emacs' own `(match-data t)`. kg has no marker in the register to hand
+out, and one would promise that saved spans follow a later edit. Both
+that argument and `set-match-data`'s `RESEAT` are accepted and ignored.
 
 ## The string and list library
 

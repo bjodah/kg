@@ -17,13 +17,22 @@
 # case whose working directory is a fresh mkdtemp name a file in the
 # checkout.
 #
-# The saved file is the whole assertion, and it has two halves:
+# The saved file is the whole assertion, and it has FOUR parts now:
 #
 #   * the capabilities document's own acceptance form, verbatim --
 #     (let ((v [1 2 3])) (and (vectorp v) (= (aref v 1) 2) (= (length v) 3)))
-#     -- which answers t; and
+#     -- which answers t;
 #   * a call into the loaded package, whose answer is text s.el computed
-#     through kg's own `mapconcat'.
+#     through kg's own `mapconcat';
+#   * `s-match', which is the Phase 25.2 capability itself and not a
+#     second `s-join': its body is `save-match-data' over `string-match'
+#     and `(match-data)', so a kg missing any one of those three answers
+#     `void-function' here instead of ("bb" "bb").  Phase 24's frontier
+#     probe stopped s.el at exactly those names; and
+#   * `s-matches?' and `s-equals?', the two one-line wrappers over the
+#     other names 25.2 added -- `string-match-p', whose contract is that
+#     it does NOT perturb the match data, and `string-equal', which kg
+#     had all along under its short spelling.
 #
 # A failure to load would be visible as an empty save: the init.el error
 # leaves the editor running, so the M-: forms would still be typed and
@@ -49,4 +58,10 @@ keys:
   - "M-:"
   - (insert (s-join "-" (list "s" "el" "joined")))
   - RET
-expected_saved: "t s-el-joined"
+  - "M-:"
+  - (insert (format " %S" (s-match "\\(b+\\)" "abbc")))
+  - RET
+  - "M-:"
+  - (insert (format " %S %S" (s-matches? "b+" "abbc") (s-equals? "a" "a")))
+  - RET
+expected_saved: 't s-el-joined ("bb" "bb") t t'

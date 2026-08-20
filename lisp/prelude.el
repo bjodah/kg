@@ -994,8 +994,36 @@
       (if string
           (substring string from (match-end n))
         (buffer-substring from (match-end n)))))))
+;; There is ONE match register, so any code that searches clobbers what
+;; its caller matched.  `save-match-data' is Emacs' own expansion of the
+;; fix -- a `let' over `(match-data)' and an `unwind-protect' that puts it
+;; back -- which means a body that raises, or that C-g interrupts, still
+;; restores.  The temporary is a `gensym' for the reason `save-excursion'
+;; uses one: a fixed name would be captured by a body that binds it.
+(defalias 'save-match-data (macro body
+  (internal--let sym (gensym "internal--match-data-"))
+  (list 'internal--let
+    (list (list sym (list 'match-data)))
+    (list 'unwind-protect (cons 'progn body)
+      (list 'set-match-data sym t)))))
+;; And `string-match-p' is that macro over `string-match', which is
+;; Emacs' definition of it too.  NOT perturbing the match data is the
+;; whole of what the `-p' spelling promises here -- it is not a
+;; predicate, it answers the same index `string-match' does -- so an
+;; implementation that forgot the wrapper would pass every test of its
+;; VALUE and none of its contract.
+(defalias 'string-match-p (lambda (regexp string &optional start)
+  (save-match-data (string-match regexp string start))))
 
 ;; --- strings ---
+;; Emacs' long spellings of the three comparisons, which is all that was
+;; missing: kg has had `string=', `string<' and `string>' since Phase 15,
+;; and Phase 24's frontier probe stopped s.el at `string-equal'.  Aliases
+;; through `symbol-function', not definitions, so there is one
+;; implementation of each and one place a divergence from Emacs can live.
+(defalias 'string-equal (symbol-function 'string=))
+(defalias 'string-lessp (symbol-function 'string<))
+(defalias 'string-greaterp (symbol-function 'string>))
 ;; Emacs' default SEPARATORS is the regexp "[ \f\t\n\r\v]+", and with it
 ;; OMIT-NULLS defaults to t; with an explicit SEPARATORS it defaults to
 ;; nil.  Measured on 31.0.90: (split-string "") is nil and
@@ -1148,6 +1176,20 @@
             (signal 'args-out-of-range (list sequence n)))
         (string-to-char (substring sequence n (+ n 1))))
     (internal--fe-elt sequence n))))
+;; The THIRD name that needed the same wrapper, and the one this file
+;; forgot until Phase 25.0 measured it: `aref' and `elt' are the same
+;; operation on a string in Emacs, and they were not here -- (aref
+;; "h\303\251llo" 1) answered 195, the first BYTE of the character,
+;; where (elt "h\303\251llo" 1) answered 233.  A surface that counts
+;; characters everywhere else cannot have one name that counts bytes:
+;; s.el:200 alone writes (aref s1 (- l1 i 1)) with l1 from `length', so
+;; a character length and a byte index meet in one expression.  Every
+;; other sequence is fe's primitive, unchanged.
+(defalias 'internal--fe-aref (symbol-function 'aref))
+(defalias 'aref (lambda (array n)
+  (if (stringp array)
+      (elt array n)
+    (internal--fe-aref array n))))
 (defalias 'butlast (lambda (list &optional n)
   (let ((keep (- (length list) (if n n 1))) (out nil))
     (while (and (< 0 keep) list)

@@ -6106,7 +6106,7 @@ static void test_quit_uncaught(void)
  * primitives kg wraps (internal--fe-length, internal--fe-elt) and the two
  * helpers the sequence generalisation is built from
  * (internal--seq-to-list, internal--equal-vectors), taking it to 126. */
-#define PRELUDE_DEFS 126
+#define PRELUDE_DEFS 133
 
 /* What a value CAPTURED out of a symbol's function cell is: that symbol's
  * definition at the moment of capture, and it stays that definition
@@ -6290,7 +6290,15 @@ static void test_prelude_source_file(void)
 			strcpy(types[count], "macro");
 		} else if (strncmp(value_start, "(symbol-function '", 18)
 		    == 0) {
-			strcpy(types[count], "primitive");
+			/* An ALIAS captures whatever the name it copies was
+			 * bound to, and kg's function surface has two
+			 * implementations -- fe primitives and kg natives --
+			 * so this shape does not decide which.  The check
+			 * below accepts either and nothing else; what stays
+			 * pinned is that the value IS one of them, so a
+			 * `defalias' that started capturing a lambda still
+			 * fails here. */
+			strcpy(types[count], "alias");
 		} else {
 			/* Not a fallback: those three are the whole
 			 * vocabulary this file defines things with, and a
@@ -6329,6 +6337,18 @@ static void test_prelude_source_file(void)
 		 * reads the cell: a bare name in value position is void now. */
 		(void)snprintf(source, sizeof(source),
 		    "(type-of (symbol-function '%s))", names[i]);
+		if (strcmp(types[i], "alias") == 0) {
+			if (!eval_eq(source, "primitive")
+			    && !eval_eq(source, "native-fn")) {
+				fprintf(stderr,
+				    "prelude definition %zu (%s): an alias "
+				    "captured neither a primitive nor a "
+				    "native\n",
+				    i, names[i]);
+				CHECK(0);
+			}
+			continue;
+		}
 		if (!eval_eq(source, types[i])) {
 			fprintf(stderr,
 			    "prelude definition %zu (%s): expected type %s\n",
@@ -6789,6 +6809,103 @@ static void test_phase25_strings(void)
 	kg_lisp_shutdown();
 }
 
+/* Phase 25.2's capability track: the three names Phase 24's frontier
+ * probe found unmodified s.el stopping at, the two accessors they are
+ * built out of, and the two inconsistencies 25.0 measured on the way
+ * past.  Every expectation here is Emacs 31.0.91's, frozen by a
+ * `string25-*' case in test/lisp-compat before any of it existed.
+ */
+static void test_phase25_match_data(void)
+{
+	CHECK(kg_lisp_init() == 0);
+
+	/* The long spellings, and that they are the SAME objects. */
+	CHECK(eval_eq("(list (fboundp 'string-equal) (fboundp 'string-lessp)"
+		      " (fboundp 'string-greaterp))",
+	    "(t t t)"));
+	CHECK(eval_eq(
+	    "(list (eq (symbol-function 'string-equal)"
+	    " (symbol-function 'string=))"
+	    " (string-equal \"abc\" \"abc\")"
+	    " (string-lessp \"a\" \"b\") (string-greaterp \"b\" \"a\"))",
+	    "(t t t t)"));
+	/* `string=' takes a symbol on either side now, as `string<' always
+	 * did, and still refuses anything that is neither. */
+	CHECK(eval_eq("(list (string= 'foo \"foo\") (string= \"foo\" 'foo)"
+		      " (string= 'foo 'foo) (string= nil \"nil\"))",
+	    "(t t t t)"));
+	CHECK(eval_eq("(condition-case e (string= \"abc\" 3) (error e))",
+	    "(wrong-type-argument stringp 3)"));
+
+	/* `match-data' shape: a flat list of BEGIN END pairs, group 0
+	 * first, and (nil nil) for a group that did not participate. */
+	CHECK(eval_eq("(progn (string-match \"\\\\(b\\\\)\" \"abc\")"
+		      " (match-data))",
+	    "(1 2 1 2)"));
+	CHECK(eval_eq(
+	    "(progn (string-match \"b+\" \"abbbc\") (match-data))", "(1 4)"));
+	CHECK(eval_eq("(progn (string-match \"\\\\(z\\\\)?b\" \"ab\")"
+		      " (match-data))",
+	    "(1 2 nil nil)"));
+	/* And the round trip `save-match-data' is built on. */
+	CHECK(eval_eq("(progn (string-match \"b\" \"abc\")"
+		      " (let ((d (match-data)))"
+		      "  (string-match \"c\" \"xc\") (set-match-data d)"
+		      "  (list (match-beginning 0) (match-end 0))))",
+	    "(1 2)"));
+
+	/* `save-match-data' told apart from its two wrong implementations
+	 * by one value: ((3 5) 1 2) restores, ((1 2) 1 2) restores too
+	 * early, ((3 5) 3 5) does not restore. */
+	CHECK(eval_eq("(progn (string-match \"b\" \"abc\")"
+		      " (list (save-match-data"
+		      "         (string-match \"cc\" \"xxxcc\")"
+		      "         (list (match-beginning 0) (match-end 0)))"
+		      "       (match-beginning 0) (match-end 0)))",
+	    "((3 5) 1 2)"));
+	/* The half no corpus case can ask for, and the reason the macro is
+	 * an `unwind-protect' rather than a `let' and a restore: a body
+	 * that RAISES restores too. */
+	CHECK(eval_eq("(progn (string-match \"b\" \"abc\")"
+		      " (condition-case e"
+		      "   (save-match-data (string-match \"cc\" \"xxxcc\")"
+		      "                    (error \"boom\"))"
+		      "  (error nil))"
+		      " (list (match-beginning 0) (match-end 0)))",
+	    "(1 2)"));
+
+	/* `string-match-p' answers the index and leaves the data alone --
+	 * the whole of what the `-p' spelling promises here. */
+	CHECK(eval_eq("(progn (string-match \"b+\" \"abbbc\")"
+		      " (list (string-match-p \"c\" \"xxc\")"
+		      "       (string-match-p \"z\" \"abc\")"
+		      "       (match-beginning 0) (match-end 0)))",
+	    "(2 nil 1 4)"));
+	/* The sensitivity control: a second `string-match' DOES move it,
+	 * so the case above is testifying rather than unable to see. */
+	CHECK(eval_eq("(progn (string-match \"b+\" \"abbbc\")"
+		      " (string-match \"c\" \"xxc\")"
+		      " (list (match-beginning 0) (match-end 0)))",
+	    "(2 3)"));
+
+	/* `aref' counts characters on a string now, like `elt' beside it
+	 * and like Emacs; every other sequence is fe's primitive. */
+	CHECK(eval_eq("(list (aref \"h\xc3\xa9llo\" 1) (elt \"h\xc3\xa9llo\" 1)"
+		      " (aref \"\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e\" 0)"
+		      " (aref [1 2 3] 1) (aref \"abc\" 0))",
+	    "(233 233 26085 2 97)"));
+	/* Bounds are unmoved by the wrapper: the offending STRING first,
+	 * which is Emacs' shape and was already kg's. */
+	CHECK(eval_eq("(condition-case e (aref \"abc\" 5)"
+		      " (args-out-of-range (cdr e)))",
+	    "(\"abc\" 5)"));
+	CHECK(eval_eq("(condition-case e (aref \"abc\" -1)"
+		      " (args-out-of-range (cdr e)))",
+	    "(\"abc\" -1)"));
+
+	kg_lisp_shutdown();
+}
+
 /* Phase 24.3's last required case: the REAL package the synthetic
  * sel-frontier fixture stood in for.  external/elpa/s.el is 793 lines of
  * GPLv3+ Emacs Lisp vendored for testing only -- provenance in
@@ -6844,18 +6961,46 @@ static void test_s_el_vendored_load(void)
 	CHECK(eval_eq("(s-replace \"a\" \"X\" \"banana\")", "bXnXnX"));
 	CHECK(eval_eq("(s-repeat 2 \"ab\")", "abab"));
 
-	/* THE FRONTIER, named rather than described.  It is no longer the
-	 * reader: it is the match-data surface, and these three names are
-	 * Phase 25/26's demand signal, measured from a real package rather
+	/* WHAT PHASE 25.2 BOUGHT, in the package's own words: `s-contains?'
+	 * and `s-equals?' were two of the three names this line used to
+	 * record as MISSING, and `s-match' is the third and the deepest --
+	 * its body is `save-match-data' over `string-match' and
+	 * `(match-data)', so it needs all three of the phase's names at
+	 * once. */
+	CHECK(eval_eq("(list (s-contains? \"an\" \"banana\")"
+		      " (s-equals? \"a\" \"a\")"
+		      " (s-match \"\\\\(b+\\\\)\" \"abbc\"))",
+	    "(t t (\"bb\" \"bb\"))"));
+
+	/* THE FRONTIER, named rather than described, and it MOVED -- which
+	 * is what this line is for.  It is no longer the reader (Phase 24)
+	 * and no longer the match-data surface (Phase 25.2).  Two things
+	 * are left, and they are different in kind:
+	 *
+	 *   * a missing NAME.  `s-count-matches' reaches `count-matches',
+	 *     which kg does not bind.
+	 *   * a missing regex SPELLING, which is worse because it is
+	 *     SILENT.  `s-trim' asks for "\\`[ \t\n\r]+", and kg's engine
+	 *     does not know \` (nor \'), so `string-match' answers nil,
+	 *     s.el's own `if' takes the else branch, and the string comes
+	 *     back untrimmed instead of erroring.  kg's `^' and `$' ALREADY
+	 *     mean what \` and \' mean -- they anchor the whole subject,
+	 *     which doc/lisp-api.md records as an engine divergence -- so
+	 *     the gap here is the two spellings, not the semantics.
+	 *     `replace-match', which s-trim would reach next, is missing
+	 *     too and is masked by this.
+	 *
+	 * Phase 26's demand signal, measured from a real package rather
 	 * than counted out of a corpus.  A phase that lands one of them
 	 * fails this line, which is the point of writing it down. */
-	CHECK(eval_eq("(list (condition-case e (s-trim \"  hi  \")"
-		      "        (void-function (car (cdr e))))"
-		      " (condition-case e (s-contains? \"an\" \"banana\")"
-		      "        (void-function (car (cdr e))))"
-		      " (condition-case e (s-equals? \"a\" \"a\")"
-		      "        (void-function (car (cdr e)))))",
-	    "(save-match-data string-match-p string-equal)"));
+	CHECK(
+	    eval_eq("(list (condition-case e (s-count-matches \"a\" \"banana\")"
+		    "        (void-function (car (cdr e))))"
+		    " (s-trim \"  hi  \")"
+		    " (string-match \"\\\\`h\" \"  hi\")"
+		    " (string-match \"^ \" \"  hi\")"
+		    " (fboundp 'replace-match))",
+		"(count-matches \"  hi  \" nil 0 nil)"));
 
 	kg_lisp_shutdown();
 }
@@ -8286,6 +8431,7 @@ int main(void)
 	RUN(test_sel_frontier_vector_literal);
 	RUN(test_phase24_vectors);
 	RUN(test_phase25_strings);
+	RUN(test_phase25_match_data);
 	RUN(test_s_el_vendored_load);
 	RUN(test_phase8_library);
 	RUN(test_captured_function_value);

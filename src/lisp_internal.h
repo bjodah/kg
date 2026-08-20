@@ -539,6 +539,8 @@ FeObject *native_re_search_forward(FeContext *context, FeObject *arguments);
 FeObject *native_re_search_backward(FeContext *context, FeObject *arguments);
 FeObject *native_match_beginning(FeContext *context, FeObject *arguments);
 FeObject *native_match_end(FeContext *context, FeObject *arguments);
+FeObject *native_match_data(FeContext *context, FeObject *arguments);
+FeObject *native_set_match_data(FeContext *context, FeObject *arguments);
 FeObject *native_string_match(FeContext *context, FeObject *arguments);
 FeObject *native_regexp_quote(FeContext *context, FeObject *arguments);
 FeObject *native_looking_at(FeContext *context, FeObject *arguments);

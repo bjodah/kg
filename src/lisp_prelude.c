@@ -137,6 +137,11 @@ static const struct native_binding native_bindings[] = {
 	{ "re-search-backward", native_re_search_backward },
 	{ "match-beginning", native_match_beginning },
 	{ "match-end", native_match_end },
+	/* The whole register as one value, and back.  Both are C because
+	 * the register is: there is no Lisp-visible object holding it.
+	 * `save-match-data' is prelude Lisp over this pair. */
+	{ "match-data", native_match_data },
+	{ "set-match-data", native_set_match_data },
 	/* The regex-from-Lisp seam: the engine is src/regex.h's, already
 	 * behind C-s and re-search-forward.  What string-match adds is a
 	 * string subject and Emacs' character-indexed match data. */

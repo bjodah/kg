@@ -348,23 +348,16 @@ FeObject *native_re_search_backward(FeContext *context, FeObject *arguments)
  * top-level forms -- and is resolved against the buffer it names, not
  * whatever the exec buffer happens to be when read. */
 
-static FeObject *lisp_match_bound(
-    FeContext *context, FeObject *arguments, bool want_end)
+/* One end of group N, as the object `match-beginning'/`match-end' answers:
+ * nil for a group that did not participate or that the last match does
+ * not have, an integer for a string match, a buffer POSITION otherwise.
+ * `match-data' below is the second caller, which is why this is a
+ * function of N rather than of an argument list. */
+static FeObject *lisp_match_span(FeContext *context, long n, bool want_end)
 {
-	FeObject *object = FeGetNextArgument(context, &arguments);
-	long n = (long)lisp_finite(context, object, "integerp");
 	struct editor_buffer *b;
 	int col;
 
-	FeRequireNoArguments(context, arguments);
-	/* A negative group index is Emacs' args-out-of-range, measured:
-	 * (match-beginning -1) is (args-out-of-range -1 0).  A group *past*
-	 * the last one is nil there and here -- the range error is only for
-	 * the side that cannot name a group at all. */
-	if (n < 0) {
-		lisp_raise_args_out_of_range(
-		    context, object, FeMakeInteger(context, 0));
-	}
 	if (!state.match.valid || n >= state.match.match.nspans
 	    || state.match.match.spans[n].start < 0) {
 		return FeNil(context);
@@ -390,6 +383,24 @@ static FeObject *lisp_match_bound(
 		b, buffer_row_col_to_position(b, state.match.row, col)));
 }
 
+static FeObject *lisp_match_bound(
+    FeContext *context, FeObject *arguments, bool want_end)
+{
+	FeObject *object = FeGetNextArgument(context, &arguments);
+	long n = (long)lisp_finite(context, object, "integerp");
+
+	FeRequireNoArguments(context, arguments);
+	/* A negative group index is Emacs' args-out-of-range, measured:
+	 * (match-beginning -1) is (args-out-of-range -1 0).  A group *past*
+	 * the last one is nil there and here -- the range error is only for
+	 * the side that cannot name a group at all. */
+	if (n < 0) {
+		lisp_raise_args_out_of_range(
+		    context, object, FeMakeInteger(context, 0));
+	}
+	return lisp_match_span(context, n, want_end);
+}
+
 FeObject *native_match_beginning(FeContext *context, FeObject *arguments)
 {
 	return lisp_match_bound(context, arguments, false);
@@ -398,6 +409,102 @@ FeObject *native_match_beginning(FeContext *context, FeObject *arguments)
 FeObject *native_match_end(FeContext *context, FeObject *arguments)
 {
 	return lisp_match_bound(context, arguments, true);
+}
+
+/* ---- match-data / set-match-data --------------------------------------
+ *
+ * The whole match register as one value, which is what `save-match-data'
+ * is built out of and what Phase 24's frontier probe found s.el reaching
+ * for.  Both are C rather than prelude Lisp for one reason: the register
+ * is C -- there is no Lisp-visible object it could be read out of.
+ *
+ * WHAT KG ANSWERS, AND WHERE IT DIVERGES.  Emacs' `match-data' returns
+ * MARKERS for a buffer match unless its INTEGERS argument says otherwise;
+ * kg always answers integers, which is Emacs' own `(match-data t)'.  kg
+ * has no marker in the register to hand out -- `match-beginning' resolves
+ * a row and a byte column into a position at the read -- and a marker
+ * would promise something kg cannot keep, that the saved spans follow a
+ * later edit.  INTEGERS is accepted and ignored for the same reason
+ * `set-match-data''s RESEAT is: an integer list is what both sides of the
+ * round trip already speak.
+ *
+ * `set-match-data' therefore records what it is given as a STRING match
+ * whatever produced it, which is not a shortcut: the numbers in the list
+ * are already in the units `match-beginning' answers, so replaying them
+ * unconverted is what makes (set-match-data (match-data)) the identity
+ * it has to be for `save-match-data' to work over either kind of
+ * search. */
+
+FeObject *native_match_data(FeContext *context, FeObject *arguments)
+{
+	FeObject *list = FeNil(context);
+	size_t gc = FeSaveGC(context);
+	long n;
+
+	if (!FeIsNil(arguments)) {
+		(void)FeGetNextArgument(context, &arguments); /* INTEGERS */
+	}
+	FeRequireNoArguments(context, arguments);
+	if (!state.match.valid) {
+		return FeNil(context);
+	}
+	/* Backwards, so the pairs come out group 0 first, and re-rooting
+	 * the head after each cons -- the idiom lisp_cmd.c's name list
+	 * uses: every allocation pushes its own result, so restoring the
+	 * checkpoint and pushing the head keeps the stack one deep. */
+	for (n = state.match.match.nspans - 1; n >= 0; n--) {
+		list = FeCons(context, lisp_match_span(context, n, true), list);
+		FeRestoreGC(context, gc);
+		FePushGC(context, list);
+		list
+		    = FeCons(context, lisp_match_span(context, n, false), list);
+		FeRestoreGC(context, gc);
+		FePushGC(context, list);
+	}
+	FeRestoreGC(context, gc);
+	return list;
+}
+
+/* One end out of the list `set-match-data' was given: nil is a group that
+ * did not participate, which the register spells as a negative start. */
+static int lisp_match_element(FeContext *context, FeObject **list)
+{
+	FeObject *object;
+
+	if (FeIsNil(*list)) {
+		return -1;
+	}
+	object = FeCar(context, *list);
+	*list = FeCdr(context, *list);
+	if (FeIsNil(object)) {
+		return -1;
+	}
+	return (int)lisp_finite(context, object, "integer-or-marker-p");
+}
+
+FeObject *native_set_match_data(FeContext *context, FeObject *arguments)
+{
+	FeObject *list = FeGetNextArgument(context, &arguments);
+	struct kg_lisp_match_data fresh = { 0 };
+	int n = 0;
+
+	if (!FeIsNil(arguments)) {
+		(void)FeGetNextArgument(context, &arguments); /* RESEAT */
+	}
+	FeRequireNoArguments(context, arguments);
+	fresh.on_string = true;
+	while (!FeIsNil(list) && n < RE_MAX_SPANS) {
+		int start = lisp_match_element(context, &list);
+		int end = lisp_match_element(context, &list);
+
+		fresh.match.spans[n].start = start;
+		fresh.match.spans[n].end = start < 0 ? -1 : end;
+		n++;
+	}
+	fresh.match.nspans = n;
+	fresh.valid = n > 0;
+	state.match = fresh;
+	return FeNil(context);
 }
 
 /* ---- string-match / regexp-quote --------------------------------------

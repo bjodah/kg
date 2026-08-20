@@ -194,6 +194,26 @@ FeObject *native_concat(FeContext *context, FeObject *arguments)
 	return result;
 }
 
+/* What `string=' compares an operand BY: a string's own bytes, a symbol's
+ * name, or the three characters of `nil'.  That is Emacs' rule for the
+ * whole comparison family, and already fe's for `string<'/`string>' --
+ * kg's equality was the one member that refused a symbol, measured
+ * against Emacs at Phase 25.0 and closed here.  The predicate the
+ * refusal names stays `stringp', also measured: (string= "abc" 3) is
+ * (wrong-type-argument stringp 3) on both sides. */
+static FeObject *lisp_string_operand(FeContext *context, FeObject *object)
+{
+	FeType type = FeGetType(object);
+
+	if (FeIsNil(object)) {
+		return FeMakeString(context, "nil");
+	}
+	if (type != FeTString && type != FeTSymbol) {
+		lisp_raise_wrong_type(context, "stringp", object);
+	}
+	return object;
+}
+
 /* (string= A B): byte equality, so it is also codepoint equality for the
  * well-formed UTF-8 the editor produces. */
 FeObject *native_string_equal(FeContext *context, FeObject *arguments)
@@ -205,8 +225,10 @@ FeObject *native_string_equal(FeContext *context, FeObject *arguments)
 	bool equal;
 
 	FeRequireNoArguments(context, arguments);
-	lisp_check_string(context, a);
-	lisp_check_string(context, b);
+	/* `b' is reachable from the argument list the evaluator holds, so
+	 * it survives the allocation the nil coercion above may make. */
+	a = lisp_string_operand(context, a);
+	b = lisp_string_operand(context, b);
 	length = FeStringByteLength(context, a);
 	if (length != FeStringByteLength(context, b)) {
 		return FeMakeBool(context, false);

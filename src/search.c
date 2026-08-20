@@ -1213,8 +1213,14 @@ void editor_query_replace_regexp(int fd)
 		if (filerow == end_row && match_col >= end_col) {
 			break;
 		}
-		status = kg_regex_match_forward(
-		    &rx, row->chars, match_col, &match_res);
+		/* The region's end is the MATCHER's limit on the last region
+		 * row, not a test applied to its answer.  Every other row is
+		 * inside the region whole, so it has no limit at all.  Both
+		 * are bytes of row->chars. */
+		status = kg_regex_match_forward_bounded(&rx, row->chars,
+		    match_col, filerow == end_row ? end_col
+						 : KG_REGEX_LIMIT_NONE,
+		    &match_res);
 
 		/* Each step of this loop, accepted or refused, must leave less
 		 * of the row ahead of the scan than the step before it did.
@@ -1249,12 +1255,6 @@ void editor_query_replace_regexp(int fd)
 		 * past this position, and -1 says the row is exhausted. */
 		int next_raw = kg_regex_next_offset(
 		    row->chars, row->size, &match_res.spans[0]);
-
-		/* A match straddling the region end is outside it, and so is
-		 * every later match on this row. */
-		if (filerow == end_row && match_end > end_col) {
-			break;
-		}
 
 		editor_goto_line_direct(filerow + 1, match_start + 1);
 

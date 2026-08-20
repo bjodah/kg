@@ -147,7 +147,54 @@ FeObject *native_substring(FeContext *context, FeObject *arguments)
 	return result;
 }
 
-/* Total byte length of a list of string arguments. */
+/* Defined below, beside `char-to-string' which is its other caller. */
+static int lisp_encode_char(long codepoint, char *out);
+
+/* How many bytes ONE `concat' argument contributes, and the type check
+ * for it.  A STRING contributes its own bytes.  A LIST contributes the
+ * UTF-8 encoding of each of its elements, which must be character codes:
+ * that arm exists because `s-reverse' is `(concat (nreverse
+ * (string-to-list s)))' and kg answered `(wrong-type-argument stringp
+ * (99 98 97))' to it -- the demand behind `multibyte-string-p' is two
+ * names deep.  kg's `string-to-list' already decodes UTF-8 into
+ * codepoints, so re-encoding them here makes the round trip a CHARACTER
+ * reversal rather than a byte one.  A NON-INTEGER element is
+ * `(wrong-type-argument characterp X)', Emacs' own predicate for it. */
+static size_t lisp_concat_argument_bytes(
+    FeContext *context, FeObject *object)
+{
+	size_t total = 0;
+	char encoded[4];
+
+	if (FeGetType(object) == FeTString) {
+		return FeStringByteLength(context, object);
+	}
+	/* Emacs' `concat' takes any sequence; kg takes the two shapes its
+	 * demand names, so anything else is still `stringp' -- the
+	 * predicate kg has always refused with, and the one
+	 * frontier-s-reverse-concat-blocker measured. */
+	if (!FeIsNil(object) && FeGetType(object) != FeTPair) {
+		lisp_raise_wrong_type(context, "stringp", object);
+	}
+	while (!FeIsNil(object)) {
+		FeObject *element = FeGetNextArgument(context, &object);
+		FeDouble value;
+
+		if (FeGetType(element) != FeTInteger) {
+			lisp_raise_wrong_type(context, "characterp", element);
+		}
+		value = lisp_finite(context, element, "characterp");
+		if (value < 0 || value > 0x10FFFF) {
+			lisp_raise_wrong_type(context, "characterp", element);
+		}
+		total += (size_t)lisp_encode_char((long)value, encoded);
+	}
+	return total;
+}
+
+/* Total byte length of `concat''s arguments, checking each one's type on
+ * the way: the count and the check are one pass so a refusal happens
+ * before anything is allocated. */
 static size_t lisp_concat_bytes(FeContext *context, FeObject *arguments)
 {
 	size_t total = 0;
@@ -155,16 +202,39 @@ static size_t lisp_concat_bytes(FeContext *context, FeObject *arguments)
 	while (!FeIsNil(arguments)) {
 		FeObject *object = FeGetNextArgument(context, &arguments);
 
-		lisp_check_string(context, object);
-		if (ckd_add(
-			&total, total, FeStringByteLength(context, object))) {
+		if (ckd_add(&total, total,
+			lisp_concat_argument_bytes(context, object))) {
 			FeHandleError(context, "string is too large");
 		}
 	}
 	return total;
 }
 
-/* (concat A B ...): variadic; (concat) is the empty string. */
+/* Copy ONE argument's bytes into `text', answering how many it wrote --
+ * the same two shapes, in the same order, as the counting pass. */
+static size_t lisp_concat_copy(
+    FeContext *context, FeObject *object, char *text)
+{
+	size_t position = 0;
+
+	if (FeGetType(object) == FeTString) {
+		size_t bytes = FeStringByteLength(context, object);
+
+		(void)FeCopyStringBytes(context, object, text, bytes);
+		return bytes;
+	}
+	while (!FeIsNil(object)) {
+		FeObject *element = FeGetNextArgument(context, &object);
+		long value = (long)FeToDouble(context, element);
+
+		position += (size_t)lisp_encode_char(value, text + position);
+	}
+	return position;
+}
+
+/* (concat A B ...): variadic; (concat) is the empty string.  Each
+ * argument is a string or a LIST OF CHARACTER CODES; see
+ * lisp_concat_argument_bytes() for why the second shape exists. */
 FeObject *native_concat(FeContext *context, FeObject *arguments)
 {
 	FeObject *rest = arguments;
@@ -183,11 +253,8 @@ FeObject *native_concat(FeContext *context, FeObject *arguments)
 	park_scratch(text);
 	while (!FeIsNil(rest)) {
 		FeObject *object = FeGetNextArgument(context, &rest);
-		size_t bytes = FeStringByteLength(context, object);
 
-		(void)FeCopyStringBytes(
-		    context, object, text + position, bytes);
-		position += bytes;
+		position += lisp_concat_copy(context, object, text + position);
 	}
 	result = FeMakeStringBytes(context, text, total);
 	release_scratch();

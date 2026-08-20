@@ -960,6 +960,23 @@
 
 ;; --- editor helpers ---
 (defalias 'string-empty-p (lambda (s) (string= s "")))
+;; `multibyte-string-p' answers nil for EVERY string, always, and that is
+;; a decision rather than a default.  Phase 25 fixed kg's string as fe's
+;; unibyte byte string, so nil is the honest answer -- Emacs' flag is a
+;; property of the string OBJECT, not of the characters a caller can read
+;; out of it -- and answering `t' would be strictly worse in a way that
+;; is measurable: `s-reverse' branches on this predicate and its multibyte
+;; branch calls `(require 'ucs-normalize)', a library kg does not have.
+;; kg takes the else branch instead, `(concat (nreverse (string-to-list
+;; s)))', which is a CHARACTER reversal here because `string-to-list'
+;; decodes UTF-8 and `concat' re-encodes it -- so (s-reverse "héllo") is
+;; right and a base character plus a combining accent is not, which is
+;; the divergence frontier-s-reverse-grapheme-cluster records.
+;; It still refuses a non-string, because a predicate that answered nil
+;; for 5 would be answering a different question.
+(defalias 'multibyte-string-p (lambda (object)
+  (if (stringp object) nil
+    (signal 'wrong-type-argument (list 'stringp object)))))
 (defalias 'thing-at-point (lambda (thing)
   (internal--let bounds (bounds-of-thing-at-point thing))
   (if bounds (buffer-substring (car bounds) (cdr bounds)))))
@@ -1617,6 +1634,7 @@
   (memq . "Return the tail of LIST starting at the first element `eq' to ELEMENT.")
   (min . "Return the smallest of the arguments.")
   (mod . "Return the modulus of X by Y, with Y's sign.")
+  (multibyte-string-p . "Return nil: every kg string is a unibyte byte string.")
   (move-beginning-of-line . "Move point to the beginning of the current line.")
   (move-end-of-line . "Move point to the end of the current line.")
   (nconc . "Join the argument lists by rewriting their tails, and return the result.")

@@ -3437,6 +3437,47 @@ static void test_string_concat_and_equal(void)
 	CHECK(eval_eq("(string-length (concat \"h\xc3\xa9\" \"llo\"))", "5"));
 	CHECK(eval_error_contains("(concat \"a\" 1)", "Wrong type argument"));
 
+	/* THE LIST-OF-CHARACTERS ARM, which exists because `s-reverse' is
+	 * `(concat (nreverse (string-to-list s)))' and this raised
+	 * `(wrong-type-argument stringp (99 98 97))' at it.  Each element
+	 * is a character CODE and is encoded as UTF-8, so the round trip
+	 * through `string-to-list' is a CHARACTER reversal and not a byte
+	 * one -- the second and third of these are the whole want. */
+	CHECK(eval_eq("(concat (list 97 98))", "ab"));
+	CHECK(eval_eq("(concat (nreverse (string-to-list \"abc\")))", "cba"));
+	CHECK(eval_eq("(concat (nreverse (string-to-list \"h\xc3\xa9llo\")))",
+	    "oll\xc3\xa9h"));
+	/* An empty list is the empty string, and the arms MIX. */
+	CHECK(eval_eq("(concat nil)", ""));
+	CHECK(eval_eq("(concat \"a\" (list 98) \"c\")", "abc"));
+	/* A codepoint above ASCII round-trips through both halves. */
+	CHECK(eval_eq("(string-to-list (concat (list 233)))", "(233)"));
+	/* A NON-INTEGER element is `characterp', Emacs' own predicate for
+	 * the element -- not `stringp', which is what the ARGUMENT gets
+	 * when it is neither a string nor a list. */
+	CHECK(eval_eq("(condition-case e (concat (list 97 \"b\"))"
+		      " (error (cons (car e) (cdr e))))",
+	    "(wrong-type-argument characterp \"b\")"));
+	CHECK(eval_eq("(condition-case e (concat (list 97 -1))"
+		      " (error (cons (car e) (cdr e))))",
+	    "(wrong-type-argument characterp -1)"));
+	CHECK(eval_eq("(condition-case e (concat 1)"
+		      " (error (cons (car e) (cdr e))))",
+	    "(wrong-type-argument stringp 1)"));
+
+	/* `multibyte-string-p' answers nil for every string, ALWAYS -- the
+	 * chosen answer, since `t' would send s-reverse into a branch that
+	 * `(require 'ucs-normalize)'.  It still refuses a non-string: a
+	 * predicate answering nil for 5 would be answering a different
+	 * question. */
+	CHECK(eval_eq("(list (multibyte-string-p \"abc\")"
+		      " (multibyte-string-p \"\") (multibyte-string-p"
+		      " \"h\xc3\xa9llo\"))",
+	    "(nil nil nil)"));
+	CHECK(eval_eq("(condition-case e (multibyte-string-p 5)"
+		      " (error (cons (car e) (cdr e))))",
+	    "(wrong-type-argument stringp 5)"));
+
 	CHECK(eval_eq("(string= \"\" \"\")", "t"));
 	CHECK(eval_eq("(string= \"abc\" \"abc\")", "t"));
 	CHECK(eval_eq("(string= \"abc\" \"abd\")", "nil"));
@@ -6385,9 +6426,9 @@ static void test_quit_uncaught(void)
  * NAMES Phase 25's honest frontier measured unmodified s.el stopping at,
  * both prelude Lisp because both are ordinary Lisp over what kg already
  * had.  The frontier demand phase added `assoc-string' and the one
- * internal name under it, `internal--string-designator', taking it to
- * 137. */
-#define PRELUDE_DEFS 137
+ * internal name under it, `internal--string-designator', and then
+ * `multibyte-string-p', taking it to 138. */
+#define PRELUDE_DEFS 138
 
 /* What a value CAPTURED out of a symbol's function cell is: that symbol's
  * definition at the moment of capture, and it stays that definition
@@ -7427,7 +7468,7 @@ static void test_s_el_vendored_load(void)
 	    "   (void-function (car (cdr e))))"
 	    " (condition-case e (s-split-up-to \",\" \"a,b,c\" 1)"
 	    "   (wrong-number-of-arguments (cdr e))))",
-	    "(\"ab\" fill-region regexp-opt multibyte-string-p"
+	    "(\"ab\" fill-region regexp-opt \"cba\""
 	    " \"1\" (\"a\" \"b,c\"))"));
 
 	kg_lisp_shutdown();

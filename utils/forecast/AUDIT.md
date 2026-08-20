@@ -22,22 +22,22 @@ that a name which *stops* being covered is a diff and not a silence.
 | `lisp/help-fns.el` | 160 | 10 |
 | `lisp/pipeline-text.el` | 57 | 6 |
 | `lisp/pipeline.el` | 51 | 13 |
-| `lisp/prelude.el` | 1727 | 137 |
+| `lisp/prelude.el` | 1733 | 138 |
 | `utils/forecast/target-init.el` | 75 | 7 |
 | `utils/forecast/forecast-snippet.el` | 112 | 13 |
 | `utils/forecast/forecast-wordcount.el` | 118 | 10 |
-| **total** | **2450** | **211** |
+| **total** | **2456** | **212** |
 
 ## Implemented-name set
 
 | Source | Names |
 | --- | ---: |
 | kg-native | 137 |
-| kg-lisp | 181 |
+| kg-lisp | 182 |
 | fe-primitive | 81 |
 | fe-native | 14 |
 | reader | 6 |
-| corpus (defined by the corpus itself) | 211 |
+| corpus (defined by the corpus itself) | 212 |
 
 ## MISSING (4 names, 4 references)
 
@@ -58,17 +58,17 @@ Measured demand for the three families the plan's Declined section keeps off the
 | vectors | 9 | `vectorp` x4, `aref` x3, `vconcat` x2 |
 | records | 0 | -- |
 
-## COVERED (258 names, 2446 references)
+## COVERED (258 names, 2452 references)
 
 | Refs | Name | Source |
 | ---: | --- | --- |
 | 173 | `setq` | fe-primitive |
-| 164 | `if` | fe-primitive |
-| 154 | `list` | fe-primitive |
+| 165 | `if` | fe-primitive |
+| 155 | `list` | fe-primitive |
 | 143 | `cdr` | fe-primitive |
-| 137 | `defalias` | fe-primitive |
+| 138 | `defalias` | fe-primitive |
+| 135 | `lambda` | fe-primitive |
 | 134 | `car` | fe-primitive |
-| 134 | `lambda` | fe-primitive |
 | 73 | `cons` | fe-primitive |
 | 71 | `defun` | kg-lisp |
 | 61 | `while` | fe-primitive |
@@ -86,9 +86,9 @@ Measured demand for the three families the plan's Declined section keeps off the
 | 23 | `null` | kg-lisp |
 | 21 | `defvar` | kg-lisp |
 | 20 | `interactive` | kg-lisp |
+| 20 | `stringp` | kg-native |
 | 20 | `substring` | kg-native |
 | 19 | `+` | fe-primitive |
-| 19 | `stringp` | kg-native |
 | 18 | `concat` | kg-native |
 | 17 | `or` | fe-primitive |
 | 17 | `progn` | kg-lisp |
@@ -102,11 +102,11 @@ Measured demand for the three families the plan's Declined section keeps off the
 | 10 | `<=` | fe-primitive |
 | 10 | `point-max` | kg-native |
 | 10 | `point-min` | kg-native |
+| 10 | `signal` | fe-primitive |
 | 10 | `string=` | kg-native |
 | 10 | `symbol-function` | fe-primitive |
 | 9 | `append` | kg-lisp |
 | 9 | `goto-char` | kg-native |
-| 9 | `signal` | fe-primitive |
 | 8 | `downcase` | kg-native |
 | 8 | `internal--seq-to-list` | kg-lisp |
 | 8 | `string-match` | kg-native |

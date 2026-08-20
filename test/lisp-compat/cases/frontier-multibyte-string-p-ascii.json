@@ -2,5 +2,6 @@
  "id": "frontier-multibyte-string-p-ascii",
  "setup": [],
  "expr": "(list (multibyte-string-p \"abc\") (multibyte-string-p \"\") (multibyte-string-p \"a b\\tc\"))",
- "note": "THE HALF THAT AGREES, written to FLIP. Emacs answers (nil nil nil): a string literal with nothing but ASCII in it is a UNIBYTE string there too, so `multibyte-string-p' is nil for it, and the empty string is nil. kg's answer after F.1 is nil for every string by construction (Phase 25 fixed kg's string as fe's unibyte byte string), so these three agree for the same reason Emacs gives them -- there is no non-ASCII character in the string -- rather than by coincidence. kg answers `void-function' at this pin."
+ "note": "THE HALF THAT AGREES, written to FLIP. Emacs answers (nil nil nil): a string literal with nothing but ASCII in it is a UNIBYTE string there too, so `multibyte-string-p' is nil for it, and the empty string is nil. kg's answer after F.1 is nil for every string by construction (Phase 25 fixed kg's string as fe's unibyte byte string), so these three agree for the same reason Emacs gives them -- there is no non-ASCII character in the string -- rather than by coincidence. kg answers `void-function' at this pin. THIS CASE FLIPPED in the frontier demand phase: kg answers nil for every string by construction, so these three agree for the reason Emacs gives them -- no non-ASCII character in the string.",
+ "expect": "agree"
 }

@@ -991,6 +991,27 @@ static void cleanup_prefix_binding(FeContext *context, void *ptr)
 	    context, "args-out-of-range", FeMakeList(context, parts, 2));
 }
 
+/* Raise Emacs' `(args-out-of-range STRING START END)`: the three-element
+ * form `compare-strings` needs, where the two-element one above cannot
+ * say which string the bad span belonged to.  Emacs' own data, measured
+ * on 31.0.91: `(compare-strings "abc" 5 6 "abc" 0 3)` is
+ * `(args-out-of-range "abc" 5 3)` -- the string, the START as passed, and
+ * the END after the silent clip against the string's length. */
+[[noreturn]] void lisp_raise_args_out_of_range3(
+    FeContext *context, FeObject *first, FeObject *second, FeObject *third)
+{
+	FeObject *parts[3];
+
+	FePushGC(context, first);
+	FePushGC(context, second);
+	FePushGC(context, third);
+	parts[0] = first;
+	parts[1] = second;
+	parts[2] = third;
+	raise_signal_form(
+	    context, "args-out-of-range", FeMakeList(context, parts, 3));
+}
+
 /* Raise Emacs' `(search-failed PATTERN)`: what a search whose NOERROR is
  * nil answers, with the pattern it did not find as its one data element
  * -- measured on 31.0.91, `(search-forward "z")` in a buffer without one

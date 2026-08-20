@@ -78,6 +78,10 @@ static const struct native_binding native_bindings[] = {
 	{ "concat", native_concat },
 	{ "format", native_format },
 	{ "string=", native_string_equal },
+	/* Emacs' indexed comparison: the return contract, the bounds rule
+	 * and the ASCII-only IGNORE-CASE are all in src/lisp_string.c's
+	 * comments, each measured before it was written. */
+	{ "compare-strings", native_compare_strings },
 	{ "char-to-string", native_char_to_string },
 	{ "string-to-char", native_string_to_char },
 	{ "string-to-number", native_string_to_number },

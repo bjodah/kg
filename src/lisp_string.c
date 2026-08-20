@@ -420,6 +420,171 @@ FeObject *native_capitalize(FeContext *context, FeObject *arguments)
 	return lisp_case(context, arguments, LISP_CASE_CAPITALIZE);
 }
 
+/* ---- compare-strings -------------------------------------------------
+ * Emacs' `(compare-strings S1 START1 END1 S2 START2 END2 &optional
+ * IGNORE-CASE)', the want behind three of s.el's entry points
+ * (s-shared-start, s-shared-end, s-ends-with?).  Every rule below was
+ * measured on 31.0.91 and frozen as an oracle case before any of this
+ * existed (frontier-compare-strings-*), because three of them are not
+ * what the name suggests. */
+
+/* Emacs' IGNORE-CASE fold, and it is an UPCASE rather than a downcase --
+ * which only shows up in the SIGN of a mismatch, so it is measured
+ * rather than assumed: `(compare-strings "a" nil nil "_" nil nil t)' is
+ * -1 on 31.0.91, so the folded `a' sorts BEFORE `_' (0x5F), and only a
+ * fold to `A' (0x41) does that.  ASCII ONLY, which is the freeze's
+ * decision and not an omission: kg's whole case surface is ASCII
+ * (native-upcase's own row measures `(upcase "héllo")' as "HéLLO"), and
+ * s.el passes no fold at all -- so a fold that knew É/é would be a
+ * Unicode case table arriving through a flag rather than through a
+ * decision.  `assoc-string' folds with this same function, so the two
+ * names cannot drift apart one line from each other. */
+long lisp_fold_case_ascii(long codepoint)
+{
+	return codepoint < 0x80 ? lisp_ascii_upper((int)codepoint) : codepoint;
+}
+
+/* One resolved span, in CHARACTERS of the string it came from. */
+struct lisp_compare_span {
+	long from;
+	long to;
+};
+
+/* THE BOUNDS RULE, and it is not "out of range raises".  Measured:
+ *
+ *   * an END past the string is CLIPPED SILENTLY --
+ *     `(compare-strings "abc" 0 10 "abc" 0 3)' is `t';
+ *   * a START past it IS `args-out-of-range', and the data echoes the
+ *     CLIPPED end rather than the argument: `("abc" 5 3)', not 6;
+ *   * a NEGATIVE index counts from the END, so -1 over "abc" is 2 and
+ *     legal, while -5 is the range error -- whose data echoes the raw
+ *     -5, because the clip is a `min' against the size and -5 is already
+ *     under it;
+ *   * a nil END reports as nil: `(compare-strings "abc" 0 nil "abc" 9
+ *     nil)' is `(args-out-of-range "abc" 9 nil)'.
+ *
+ * So the data is (STRING, START AS PASSED, min(END, size) or nil), which
+ * is what this builds.  Clip before converting a negative, or the -5 row
+ * reports -2. */
+static struct lisp_compare_span lisp_compare_bounds(FeContext *context,
+    FeObject *string, FeObject *start_object, FeObject *end_object,
+    long chars)
+{
+	struct lisp_compare_span span = { 0, chars };
+	FeObject *reported_end = end_object;
+
+	if (!FeIsNil(start_object)) {
+		span.from = (long)lisp_finite(context, start_object, "integerp");
+		if (span.from < 0) {
+			span.from += chars;
+		}
+	}
+	if (!FeIsNil(end_object)) {
+		span.to = (long)lisp_finite(context, end_object, "integerp");
+		if (span.to > chars) {
+			span.to = chars;
+			reported_end = FeMakeInteger(context, (int64_t)chars);
+		}
+		if (span.to < 0) {
+			span.to += chars;
+		}
+	}
+	if (span.from < 0 || span.from > span.to) {
+		lisp_raise_args_out_of_range3(
+		    context, string, start_object, reported_end);
+	}
+	return span;
+}
+
+/* THE RETURN CONTRACT: `t' when the two spans are equal, otherwise
+ * +/-(1 + the number of characters that compared EQUAL), signed by which
+ * side sorts first.  A span that runs out is a mismatch too, which is
+ * what s-shared-start's `(substring s1 0 (1- (abs cmp)))' recovers its
+ * shared prefix from.  The count is in CHARACTERS -- `(compare-strings
+ * "éa" nil nil "éb" nil nil)' is -2, not -3 -- so this walks kg's
+ * character view, the one `length'/`elt'/`substring' already agree with
+ * Emacs on, and never fe's bytes. */
+static FeObject *lisp_compare_spans(FeContext *context, const char *a,
+    int a_bytes, struct lisp_compare_span sa, const char *b, int b_bytes,
+    struct lisp_compare_span sb, bool fold)
+{
+	int a_byte = lisp_utf8_byte(a, a_bytes, (int)sa.from);
+	int b_byte = lisp_utf8_byte(b, b_bytes, (int)sb.from);
+	long n = sa.to - sa.from, m = sb.to - sb.from, i;
+
+	for (i = 0; i < n && i < m; i++) {
+		long ca = lisp_decode_char(a, a_bytes, a_byte);
+		long cb = lisp_decode_char(b, b_bytes, b_byte);
+
+		if (fold) {
+			ca = lisp_fold_case_ascii(ca);
+			cb = lisp_fold_case_ascii(cb);
+		}
+		if (ca != cb) {
+			return FeMakeInteger(
+			    context, (int64_t)(ca < cb ? -(i + 1) : i + 1));
+		}
+		a_byte += utf8_glyph_span_at(a, a_bytes, a_byte);
+		b_byte += utf8_glyph_span_at(b, b_bytes, b_byte);
+	}
+	if (n == m) {
+		return FeMakeBool(context, true);
+	}
+	/* The shorter span sorts first, and the index is still the number
+	 * of characters that matched: ("ab" vs "abc") is -3. */
+	return FeMakeInteger(context, (int64_t)(n < m ? -(i + 1) : i + 1));
+}
+
+FeObject *native_compare_strings(FeContext *context, FeObject *arguments)
+{
+	FeObject *a = FeGetNextArgument(context, &arguments);
+	FeObject *start1 = FeGetNextArgument(context, &arguments);
+	FeObject *end1 = FeGetNextArgument(context, &arguments);
+	FeObject *b = FeGetNextArgument(context, &arguments);
+	FeObject *start2 = FeGetNextArgument(context, &arguments);
+	FeObject *end2 = FeGetNextArgument(context, &arguments);
+	FeObject *fold_object = FeNil(context);
+	struct lisp_compare_span sa, sb;
+	size_t a_bytes, b_bytes, allocation;
+	FeObject *result;
+	char *text;
+
+	if (!FeIsNil(arguments)) {
+		fold_object = FeGetNextArgument(context, &arguments);
+	}
+	FeRequireNoArguments(context, arguments);
+	/* A non-string is `(wrong-type-argument stringp X)', and a SYMBOL
+	 * is NOT coerced the way `assoc-string' coerces one -- measured on
+	 * both sides, and worth the asymmetry being deliberate, since the
+	 * two names sit one line apart in s.el. */
+	lisp_check_string(context, a);
+	lisp_check_string(context, b);
+	a_bytes = FeStringByteLength(context, a);
+	b_bytes = FeStringByteLength(context, b);
+	/* One allocation holding both copies keeps a single pointer live,
+	 * which is `string=''s pattern and the reason only one scratch
+	 * parking is needed: a raise below longjmps past every free(). */
+	if (ckd_add(&allocation, a_bytes, b_bytes)
+	    || ckd_add(&allocation, allocation, 2)) {
+		FeHandleError(context, "string is too large");
+	}
+	text = malloc(allocation);
+	if (!text) {
+		FeHandleError(context, "out of memory");
+	}
+	park_scratch(text);
+	(void)FeCopyStringBytes(context, a, text, a_bytes);
+	(void)FeCopyStringBytes(context, b, text + a_bytes, b_bytes);
+	sa = lisp_compare_bounds(context, a, start1, end1,
+	    lisp_utf8_length(text, (int)a_bytes));
+	sb = lisp_compare_bounds(context, b, start2, end2,
+	    lisp_utf8_length(text + a_bytes, (int)b_bytes));
+	result = lisp_compare_spans(context, text, (int)a_bytes, sa,
+	    text + a_bytes, (int)b_bytes, sb, !FeIsNil(fold_object));
+	release_scratch();
+	return result;
+}
+
 /* ---- string-to-number ------------------------------------------------ */
 
 /* True when the text strtoll stopped at and strtod ran past really is a

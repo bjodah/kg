@@ -3197,6 +3197,104 @@ static void test_marker_survives_buffer_kill(void)
 
 /* Indices count codepoints, so "héllo" is 5 characters in 6 bytes and
  * "漢字" is 2 characters in 6 bytes. */
+/* Emacs' `compare-strings', whose every rule was measured on 31.0.91 and
+ * frozen as an oracle case (frontier-compare-strings-*) before the name
+ * existed here.  This is the kg-side half: the same contract asked of the
+ * editor's own objects, plus the bounds TABLE, which is where three of
+ * the rules are not what the name suggests. */
+static void test_compare_strings(void)
+{
+	CHECK(kg_lisp_init() == 0);
+
+	/* THE RETURN CONTRACT: `t' for equal spans, else +/-(1 + the
+	 * characters that compared EQUAL), signed by which sorts first.  A
+	 * span that RUNS OUT is a mismatch too, which is the arithmetic
+	 * s-shared-start recovers its prefix from. */
+	CHECK(eval_eq("(compare-strings \"abc\" 0 3 \"abd\" 0 3)", "-3"));
+	CHECK(eval_eq("(compare-strings \"abc\" 0 3 \"abc\" 0 3)", "t"));
+	CHECK(eval_eq("(compare-strings \"abd\" 0 3 \"abc\" 0 3)", "3"));
+	CHECK(eval_eq("(compare-strings \"ab\" 0 2 \"abc\" 0 3)", "-3"));
+	CHECK(eval_eq("(compare-strings \"abc\" 0 3 \"ab\" 0 2)", "3"));
+	/* The empty-span corners the index arithmetic has to survive. */
+	CHECK(eval_eq("(compare-strings \"\" nil nil \"\" nil nil)", "t"));
+	CHECK(eval_eq("(compare-strings \"\" nil nil \"a\" nil nil)", "-1"));
+
+	/* NIL BOUNDS and an offset START, which is what s-ends-with?
+	 * passes: nil START is 0, nil END is the length. */
+	CHECK(eval_eq("(compare-strings \"xabc\" 1 nil \"abc\" nil nil)", "t"));
+	CHECK(eval_eq("(compare-strings \"abc\" 1 2 \"abc\" 1 2)", "t"));
+
+	/* THE BOUNDS TABLE.  An END past the string is CLIPPED SILENTLY --
+	 * it is NOT the error this phase's plan predicted -- a START past
+	 * it IS `args-out-of-range' whose data echoes the CLIPPED end, a
+	 * NEGATIVE index counts from the end, and a nil END reports as nil
+	 * rather than as the length it stands for. */
+	CHECK(eval_eq("(compare-strings \"abc\" 0 10 \"abc\" 0 3)", "t"));
+	CHECK(eval_eq("(compare-strings \"abc\" 0 4 \"abcd\" 0 4)", "-4"));
+	CHECK(eval_eq("(compare-strings \"abc\" -1 nil \"xbc\" nil nil)", "-1"));
+	CHECK(eval_eq("(compare-strings \"abc\" 3 3 \"abc\" 0 3)", "-1"));
+	CHECK(eval_eq("(condition-case e (compare-strings \"abc\" 5 6 \"abc\""
+		      " 0 3) (error (cons (car e) (cdr e))))",
+	    "(args-out-of-range \"abc\" 5 3)"));
+	CHECK(eval_eq("(condition-case e (compare-strings \"abc\" -5 3 \"abc\""
+		      " 0 3) (error (cons (car e) (cdr e))))",
+	    "(args-out-of-range \"abc\" -5 3)"));
+	CHECK(eval_eq("(condition-case e (compare-strings \"abc\" 2 1 \"abc\""
+		      " 0 3) (error (cons (car e) (cdr e))))",
+	    "(args-out-of-range \"abc\" 2 1)"));
+	CHECK(eval_eq("(condition-case e (compare-strings \"abc\" 0 nil \"abc\""
+		      " 9 nil) (error (cons (car e) (cdr e))))",
+	    "(args-out-of-range \"abc\" 9 nil)"));
+	/* The second string's span is checked the same way and names
+	 * ITSELF, which is the whole reason this error carries three
+	 * elements rather than two. */
+	CHECK(eval_eq("(condition-case e (compare-strings \"abc\" 0 3 \"xy\""
+		      " 5 6) (error (cons (car e) (cdr e))))",
+	    "(args-out-of-range \"xy\" 5 2)"));
+
+	/* THE TYPE ERRORS.  A symbol is NOT coerced here, where
+	 * `assoc-string' does coerce one -- deliberately, and measured on
+	 * both sides. */
+	CHECK(eval_eq("(condition-case e (compare-strings 1 0 1 \"abc\" 0 3)"
+		      " (error (cons (car e) (cdr e))))",
+	    "(wrong-type-argument stringp 1)"));
+	CHECK(eval_eq("(condition-case e (compare-strings \"abc\" 0 3 'abc 0 3)"
+		      " (error (cons (car e) (cdr e))))",
+	    "(wrong-type-argument stringp abc)"));
+
+	/* THE INDEX IS IN CHARACTERS, not bytes: a byte-shaped
+	 * implementation answers -3 for the first of these. */
+	CHECK(eval_eq(
+	    "(compare-strings \"\xc3\xa9""a\" nil nil \"\xc3\xa9""b\" nil nil)",
+	    "-2"));
+	CHECK(eval_eq("(compare-strings \"a\xc3\xa9\" nil nil \"a\xc3\xa9\""
+		      " nil nil)",
+	    "t"));
+
+	/* IGNORE-CASE folds ASCII, and does so by UPCASING -- which only
+	 * the SIGN of a mismatch shows: `(compare-strings "a" ... "_" ... t)'
+	 * is -1 because the fold makes it "A" (0x41), before "_" (0x5F).
+	 * The non-ASCII pair is the RECORDED DIVERGENCE this phase chose
+	 * and did not close: kg answers -1 where Emacs answers t. */
+	CHECK(eval_eq("(compare-strings \"ABC\" nil nil \"abc\" nil nil t)",
+	    "t"));
+	CHECK(eval_eq("(compare-strings \"ABC\" nil nil \"abc\" nil nil nil)",
+	    "-1"));
+	CHECK(eval_eq("(compare-strings \"a\" nil nil \"_\" nil nil t)", "-1"));
+	CHECK(eval_eq("(compare-strings \"_\" nil nil \"a\" nil nil t)", "1"));
+	CHECK(eval_eq("(compare-strings \"\xc3\x89\" nil nil \"\xc3\xa9\""
+		      " nil nil t)",
+	    "-1"));
+	/* No multi-character case expansion on either side: Emacs answers
+	 * -5 here too, because its fold does not turn German sharp s into
+	 * two letters. */
+	CHECK(eval_eq("(compare-strings \"STRASSE\" nil nil \"stra\xc3\x9f"
+		      "e\" nil nil t)",
+	    "-5"));
+
+	kg_lisp_shutdown();
+}
+
 static void test_string_length_and_substring(void)
 {
 	CHECK(kg_lisp_init() == 0);
@@ -7235,7 +7333,7 @@ static void test_s_el_vendored_load(void)
 	    "   (void-function (car (cdr e))))"
 	    " (condition-case e (s-split-up-to \",\" \"a,b,c\" 1)"
 	    "   (wrong-number-of-arguments (cdr e))))",
-	    "(compare-strings fill-region regexp-opt multibyte-string-p"
+	    "(\"ab\" fill-region regexp-opt multibyte-string-p"
 	    " assoc-string (\"a\" \"b,c\"))"));
 
 	kg_lisp_shutdown();
@@ -8611,6 +8709,7 @@ int main(void)
 	RUN(test_hook_error_does_not_disarm);
 	RUN(test_process_callback_designator);
 	RUN(test_keymap_apis);
+	RUN(test_compare_strings);
 	RUN(test_string_length_and_substring);
 	RUN(test_string_concat_and_equal);
 	RUN(test_format_natives);

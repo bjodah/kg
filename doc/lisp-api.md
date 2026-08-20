@@ -850,6 +850,7 @@ argument, the echo area -- it truncates at the first NUL on purpose;
 | `(substring S FROM &optional TO)` | 0-based character indices; negative counts from the end; clamps out of range; `TO` before `FROM` yields `""` |
 | `(concat A B ...)` | Joins any number of strings; `(concat)` is `""` |
 | `(string= A B)` | `t` when equal. Either argument may be a SYMBOL, whose name is compared, or `nil`, which compares as `"nil"` — Emacs' rule, and already `string<`'s. Anything else is `(wrong-type-argument stringp X)` |
+| `(compare-strings S1 START1 END1 S2 START2 END2 &optional IGNORE-CASE)` | `t` when the two spans are equal, else ±(1 + the characters that compared equal), signed by which side sorts first. A nil `START` is 0 and a nil `END` the length; a negative index counts from the end; an `END` past the string is clipped silently, while a `START` past it is `(args-out-of-range STRING START CLIPPED-END)`. The index is in CHARACTERS. `IGNORE-CASE` folds ASCII only — `É` and `é` do not compare equal here, where in Emacs they do |
 | `(string-equal A B)` / `(string-lessp A B)` / `(string-greaterp A B)` | Emacs' long spellings of `string=`, `string<` and `string>`; aliases of the same objects, so they cannot differ |
 | `(char-to-string N)` | One-character string for codepoint `N`; rejects surrogates and values above `U+10FFFF`. `N` may be 0, which builds a one-byte string holding a NUL, as in Emacs |
 | `(string-to-char S)` | First codepoint of `S`, `nil` for `""` |

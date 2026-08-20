@@ -281,6 +281,11 @@ FeObject *lisp_callable_designator(FeContext *context, FeObject *object,
  * that is `t', `nil' or a keyword (lisp_core.c). */
 [[noreturn]] void lisp_raise_setting_constant(
     FeContext *context, FeObject *symbol);
+/* The three-element form of the same, which `compare-strings' needs:
+ * (args-out-of-range STRING START END), naming the string whose span was
+ * bad (lisp_core.c). */
+[[noreturn]] void lisp_raise_args_out_of_range3(FeContext *context,
+    FeObject *first, FeObject *second, FeObject *third);
 /* Raise Emacs' `(search-failed PATTERN)' -- what a failed search whose
  * NOERROR argument is nil answers, carrying the pattern it did not find.
  * The symbol became raisable at the frontier demand phase's fe pin, which
@@ -472,6 +477,11 @@ FeObject *native_string_length(FeContext *context, FeObject *arguments);
 FeObject *native_substring(FeContext *context, FeObject *arguments);
 FeObject *native_concat(FeContext *context, FeObject *arguments);
 FeObject *native_string_equal(FeContext *context, FeObject *arguments);
+FeObject *native_compare_strings(FeContext *context, FeObject *arguments);
+/* Emacs' IGNORE-CASE / CASE-FOLD fold, ASCII ONLY and an UPCASE -- the
+ * one answer `compare-strings' and `assoc-string' share, so an argument
+ * with one name cannot mean two things (lisp_string.c). */
+long lisp_fold_case_ascii(long codepoint);
 FeObject *native_char_to_string(FeContext *context, FeObject *arguments);
 FeObject *native_string_to_char(FeContext *context, FeObject *arguments);
 FeObject *native_string_to_number(FeContext *context, FeObject *arguments);

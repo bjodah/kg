@@ -12,9 +12,10 @@ fresh measurement on every run, with regeneration as the only way to bank a
 change. No number may rise without a rationale and measured proof in the
 commit message; a fall is banked by regenerating.
 
-Four numbers, all read off the real, compiled-in prelude through
+Nine numbers, all read off the real, compiled-in prelude through
 test/kgbatch and test/prelude_gc_probe -- never re-evaluated or
-re-implemented here:
+re-implemented here.  The first four are the prelude's own cost; the five
+after them are Fe's payload region, and their ceiling is ZERO:
 
   * peak_live_objects -- the post-prelude high-water mark
     (`FeArenaStats.peak_live_objects`, `test/kgbatch -g`'s `peak-live=`
@@ -43,6 +44,16 @@ re-implemented here:
     embedded array's length; nothing here reads the generated .inc.
   * definition_count -- top-level `(defalias 'NAME (KIND ...))` forms in
     lisp/prelude.el, i.e. how many names the prelude declares.
+  * payload_capacity_bytes, payload_live_bytes, payload_peak_bytes,
+    payload_compactions, payload_allocation_failures -- Fe's payload
+    region after the prelude (`test/kgbatch -g`'s `payload-*` fields).
+    All five are zero and all five are held to zero, which is the point:
+    kg opens its arena with no payload region until Phase 25 of
+    doc/plans/2026-08-18-elisp-data-model.md gives it an owner
+    (src/lisp_core.c's `lisp_arena_options`), so the first nonzero
+    reading here is either that decision changing or something starting
+    to allocate payloads at startup. A ceiling of zero is the only
+    ratchet that can catch that on the run it first happens.
 
 Reuse note: `utils/prelude_first_call_census.py` already has a
 `parse_prelude_names()` that counts these, but importing that module here
@@ -67,14 +78,25 @@ import subprocess
 import sys
 from pathlib import Path
 
-SCHEMA = "kg-prelude-startup-census/1"
+SCHEMA = "kg-prelude-startup-census/2"
+
+# The five payload quantities kgbatch -g reports, mapped from the field name
+# in its output to the name recorded here. Read from the same single run as
+# peak_live_objects, since they describe the same arena at the same moment.
+PAYLOAD_FIELDS = {
+	"payload-capacity": "payload_capacity_bytes",
+	"payload-live": "payload_live_bytes",
+	"payload-peak": "payload_peak_bytes",
+	"payload-compactions": "payload_compactions",
+	"payload-failures": "payload_allocation_failures",
+}
 
 QUANTITIES = (
 	"peak_live_objects",
 	"reachable_live_objects",
 	"embedded_bytes",
 	"definition_count",
-)
+) + tuple(PAYLOAD_FIELDS.values())
 
 PEAK_LIVE_RE = re.compile(r"peak-live=(\d+)")
 REACHABLE_LIVE_RE = re.compile(r"reachable-live \(total - free\) = (\d+)")
@@ -85,7 +107,8 @@ def run(cmd: list[str]) -> subprocess.CompletedProcess:
 	return subprocess.run(cmd, capture_output=True, text=True, check=False)
 
 
-def measure_peak_live(kgbatch: Path) -> int:
+def measure_arena(kgbatch: Path) -> dict:
+	"""peak_live_objects and the payload fields, from one kgbatch run."""
 	if not kgbatch.is_file():
 		raise SystemExit(
 		    f"check_prelude_census: {kgbatch} is not built "
@@ -100,7 +123,15 @@ def measure_peak_live(kgbatch: Path) -> int:
 		raise SystemExit(
 		    f"check_prelude_census: no peak-live in {kgbatch} -g output: "
 		    f"{result.stdout!r}")
-	return int(m.group(1))
+	measured = {"peak_live_objects": int(m.group(1))}
+	for field, name in PAYLOAD_FIELDS.items():
+		found = re.search(rf"\b{re.escape(field)}=(\d+)", result.stdout)
+		if not found:
+			raise SystemExit(
+			    f"check_prelude_census: no {field} in {kgbatch} -g "
+			    f"output: {result.stdout!r}")
+		measured[name] = int(found.group(1))
+	return measured
 
 
 def measure_reachable_live(probe: Path) -> int:
@@ -137,10 +168,10 @@ def measure_definition_count(prelude: Path) -> int:
 
 def measure(kgbatch: Path, probe: Path, prelude: Path) -> dict:
 	return {
-		"peak_live_objects": measure_peak_live(kgbatch),
 		"reachable_live_objects": measure_reachable_live(probe),
 		"embedded_bytes": measure_embedded_bytes(prelude),
 		"definition_count": measure_definition_count(prelude),
+		**measure_arena(kgbatch),
 	}
 
 
@@ -170,7 +201,10 @@ def write_manifest(path: Path, measured: dict) -> None:
 		"note": ("What the embedded Lisp prelude (lisp/prelude.el) costs at "
 			 "startup, in four numbers: post-prelude peak live arena "
 			 "slots, still-reachable slots after a forced collection, "
-			 "embedded byte count, and top-level definition count. No "
+			 "embedded byte count, and top-level definition count -- "
+			 "plus Fe's payload region, whose five numbers are zero "
+			 "and are held to zero, since kg carves no region until "
+			 "Phase 25 gives it an owner. No "
 			 "number may rise without a rationale and measured proof "
 			 "in the commit message; regenerating is how a fall is "
 			 "banked."),
@@ -183,6 +217,8 @@ def write_manifest(path: Path, measured: dict) -> None:
 			"embedded_bytes": "lisp/prelude.el, byte size on disk",
 			"definition_count": ("lisp/prelude.el, count of top-level "
 				"(defalias 'NAME (KIND ...)) forms"),
+			**{name: (f"test/kgbatch -g /dev/null, {field}=")
+			   for field, name in PAYLOAD_FIELDS.items()},
 		},
 		"ceiling": {name: measured[name] for name in QUANTITIES},
 	}

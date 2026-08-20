@@ -384,8 +384,11 @@ Ordering rules that hold across every subscriber:
   as debt); restarting is the recovery.
 - **`(command-execute "lisp-arena-stats")`** reports the arena's state to
   the echo area: total slots, free slots, peak live objects, collections,
-  peak GC root depth, peak frames against `frame_capacity`, and the count
-  of failed allocations. It allocates nothing and mutates nothing, so it
+  peak GC root depth, peak frames against `frame_capacity`, the count
+  of failed allocations, the arena's size in bytes, and last Fe's payload
+  region — bytes live of bytes carved, their peak, compactions, and
+  failed payload requests, all five of them zero because kg opens its
+  arena without a payload region. It allocates nothing and mutates nothing, so it
   is safe to call from inside a handler that has just caught an
   `arena-exhaustion` — it is the one way for a program to see how much of
   the arena came back. `M-x lisp-arena-stats` is the same command.

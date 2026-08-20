@@ -171,6 +171,21 @@ enum kg_perf_counter {
 	KG_PERF_LISP_PEAK_NATIVE_REENTRY, /* FeArenaStats.peak_native_reentry
 					   */
 	KG_PERF_LISP_ALLOC_FAILURES, /* FeArenaStats.allocation_failures */
+	/* Fe's payload region (FE_API_VERSION 13), the same five gauges
+	 * kg_lisp_arena_stats() reports.  Every one of them is ZERO in kg
+	 * and asserted so by test/test_perf.c: kg opens its context with no
+	 * payload region until Phase 25 of
+	 * doc/plans/2026-08-18-elisp-data-model.md gives it an owner, so a
+	 * nonzero here is either that decision changing or something
+	 * allocating payloads early.  They are named now, rather than when
+	 * that phase lands, so its own assertions have a home and the
+	 * shipped kg has one place that says what the region is doing. */
+	KG_PERF_LISP_PAYLOAD_CAPACITY, /* bytes carved for the region */
+	KG_PERF_LISP_PAYLOAD_LIVE, /* bytes live in it */
+	KG_PERF_LISP_PAYLOAD_PEAK, /* high-water mark of those bytes */
+	KG_PERF_LISP_PAYLOAD_COMPACTIONS, /* compactions that moved survivors
+					   */
+	KG_PERF_LISP_PAYLOAD_FAILURES, /* payload requests it could not meet */
 	/* Wall-clock nanoseconds spent in evaluate_prelude() (CLOCK_MONOTONIC),
 	 * set once by kg_lisp_init(). A duration, not a count -- unlike every
 	 * other counter here it is not asserted anywhere, since a wall time

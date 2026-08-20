@@ -234,9 +234,21 @@ static void display_lisp_result(int error, const char *result)
  *
  * `frames` is peak-of-capacity because that pair is the one bound a
  * person can act on (09A Table X's frame row); slots, collections, roots
- * and failures are counts.  The arena's own size comes last, so a report
+ * and failures are counts.  The arena's own size comes next, so a report
  * says which arena produced it -- with $KG_LISP_ARENA_BYTES that is no
- * longer a constant of the build. */
+ * longer a constant of the build.
+ *
+ * The payload region comes LAST, appended rather than woven in, so every
+ * word before it is the line PTY cases and test_cmd.c already read.  It
+ * is all zeros in kg and says so plainly: kg opens its arena with no
+ * region until Phase 25 (src/lisp_core.c's lisp_arena_options), and a
+ * diagnostic that omitted the pool because it is currently empty would
+ * be the one that cannot show it filling up.  Last is also where the
+ * whole line is cut on a narrow screen -- the echo area truncates at the
+ * window width, and this message passed a screenful long ago -- which is
+ * the right order to lose it in: the pool that is empty by construction
+ * is the one a reader can spare.  test/kgbatch -g prints every field on
+ * a line nothing truncates. */
 static void cmd_lisp_arena_stats(int fd)
 {
 	struct kg_lisp_arena_stats stats;
@@ -248,11 +260,16 @@ static void cmd_lisp_arena_stats(int fd)
 	}
 	editor_set_status_message(
 	    "Arena: %zu slots, %zu free, peak %zu; GC %zu; roots %zu; "
-	    "frames %zu/%zu; fails %zu; %zu bytes",
+	    "frames %zu/%zu; fails %zu; %zu bytes; "
+	    "payload %zu/%zu bytes, peak %zu; compactions %zu; "
+	    "payload fails %zu",
 	    stats.total_slots, stats.free_slots, stats.peak_live_objects,
 	    stats.collection_count, stats.peak_gc_stack_depth,
 	    stats.peak_frame_depth, stats.frame_capacity,
-	    stats.allocation_failures, stats.arena_bytes);
+	    stats.allocation_failures, stats.arena_bytes,
+	    stats.payload_live_bytes, stats.payload_capacity_bytes,
+	    stats.payload_peak_bytes, stats.payload_compaction_count,
+	    stats.payload_allocation_failures);
 }
 
 /* Emacs' read-expression-history. */

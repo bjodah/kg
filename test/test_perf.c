@@ -1574,6 +1574,41 @@ static void test_lisp_prelude_arena_margin(void)
 	 * 0. */
 	CHECK(stats.peak_native_reentry == 1);
 
+	/* THE PAYLOAD REGION IS ZERO, in all five numbers and exactly.
+	 *
+	 * kg opens its arena with no payload region at all until Phase 25 of
+	 * doc/plans/2026-08-18-elisp-data-model.md migrates strings into one
+	 * (src/lisp_core.c's lisp_arena_options).  Zeros are the shape that
+	 * decision has, and they are asserted rather than assumed for the
+	 * same reason .ci/prelude-startup-census.json holds them to a
+	 * ceiling of zero: the failure this catches is payload use
+	 * appearing EARLY -- a carve switched on before its consumer
+	 * exists, or a constructor that started publishing blocks -- which
+	 * moves every arena number kg pins elsewhere and would otherwise be
+	 * found by whichever of them broke first.  Phase 25 is where these
+	 * become nonzero assertions about a real region; the counters
+	 * below are named now so they have somewhere to be made. */
+	CHECK(stats.payload_capacity_bytes == 0);
+	CHECK(stats.payload_live_bytes == 0);
+	CHECK(stats.payload_peak_bytes == 0);
+	CHECK(stats.payload_compaction_count == 0);
+	CHECK(stats.payload_allocation_failures == 0);
+
+	/* The same five through the counter surface a bench case reads,
+	 * which is a second seam and can drift from the first: the snapshot
+	 * is what src/main.c calls before kg_perf_dump(), so a gauge that
+	 * was never mirrored would read zero here for the wrong reason.
+	 * lisp_arena_total_slots is nonzero in the same reading, which is
+	 * what proves the snapshot ran at all. */
+	kg_perf_reset();
+	kg_lisp_perf_snapshot();
+	CHECK(counter(KG_PERF_LISP_ARENA_TOTAL_SLOTS) == stats.total_slots);
+	CHECK(counter(KG_PERF_LISP_PAYLOAD_CAPACITY) == 0);
+	CHECK(counter(KG_PERF_LISP_PAYLOAD_LIVE) == 0);
+	CHECK(counter(KG_PERF_LISP_PAYLOAD_PEAK) == 0);
+	CHECK(counter(KG_PERF_LISP_PAYLOAD_COMPACTIONS) == 0);
+	CHECK(counter(KG_PERF_LISP_PAYLOAD_FAILURES) == 0);
+
 	CHECK(kg_lisp_load_file("lisp/auto-fill.el") == 0);
 	CHECK(kg_lisp_arena_stats(&stats) == 0);
 	/* Still 1, not 2: loading a package on top of the prelude needs no

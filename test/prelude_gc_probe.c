@@ -59,6 +59,16 @@ int main(void)
 	    stats.collection_count, stats.allocation_failures);
 	printf("reachable-live (total - free) = %zu\n",
 	    stats.total_slots - stats.free_slots);
+	/* Fe's payload region, appended after the two lines every existing
+	 * reader matches on.  All five are zero, and that is the reading
+	 * .ci/prelude-startup-census.json pins as a CEILING: kg carves no
+	 * region until Phase 25, so a nonzero here is either that decision
+	 * changing or the prelude having learned to allocate payloads. */
+	printf("payload: capacity=%zu live=%zu peak=%zu compactions=%zu "
+	       "failures=%zu\n",
+	    stats.payload_capacity_bytes, stats.payload_live_bytes,
+	    stats.payload_peak_bytes, stats.payload_compaction_count,
+	    stats.payload_allocation_failures);
 #if KG_PERF_COUNTERS
 	/* The post-prelude collect's own wall-clock cost, isolated the same
 	 * way KG_PERF_LISP_PRELUDE_NS isolates the prelude's: only a

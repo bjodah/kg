@@ -383,3 +383,151 @@ from is: the internal `OpenContextWithPayload(arena, size, percent)` to make
 public, seven `FeContext` fields to expose, `PayloadArenaPercent` as the
 default to carry, and the table above as the arithmetic kg's own arena will
 answer with when it starts passing a carve.
+
+---
+
+## 23.2 results
+
+Landed as one fe commit and one kg commit, in that order:
+
+  fe `c2515c6`  A host can now ask for the payload region, and see what it
+                does
+  kg (this commit)  the pin move, the threading, and the ratchet of zeros
+
+### The surface, as landed
+
+`FE_API_VERSION` moves **12 -> 13**, once, on the fe commit -- the first
+commit of this whole phase to put anything in `fe.h` at all.  `FeVersion`
+moves `"18.0"` -> **`"19.0"`** and `FE_LANGUAGE_VERSION` stays **15**.  The
+precedent followed for the release string is Fe 17.0, the last API-only move
+(`FeCollectGarbage`, API 11 -> 12): the string moves, the language version
+does not, because nothing a Lisp program evaluates can observe any of it.
+The six harnesses' `static_assert`s and kg's two move with the macro.
+
+```c
+enum {
+  FeDefaultPayloadPercent = 25,   // what a zero-initialized record asks for
+  FePayloadPercentNone = -1,      // an explicit request for no region
+};
+
+typedef struct FeOpenOptions {
+  int payload_percent;            // 0 = default, -1 = none, 1..100 = itself
+} FeOpenOptions;
+
+[[nodiscard]] FeContext* FeOpenContextWithOptions(void* ptr,
+                                                  size_t size,
+                                                  const FeOpenOptions* options);
+```
+
+Three decisions are in that shape and each is stated in `fe.h`:
+
+1. **Zero means "fe decides", not "no region".**  A zero-initialized options
+   record has to mean every documented default for the record to be
+   extensible at all -- that is what lets version 14 add a knob without
+   touching a host -- so an explicit none needs a name of its own.  A null
+   `options` is the same request as a zeroed one.
+2. **Out of range is refused, not clamped.**  Above 100 or below
+   `FePayloadPercentNone`, `FeOpenContextWithOptions` returns null, exactly
+   as a null arena or one under `FeMinimumArenaSize()` does.  A silent clamp
+   hands back a context partitioned to a number the host did not choose, with
+   nothing to read that would say so.  100 itself is accepted: 906 cells and
+   nothing spare, which is a bad idea rather than an invalid one.
+3. **`FeOpenContext` is unchanged, byte for byte**, and is now that call with
+   `FePayloadPercentNone`.  23.1's recorded, ADR-backed decision stands: the
+   entry point that cannot express an opinion must not acquire one.
+
+`FeArenaStats` gains `payload_capacity_bytes`, `payload_live_bytes`,
+`payload_peak_bytes`, `payload_compaction_count` and
+`payload_allocation_failures`, appended after the existing fields, none of
+which changes meaning or position.  `fe_perf.h` gains `payload_alloc`,
+`payload_byte`, `payload_compact` and `payload_compact_moved`.
+
+### kg carves nothing, and that is the governing constraint
+
+`src/lisp_core.c`'s `lisp_arena_options` passes `FePayloadPercentNone`
+explicitly -- not `FeOpenContext`'s implicit none and not the record's own
+default.  Phase 25 is named at that constant as when it becomes
+`FeDefaultPayloadPercent`.  The arithmetic behind it, measured at this pin:
+
+| arena | cells at none | cells at the default 25% | payload bytes | frames |
+| --- | --- | --- | --- | --- |
+| 640 KiB (the floor) | 34026 | 25746 | 132480 | 677 |
+| 1 MiB (kg's default) | 56145 | 42335 | 220952 | 1086 |
+| 2 MiB (`$KG_LISP_ARENA_BYTES=2M`) | 115127 | 86572 | 456880 | 2179 |
+
+so a carve today would cost kg a quarter of its cells for storage nothing can
+allocate from for two more phases, and would move every arena figure kg pins
+against -- the Phase-B floor of 34026, the census, five PTY cases.  **Nothing
+of the kind moved: no PTY case, no oracle file, no arena number.**
+`FeMinimumArenaSize()` is unchanged at 66544 bytes, because `FeArenaStats` is
+not part of `FeContext`; 56145 slots and 1086 frames are what a 1 MiB arena
+still partitions to.
+
+### What kg reports, appended last in each of the three places
+
+```
+Arena: 56145 slots, 46129 free, peak 10993; GC 1; roots 67; frames 8/1086; fails 0; 1048576 bytes; payload 0/0 bytes, peak 0; compactions 0; payload fails 0
+arena: collections=1 peak-live=10993 failures=0 bytes=1048576 payload-capacity=0 payload-live=0 payload-peak=0 payload-compactions=0 payload-failures=0
+payload: capacity=0 live=0 peak=0 compactions=0 failures=0
+```
+
+(`M-x lisp-arena-stats`, `test/kgbatch -g /dev/null`, and
+`test/prelude_gc_probe`'s new third line.)  Every existing reader keeps
+reading unchanged text: `utils/check_lisp_gc_stress.py`'s anchored regex
+gained five appended groups and kept its first four,
+`utils/check_prelude_census.py` reads the payload fields from the run it was
+already making, and `test/test_cmd.c`'s whole-line comparison grew the same
+suffix the renderer did.  The echo-area line is now longer than a screen and
+is cut at the window width; the pool that is zero by construction is the
+right thing to lose first, and `kgbatch -g` truncates nothing.
+
+### The ratchet of zeros
+
+`.ci/prelude-startup-census.json` moves to schema
+`kg-prelude-startup-census/2` and gains the five payload fields **at zero**,
+as CEILINGS: a nonzero reading is either kg's carve decision changing or
+something starting to allocate payloads at startup, and this is the gate that
+catches it on the run it first happens rather than through whichever arena
+figure broke first.  The four existing ceilings are unmoved -- 10993, 10016,
+71720, 122 -- because no prelude Lisp changed.  `test/test_perf.c` asserts
+the same five zeros twice: through `kg_lisp_arena_stats()` and through the
+`KG_PERF_LISP_PAYLOAD_*` gauges after a `kg_lisp_perf_snapshot()`, which is a
+second seam and can drift from the first.
+
+### Ratchets
+
+| gate | before | after |
+| --- | --- | --- |
+| fe scc total / per file | 903 / 520 | **unmoved**, measured 903 and 520 |
+| fe pmccabe total | 1333 / 429 symbols | **1341 / 431** |
+| fe pmccabe per function | 22 | unmoved |
+| kg scc total / per file | 10662 / 519 | **unmoved**, measured at both caps |
+| kg pmccabe | 2837 symbols, max 67/110 | **unmoved**, 0 new, 0 gone |
+| kg prelude census, four existing | 10993 / 10016 / 71720 / 122 | unmoved |
+
+fe's +8 is two new symbols and nothing else: `SelectedPayloadPercent` 6 and
+`FeOpenContextWithOptions` 2, both inside `PMCCABE_NEW_FUNCTION_MAX`, with no
+existing symbol moving, so the per-symbol baseline is regenerated without
+`--allow-regressions`.  The bisect, the before/after and the both-directions
+proof are in `c2515c6`'s message, not beside the knob.
+
+### Verification
+
+fe: `make check`, `complexity-check`, `pmccabe-check`, `format-check`, and
+the whole `.ci/run-ci-steps.sh` (all ten steps) exit 0 at `c2515c6`;
+coverage 95.6% of lines.  kg: `make -j8 check` exits 0 with **59/59 native
+and 588 PTY (583 pass, 5 skip)** -- the same totals 23.1 recorded -- plus
+`complexity-check`, `pmccabe-check` and `format-check`.  `kg -V` is
+unchanged (`+lisp -tree-sitter +lsp +dap`), and the `WITH_LISP=0` build
+compiles and passes `test_cmd`/`test_perf`.
+
+### What 23.3 inherits
+
+The pin has moved and both trees are green, which is 23.3's items 1, 2 and 4.
+What is left is its item 3 as it applies to the phase as a whole: the arena
+margins at a deliberately small arena beside the default one, in the shape
+the master plan's one-third conditions are read in.  The ADR's own follow-up
+-- "Phase 23 should add a string-object counter and retire the bound in
+favour of a number" -- is NOT done and is not this section's to claim: fe
+counts string cells and bytes, not string objects, so the payload-pool
+estimate in the ADR is still a bound.

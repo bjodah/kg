@@ -110,10 +110,29 @@ struct kg_lisp_arena_stats {
 	size_t allocation_failures;
 	/* The arena's own size in bytes -- the compiled default, or what
 	 * $KG_LISP_ARENA_BYTES asked for -- so a report of slots always says
-	 * which arena produced them.  Last, and rendered last everywhere
-	 * this struct is rendered, because the text in front of it is what
-	 * PTY cases and utils/check_lisp_gc_stress.py already read. */
+	 * which arena produced them.
+	 *
+	 * This and everything after it were appended rather than inserted,
+	 * and are rendered in this order everywhere this struct is
+	 * rendered, because the text in front of a new field is what PTY
+	 * cases, test/test_cmd.c and utils/check_lisp_gc_stress.py already
+	 * read.  A field added later goes at the end too. */
 	size_t arena_bytes;
+	/* Fe's payload region (FE_API_VERSION 13): the bytes carved for it,
+	 * the bytes live in it, the high-water mark of those, the
+	 * compactions that have run, and the requests it could not meet.
+	 * ALL FIVE ARE ZERO in kg, deliberately and until Phase 25 of
+	 * doc/plans/2026-08-18-elisp-data-model.md: kg opens its context
+	 * with no region at all (src/lisp_core.c's lisp_arena_options), so
+	 * a nonzero here means either that decision changed or that
+	 * something started allocating payloads -- which is what
+	 * .ci/prelude-startup-census.json's ceilings of zero exist to
+	 * catch. */
+	size_t payload_capacity_bytes;
+	size_t payload_live_bytes;
+	size_t payload_peak_bytes;
+	size_t payload_compaction_count;
+	size_t payload_allocation_failures;
 };
 
 /* Snapshots Fe's read-only arena/evaluator counters through

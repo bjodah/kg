@@ -1,17 +1,27 @@
 {
- "schema": "kg-prelude-startup-census/1",
+ "schema": "kg-prelude-startup-census/2",
  "regenerate_with": "make prelude-census-baseline",
- "note": "What the embedded Lisp prelude (lisp/prelude.el) costs at startup, in four numbers: post-prelude peak live arena slots, still-reachable slots after a forced collection, embedded byte count, and top-level definition count. No number may rise without a rationale and measured proof in the commit message; regenerating is how a fall is banked.",
+ "note": "What the embedded Lisp prelude (lisp/prelude.el) costs at startup, in four numbers: post-prelude peak live arena slots, still-reachable slots after a forced collection, embedded byte count, and top-level definition count -- plus Fe's payload region, whose five numbers are zero and are held to zero, since kg carves no region until Phase 25 gives it an owner. No number may rise without a rationale and measured proof in the commit message; regenerating is how a fall is banked.",
  "measured_with": {
   "peak_live_objects": "test/kgbatch -g /dev/null, peak-live=",
   "reachable_live_objects": "test/prelude_gc_probe, the \"reachable-live (total - free)\" line, read right after kg_lisp_init() -- which now runs the one forced collection this needs itself",
   "embedded_bytes": "lisp/prelude.el, byte size on disk",
-  "definition_count": "lisp/prelude.el, count of top-level (defalias 'NAME (KIND ...)) forms"
+  "definition_count": "lisp/prelude.el, count of top-level (defalias 'NAME (KIND ...)) forms",
+  "payload_capacity_bytes": "test/kgbatch -g /dev/null, payload-capacity=",
+  "payload_live_bytes": "test/kgbatch -g /dev/null, payload-live=",
+  "payload_peak_bytes": "test/kgbatch -g /dev/null, payload-peak=",
+  "payload_compactions": "test/kgbatch -g /dev/null, payload-compactions=",
+  "payload_allocation_failures": "test/kgbatch -g /dev/null, payload-failures="
  },
  "ceiling": {
   "peak_live_objects": 10993,
   "reachable_live_objects": 10016,
   "embedded_bytes": 71720,
-  "definition_count": 122
+  "definition_count": 122,
+  "payload_capacity_bytes": 0,
+  "payload_live_bytes": 0,
+  "payload_peak_bytes": 0,
+  "payload_compactions": 0,
+  "payload_allocation_failures": 0
  }
 }

@@ -9,7 +9,7 @@ superproject's tree stores the SHA the working tree is checked out at, and
 written into prose only goes stale, as it did before this document was
 rewritten.
 
-The supported embedding interface is `FE_API_VERSION 12`; `src/lisp_core.c`
+The supported embedding interface is `FE_API_VERSION 13`; `src/lisp_core.c`
 asserts it at compile time. Fe's *language* — its evaluated behaviour,
 independent of the C embedding contract — is versioned separately as
 `FE_LANGUAGE_VERSION 15`, which `src/lisp_core.c` also asserts at compile
@@ -419,11 +419,43 @@ rises by the same fourteen in both of its live figures
 **10016**), with `embedded_bytes` and `definition_count` unmoved, and is
 re-baselined in that commit.
 
+The pin then moved for section 23.2, the payload region's host surface (fe
+`c2515c6`). **`FE_API_VERSION` moves 12 → 13** — the one bump this phase
+gets, and the commit that earns it is the one that puts anything in `fe.h` at
+all — with `FeVersion` `"18.0"` → **`"19.0"`** and `FE_LANGUAGE_VERSION` at
+**15**. The precedent for moving the release string on an API-only change is
+Fe 17.0, `FeCollectGarbage`'s own bump; the language version does not move
+because no fe type owns a payload, so nothing a Lisp program evaluates can
+observe that a region exists at all. `src/lisp_core.c`'s two `static_asserts`
+move with it, which is the tripwire working as designed.
+
+What lands is `FeOpenContextWithOptions(ptr, size, options)` with the
+`FeOpenOptions` record it takes (one field today, `payload_percent`,
+zero-initialized to fe's own default), and five payload fields on
+`FeArenaStats` — capacity, live bytes, high-water bytes, compactions and
+allocation failures — appended after the existing ones, none of which changes
+meaning or position. `FeOpenContext` is unchanged in behaviour, byte for
+byte, and is now that call with `FePayloadPercentNone`. An out-of-range
+percentage is REFUSED with a null context rather than clamped.
+
+**kg passes `FePayloadPercentNone` explicitly** (`src/lisp_core.c`'s
+`lisp_arena_options`), not the record's default of 25%: nothing kg runs can
+own a payload until Phase 25, so a carve would cost a quarter of the cells
+(42335 instead of 56145 at 1 MiB) for storage nothing can allocate from. The
+arena partition is therefore **unmoved at this pin** — 56145 slots / 1086
+frames at 1 MiB, `FeMinimumArenaSize()` still 66544 bytes, the prelude census
+still 10993 / 10016 — and no PTY case, oracle snapshot or arena figure
+changes. What kg gains is the reporting: the five fields are appended, last,
+to `M-x lisp-arena-stats`, `test/kgbatch -g` and `test/prelude_gc_probe`, are
+mirrored into `KG_PERF_LISP_PAYLOAD_*`, and are held at **zero** by
+`.ci/prelude-startup-census.json` and by `test/test_perf.c` — a ceiling, so
+that payload use appearing before its phase is caught on the run it appears.
+
 The census row that constrains kg is unchanged and still stands: fe's printer
 holds a payload pointer across an `FeWriteFn`, and `src/lisp_io.c`'s callback
-must keep growing a host buffer rather than allocating an fe object. Phase
-23.1 touched no printer path, so A6-A10's re-derive-per-use property is
-exactly as the sweep found it.
+must keep growing a host buffer rather than allocating an fe object. Phases
+23.1 and 23.2 touched no printer path, so A6-A10's re-derive-per-use property
+is exactly as the sweep found it.
 
 Fe is MIT licensed. Copyright belongs to rxi and Chris Palmer; the complete
 license text is in `fe/LICENSE`.

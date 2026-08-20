@@ -215,8 +215,15 @@ STRESS_TIMEOUT_RATIO = 1000
 STRESS_TIMEOUT_FLOOR = 120
 STRESS_TIMEOUT_CAP = 3600
 
+# Extended additively as kgbatch -g grows fields: every group here keeps its
+# position, and a new one is appended, because the tuple below is read by
+# index. The payload group is Phase 23.2's five fields, which are zero in kg
+# until Phase 25 gives the region an owner -- captured rather than skipped, so
+# a stress run that started allocating payloads would be readable here.
 STATS = re.compile(
-	r"^arena: collections=(\d+) peak-live=(\d+) failures=(\d+) bytes=(\d+)$")
+	r"^arena: collections=(\d+) peak-live=(\d+) failures=(\d+) bytes=(\d+)"
+	r" payload-capacity=(\d+) payload-live=(\d+) payload-peak=(\d+)"
+	r" payload-compactions=(\d+) payload-failures=(\d+)$")
 
 
 def run(binary: pathlib.Path, script: pathlib.Path, budget: float, why: str):

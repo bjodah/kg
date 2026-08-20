@@ -56,7 +56,7 @@ void copy_result(char *result, size_t result_size, const char *text)
 #define lisp_free_arena free
 #endif
 
-static_assert(FE_API_VERSION == 12);
+static_assert(FE_API_VERSION == 13);
 static_assert(FE_LANGUAGE_VERSION == 15);
 
 #ifndef KG_LISP_ARENA_SIZE
@@ -91,6 +91,20 @@ static const char lisp_arena_env[] = "KG_LISP_ARENA_BYTES";
  * arena opened at exactly this size, so the constant and the measurement
  * cannot drift apart in silence. */
 static constexpr size_t lisp_arena_min_size = 640U * 1024U;
+/* How the arena is divided, which fe made the host's decision at
+ * FE_API_VERSION 13.  kg asks for NO payload region -- an explicit
+ * refusal, not the record's default, which is fe's 25% split -- because
+ * nothing kg runs can own a payload until Phase 25 of
+ * doc/plans/2026-08-18-elisp-data-model.md migrates strings into one.
+ * Carving today would take a quarter of the cells (42335 instead of
+ * 56145 at 1 MiB) for storage nothing can allocate from, and every arena
+ * number kg holds itself to -- the 3x floor above, the prelude census,
+ * the PTY cases that name a slot count -- is a cell count.  Phase 25 is
+ * where this becomes FeDefaultPayloadPercent, and where those numbers
+ * move with it. */
+static const FeOpenOptions lisp_arena_options
+    = { .payload_percent = FePayloadPercentNone };
+
 static constexpr size_t lisp_step_limit = KG_LISP_STEP_LIMIT;
 static constexpr size_t lisp_poll_interval = 256;
 
@@ -499,7 +513,8 @@ int kg_lisp_init(void)
 		set_error("cannot allocate Lisp arena: %s", strerror(errno));
 		return 1;
 	}
-	context = FeOpenContext(arena, arena_size);
+	context
+	    = FeOpenContextWithOptions(arena, arena_size, &lisp_arena_options);
 	if (!context) {
 		lisp_free_arena(arena);
 		set_error("cannot open Fe context");
@@ -1698,6 +1713,11 @@ int kg_lisp_arena_stats(struct kg_lisp_arena_stats *out)
 	out->peak_cleanup_stack_depth = stats.peak_cleanup_stack_depth;
 	out->peak_native_reentry = stats.peak_native_reentry;
 	out->allocation_failures = stats.allocation_failures;
+	out->payload_capacity_bytes = stats.payload_capacity_bytes;
+	out->payload_live_bytes = stats.payload_live_bytes;
+	out->payload_peak_bytes = stats.payload_peak_bytes;
+	out->payload_compaction_count = stats.payload_compaction_count;
+	out->payload_allocation_failures = stats.payload_allocation_failures;
 	return 0;
 }
 
@@ -1720,6 +1740,14 @@ void kg_lisp_perf_snapshot(void)
 	KG_PERF_SET(
 	    KG_PERF_LISP_PEAK_NATIVE_REENTRY, stats.peak_native_reentry);
 	KG_PERF_SET(KG_PERF_LISP_ALLOC_FAILURES, stats.allocation_failures);
+	KG_PERF_SET(
+	    KG_PERF_LISP_PAYLOAD_CAPACITY, stats.payload_capacity_bytes);
+	KG_PERF_SET(KG_PERF_LISP_PAYLOAD_LIVE, stats.payload_live_bytes);
+	KG_PERF_SET(KG_PERF_LISP_PAYLOAD_PEAK, stats.payload_peak_bytes);
+	KG_PERF_SET(
+	    KG_PERF_LISP_PAYLOAD_COMPACTIONS, stats.payload_compaction_count);
+	KG_PERF_SET(
+	    KG_PERF_LISP_PAYLOAD_FAILURES, stats.payload_allocation_failures);
 }
 
 /* See src/lisp.h's doc comment. The real implementation exists only when

@@ -2716,8 +2716,12 @@ and
 Report the state of the fixed Lisp arena in the status area: total object
 slots, free slots, the high-water mark of live objects, the number of
 collections, the peak GC root-stack depth, the peak evaluator frame depth
-against the arena's frame capacity, and the number of allocations that
-failed.
+against the arena's frame capacity, the number of allocations that
+failed, the arena's own size in bytes, and last the payload region \(em
+bytes live of bytes carved, their high-water mark, compactions, and
+payload requests that failed.
+The payload region is a part of the arena kg does not currently ask for,
+so every one of those five numbers is zero.
 It allocates nothing and changes nothing, so asking cannot alter the
 answer, and it is the way to see whether a session that reported
 .Ql out of memory

@@ -605,17 +605,33 @@ static void test_lisp_arena_stats_renders(void)
 	 * $KG_LISP_ARENA_BYTES makes that a run-time answer. */
 	snprintf(expected, sizeof(expected),
 	    "Arena: %zu slots, %zu free, peak %zu; GC %zu; roots %zu; "
-	    "frames %zu/%zu; fails %zu; %zu bytes",
+	    "frames %zu/%zu; fails %zu; %zu bytes; "
+	    "payload %zu/%zu bytes, peak %zu; compactions %zu; "
+	    "payload fails %zu",
 	    stats.total_slots, stats.free_slots, stats.peak_live_objects,
 	    stats.collection_count, stats.peak_gc_stack_depth,
 	    stats.peak_frame_depth, stats.frame_capacity,
-	    stats.allocation_failures, stats.arena_bytes);
+	    stats.allocation_failures, stats.arena_bytes,
+	    stats.payload_live_bytes, stats.payload_capacity_bytes,
+	    stats.payload_peak_bytes, stats.payload_compaction_count,
+	    stats.payload_allocation_failures);
 	CHECKF(strcmp(editor.statusmsg, expected) == 0,
 	    "rendered %s, expected %s", editor.statusmsg, expected);
 	CHECK(stats.frame_capacity > 0);
 	/* A session that has only booted has never failed an allocation. */
 	CHECKF(strstr(editor.statusmsg, "; fails 0") != NULL, "rendered %s",
 	    editor.statusmsg);
+	/* And has no payload region at all: kg opens its arena with none
+	 * until Phase 25 (src/lisp_core.c's lisp_arena_options), so the
+	 * rendered text is the literal zeros, not merely a matching pair of
+	 * numbers.  The whole-line comparison above already pins the
+	 * rendering; this pins the DECISION, in the one place a reader of
+	 * the command's output would look for it. */
+	CHECKF(strstr(editor.statusmsg,
+		   "; payload 0/0 bytes, peak 0; "
+		   "compactions 0; payload fails 0")
+		!= NULL,
+	    "rendered %s", editor.statusmsg);
 	kg_lisp_shutdown();
 }
 

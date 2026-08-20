@@ -6982,10 +6982,11 @@ static void test_phase26_replace_match(void)
 	    "aXc"));
 	/* LITERAL nil expands \\N, \\& and \\\\ -- the same three
 	 * `replace-regexp-in-string' has, through the same helper. */
-	CHECK(eval_eq("(list (progn (string-match \"\\\\(a\\\\)\\\\(b\\\\)\" \"ab\")"
-		      "        (replace-match \"\\\\2\\\\1\" t nil \"ab\"))"
-		      " (progn (string-match \"b+\" \"abbbc\")"
-		      "  (replace-match \"[\\\\&]\" t nil \"abbbc\")))",
+	CHECK(eval_eq(
+	    "(list (progn (string-match \"\\\\(a\\\\)\\\\(b\\\\)\" \"ab\")"
+	    "        (replace-match \"\\\\2\\\\1\" t nil \"ab\"))"
+	    " (progn (string-match \"b+\" \"abbbc\")"
+	    "  (replace-match \"[\\\\&]\" t nil \"abbbc\")))",
 	    "(\"ba\" \"a[bbb]c\")"));
 	/* LITERAL t inserts a replacement that WOULD have been an escape
 	 * verbatim, which is the half s.el uses. */
@@ -6995,11 +6996,12 @@ static void test_phase26_replace_match(void)
 	/* SUBEXP replaces one group's span -- and after a STRING
 	 * replacement THE MATCH DATA IS NOT ADJUSTED: 1..4 still stands
 	 * over a string of another length. */
-	CHECK(eval_eq("(list (progn (string-match \"\\\\(a\\\\)\\\\(b\\\\)\" \"ab\")"
-		      "        (replace-match \"X\" t t \"ab\" 2))"
-		      " (progn (string-match \"b+\" \"abbbc\")"
-		      "  (list (replace-match \"XY\" t t \"abbbc\")"
-		      "   (match-beginning 0) (match-end 0))))",
+	CHECK(eval_eq(
+	    "(list (progn (string-match \"\\\\(a\\\\)\\\\(b\\\\)\" \"ab\")"
+	    "        (replace-match \"X\" t t \"ab\" 2))"
+	    " (progn (string-match \"b+\" \"abbbc\")"
+	    "  (list (replace-match \"XY\" t t \"abbbc\")"
+	    "   (match-beginning 0) (match-end 0))))",
 	    "(\"aX\" (\"aXYc\" 1 4))"));
 	/* The three error shapes, as VALUES.  The first two share a
 	 * condition AND a message and are told apart only by the SUBEXP as

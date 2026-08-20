@@ -409,8 +409,8 @@ static void test_subject_anchors(void)
 	    kg_regex_match_forward(&rx, "abcd", 1, &match) == KG_REGEX_NOMATCH);
 
 	CHECK(kg_regex_compile(&rx, "abc\\'", 0) == KG_REGEX_OK);
-	CHECK(kg_regex_match_forward(&rx, "abcd", 0, &match)
-	    == KG_REGEX_NOMATCH);
+	CHECK(
+	    kg_regex_match_forward(&rx, "abcd", 0, &match) == KG_REGEX_NOMATCH);
 	CHECK(kg_regex_match_forward(&rx, "xabc", 0, &match) == KG_REGEX_OK);
 	CHECK(match.spans[0].start == 1);
 	CHECK(match.spans[0].end == 4);
@@ -432,8 +432,8 @@ static void test_subject_anchors(void)
 	 * punctuation it is spelled with. */
 	CHECK(kg_regex_compile(&rx, "a\\`b", 0) == KG_REGEX_OK);
 	CHECK(kg_regex_match_forward(&rx, "ab", 0, &match) == KG_REGEX_NOMATCH);
-	CHECK(kg_regex_match_forward(&rx, "a`b", 0, &match)
-	    == KG_REGEX_NOMATCH);
+	CHECK(
+	    kg_regex_match_forward(&rx, "a`b", 0, &match) == KG_REGEX_NOMATCH);
 }
 
 /* "?" is greedy, as it is in Emacs. */

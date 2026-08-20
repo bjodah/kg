@@ -1,0 +1,15 @@
+# M-q wraps at `fill-column', and its default is 70 -- Emacs' own,
+# measured on 31.0.91.  It was a hard-coded 72 in src/word.c until the
+# frontier demand phase made `fill-column' a prelude `defvar' that both
+# fills read; this text is chosen so the two columns disagree, since a
+# paragraph that wraps the same either way would prove nothing.  Words
+# are two bytes each, so the 23rd word ends at column 68 and the 24th
+# would end at 71: it fits under 72 and does not fit under 70.
+name: reflow-fill-column-default-70
+filename: reflow-column.txt
+requires_feature: lisp
+dimensions: [24, 100]
+initial: "aa ab ac ad ae af ag ah ai aj ak al am an ao ap aq ar as at au av aw ax ay az\n"
+keys:
+  - M-q
+expected_saved: "aa ab ac ad ae af ag ah ai aj ak al am an ao ap aq ar as at au av aw\nax ay az\n"

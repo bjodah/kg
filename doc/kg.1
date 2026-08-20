@@ -254,6 +254,13 @@ as they are typed past it, via
 and one
 .Li replace-region
 call per break.
+.Li fill-column
+is the prelude's own variable, 70 by default, shared with
+.Li fill-region
+and
+.Ic M-q ;
+a package does not have to be loaded for the editor to have a fill
+column.
 Its hook entry point is a
 .Li condition-case
 that removes the hook and reports once, so a bad
@@ -2549,7 +2556,10 @@ Bound to
 .Ic M-x .
 A numeric argument is passed to the command it runs.
 .It fill-paragraph
-Reflow the paragraph around point to the fill column.
+Reflow the paragraph around point to the fill column, which is the Lisp
+variable
+.Li fill-column
+(70 by default, and 72 in a build without Lisp).
 Bound to
 .Ic M-q .
 .It find-file
@@ -4982,7 +4992,9 @@ These two bindings are built in and only active in commit buffers; they
 take priority over any user Lisp binding for the same keys.
 .Ic M-q
 leaves the subject line and comment paragraphs untouched; body
-paragraphs still reflow to column 72 as usual.
+paragraphs still reflow to
+.Li fill-column
+as usual.
 .Pp
 .Ic C-x #
 saves the current buffer and exits with status 0 in

@@ -1,6 +1,13 @@
 #ifndef KG_WORD_H
 #define KG_WORD_H
 
+/* The column both of kg's fills wrap at: the Lisp variable
+ * `fill-column' as the current buffer sees it, or 72 for a build with no
+ * evaluator to ask.  A number of BYTES of `row->chars` compared against
+ * a display column, which is the same number for the ASCII a fill column
+ * is a statement about. */
+[[nodiscard]] int editor_fill_column(void);
+
 /* Word-level editing.
  *
  * One byte of a word-case transformation: `mode` is 'u' (upcase), 'l'

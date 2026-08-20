@@ -1150,10 +1150,10 @@ recorded and tested:
   plain `setq` never creates a binding. In Emacs `fill-column` is one of
   these, so where Emacs lets `setq` do it, kg needs `setq-local`.
 
-`lisp/auto-fill.el` is the shipped consumer: `fill-column` is its
-default, `(setq-local fill-column N)` gives one buffer a margin of its
-own, and auto-fill reads the name inside the buffer the change happened
-in.
+`fill-column` is the prelude's own `defvar` (70, Emacs' default), read
+by `fill-region`, by M-q and by `lisp/auto-fill.el`;
+`(setq-local fill-column N)` gives one buffer a margin of its own, and
+each reader asks the name inside the buffer it is filling.
 
 `defun` recognises only an `(interactive ...)` form immediately after its
 optional docstring. That declaration is removed from the body and registers

@@ -1706,6 +1706,48 @@ int kg_lisp_variable_non_nil(const char *name)
 	return non_nil;
 }
 
+/* The same read as an INTEGER, and buffer-local aware where the boolean
+ * one above is not: `fill-column' is the consumer and its whole point is
+ * that one buffer may wrap at a different column from the next, so this
+ * asks lisp_locals_buffer_value() for the binding in force in bcur()
+ * rather than reading the value cell blind.  That also makes a `let' over
+ * the name visible, since a `let' binds whichever cell the swap has put
+ * there -- which is what src/word.c's M-q wants when an init file or a
+ * hook has moved the column. */
+int kg_lisp_variable_integer(const char *name, int fallback)
+{
+	FeObject *symbol, *value;
+	/* `fallback' is a parameter and so may be clobbered by the longjmp;
+	 * the answer is carried in this volatile instead, which also makes
+	 * the error path's answer the same object as the success path's. */
+	volatile int result = fallback;
+
+	if (name == nullptr || !state.initialized || state.frame_active) {
+		return result;
+	}
+	state.frame.gc_checkpoint = FeSaveGC(state.context);
+	state.frame_active = true;
+	if (setjmp(state.frame.error_jump) != 0) {
+		FeRestoreGC(state.context, state.frame.gc_checkpoint);
+		state.frame_active = false;
+		lisp_settle_completion();
+		return result;
+	}
+	symbol = FeMakeSymbol(state.context, name);
+	value = lisp_locals_buffer_value(
+	    state.context, symbol, buf_handle_of(bcur()));
+	if (value != nullptr && FeGetType(value) == FeTInteger) {
+		int64_t n = FeToInteger(state.context, value);
+
+		if (n >= INT_MIN && n <= INT_MAX) {
+			result = (int)n;
+		}
+	}
+	FeRestoreGC(state.context, state.frame.gc_checkpoint);
+	state.frame_active = false;
+	return result;
+}
+
 /* Fe has no host callback on assignment, so C cannot be notified at the
  * exact setq.  Poll at the two seams that need a current answer: before a
  * repaint, and inside a geometry-consuming native.  One symbol lookup and
@@ -1915,6 +1957,12 @@ int kg_lisp_variable_non_nil(const char *name)
 {
 	(void)name;
 	return 0;
+}
+
+int kg_lisp_variable_integer(const char *name, int fallback)
+{
+	(void)name;
+	return fallback;
 }
 
 void kg_lisp_sync_display_options(void) { }

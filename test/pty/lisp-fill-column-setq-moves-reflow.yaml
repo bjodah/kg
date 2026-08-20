@@ -1,0 +1,16 @@
+# The read-through, from the user's end: an init file that sets
+# `fill-column' moves M-q's column.  Before the frontier demand phase
+# there was no route at all from Lisp to the C fill -- src/word.c's
+# column was a #define -- so this is the case that would have failed
+# then and the one that fails again if the read is ever dropped.
+name: lisp-fill-column-setq-moves-reflow
+filename: reflow-init-column.txt
+requires_feature: lisp
+dimensions: [24, 100]
+config_files:
+  .config/kg/init.el: |
+    (setq fill-column 20)
+initial: "aa ab ac ad ae af ag ah ai aj ak al am an ao ap aq ar as at au av aw ax ay az\n"
+keys:
+  - M-q
+expected_saved: "aa ab ac ad ae af ag\nah ai aj ak al am an\nao ap aq ar as at au\nav aw ax ay az\n"

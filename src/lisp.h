@@ -55,6 +55,17 @@ void kg_lisp_set_interrupt_check(int (*check)(void));
  * reads. */
 [[nodiscard]] int kg_lisp_variable_non_nil(const char *name);
 
+/* The integer the Lisp variable `name` holds in the CURRENT buffer, or
+ * `fallback` when there is no usable answer: an unbound name, a value
+ * that is not an integer, an interpreter that is not initialized or is
+ * mid-evaluation, and every WITH_LISP=0 build.  The numeric channel
+ * beside kg_lisp_variable_non_nil()'s boolean one, and buffer-local
+ * aware where that one is not -- `fill-column' is the consumer, and a
+ * per-buffer margin is the whole reason src/lisp_locals.c exists.  A
+ * raise from a pathological binding answers `fallback' rather than
+ * unwinding the caller. */
+[[nodiscard]] int kg_lisp_variable_integer(const char *name, int fallback);
+
 /* Bring C's buffer-owned display options up to date with their Lisp
  * variables.  Safe both inside an active Lisp frame (for a native that
  * immediately needs geometry) and at repaint time.  WITH_LISP=0 is a

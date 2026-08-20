@@ -80,7 +80,7 @@ standard VT100 escape sequences.
   the cursor, and C-q quotes the next byte in.  A prompt's word is
   delimited by whitespace rather than by Emacs' word syntax
 - Multi-level undo (C-_)
-- Paragraph reflow to 72 columns (M-q)
+- Paragraph reflow to `fill-column` columns (M-q), 70 by default
 - Keyboard macros (C-x ( / C-x ) / C-x e; C-u N C-x e repeats N times)
 - M-x, C-x C-f, and C-x b all share an ido-style picker: substring
   matching, already-open files pushed to the back of the file picker;

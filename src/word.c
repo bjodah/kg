@@ -6,12 +6,20 @@
 
 #include "def.h"
 #include "edit.h"
+#include "lisp.h"
 #include "marker.h"
 #include "syntax.h"
 #include "word.h"
 #include "yank.h"
 
-#define FILL_COLUMN 72
+/* The fill column a build with no evaluator in it wraps at.  It is not
+ * the editor's default any more: `fill-column' is a prelude `defvar'
+ * (70, Emacs' own) that both fills read, and this is what
+ * kg_lisp_variable_integer() answers when there is nothing to ask --
+ * WITH_LISP=0, an interpreter that has not started, or a binding that is
+ * not an integer.  Deliberately still 72, so a WITH_LISP=0 build
+ * reproduces the pre-Lisp editor exactly. */
+#define FILL_COLUMN_FALLBACK 72
 
 static int is_word_char(int c) { return isalnum((unsigned char)c) || c == '_'; }
 
@@ -1332,7 +1340,7 @@ static int reflow_indent_len(const erow *row)
 }
 
 /* Git commit buffers: never reflow the subject line or the comment
- * paragraphs; the body reflows at FILL_COLUMN (72) as usual.  Says why in
+ * paragraphs; the body reflows at `fill-column' as usual.  Says why in
  * the echo area when it refuses. */
 static bool reflow_refused_by_git_commit(int para_start, int para_end)
 {
@@ -1436,7 +1444,16 @@ static void reflow_wrap(struct reflow_lines *l, const char *words, int fill_col)
 	}
 }
 
-/* Reflow the current paragraph to FILL_COLUMN (M-q).
+/* The column both fills wrap at: `fill-column', which the prelude
+ * declares (70) and an init file, a hook or a `setq-local' may move.  The
+ * read is buffer-local aware and cannot raise; a build with no evaluator,
+ * or a binding that is not an integer, gets the pre-Lisp 72. */
+int editor_fill_column(void)
+{
+	return kg_lisp_variable_integer("fill-column", FILL_COLUMN_FALLBACK);
+}
+
+/* Reflow the current paragraph to `fill-column' (M-q).
  * Paragraph boundaries are blank lines.  Indentation from the first
  * line is detected and re-applied to every reflowed line.
  * The entire operation is recorded as a single undo record. */
@@ -1460,7 +1477,10 @@ void editor_reflow_paragraph(void)
 		return;
 	}
 
-	fill_col = (FILL_COLUMN < wcur()->w - 1) ? FILL_COLUMN : wcur()->w - 1;
+	fill_col = editor_fill_column();
+	if (fill_col > wcur()->w - 1) {
+		fill_col = wcur()->w - 1;
+	}
 	indent_len = reflow_indent_len(&bcur()->row[para_start]);
 
 	words = reflow_word_stream(para_start, para_end);

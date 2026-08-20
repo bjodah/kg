@@ -7,6 +7,7 @@
 #include "../src/keymap.h"
 #include "../src/lisp.h"
 #include "../src/process_table.h"
+#include "../src/word.h"
 #include "test.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -1248,6 +1249,58 @@ static void test_variable_non_nil(void)
 
 	kg_lisp_shutdown();
 	CHECK(kg_lisp_variable_non_nil("inhibit-startup-screen") == 0);
+}
+
+/* `fill-column' is a PRELUDE variable now, and the C fill reads it.  It
+ * was `lisp/auto-fill.el''s until the frontier demand phase: a package's
+ * `defvar' that no C ever consulted, while src/word.c wrapped M-q at a
+ * hard-coded 72.  Both halves are asserted here -- the Lisp answer, and
+ * what editor_fill_column() makes of it -- because the whole point of
+ * the move is that they are the same number. */
+static void test_fill_column_variable(void)
+{
+	setup_editor();
+	/* No interpreter yet: the fill still has a column, and it is the
+	 * pre-Lisp 72 that a WITH_LISP=0 build wraps at. */
+	CHECK(editor_fill_column() == 72);
+	CHECK(kg_lisp_init() == 0);
+
+	/* Emacs' own default, and special -- so s-word-wrap's
+	 * `(let ((fill-column len)) ...)' binds dynamically rather than
+	 * lexically, which is the whole reason it is a `defvar'. */
+	CHECK(eval_eq("fill-column", "70"));
+	CHECK(eval_eq("(special-variable-p 'fill-column)", "t"));
+	CHECK(eval_eq("(let ((fill-column 5)) fill-column)", "5"));
+	CHECK(editor_fill_column() == 70);
+
+	/* An init file moves it, and M-q moves with it. */
+	CHECK(eval_ok("(setq fill-column 40)"));
+	CHECK(editor_fill_column() == 40);
+
+	/* And it is buffer-local aware: a `setq-local' in this buffer is
+	 * what the fill in this buffer reads. */
+	CHECK(eval_ok("(setq-local fill-column 25)"));
+	CHECK(editor_fill_column() == 25);
+	CHECK(eval_ok("(kill-local-variable 'fill-column)"));
+	CHECK(editor_fill_column() == 40);
+
+	/* A binding that is not an integer is not a column: the read is
+	 * contained and answers the fallback rather than raising into an
+	 * editor command.  (`fill-region' does raise -- it is Lisp calling
+	 * Lisp, where Emacs raises too.) */
+	CHECK(eval_ok("(setq fill-column \"wide\")"));
+	CHECK(editor_fill_column() == 72);
+
+	/* A `defvar' over a name a user has already set does NOT clobber
+	 * it, which is what lets lisp/auto-fill.el (and any package) keep
+	 * declaring a variable the prelude now owns. */
+	CHECK(eval_eq("(progn (setq fill-column 33)"
+		      " (defvar fill-column 70 \"doc\") fill-column)",
+	    "33"));
+
+	kg_lisp_shutdown();
+	CHECK(editor_fill_column() == 72);
+	teardown_editor();
 }
 
 static void test_define_and_run_command(void)
@@ -8849,6 +8902,7 @@ int main(void)
 	RUN(test_eval_and_recovery);
 	RUN(test_sized_input);
 	RUN(test_variable_non_nil);
+	RUN(test_fill_column_variable);
 	RUN(test_load_file);
 	RUN(test_phase12_one_arg_defvar_file_scope);
 	RUN(test_load_file_error);

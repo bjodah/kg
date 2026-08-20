@@ -1,0 +1,14 @@
+# The other half of reflow-fill-column-default-70: a build with no
+# evaluator has no `fill-column' to read, and M-q wraps at the pre-Lisp
+# 72 -- the fallback in src/word.c, which is what keeps `make
+# WITH_LISP=0' the editor it was before the Lisp layer existed.  Same
+# paragraph, one word more on the first line.  Runs in .ci/ci-08 and
+# nowhere else.
+name: reflow-fill-column-no-lisp-72
+filename: reflow-column-no-lisp.txt
+requires_feature: -lisp
+dimensions: [24, 100]
+initial: "aa ab ac ad ae af ag ah ai aj ak al am an ao ap aq ar as at au av aw ax ay az\n"
+keys:
+  - M-q
+expected_saved: "aa ab ac ad ae af ag ah ai aj ak al am an ao ap aq ar as at au av aw ax\nay az\n"

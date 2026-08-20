@@ -125,9 +125,10 @@ already mid-load is a "cyclic require" error naming it, independent of
 using all three: `(require 'auto-fill)` then `(auto-fill-mode)` breaks lines
 at `fill-column` as they are typed past it, using `after-change-functions`
 and one `replace-region` call per break (one undo step). `fill-column` is
-its default and `(setq-local fill-column N)` gives one buffer a margin of
-its own, which is what makes two buffers wrap at two different columns
-from the one variable. It also shows how a
+the prelude's own variable (70), shared with `fill-region` and M-q, and
+`(setq-local fill-column N)` gives one buffer a margin of its own, which
+is what makes two buffers wrap at two different columns from the one
+variable. It also shows how a
 package handles its own errors: the hook entry point is a `condition-case`
 that stores the condition in `auto-fill--error`, removes itself from the hook
 and reports once, so a `fill-column` set to something that is not a number

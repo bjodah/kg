@@ -17,12 +17,12 @@ that a name which *stops* being covered is a diff and not a silence.
 
 | File | References | Definitions |
 | --- | ---: | ---: |
-| `lisp/auto-fill.el` | 48 | 5 |
+| `lisp/auto-fill.el` | 47 | 5 |
 | `lisp/grep-buffer.el` | 102 | 10 |
 | `lisp/help-fns.el` | 160 | 10 |
 | `lisp/pipeline-text.el` | 57 | 6 |
 | `lisp/pipeline.el` | 51 | 13 |
-| `lisp/prelude.el` | 1745 | 139 |
+| `lisp/prelude.el` | 1746 | 139 |
 | `utils/forecast/target-init.el` | 75 | 7 |
 | `utils/forecast/forecast-snippet.el` | 112 | 13 |
 | `utils/forecast/forecast-wordcount.el` | 118 | 10 |

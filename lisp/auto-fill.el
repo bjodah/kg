@@ -14,13 +14,18 @@
 
 (provide 'auto-fill)
 
-(defvar fill-column 70
-  "Default column auto-fill-mode tries to keep lines at or under.
-Give one buffer a margin of its own with (setq-local fill-column N):
-auto-fill-mode reads this name inside the buffer the change happened in,
-so two buffers wrap at two different columns from the one variable.
-(setq-default fill-column N) moves the value every buffer without a
-binding of its own sees.")
+;; `fill-column' is NOT declared here.  It used to be, and that made it a
+;; variable only a session that had loaded this package could read: the
+;; frontier demand phase moved the `defvar' into the prelude, because
+;; kg's own fill (`fill-region', and M-q) reads it too and a name the
+;; editor consults cannot depend on a package having been required.  This
+;; package is one of its three readers now rather than its owner, and
+;; nothing here needs to change for that: the prelude has already bound
+;; it (to 70) by the time this file loads, and a `defvar' over an
+;; already-bound name would not have overwritten a user's `setq' anyway.
+;; Per-buffer margins still work the same way -- (setq-local fill-column
+;; N) inside a buffer, (setq fill-column N) for the value every buffer
+;; without a binding of its own sees.
 
 (defvar auto-fill--error nil
   "The error that turned auto-fill-mode off, or nil if it is healthy.")

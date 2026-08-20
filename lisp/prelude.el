@@ -957,6 +957,18 @@
   "Emacs' other name for `inhibit-startup-screen'; either one suppresses it.")
 (defvar tab-width 8
   "Distance between tab stops (for display of tab characters), in columns.")
+;; Here rather than in `lisp/auto-fill.el' because kg's OWN fill reads
+;; it, and a package the editor has not loaded cannot own the editor's
+;; fill column.  70 is Emacs' default, measured; src/word.c's fallback,
+;; for a build with no evaluator, is the 72 it hard-coded before this.
+;; SPECIAL is the load-bearing half: `s-word-wrap' is
+;; `(let ((fill-column len)) (fill-region ...))', and a `let' over a name
+;; no `defvar' has marked binds lexically, where no fill would see it.
+(defvar fill-column 70
+  "Column beyond which automatic line-wrapping should happen.
+`fill-region', M-q and `auto-fill-mode' all wrap here.  (setq-local
+fill-column N) gives one buffer a margin of its own: each fill reads the
+name inside the buffer it is filling.")
 
 ;; --- editor helpers ---
 (defalias 'string-empty-p (lambda (s) (string= s "")))

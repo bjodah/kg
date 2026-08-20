@@ -1,0 +1,6 @@
+{
+ "id": "phase26-count-matches-value-shape",
+ "setup": [],
+ "expr": "(let ((r (with-temp-buffer (insert \"banana\") (goto-char (point-min)) (count-matches \"an\" 1 (point-max))))) (list r (type-of r) (integerp r) (stringp r)))",
+ "note": "VALUE OR MESSAGE, asked as a value so the answer is comparable. `count-matches' takes an INTERACTIVE argument and messages `N matches' only when it is non-nil; called from Lisp it RETURNS the count and messages nothing, so Emacs answers (2 integer t nil). A kg implementation that reported through the echo area and returned nil would fail here rather than pass silently. kg answers `void-function'."
+}

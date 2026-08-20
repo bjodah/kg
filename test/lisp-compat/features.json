@@ -2569,6 +2569,126 @@
    "source_name": null
   },
   {
+   "id": "phase26-anchor-line-vs-subject",
+   "category": "sequences",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase26-anchor-caret-is-not-backtick"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_regex_seam",
+   "rationale": "Phase 26.0, and THE ROW PHASE 26.2 DOES NOT CLOSE. It is separate from phase26-anchor-spellings on purpose: the spellings are a vocabulary gap kg can close by aliasing what its engine already does, and this is the semantics gap underneath them, which aliasing cannot touch. In Emacs `^' matches at the start of the subject AND after every newline in it, and `$' before every newline, while `\\\\`' and `\\\\'' are the subject's two ends and nothing else; the case measures (2 nil 0 nil) over a two-line subject, which is the two spellings disagreeing. kg answers (nil nil nil nil), so it is right about the anchors it lacks and wrong about the ones it has -- its `^'/`$' anchor the whole subject, the engine divergence doc/lisp-api.md records and phase15-string-match-anchors-and-case pins on its own. After 26.2 this case still diverges on elements one and three, and that is the honest form of `kg's `^' already means what `\\\\`' means': it will mean it, correctly, under the new name and incorrectly under the old one, from the same code. source_name is null: `string-match' is claimed by native-string-match.",
+   "source_name": null
+  },
+  {
+   "id": "phase26-anchor-spellings",
+   "category": "sequences",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase26-anchor-s-trim-patterns",
+    "phase26-anchor-string-match-p",
+    "phase26-anchor-ends-coincide",
+    "phase26-anchor-empty-subject",
+    "phase26-anchor-whole-subject",
+    "phase26-anchor-literal-backtick-today",
+    "phase26-anchor-never-matches"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_regex_seam",
+   "rationale": "Phase 26.0 froze Emacs' answers for `\\\\`' and `\\\\'' through `string-match' and `string-match-p' before kg's engine knows either spelling. Two of the seven cases are the controls that make the other five attributable. phase26-anchor-ends-coincide shows that on a subject with no newline Emacs' `^'/`$' and `\\\\`'/`\\\\'' select the SAME offsets, which is what licenses 26.2 to implement the new spellings as the anchors kg's engine already has rather than as new semantics -- and phase26-anchor-line-vs-subject beside this row is where that licence stops. phase26-anchor-never-matches ALREADY AGREES ((nil nil) both sides) and carries `expect: agree' inside this divergent row, the native-type-of shape: an anchor written where it can never match must still match nothing after the spellings land. The finding this row exists to record is phase26-anchor-literal-backtick-today: kg does not REJECT either spelling, it drops the backslash and matches the punctuation, so `(string-match \"\\\\`abc\" \"x`abc\")' answers 1 here and nil in Emacs. A pattern containing either spelling can therefore match the WRONG THING today, silently, which is a sharper statement of the gap than `s-trim returns its argument'. source_name is null: `string-match' and `string-match-p' have their own rows.",
+   "source_name": null
+  },
+  {
+   "id": "phase26-count-matches",
+   "category": "sequences",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase26-count-matches-plain",
+    "phase26-count-matches-region",
+    "phase26-count-matches-value-shape",
+    "phase26-count-matches-empty-regexp",
+    "phase26-count-matches-clobbers-match-data",
+    "phase26-s-count-matches-route"
+   ],
+   "kg_test": "test/test_lisp.c:test_s_el_vendored_load",
+   "rationale": "Phase 26.0 froze `count-matches' before kg binds it -- one of the two things Phase 25's honest-frontier probe measured unmodified s.el still stopping at, the other being the anchor spellings. kg answers `void-function' to all six cases. What is frozen is more than the count: that a Lisp caller gets a VALUE and not a message (the INTERACTIVE argument is what makes it message, and s.el does not pass it), that point is where it was afterwards, that a zero-width match counts and the scan then advances one character, that reversed START and END are ORDERED rather than refused, and that the call CLOBBERS the match register on its last match -- which is why s.el wraps it in `save-match-data' and why a kg implementation is required to clobber it the same way rather than to preserve it. The sixth case calls `s-count-matches' itself and answers the missing name, the shape s-el-vendored-call-frontier established. source_name is null: kg has no `count-matches' to claim yet, and the citation is the vendored-package test that names the gap.",
+   "source_name": null
+  },
+  {
+   "id": "phase26-eql-float-corners",
+   "category": "values-and-equality",
+   "status": "supported",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "phase26-eql-float-corners",
+    "phase26-equal-float-corners"
+   ],
+   "kg_test": null,
+   "rationale": "Phase 26.0, and MEASURED RATHER THAN ASSUMED: the master plan lists `eql''s float corners among the things to freeze `if the corpus does not already carry them', and kg's corpus carried neither. Both cases AGREE at the entry pin, so they are recorded as agreements, not as gaps. They are here because they are the Lisp-visible edge of the hash and equality contracts 26.1 has to write down before Phase 27 builds tables on them: `eql' on floats is BIT equality, so 0.0 and -0.0 are `=' but not `eql' and two separately computed NaNs are `eql' but not `=', and any hash that claims to agree with `eql' has to reproduce both -- it may not fold -0.0 onto 0.0, and it may not read a NaN's payload bits. The second case runs the same two pairs through `equal' and `=' so the first case's answers are attributable to `eql' rather than to floats, and adds `(equal 1 1.0)' -- nil -- which is the integer-versus-double rule the same contract has to state. fe's own corpus has the signed-zero half (num-eql-signed-zero); the NaN half had no case in either corpus before this one. owner is fe-core and kg_test is null because `eql' and `equal' are fe primitives and no kg test asserts either float corner; 26.1's contract section is where the citation lands.",
+   "source_name": null
+  },
+  {
+   "id": "phase26-replace-match-case-conversion",
+   "category": "sequences",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase26-replace-match-case-upcase-initials"
+   ],
+   "kg_test": "test/test_lisp.c:test_s_el_vendored_load",
+   "rationale": "Phase 26.0 measured what FIXEDCASE nil ACTUALLY does, because two of the four elements are not what the docstring's `converted to a different case depending upon the capitalization of the text' suggests, and a plan that implemented from the prose would get them wrong. Emacs answers (\"Baz Qux bar\" \"BAZ QUX bar\" \"BAz bar\" \"XY\"): a capitalised match capitalises EVERY WORD of the replacement; the rule is `upcase-initials' and not `capitalize', so an interior capital in the replacement SURVIVES (`bAz' -> `BAz'); and a ONE-CHARACTER uppercase match counts as UPCASED, not capitalised, so a two-character replacement comes back fully upcased. It is a separate row from phase26-replace-match-string-form because it is the one part of `replace-match' kg may reasonably decline: kg folds no case anywhere and its `replace-regexp-in-string' already accepts FIXEDCASE and ignores it. Declining it is a decision 26.2 states against this case, rather than an approximation nobody wrote down. kg answers `void-function' today.",
+   "source_name": null
+  },
+  {
+   "id": "phase26-replace-match-errors",
+   "category": "sequences",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase26-replace-match-errors"
+   ],
+   "kg_test": "test/test_lisp.c:test_s_el_vendored_load",
+   "rationale": "Phase 26.0 froze the three ways `replace-match' is an error, as VALUES rather than as conditions, because the runner compares condition symbols and two of the three share one. THE FINDING: with NO prior match at all -- an emptied register -- Emacs does not report missing match data, it reports `replace-match subexpression does not exist', the same `error' condition and the same message as an explicit SUBEXP naming a group that did not participate; the two are told apart only by the SUBEXP argument echoed in the data, nil against 2. So the no-match case and the absent-group case are ONE error in Emacs, and a kg implementation that invents a distinct `no match data' condition for the first would diverge here. The third element is a different condition entirely: match data that does not fit the STRING argument is `args-out-of-range' carrying the span. kg answers `void-function' three times.",
+   "source_name": null
+  },
+  {
+   "id": "phase26-replace-match-string-form",
+   "category": "sequences",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase26-replace-match-basic",
+    "phase26-replace-match-fixedcase",
+    "phase26-replace-match-literal-nil",
+    "phase26-replace-match-literal-t",
+    "phase26-replace-match-subexp"
+   ],
+   "kg_test": "test/test_lisp.c:test_s_el_vendored_load",
+   "rationale": "Phase 26.0 froze the STRING form of `replace-match' -- the one s.el reaches, and the only one it reaches: the two calls in the vendored package are s-trim-left's and s-trim-right's `(replace-match \"\" t t s)' (s.el:41, s.el:49), both with a STRING argument, so the buffer form has no demand behind it at this phase and the execution plan records it as out of scope rather than freezing it unasked. What the five cases pin: the basic replacement returns a NEW string and mutates nothing; FIXEDCASE t inserts verbatim and FIXEDCASE nil case-converts (phase26-replace-match-case-conversion is what that means in detail); LITERAL nil expands `\\\\N', `\\\\&' and `\\\\\\\\', the same three kg's `replace-regexp-in-string' already implements and agrees with Emacs on, which is where 26.2 should take the expansion from; LITERAL t inserts a replacement that WOULD have been an escape verbatim; and SUBEXP replaces one group's span. The subtlety worth having in writing is in the last case: after a STRING replacement THE MATCH DATA IS NOT ADJUSTED -- Emacs leaves 1..4 standing over a string that is now a different length -- where the buffer form does adjust, so one code path serving both has to choose. kg answers `void-function' to all five. source_name is null: kg has no `replace-match' to claim yet.",
+   "source_name": null
+  },
+  {
+   "id": "phase26-s-el-trim-silent-gap",
+   "category": "sequences",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase26-s-trim-untrimmed"
+   ],
+   "kg_test": "test/test_lisp.c:test_s_el_vendored_load",
+   "rationale": "Phase 26.0's capability witness, at package level: `s-trim-left', `s-trim-right' and `s-trim' over the real vendored s.el. Emacs answers (\"hi  \" \"  hi\" \"hi\"); kg answers all three arguments UNCHANGED and raises nothing. That silence is the whole point of the row -- the failure is not a missing name a caller can catch, it is a `string-match' that answers nil for a pattern kg's engine misreads, after which s.el's own `if' takes the else branch. BOTH halves of the kg-side track have to land before this case flips: the anchor spellings (phase26-anchor-spellings) and then `replace-match' (phase26-replace-match-string-form), which s.el never even reaches today because the match fails first. It is the counterpart of phase26-count-matches's sixth case, and together the two are what `unmodified s.el got what it asked for' will mean at 26.2. source_name is null: no kg name is this row's to claim.",
+   "source_name": null
+  },
+  {
    "id": "phase7-interactive-buffer-no-other",
    "category": "interactive-commands",
    "status": "supported",

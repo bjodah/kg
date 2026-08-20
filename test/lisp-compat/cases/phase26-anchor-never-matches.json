@@ -1,0 +1,7 @@
+{
+ "id": "phase26-anchor-never-matches",
+ "setup": [],
+ "expr": "(list (string-match \"a\\\\`b\" \"ab\") (string-match \"a\\\\'b\" \"ab\"))",
+ "note": "AN ANCHOR WHERE IT CAN NEVER MATCH, and the one case in this group that ALREADY AGREES -- (nil nil) on both sides -- which is why it carries `expect: agree' inside a divergent row. It agrees for two different reasons, and that is the point: Emacs matches nothing because `\\\\`' can only match at offset 0 and there is an `a' before it, while kg matches nothing because it reads `\\\\`' as a literal backtick and the subject has none (phase26-anchor-literal-backtick-today measures that directly). After 26.2 teaches the spellings the answer must still be (nil nil) -- an implementation that made a mid-pattern anchor match anything would fail here.",
+ "expect": "agree"
+}

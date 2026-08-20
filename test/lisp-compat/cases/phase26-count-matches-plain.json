@@ -1,0 +1,6 @@
+{
+ "id": "phase26-count-matches-plain",
+ "setup": [],
+ "expr": "(with-temp-buffer (insert \"banana\") (goto-char (point-min)) (list (count-matches \"an\") (count-matches \"ana\") (count-matches \"z\") (point)))",
+ "note": "THE PLAIN CALL SHAPE, frozen before kg has the name. `count-matches' with neither START nor END counts from point to the end of the accessible buffer, and Emacs answers (2 1 0 1): two `an' in `banana', one `ana' because the search resumes at the END of the previous match rather than one character on, none for a regexp that is not there, and POINT IS STILL 1 afterwards -- the function saves its excursion, which is the property a kg implementation written as a `while' over `re-search-forward' has to restore by hand. kg answers `void-function' today; the name is one of the two things unmodified s.el still stops at (test/test_lisp.c:test_s_el_vendored_load names it)."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "phase26-replace-match-literal-nil",
+ "setup": [],
+ "expr": "(list (progn (string-match \"\\\\(a\\\\)\\\\(b\\\\)\" \"ab\") (replace-match \"\\\\2\\\\1\" t nil \"ab\")) (progn (string-match \"b+\" \"abbbc\") (replace-match \"[\\\\&]\" t nil \"abbbc\")) (progn (string-match \"b\" \"ab\") (replace-match \"\\\\\\\\\" t nil \"ab\")))",
+ "note": "LITERAL nil's THREE ESCAPES. Emacs answers (\"ba\" \"a[bbb]c\" \"a\\\\\"): `\\\\N' is the Nth group's text, `\\\\&' is the whole match, and `\\\\\\\\' is one backslash. The same three `replace-regexp-in-string' already implements in kg (phase15-replace-regexp-in-string, an agreement), which is where 26.2 should take the expansion from rather than writing a second one. kg answers `void-function'. The third element also brushes fe's writer divergence -- a printed kg string does not re-escape its backslashes -- so if this case ever agrees on the first two and differs on the third, that is what it is."
+}

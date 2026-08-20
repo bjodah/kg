@@ -78,6 +78,226 @@ divergences with `make check` green; the baseline probe numbers are in
 this plan; the gate arithmetic is written in this plan and disputed by
 nobody.
 
+## 26.0 results -- the entry-pin numbers, and the gate they arm
+
+Pins: kg `8315993`, fe `8718046` (`fe_version` 21.0, `FE_API_VERSION` 15,
+`FE_LANGUAGE_VERSION` 17).  Counting build `fe/perfobj/perf_workloads`,
+sha256 `a207b929…`, built by `make -C fe perf-workloads`; nothing under
+`fe/` is committed.  The battery was run twice and every counter below
+was BYTE-IDENTICAL across the two runs -- which is the property that
+makes this a gate rather than a benchmark, and the reason the wall times
+sit in a footnote instead of in the argument.
+
+### The probe baseline
+
+`intern-1024` and `intern-8192` are the two tiers the master plan names;
+`intern-128` is in the table because the battery already runs it and
+three points fix the shape that two only suggest.  Each tier opens a
+fresh 4 MiB context, interns N distinct `fe-perf-sym-<i>` names, then
+asks one miss and two hits (`BodyIntern`, `perf_workloads.c`).
+
+| counter | intern-128 | intern-1024 | intern-8192 |
+| --- | ---: | ---: | ---: |
+| `intern_lookup` | 131 | 1027 | 8195 |
+| `intern_miss` | 129 | 1025 | 8193 |
+| `intern_candidate` | 23 686 | 646 854 | 34 533 574 |
+| `name_compare` | 23 686 | 646 854 | 34 533 574 |
+| `name_byte` | 66 428 | 6 160 736 | 420 241 760 |
+| **`intern_candidate / intern_lookup`** | **180.81** | **629.85** | **4213.98** |
+| `name_byte / name_compare` | 2.80 | 9.52 | 12.17 |
+| miss scan (`extra.miss_candidates`) | 246 | 1142 | 8310 |
+| wall, two runs | 0.29 / 0.28 ms | 9.47 / 8.80 ms | 510 / 494 ms |
+
+**The measured growth ratio, 1024 -> 8192, is 6.69x** (4213.98 / 629.85),
+against the "roughly 8x" this plan's entry gate predicted.  The shortfall
+is not noise and is worth writing down, because it is the same constant
+26.1 has to keep out of its own arithmetic: a context open interns 118
+symbols before the workload starts (`miss_candidates - N` is 118 at every
+tier), so the average scan is `118 + N/2` rather than `N/2`, which is
+629.85 at 1024 and 4213.98 at 8192 to the second decimal.  The ratio
+tends to 8 from below as N grows and is 6.69 at these sizes.  The
+underlying shape is exactly linear regardless: `name_compare` equals
+`intern_candidate` at every tier (one comparison per candidate, no
+short-circuit before the comparison), the miss scan is exactly the
+obarray length, and the battery already asserts the slope is one
+(`CheckInternTiers` compares the miss-scan differences against `1024-128`
+and `8192-1024`).
+
+`name_byte / name_compare` rising with the tier -- 2.80, 9.52, 12.17 --
+is the length-then-bytes rule working: a comparison against a name of a
+different length costs no bytes at all, and the share of same-length
+names rises as the generated `fe-perf-sym-<i>` suffixes settle into the
+same digit count.  It is a second-order figure and no gate is proposed
+for it; it is here so that 26.1's "`name_compare`/`name_byte` fall with
+it" claim has a before.
+
+### The gate arithmetic, with today's numbers in it
+
+After 26.1, asserted in fe's own perf gate (`perf_workloads.c`'s
+`CheckInternTiers`, counters only -- never wall clock):
+
+1. **Bounded probe at BOTH tiers.**  `intern_candidate / intern_lookup`
+   <= C at 1024 AND at 8192, where C is a small constant proposed by
+   26.1's measurement and written into the assertion as a literal.
+   Expected low single digits for open addressing at a sane load factor;
+   **C <= 8 is the outer bound this plan will accept without a written
+   argument**, because a table whose average probe exceeds 8 is not
+   buying its storage.  Today: 629.85 and 4213.98.  At C = 8 that is a
+   79x reduction at the 1024 tier and a **527x** reduction at 8192; at
+   C = 4, 157x and 1053x.
+2. **The tiers stop being different.**  (candidates/lookup at 8192) /
+   (candidates/lookup at 1024) **<= 2**.  Today 6.69.  This is the clause
+   that says O(1), and it is the one that cannot be passed by making the
+   scan merely faster.
+3. **The comparison counters follow.**  `name_compare` must fall in step
+   with `intern_candidate` -- they are equal today and must stay equal
+   or better, since a candidate that is not compared is a candidate that
+   was rejected by hash, which is the point -- and `name_byte` at the
+   8192 tier must fall by at least the same factor as
+   `intern_candidate`.  A design that reaches clause 1 by hashing and
+   then still compares every name has moved work, not removed it.
+4. **`payload_*` is allowed to rise and is measured, not bounded**, since
+   the index's storage is payload by construction (26.1/2).  The number
+   to report is its share at the 1 MiB and 10 MiB partition sizes, which
+   is 26.2's census work.
+
+Two mechanical notes for whoever writes 26.1.  First, three of
+`CheckInternTiers`'s existing assertions ENCODE TODAY'S SHAPE and must be
+REWRITTEN rather than extended: the two that require the miss-scan
+difference to equal the tier difference exactly, and the one that
+requires `intern_candidate` to grow by more than 8x per tier.  A patch
+that leaves them in place cannot pass its own gate.  Second, the 118
+context-open symbols mean an assertion phrased over the RATIO is stable
+under a changing primitive count while one phrased over an absolute
+candidate total is not; prefer the ratio.
+
+### The oracle freeze -- 24 cases, 8 rows, measured not assumed
+
+Recorded under the pinned Emacs 31.0.91 (`/opt-3/emacs-31-lucid`, "GNU
+Emacs 31.0.91 … of 2026-08-09"), the 24.0/25.0 mechanics unchanged:
+`test/lisp-compat/cases/phase26-*.json`, eight rows in
+`test/lisp-compat/features.json`, snapshots regenerated with
+`fe/utils/run-emacs-oracle.py test/lisp-compat --case …`.  The corpus
+went 354 -> **378** `comparison: emacs` cases, 323 -> **326** passed,
+31 -> **52** recorded divergences, **0 failed**.
+
+**21 of the 24 are divergences and 3 already agree.**  The three
+agreements are the discipline working, not a shortfall: they were
+classified by what kg answered, not by what the phase expects to change.
+
+| row | cases | status | what it pins |
+| --- | ---: | --- | --- |
+| `phase26-count-matches` | 6 | divergent | the plain call, s.el's region route, value-not-message, the zero-width rule, the match-register clobber, and `s-count-matches` itself |
+| `phase26-anchor-spellings` | 7 | divergent | the two spellings through `string-match`/`string-match-p`, the ends-coincide control, the never-matches agreement, and what kg does with the spellings today |
+| `phase26-anchor-line-vs-subject` | 1 | divergent | the row 26.2 does NOT close |
+| `phase26-replace-match-string-form` | 5 | divergent | basic, FIXEDCASE, LITERAL both ways, SUBEXP, and the un-adjusted match data |
+| `phase26-replace-match-case-conversion` | 1 | divergent | what FIXEDCASE nil measurably does |
+| `phase26-replace-match-errors` | 1 | divergent | the three error shapes |
+| `phase26-s-el-trim-silent-gap` | 1 | divergent | `s-trim` at package level |
+| `phase26-eql-float-corners` | 2 | **supported** | `eql`/`equal`/`=` on signed zero, NaN and `1` vs `1.0` |
+
+**What Emacs actually did, where it is not what the docstring says.**
+Five of these were found by measuring and would have been implemented
+wrongly from prose:
+
+* **`replace-match` with no prior match is not a "no match data" error.**
+  With an emptied register Emacs raises `error` with the message
+  `replace-match subexpression does not exist` -- the SAME condition and
+  the SAME message as an explicit SUBEXP naming a group that did not
+  participate.  The two are told apart only by the SUBEXP value echoed
+  in the data: `(… nil)` against `(… 2)`.  Group 0 is a subexpression
+  like any other, and an empty register has none.
+* **FIXEDCASE nil is `upcase-initials`, not `capitalize`, and it is
+  per-word.**  A capitalised match turns `"baz qux"` into `"Baz Qux"` --
+  every word, not the first -- and turns `"bAz"` into `"BAz"`, keeping
+  an interior capital that `capitalize` would have flattened.  An
+  upcased match upcases the whole replacement.  And a ONE-CHARACTER
+  uppercase match counts as UPCASED rather than capitalised, so `"F"`
+  matched by `"f"` and replaced with `"xy"` yields `"XY"`, not `"Xy"`.
+* **After a STRING `replace-match` the match data is NOT adjusted.**  It
+  still reads the original subject's span (1..4) over a returned string
+  of a different length.  The buffer form does adjust; one code path
+  serving both has to choose, and Emacs' answer for the string form is
+  "leave it alone".
+* **`count-matches` ORDERS reversed bounds** rather than refusing them:
+  `(count-matches "a" 4 2)` is 1, the count over 2..4.  It also counts
+  zero-width matches with a one-character advance -- `"a*"` and `""`
+  both answer 6 over a six-character buffer -- returns a value and
+  messages only when its INTERACTIVE argument says to, leaves point
+  where it was, and CLOBBERS the match register on its last match, which
+  is why s.el wraps the call in `save-match-data`.
+* **kg does not reject `` \` `` and `\'` -- it MISREADS them.**  The
+  engine drops the backslash and matches the punctuation, so
+  ``(string-match "\\`abc" "x`abc")`` answers **1** in kg and `nil` in
+  Emacs.  The gap is therefore not only "s-trim silently returns its
+  argument": a pattern containing either spelling can match the WRONG
+  THING today.  `phase26-anchor-literal-backtick-today` is that case,
+  and its third element agrees by accident -- ``(string-match "\\`" "`")``
+  is 0 on both sides, in Emacs because the anchor matches the empty
+  string at offset 0 and in kg because the subject is one backtick --
+  which is exactly the kind of coincidence a corpus should catch itself
+  making.
+
+**And one correction this plan owes its own 26.2 text.**  "kg's `^`/`$`
+already MEAN what `` \` ``/`\'` mean" is true of KG's engine and false of
+EMACS.  In an Emacs STRING match `^` matches at the start of the subject
+AND after every newline, and `$` before every newline: ``(string-match "^b" "a\nb")`` is **2** and
+``(string-match "\\`b" "a\nb")`` is **nil**.
+The two spellings coincide only on a subject with no newline in it, which
+is what `phase26-anchor-ends-coincide` records and what licenses 26.2 to
+implement the new spellings as an alias of the anchors kg's engine
+already has.  `phase26-anchor-line-vs-subject` is the case that says
+where the licence stops, and it is the one 26.0 row that will still be
+divergent after 26.2: kg's `` \` `` will be RIGHT and kg's `^` will still
+be WRONG, from the same code.  This is not new behaviour -- it is
+`doc/lisp-api.md`'s recorded engine divergence and
+`phase15-string-match-anchors-and-case` -- but it had never been said as
+one value beside the spellings it is about.
+
+That has a consequence for 26.2's differential arm:
+`utils/regex_differential.py` generates SINGLE-LINE subjects on purpose
+("`^` anchors at offset 0 and `$` at the end; subjects are single-line,
+so neither has a second place to match"), and that is precisely the
+condition under which the two spellings agree.  Adding `` \` ``/`\'` to
+the generator is therefore safe under the existing subject policy and
+ONLY under it; a generator that grew multiline subjects would start
+failing on `^`/`$` for a reason Phase 26 did not cause.
+
+**The buffer form of `replace-match` is out of scope for Phase 26.**
+Measured, not assumed: the vendored `external/elpa/s.el` calls
+`replace-match` exactly twice, at s.el:41 and s.el:49, both
+`(replace-match "" t t s)` with a STRING argument, inside `s-trim-left`
+and `s-trim-right`.  `s-replace` and `s-replace-regexp` go through
+`replace-regexp-in-string`, which kg already has.  So no demand this
+phase is answering reaches the buffer form, and 26.0 records it as out
+of scope rather than freezing rows nothing will flip.  `count-matches`
+is the opposite case and is frozen in full: s.el reaches it through
+`with-temp-buffer`, so it IS a buffer function here.
+
+**Two decisions 26.2 inherits from these rows.**  First, kg's own
+`replace-regexp-in-string` accepts FIXEDCASE and IGNORES it
+(`doc/lisp-api.md`), so a `replace-match` that honours FIXEDCASE makes
+the two names disagree about the same argument -- the shape Phase 25.2
+had to resolve for `string=` against `string<`.  Declining the case
+conversion is a legitimate answer; declining it against
+`phase26-replace-match-case-conversion`, in writing, is the requirement.
+Second, `count-matches` as prelude Lisp over `re-search-forward` has to
+reproduce five properties this freeze pins, of which the zero-width
+advance and the point restoration are the two a naive `while` loop gets
+wrong.
+
+**`eql`'s float corners were already right, and are recorded as
+agreements.**  `(eql 0.0 -0.0)` is nil and `(eql (/ 0.0 0.0) (/ 0.0
+0.0))` is t on both sides, as are `equal`'s inherited answers, `=`'s
+opposite ones, and `(equal 1 1.0)`.  fe's corpus carried the signed-zero
+half (`num-eql-signed-zero`); the NaN half had no case in either corpus.
+They sit in kg's corpus now because they are the Lisp-visible edge of the
+hash contract 26.1 writes: a hash claiming to agree with `eql` may not
+fold -0.0 onto 0.0, and may not read a NaN's payload bits.
+
+Exit gate for 26.0: met.  Rows recorded, `make check` green, baseline and
+gate arithmetic above.
+
 ## 26.1 -- the fe substrate
 
 The master plan's requirements, restated as the work list:

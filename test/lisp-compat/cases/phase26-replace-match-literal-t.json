@@ -1,0 +1,6 @@
+{
+ "id": "phase26-replace-match-literal-t",
+ "setup": [],
+ "expr": "(progn (string-match \"b\" \"ab\") (replace-match \"\\\\1x\" t t \"ab\"))",
+ "note": "LITERAL t, which is the half s.el actually uses, asked with a replacement that WOULD have been an escape. Emacs answers the four-character string `a\\\\1x': with LITERAL non-nil the replacement is inserted exactly, backslash and all, and no group is consulted. Frozen separately from the nil case because an implementation that expands first and honours LITERAL afterwards gets the same answer for every replacement that contains no backslash, which is most of them. kg answers `void-function'."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "phase26-replace-match-fixedcase",
+ "setup": [],
+ "expr": "(list (progn (string-match \"foo\" \"Foo bar\") (replace-match \"baz\" nil t \"Foo bar\")) (progn (string-match \"foo\" \"FOO bar\") (replace-match \"baz\" nil t \"FOO bar\")) (progn (string-match \"foo\" \"FOO bar\") (replace-match \"baz\" t t \"FOO bar\")))",
+ "note": "FIXEDCASE, both ways round, on the two cases the argument exists for. Emacs answers (\"Baz bar\" \"BAZ bar\" \"baz bar\"): with FIXEDCASE nil a capitalised match capitalises the replacement and an upcased match upcases it, and with FIXEDCASE t the replacement goes in verbatim. The subject strings are chosen so the MATCH ITSELF is already in the string -- kg folds no case, so a pattern that needed folding to match would be measuring a different divergence (phase15-replace-regexp-case is that one). kg answers `void-function'. NOTE FOR THE IMPLEMENTATION: kg's own `replace-regexp-in-string' accepts FIXEDCASE and IGNORES it (doc/lisp-api.md), so a `replace-match' that honours it makes the two names disagree about the same argument -- a decision 26.2 owes an answer, of the kind Phase 25.2 had to give for `string=' against `string<'."
+}

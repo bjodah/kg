@@ -1,0 +1,7 @@
+{
+ "id": "phase26-equal-float-corners",
+ "setup": [],
+ "expr": "(list (equal 0.0 -0.0) (equal (/ 0.0 0.0) (/ 0.0 0.0)) (= 0.0 -0.0) (= (/ 0.0 0.0) (/ 0.0 0.0)) (equal 1 1.0))",
+ "note": "THE SAME CORNERS THROUGH `equal' AND `=', which is what makes the `eql' answers next door attributable to `eql' rather than to floats. Both sides answer (nil t t nil nil): `equal' on number leaves IS `eql', so it inherits both corners exactly; `=' is IEEE numeric comparison, so it inherits NEITHER -- it says 0.0 and -0.0 are the same and that a NaN is not even itself; and `(equal 1 1.0)' is nil, the integer-versus-double rule 26.1's contract has to state for keys. Three predicates, three different answers to the same two pairs, and a hash table keyed on any one of them cannot borrow another's.",
+ "expect": "agree"
+}

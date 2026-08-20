@@ -1,0 +1,9 @@
+{
+ "id": "phase26-s-count-matches-route",
+ "setup": [
+  "(setq s-el-path (if (fboundp 'expand-file-name) (expand-file-name \"external/elpa/s.el\") \"external/elpa/s.el\"))",
+  "(condition-case e (load s-el-path) (error nil))"
+ ],
+ "expr": "(condition-case e (list (s-count-matches \"a\" \"banana\") (s-count-matches \"an\" \"banana\") (s-count-matches \"a\" \"banana\" 2 5)) (void-function (car (cdr e))))",
+ "note": "THE PACKAGE'S OWN CALL, which is the demand this name is being bound for. Emacs answers (3 2 2): s.el's START and END are 1-indexed and half-open, so 2..5 over `banana' is `ana' and holds two `a'. kg answers the missing NAME rather than a diagnostic -- `count-matches' -- which is the shape s-el-vendored-call-frontier established: a frontier row should read as a name, not as a message. This case flips to an agreement in 26.2 and is one of the two that measure whether unmodified s.el got what it asked for."
+}

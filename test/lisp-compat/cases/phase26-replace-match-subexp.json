@@ -1,0 +1,6 @@
+{
+ "id": "phase26-replace-match-subexp",
+ "setup": [],
+ "expr": "(list (progn (string-match \"\\\\(a\\\\)\\\\(b\\\\)\" \"ab\") (replace-match \"X\" t t \"ab\" 2)) (progn (string-match \"b+\" \"abbbc\") (list (replace-match \"XY\" t t \"abbbc\") (match-beginning 0) (match-end 0))))",
+ "note": "SUBEXP, and what the register looks like afterwards. Emacs answers (\"aX\" (\"aXYc\" 1 4)): a SUBEXP of 2 replaces the second group's span and leaves the rest, and after a STRING replacement THE MATCH DATA IS NOT ADJUSTED -- it still reads 1..4, the span of the ORIGINAL subject, even though the string that came back is a different length. That second half is the one worth having in writing: the buffer form does adjust, so an implementation that reuses one code path for both has to decide which behaviour it is copying, and Emacs' answer for the string form is `neither -- leave it alone'. kg answers `void-function'."
+}

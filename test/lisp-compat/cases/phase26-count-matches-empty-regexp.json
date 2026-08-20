@@ -1,0 +1,6 @@
+{
+ "id": "phase26-count-matches-empty-regexp",
+ "setup": [],
+ "expr": "(with-temp-buffer (insert \"banana\") (goto-char (point-min)) (list (count-matches \"a*\" 1 (point-max)) (count-matches \"\" 1 (point-max))))",
+ "note": "THE EMPTY-MATCH RULE, which is where a counting loop written over `re-search-forward' either terminates or does not. Both `a*' and the empty regexp answer 6 over a six-character buffer: a match of width zero counts, and the scan then advances by one character rather than standing still. Note what 6 is NOT -- it is not 7, so the position after the last character does not get its own empty match, and it is not 3, so the three real `a' matches do not absorb the empty ones around them. kg answers `void-function'."
+}

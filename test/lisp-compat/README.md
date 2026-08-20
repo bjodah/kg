@@ -211,6 +211,61 @@ treatment of an invalid byte. The rows for names kg does not have yet
 the test that pins the match surface kg DOES have, and say so in their
 rationale; those names' own citations land with the implementation.
 
+## A third group written ahead of its behaviour (`phase26`)
+
+The 24 `phase26-*` cases and their eight rows were recorded by Phase 26.0
+(`doc/plans/2026-08-20-elisp-data-model-phase26-execution.md`), the third
+group in this corpus written before the behaviour it describes and the
+first one that is entirely a *capability* track: `count-matches`, the
+`` \` ``/`\'` anchor spellings, `replace-match`, and `eql`'s float
+corners. 21 are recorded divergences and three already agree — the same
+measure-first rule the `vectors` and `strings` groups were classified by,
+and the three agreements are what makes the 21 attributable rather than a
+blanket "the match surface is missing":
+
+* `phase26-anchor-never-matches` shows an anchor written where it can
+  never match answering `nil` on both sides *today*, so a 26.2
+  implementation that made a mid-pattern anchor match something fails
+  here rather than passing.
+* `phase26-eql-float-corners` and `phase26-equal-float-corners` show
+  `eql`, `equal`, `=` and the integer-versus-double rule already
+  answering exactly what Emacs answers on signed zero and NaN. They are
+  in this corpus because they are the Lisp-visible edge of the hash
+  contracts Phase 26.1 writes down, not because anything about them is
+  broken.
+
+Three things a reader of these cases should know, because they are
+properties of the group rather than of any one case:
+
+* **One row is written NOT to flip.**
+  `phase26-anchor-line-vs-subject` is separate from
+  `phase26-anchor-spellings` on purpose. The spellings are a vocabulary
+  gap kg closes by aliasing the anchors its engine already has; the row
+  beside them measures the fact that in an Emacs STRING match `^` and
+  `$` are LINE anchors, so `^` and `` \` `` are *not* the same thing
+  there. kg's are subject anchors, a recorded engine divergence
+  (`doc/lisp-api.md`, `phase15-string-match-anchors-and-case`), so after
+  the spellings land kg's `` \` `` will be right and kg's `^` will still
+  be wrong — from the same code, which is why the two claims get two
+  rows.
+* **kg does not reject the two spellings, it misreads them.** The engine
+  drops the backslash and matches the punctuation, so a pattern using
+  either can match the WRONG THING today rather than merely failing.
+  `phase26-anchor-literal-backtick-today` is that measurement, and its
+  third element is an accidental agreement inside a diverging list —
+  both sides answer 0, for two unrelated reasons.
+* **Several cases ask for a condition's DATA as their value**, the
+  `string25` group's device, because the runner compares condition
+  symbols and `replace-match`'s two distinct failures raise the same
+  condition with the same message. Only the data tells them apart.
+
+Rows here cite `test/test_lisp.c:test_s_el_vendored_load` — the vendored
+package's own frontier assertions — where the name does not exist yet,
+and `test_phase15_regex_seam` for the engine's side of the anchors. The
+`eql` row carries `owner: fe-core` and `kg_test: null` for the 24.0
+reason: both names are fe primitives and no kg test asserts either float
+corner.
+
 ## Proof 2 — the representative user init, bullet by bullet
 
 The parent plan's §14 asks for "a tracked, isolated `.config/kg/init.el`

@@ -1,0 +1,6 @@
+{
+ "id": "phase26-anchor-literal-backtick-today",
+ "setup": [],
+ "expr": "(list (string-match \"\\\\`abc\" \"x`abc\") (string-match \"a\\\\'\" \"xa'\") (string-match \"\\\\`\" \"`\"))",
+ "note": "WHAT kg'S ENGINE ACTUALLY DOES WITH THE TWO SPELLINGS TODAY, which is not `reject' and not `ignore': it drops the backslash and matches the punctuation. kg answers (1 1 0) -- it FOUND a backtick at offset 1 of `x`abc' and an apostrophe at offset 1 of `xa'' -- where Emacs answers (nil nil 0), both anchored patterns failing because the anchor is not at the subject's end. The third element agrees BY ACCIDENT and is here to be seen doing it: 0 in Emacs because `\\\\`' matches the empty string at the start, 0 in kg because the subject is one backtick. So the gap is not merely a missing feature -- a pattern containing either spelling can match the WRONG THING today, silently. This case must flip to (nil nil 0) at 26.2 and the XPASS rule is what will say so."
+}

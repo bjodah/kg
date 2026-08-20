@@ -437,7 +437,7 @@ Ordering rules that hold across every subscriber:
 | `(switch-to-buffer BUFFER-OR-NAME)` | Show it in the selected window and make it current, creating it when a string names no buffer. Answers the buffer object |
 | `(kill-buffer &optional BUF)` | Kill `BUF` (or current); raises on a modified buffer with no confirmation path from Lisp |
 | `(point)` / `(point-min)` / `(point-max)` | Point and buffer bounds, 1-based |
-| `(goto-char N)` | Move point to `N`, clamped to the buffer |
+| `(goto-char N)` | Move point to `N`, clamped to the buffer; answers `N` itself, unclamped, as Emacs does |
 | `(goto-line N)` | Move point to the start of line `N`, clamped; takes no column |
 | `(line-number-at-pos)` | 1-based line of point |
 | `(current-column)` | Display column of point (tabs expand, wide characters count two) |
@@ -504,10 +504,10 @@ and therefore one undo step:
 | `(delete-char &optional N)` | Delete `N` characters after point, or `-N` before it. Clamps where Emacs signals, so a count past the end deletes what is there |
 | `(erase-buffer)` | The whole buffer becomes empty |
 | `(replace-region START END TEXT)` | The region becomes `TEXT`, as one edit — never delete-then-insert |
-| `(search-forward STRING &optional BOUND)` | Literal search to `BOUND` (default `point-max`); moves point past the match, or `nil` |
-| `(search-backward STRING &optional BOUND)` | Literal search to `BOUND` (default `point-min`); moves point to the match start, or `nil` |
-| `(re-search-forward PATTERN &optional BOUND)` | Regexp search forward; error on a bad or too-complex pattern |
-| `(re-search-backward PATTERN &optional BOUND)` | Regexp search backward; see `src/lisp_search.c` for the exact (non-Emacs) rule |
+| `(search-forward STRING &optional BOUND NOERROR)` | Literal search to `BOUND` (default `point-max`); moves point past the match. On failure `NOERROR` decides — see below |
+| `(search-backward STRING &optional BOUND NOERROR)` | Literal search to `BOUND` (default `point-min`); moves point to the match start. `NOERROR` as above |
+| `(re-search-forward PATTERN &optional BOUND NOERROR)` | Regexp search forward; error on a bad or too-complex pattern |
+| `(re-search-backward PATTERN &optional BOUND NOERROR)` | Regexp search backward; see `src/lisp_search.c` for the exact (non-Emacs) rule |
 | `(match-beginning N)` / `(match-end N)` | Group `N`'s bounds from the last search, or `nil` |
 | `(looking-at REGEXP)` | Anchored match at point; sets the match data, moves point nowhere |
 | `(make-marker)` | A marker that points nowhere until something sets it |
@@ -515,6 +515,17 @@ and therefore one undo step:
 | `(copy-marker &optional POSITION TYPE)` | A marker at `POSITION` (a position or another marker); with no `POSITION` it points nowhere. Non-nil `TYPE` makes it advance ahead of text inserted at it |
 | `(set-marker MARKER POS &optional BUF)` | Move `MARKER`; `POS` nil detaches it |
 | `(marker-position MARKER)` / `(marker-buffer MARKER)` | Where `MARKER` points, or `nil` |
+
+`NOERROR` is Emacs' third argument and has Emacs' three answers, the same
+three from all four names: **nil raises** `search-failed` carrying the
+pattern and leaves point where it was, **`t` answers `nil`** and leaves
+point where it was, and **any other value answers `nil` and MOVES POINT
+to the limit** — to `BOUND` when one was given, and to `point-max`
+(forward) or `point-min` (backward) when it was not. The third is not a
+variation on the second: `t` and `'move` differ only in where point ends
+up, and a caller that wants the move has no other way to ask. Emacs' own
+fourth argument, `COUNT`, is not implemented and is
+`wrong-number-of-arguments` by name.
 
 None of the search natives wrap around the buffer (unlike `C-s`/`C-r`),
 none fold case, and a match cannot span two lines — the same limit

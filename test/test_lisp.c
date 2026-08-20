@@ -2839,13 +2839,94 @@ static void test_search_forward_backward(void)
 	CHECK(eval_ok("(goto-char (point-min))"));
 	CHECK(eval_eq("(search-forward \"cat\")", "8"));
 	CHECK(eval_eq("(point)", "8"));
-	/* No second "cat" ahead of point: nil, and point does not move. */
-	CHECK(eval_eq("(search-forward \"cat\")", "nil"));
+	/* No second "cat" ahead of point.  NOERROR `t' is written here
+	 * because a bare two-argument failure RAISES `search-failed' since
+	 * the frontier demand phase; the answer under `t' is the nil this
+	 * line has always asserted, and point still does not move. */
+	CHECK(eval_eq("(search-forward \"cat\" nil t)", "nil"));
 	CHECK(eval_eq("(point)", "8"));
 
 	/* search-backward moves to the start of the match. */
 	CHECK(eval_ok("(goto-char (point-max))"));
 	CHECK(eval_eq("(search-backward \"at\")", "21"));
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
+/* Emacs' NOERROR, all three answers and all four names, which is what
+ * frontier-search-noerror-* froze against 31.0.91 before any of it
+ * existed here.  The compat corpus asks the same questions of an Emacs
+ * snapshot; this asks them of the editor's own objects, and adds the two
+ * things a corpus case cannot see -- that the raise is catchable by the
+ * NAME as well as by `error', and that COUNT is still refused. */
+static void test_search_noerror_three_ways(void)
+{
+	setup_editor();
+	editor_insert_row(bcur(), 0, "abcdef", 6);
+	CHECK(kg_lisp_init() == 0);
+
+	/* NOERROR nil RAISES `search-failed', from all four names, carrying
+	 * the PATTERN as its one data element, and point does not move. */
+	CHECK(eval_ok("(goto-char (point-min))"));
+	CHECK(eval_eq("(condition-case e (search-forward \"z\")"
+		      " (error (cons (car e) (cdr e))))",
+	    "(search-failed \"z\")"));
+	CHECK(eval_eq("(point)", "1"));
+	CHECK(eval_eq("(condition-case e (re-search-forward \"z\")"
+		      " (search-failed 'by-name))",
+	    "by-name"));
+	CHECK(eval_ok("(goto-char (point-max))"));
+	CHECK(eval_eq("(condition-case e (search-backward \"z\")"
+		      " (error (car e)))",
+	    "search-failed"));
+	CHECK(eval_eq("(condition-case e (re-search-backward \"z\")"
+		      " (error (car e)))",
+	    "search-failed"));
+	CHECK(eval_eq("(point)", "7"));
+
+	/* NOERROR `t' answers nil and leaves point, from all four. */
+	CHECK(eval_ok("(goto-char (point-min))"));
+	CHECK(eval_eq("(list (search-forward \"z\" nil t)"
+		      " (re-search-forward \"z\" nil t) (point))",
+	    "(nil nil 1)"));
+	CHECK(eval_ok("(goto-char (point-max))"));
+	CHECK(eval_eq("(list (search-backward \"z\" nil t)"
+		      " (re-search-backward \"z\" nil t) (point))",
+	    "(nil nil 7)"));
+
+	/* ANY OTHER value answers nil AND MOVES POINT TO THE LIMIT: to
+	 * BOUND when one was given, and to point-max forward / point-min
+	 * backward when it was not.  All four combinations, because a
+	 * binding that moved to point-max in both directions would pass the
+	 * two forward ones. */
+	CHECK(eval_ok("(goto-char (point-min))"));
+	CHECK(eval_eq("(list (re-search-forward \"z\" nil 'move) (point))",
+	    "(nil 7)"));
+	CHECK(eval_ok("(goto-char (point-min))"));
+	CHECK(eval_eq("(list (search-forward \"z\" 3 'move) (point))",
+	    "(nil 3)"));
+	CHECK(eval_ok("(goto-char (point-max))"));
+	CHECK(eval_eq("(list (re-search-backward \"z\" nil 'move) (point))",
+	    "(nil 1)"));
+	CHECK(eval_ok("(goto-char (point-max))"));
+	CHECK(eval_eq("(list (search-backward \"z\" 3 'move) (point))",
+	    "(nil 3)"));
+
+	/* A SUCCESSFUL search is unchanged by any of the three: NOERROR
+	 * decides only what a failure does. */
+	CHECK(eval_ok("(goto-char (point-min))"));
+	CHECK(eval_eq("(list (search-forward \"cd\") (point))", "(5 5)"));
+	CHECK(eval_ok("(goto-char (point-min))"));
+	CHECK(eval_eq("(list (search-forward \"cd\" nil 'move) (point))",
+	    "(5 5)"));
+
+	/* Emacs' FOURTH argument, COUNT, stays refused BY NAME rather than
+	 * accepted and ignored -- frontier-search-count-argument pins the
+	 * condition and is written not to flip. */
+	CHECK(eval_eq("(condition-case e (re-search-forward \"a\" nil t 2)"
+		      " (wrong-number-of-arguments (car e)))",
+	    "wrong-number-of-arguments"));
 
 	kg_lisp_shutdown();
 	teardown_editor();
@@ -2860,7 +2941,7 @@ static void test_search_forward_bound(void)
 	CHECK(eval_ok("(goto-char (point-min))"));
 	/* A bound before the second "aaa" hides it. */
 	CHECK(eval_eq("(search-forward \"aaa\" 9)", "4"));
-	CHECK(eval_eq("(search-forward \"aaa\" 9)", "nil"));
+	CHECK(eval_eq("(search-forward \"aaa\" 9 t)", "nil"));
 	CHECK(eval_eq("(point)", "4"));
 	/* Without a bound the second occurrence is reachable. */
 	CHECK(eval_eq("(search-forward \"aaa\")", "12"));
@@ -2946,8 +3027,8 @@ static void test_re_search_backward(void)
 
 	/* No match: nil, and point plus the previous match data are left
 	 * exactly as the successful search above left them. */
-	fe_regex_source(
-	    source, sizeof(source), "(re-search-backward \"%s\")", "zzz");
+	fe_regex_source(source, sizeof(source),
+	    "(re-search-backward \"%s\" nil t)", "zzz");
 	CHECK(eval_eq(source, "nil"));
 	CHECK(eval_eq("(point)", "8"));
 	CHECK(eval_eq("(match-beginning 0)", "8"));
@@ -2988,7 +3069,11 @@ static void test_regex_too_complex_and_bad_pattern(void)
 static void test_search_cancellation(void)
 {
 	char result[128] = "";
-	const char *source = "(search-forward \"zzz\")";
+	/* NOERROR `t': this case is about the QUIT, and a bare failure
+	 * raises `search-failed' since the frontier demand phase, which
+	 * would make the uninterrupted retry below a condition rather than
+	 * the nil it is asserting. */
+	const char *source = "(search-forward \"zzz\" nil t)";
 
 	setup_editor();
 	editor_insert_row(bcur(), 0, "xxxx", 4);
@@ -7126,6 +7211,16 @@ static void test_s_el_vendored_load(void)
 	 *   multibyte-string-p   s-reverse
 	 *   assoc-string         s-format, s--aget
 	 *   re-search-forward/3  s-split-up-to
+	 *
+	 * THE FRONTIER DEMAND PHASE IS ANSWERING THEM, one surface per
+	 * commit, and this line moves with each one: a name that lands
+	 * turns its element from the missing NAME into the package's own
+	 * VALUE, which is the only assertion that says the want was
+	 * answered rather than merely bound.  `re-search-forward/3' is the
+	 * first, and it took ONE NAME MORE than the arity -- s-split-up-to
+	 * is `(setq op (goto-char (point-min)))' and kg's `goto-char'
+	 * answered nil where Emacs answers POSITION, so `buffer-substring'
+	 * raised one line further along.  Both are bound now.
 	 */
 	CHECK(eval_eq(
 	    "(list (condition-case e (s-shared-start \"abc\" \"abd\")"
@@ -7141,7 +7236,7 @@ static void test_s_el_vendored_load(void)
 	    " (condition-case e (s-split-up-to \",\" \"a,b,c\" 1)"
 	    "   (wrong-number-of-arguments (cdr e))))",
 	    "(compare-strings fill-region regexp-opt multibyte-string-p"
-	    " assoc-string (re-search-forward 3))"));
+	    " assoc-string (\"a\" \"b,c\"))"));
 
 	kg_lisp_shutdown();
 }
@@ -8490,6 +8585,7 @@ int main(void)
 	RUN(test_replace_region_read_only_recovery);
 	RUN(test_replace_region_alloc_failure_is_atomic);
 	RUN(test_search_forward_backward);
+	RUN(test_search_noerror_three_ways);
 	RUN(test_search_forward_bound);
 	RUN(test_re_search_and_match_data);
 	RUN(test_re_search_backward);

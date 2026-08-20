@@ -281,6 +281,12 @@ FeObject *lisp_callable_designator(FeContext *context, FeObject *object,
  * that is `t', `nil' or a keyword (lisp_core.c). */
 [[noreturn]] void lisp_raise_setting_constant(
     FeContext *context, FeObject *symbol);
+/* Raise Emacs' `(search-failed PATTERN)' -- what a failed search whose
+ * NOERROR argument is nil answers, carrying the pattern it did not find.
+ * The symbol became raisable at the frontier demand phase's fe pin, which
+ * is what added it to fe's condition table (lisp_core.c). */
+[[noreturn]] void lisp_raise_search_failed(
+    FeContext *context, FeObject *pattern);
 /* Raise Emacs' `(end-of-buffer)' / `(beginning-of-buffer)', the two edges
  * a motion or an edit runs into.  Both carry no data, and both became
  * raisable at the Phase 20 fe pin, which is what added them to fe's

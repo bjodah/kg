@@ -533,9 +533,11 @@
 ;; unhighlighted `push-mark' to use instead.  Recorded as a divergence
 ;; (the manifest's beginning-of-buffer/end-of-buffer rows) rather than
 ;; approximated.  The Emacs manual's own advice for Lisp code is
-;; `(goto-char (point-min))', which is what these are.
-(defalias 'beginning-of-buffer (lambda () (goto-char (point-min))))
-(defalias 'end-of-buffer (lambda () (goto-char (point-max))))
+;; `(goto-char (point-min))', which is what these are.  The trailing nil
+;; is Emacs' answer (phase17-buffer-ends) and stopped being free when
+;; `goto-char' learned to return POSITION.
+(defalias 'beginning-of-buffer (lambda () (goto-char (point-min)) nil))
+(defalias 'end-of-buffer (lambda () (goto-char (point-max)) nil))
 ;; --- quasiquote: `x , ,@ read as (quasiquote x) etc. ---
 (defalias 'internal--qq (lambda (form &optional depth)
   (if (null depth) (setq depth 1))
@@ -1034,6 +1036,9 @@
 ;;   * it CLOBBERS the match register on its last match, which is why
 ;;     s.el wraps the call in `save-match-data'.
 ;;
+;; The loop's NOERROR `t' is load-bearing: without it a failed search
+;; RAISES `search-failed' and the `while' never ends normally.
+;;
 ;; Emacs' INTERACTIVE argument decides only whether the count is also
 ;; MESSAGED; called from Lisp it is nil and the value is the whole
 ;; answer.  kg honours it, in Emacs' own two spellings, because a
@@ -1046,7 +1051,7 @@
           (to (if (and start end) (max start end) (point-max)))
           (count 0))
       (goto-char from)
-      (while (and (< (point) to) (re-search-forward regexp to))
+      (while (and (< (point) to) (re-search-forward regexp to t))
         (if (and (= (match-beginning 0) (match-end 0))
                  (< (point) (point-max)))
             (forward-char 1))

@@ -991,6 +991,25 @@ static void cleanup_prefix_binding(FeContext *context, void *ptr)
 	    context, "args-out-of-range", FeMakeList(context, parts, 2));
 }
 
+/* Raise Emacs' `(search-failed PATTERN)`: what a search whose NOERROR is
+ * nil answers, with the pattern it did not find as its one data element
+ * -- measured on 31.0.91, `(search-forward "z")` in a buffer without one
+ * is `(search-failed "z")` and point has not moved.  The symbol joined
+ * fe's condition table at the frontier demand phase's pin; before that
+ * `signal` refused it, so kg's four search names could only answer nil
+ * for a failure, which is Emacs' NOERROR-`t` behaviour applied
+ * unconditionally. */
+[[noreturn]] void lisp_raise_search_failed(
+    FeContext *context, FeObject *pattern)
+{
+	FeObject *parts[1];
+
+	FePushGC(context, pattern);
+	parts[0] = pattern;
+	raise_signal_form(
+	    context, "search-failed", FeMakeList(context, parts, 1));
+}
+
 /* Raise Emacs' `(end-of-buffer)` or `(beginning-of-buffer)`: the two edges
  * a motion or an edit runs into, both with NO data -- measured on the
  * pinned 31.0.90, `(condition-case e (forward-char 20) (error e))` in a

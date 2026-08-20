@@ -236,6 +236,43 @@ static long lisp_search_bound(FeContext *context, struct editor_buffer *b,
 	return lisp_offset_argument(context, b, object);
 }
 
+/* Emacs' NOERROR, which is THREE answers rather than a flag, measured on
+ * 31.0.91 and frozen by frontier-search-noerror-* before any of it
+ * existed here: nil RAISES `search-failed' carrying the pattern and
+ * leaves point, `t' answers nil and leaves point, and ANY OTHER value
+ * answers nil AND MOVES POINT TO THE LIMIT -- to BOUND when one was
+ * given, and to point-max forward or point-min backward when it was not.
+ * The third is not optional: `t' and `'move' differ only in where point
+ * ends up, so a caller that wants the move has no other way to ask.  All
+ * four search names take it, on 26.2's FIXEDCASE precedent that one
+ * argument means one thing across a family. */
+enum lisp_search_noerror {
+	LISP_SEARCH_RAISE,
+	LISP_SEARCH_ANSWER_NIL,
+	LISP_SEARCH_MOVE,
+};
+
+/* The optional third argument.  `t' is compared by identity because fe
+ * interns its symbols, which is how src/lisp_cmd.c asks the same
+ * question. */
+static enum lisp_search_noerror lisp_search_noerror(
+    FeContext *context, FeObject **arguments)
+{
+	FeObject *object;
+
+	if (FeIsNil(*arguments)) {
+		return LISP_SEARCH_RAISE;
+	}
+	object = FeGetNextArgument(context, arguments);
+	if (FeIsNil(object)) {
+		return LISP_SEARCH_RAISE;
+	}
+	if (object == FeMakeSymbol(context, "t")) {
+		return LISP_SEARCH_ANSWER_NIL;
+	}
+	return LISP_SEARCH_MOVE;
+}
+
 enum lisp_search_dir { LISP_SEARCH_FORWARD, LISP_SEARCH_BACKWARD };
 
 static FeObject *lisp_search(FeContext *context, FeObject *arguments,
@@ -252,6 +289,7 @@ static FeObject *lisp_search(FeContext *context, FeObject *arguments,
 	size_t pattern_len;
 	struct kg_regex rx;
 	struct lisp_search_hit hit = { 0 };
+	enum lisp_search_noerror noerror;
 	int found;
 	size_t match_byte;
 
@@ -267,6 +305,12 @@ static FeObject *lisp_search(FeContext *context, FeObject *arguments,
 	 * caught exactly that. */
 	park_scratch(pattern);
 	bound_off = lisp_search_bound(context, b, &arguments, default_bound);
+	noerror = lisp_search_noerror(context, &arguments);
+	/* A FOURTH argument is Emacs' COUNT, which kg does not implement:
+	 * `wrong-number-of-arguments' by name rather than accepted and
+	 * ignored, the Phase 14 `intern'-OBARRAY precedent.  Measured
+	 * demand is zero -- no s.el call passes one -- and
+	 * frontier-search-count-argument pins the condition. */
 	FeRequireNoArguments(context, arguments);
 
 	if (regexp) {
@@ -305,6 +349,13 @@ static FeObject *lisp_search(FeContext *context, FeObject *arguments,
 	release_scratch();
 
 	if (!found) {
+		if (noerror == LISP_SEARCH_MOVE) {
+			(void)kg_marker_set_position(lisp_exec_point_marker(),
+			    lisp_byte_of_char_offset(b, bound_off));
+		}
+		if (noerror == LISP_SEARCH_RAISE) {
+			lisp_raise_search_failed(context, pattern_object);
+		}
 		return FeNil(context);
 	}
 

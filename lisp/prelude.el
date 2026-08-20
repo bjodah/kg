@@ -1477,32 +1477,40 @@ name inside the buffer it is filling.")
 ;; Emacs answers an optimized trie -- (regexp-opt '("a" "ab")) is
 ;; "\\(?:ab?\\)" there -- so what is frozen is the CONTRACT
 ;; (frontier-regexp-opt-*) and never the spelling: the returned regexp,
-;; compiled by kg's own engine, matches every member entirely and prefers
-;; the longest.  Four decisions, each measured rather than chosen:
+;; compiled by kg's own engine, matches every member entirely, prefers
+;; the longest, and is ONE ATOM a caller can prefix, suffix, quantify or
+;; nest.  Four decisions, each measured rather than chosen:
 ;;
 ;;   * LONGEST FIRST.  Alternation order IS semantics in a backtracking
 ;;     engine and kg's takes the leftmost alternative that can match, so
 ;;     the name needs an ORDERING and not a new matcher.  Without it
 ;;     s-replace-all silently replaces the shorter of two overlapping
 ;;     keys.
-;;   * BARE, with no group: kg's engine has no shy group and MISREADS
-;;     `\\(?:' as ordinary characters, so Emacs' own wrapper would make
-;;     the first alternative unmatchable and invert the preference; a
-;;     capturing group would renumber a caller's groups.
-;;   * NO MEMBERS is UNMATCHABLE, not empty (which matches everywhere):
-;;     `\\`a\\`', the inside of Emacs' `\\(?:\\`a\\`\\)', an `a' required at
-;;     both ends of the subject at once.
+;;   * ONE SHY GROUP AROUND IT, `\\(?:...\\)', which is Emacs' own
+;;     wrapper.  F.1 emitted a BARE alternation because kg's engine had
+;;     no shy group and MISREAD the spelling as ordinary characters; the
+;;     R2 pin gave it one, and the bare join was the defect the
+;;     adversarial review named -- (concat (regexp-opt '("a" "b")) "c")
+;;     is "a\\|bc", which still matches "a", so the answer was not a
+;;     regexp CONSTRUCTOR's.  Shy and not capturing: a capturing wrapper
+;;     would renumber the caller's own groups instead.
+;;   * NO MEMBERS is UNMATCHABLE, not empty (which matches everywhere),
+;;     and with the wrapper kg's answer is now Emacs' text exactly:
+;;     `\\(?:\\`a\\`\\)', an `a' required at both ends of the subject at
+;;     once.
 ;;   * ONE ARGUMENT.  Emacs' PAREN is refused by name from the arity
 ;;     itself; measured demand is zero (s.el calls this once, s.el:420).
 ;;
 ;; The list is COPIED because kg's `sort' rewrites what it is given.
 (defalias 'regexp-opt (lambda (strings)
-  (if (null strings)
-      "\\`a\\`"
-    (mapconcat 'regexp-quote
-      (sort (copy-sequence strings)
-            (lambda (a b) (< (length b) (length a))))
-      "\\|"))))
+  (concat "\\(?:"
+    (if (null strings)
+        "\\`a\\`"
+      (mapconcat 'regexp-quote
+        (sort (copy-sequence strings)
+              (lambda (a b) (< (length b) (length a))))
+        "\\|"))
+    "\\)")))
 
 ;; --- the seq- shim ---
 ;; Generic over kg's three sequence types, and generic the cheap way:

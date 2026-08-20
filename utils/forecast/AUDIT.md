@@ -22,11 +22,11 @@ that a name which *stops* being covered is a diff and not a silence.
 | `lisp/help-fns.el` | 160 | 10 |
 | `lisp/pipeline-text.el` | 57 | 6 |
 | `lisp/pipeline.el` | 51 | 13 |
-| `lisp/prelude.el` | 1746 | 139 |
+| `lisp/prelude.el` | 1747 | 139 |
 | `utils/forecast/target-init.el` | 75 | 7 |
 | `utils/forecast/forecast-snippet.el` | 112 | 13 |
 | `utils/forecast/forecast-wordcount.el` | 118 | 10 |
-| **total** | **2468** | **213** |
+| **total** | **2469** | **213** |
 
 ## Implemented-name set
 
@@ -58,7 +58,7 @@ Measured demand for the three families the plan's Declined section keeps off the
 | vectors | 9 | `vectorp` x4, `aref` x3, `vconcat` x2 |
 | records | 0 | -- |
 
-## COVERED (259 names, 2464 references)
+## COVERED (259 names, 2465 references)
 
 | Refs | Name | Source |
 | ---: | --- | --- |
@@ -89,7 +89,7 @@ Measured demand for the three families the plan's Declined section keeps off the
 | 20 | `stringp` | kg-native |
 | 20 | `substring` | kg-native |
 | 19 | `+` | fe-primitive |
-| 18 | `concat` | kg-native |
+| 19 | `concat` | kg-native |
 | 17 | `or` | fe-primitive |
 | 17 | `progn` | kg-lisp |
 | 15 | `reverse` | kg-native |

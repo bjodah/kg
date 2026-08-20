@@ -905,13 +905,20 @@ $(OBJDIR)/fe_run.o: fe/fe_run.c fe/fe.h fe/fe_internal.h
 $(OBJDIR)/fe_unwind.o: fe/fe_unwind.c fe/fe.h fe/fe_internal.h fe/fe_perf.h
 	$(CC) $(FE_CFLAGS) -c $< -o $@
 
-check: header-check lisp-include-check docs-check lisp-compat-check lisp-prelude-check lisp-package-check forecast-check lisp-oracle-check lisp-gc-stress-check prelude-census-check prelude-probe-link-check forecast-init-check check-unit-decoding check-pty-tokens check-unit check-pty
+check: header-check lisp-include-check docs-check external-quarantine-check lisp-compat-check lisp-prelude-check lisp-package-check forecast-check lisp-oracle-check lisp-gc-stress-check prelude-census-check prelude-probe-link-check forecast-init-check check-unit-decoding check-pty-tokens check-unit check-pty
 
 # Cheap documentation drift: every key the built-in help table names has
 # to be spelled somewhere in kg(1).  Not a substitute for reading either
 # one -- it is what catches a binding added to src/help.c and nowhere else.
 docs-check:
 	@$(PYTHON) utils/check_help_drift.py
+
+# external/ is vendored third-party test material; the ledger beside it
+# carries the licenses and the policy, and this asserts the quarantine:
+# no artifact mechanism (install, packaging manifests, the release
+# tarball, anything compiled) reaches it.
+external-quarantine-check:
+	@$(PYTHON) utils/check_external_quarantine.py
 
 # Phase 0 sub-plan 00C's manifest: every Fe primitive (fe/fe.c), kg native
 # and kg prelude definition (src/lisp_prelude.c) must appear in exactly one

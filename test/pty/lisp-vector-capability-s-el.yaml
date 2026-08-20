@@ -17,7 +17,7 @@
 # case whose working directory is a fresh mkdtemp name a file in the
 # checkout.
 #
-# The saved file is the whole assertion, and it has FOUR parts now:
+# The saved file is the whole assertion, and it has FIVE parts now:
 #
 #   * the capabilities document's own acceptance form, verbatim --
 #     (let ((v [1 2 3])) (and (vectorp v) (= (aref v 1) 2) (= (length v) 3)))
@@ -32,7 +32,18 @@
 #   * `s-matches?' and `s-equals?', the two one-line wrappers over the
 #     other names 25.2 added -- `string-match-p', whose contract is that
 #     it does NOT perturb the match data, and `string-equal', which kg
-#     had all along under its short spelling.
+#     had all along under its short spelling; and
+#   * Phase 26.2's three, which is the whole kg-side track in one line.
+#     `s-trim' is the SILENT gap closed: it asks for "\`[ \t\n\r]+", so it
+#     needs the engine to know the spelling AND `replace-match' to exist,
+#     and it used to answer its argument untrimmed with no error
+#     anywhere.  `s-count-matches' is the missing NAME closed, through
+#     `with-temp-buffer' and `count-matches'.  `s-replace-regexp' is the
+#     `replace-match'-shaped name the frozen rows cover from the other
+#     side: s.el defines it as a plain alias of `replace-regexp-in-string'
+#     (s.el:409), so this element pins that the alias reaches kg's own
+#     name through the package rather than through a second
+#     implementation.
 #
 # A failure to load would be visible as an empty save: the init.el error
 # leaves the editor running, so the M-: forms would still be typed and
@@ -64,4 +75,7 @@ keys:
   - "M-:"
   - (insert (format " %S %S" (s-matches? "b+" "abbc") (s-equals? "a" "a")))
   - RET
-expected_saved: 't s-el-joined ("bb" "bb") t t'
+  - "M-:"
+  - (insert (format " %S %S %S" (s-trim "  hi  ") (s-count-matches "a" "banana") (s-replace-regexp "b+" "X" "abbbc")))
+  - RET
+expected_saved: 't s-el-joined ("bb" "bb") t t "hi" 3 "aXc"'

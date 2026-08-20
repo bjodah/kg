@@ -200,11 +200,18 @@ as in Emacs: loaded forms are read and evaluated one at a time in the
 caller's own run, so errors, throws and quits cross the
 .Li load
 as if the forms were written in place.
-.Li (require FEATURE &optional FILENAME)
+.Li (require FEATURE &optional FILENAME NOERROR)
 loads at most once, a no-op when
 .Li (provide FEATURE)
 has already run, and errors ("cyclic require") when re-entered for a
 feature already mid-load.
+A non-nil
+.Li NOERROR
+answers
+.Li nil
+instead of raising when the file is not found, and provides nothing;
+it covers that failure only, so a cyclic require and any error the
+required file itself raises still propagate.
 .Li (featurep FEATURE)
 asks without loading.
 .Li require

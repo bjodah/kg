@@ -2,5 +2,5 @@
  "id": "u0-require-three-arguments-on-a-provided-feature",
  "setup": [],
  "expr": "(progn (provide 'u0-feat) (list (require 'u0-feat) (require 'u0-feat nil) (require 'u0-feat nil t) (featurep 'u0-feat)))",
- "note": "ALL THREE ARITIES ON A FEATURE THAT IS ALREADY THERE, so the case is about the SIGNATURE and not about loading. Emacs answers (u0-feat u0-feat u0-feat t): one, two and three arguments all return the feature symbol, and `featurep' is t throughout. kg answers the first two and raises on the third; u0-require-two-argument-baseline is that half recorded as an agreement, so this row's divergence is attributable to the third slot alone."
+ "note": "ALL THREE ARITIES ON A FEATURE THAT IS ALREADY THERE, so the case is about the SIGNATURE and not about loading. Emacs answers (u0-feat u0-feat u0-feat t): one, two and three arguments all return the feature symbol, and `featurep' is t throughout. kg answered the first two and raised on the third until U.1a; u0-require-two-argument-baseline is that half recorded as an agreement, so this row's divergence was attributable to the third slot alone."
 }

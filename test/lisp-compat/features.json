@@ -5370,7 +5370,7 @@
   {
    "id": "u0-require-arity",
    "category": "loading",
-   "status": "divergent",
+   "status": "supported",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -5380,7 +5380,7 @@
     "u0-require-two-argument-baseline"
    ],
    "kg_test": "test/test_lisp.c:test_require_provide",
-   "rationale": "Phase 29's U.0 freeze for `require''s third argument, NOERROR -- the guarded-require idiom `(require \\'foo nil t)'. It is one package's first blocker in the census (`cython-mode'), and the rows pin both halves of the argument: non-nil returns nil for a missing feature and provides nothing, nil raises `file-missing' with the same data shape kg's own one-argument `require' already raises. u0-require-two-argument-baseline carries `expect: agree' and is what makes this an ARITY row and not a `require' row: kg's `require' ALREADY takes FILENAME, so the implementation has one slot to add. THE DEMAND, MEASURED IN U.0: with a stand-in that honours NOERROR, cython-mode advances to `(require \\'python)' -- an absent library, i.e. the census's largest class -- so this item unblocks a signature, not a package.",
+   "rationale": "Phase 29's U.0 freeze, implemented in U.1a: `require''s third argument, NOERROR -- the guarded-require idiom `(require 'foo nil t)'. It was one package's first blocker in the census (`cython-mode'), and the rows pin both halves of the argument: non-nil returns nil for a missing feature and provides nothing, nil raises `file-missing' with the same data shape kg's own one-argument `require' already raises. u0-require-two-argument-baseline carries `expect: agree' and is what makes this an ARITY row and not a `require' row: kg's `require' ALREADY took FILENAME, so the implementation had one slot to add. THE DEMAND, MEASURED IN U.0: with a stand-in that honours NOERROR, cython-mode advances to `(require 'python)' -- an absent library, i.e. the census's largest class -- so this item unblocks a signature, not a package. WHAT THE ARGUMENT DOES NOT COVER, measured in U.1a and recorded beside the code: the condition-case is around the RESOLVE alone, so a cyclic require, a nesting refusal and any error the required file itself raises still propagate (Emacs' rule), and one case stays divergent from Emacs -- a FILENAME containing `/' is a literal path kg resolves without opening, so its missing-file error comes from the load and escapes NOERROR. Across the whole ELPA tree 92 `require' calls take a second argument, 19 a non-nil FILENAME, 17 of those a slashed one, and none of the 17 also passes NOERROR.",
    "source_name": null
   },
   {

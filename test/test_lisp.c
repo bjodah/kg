@@ -2022,6 +2022,31 @@ static void test_require_provide(void)
 	CHECK(length > 0 && (size_t)length < sizeof(source));
 	CHECK(eval_ok(source));
 
+	/* NOERROR, the third slot (Phase 29 U.1a).  Emacs 31.0.91's own
+	 * answers, recorded in test/lisp-compat/cases/u0-require-*.json:
+	 * non-nil answers nil for a feature whose file is not there and
+	 * provides NOTHING, nil raises `file-missing' with the data shape
+	 * kg's one-argument require already raised, and all three arities
+	 * answer the feature symbol for a feature already provided. */
+	CHECK(eval_eq("(list (require 'guarded-absent nil t) "
+		      "(featurep 'guarded-absent))",
+	    "(nil nil)"));
+	CHECK(eval_eq("(condition-case e (require 'guarded-absent nil nil) "
+		      "(file-missing (car e)))",
+	    "file-missing"));
+	CHECK(eval_eq("(list (require 'counted) (require 'counted nil) "
+		      "(require 'counted nil t) (featurep 'counted))",
+	    "(counted counted counted t)"));
+	/* NOERROR covers the missing file and nothing else: the file's own
+	 * error still propagates through it. */
+	(void)snprintf(path, sizeof(path), "%s/kg/lisp/angry.el", root);
+	CHECK(write_text_file(path, "(error \"boom\")\n") == 0);
+	CHECK(eval_error_contains("(require 'angry nil t)", "boom"));
+	/* And a fourth argument is an arity error, as in Emacs. */
+	CHECK(eval_eq("(condition-case e (require 'counted nil t 4) "
+		      "(error (cdr e)))",
+	    "(require 4)"));
+
 	kg_lisp_shutdown();
 	remove_config_root(root);
 }

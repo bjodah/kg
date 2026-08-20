@@ -934,19 +934,53 @@
 ;; than a false "cyclic require".  The did-not-provide verdict
 ;; (internal--require-check) runs only on the success path, before the
 ;; pop so the C side still sees this chain's depth.
-(defalias 'require (lambda (feature &optional filename)
-  ((lambda (path)
-     (if path
-         ((lambda (pushed)
-            (unwind-protect
-                (progn
-                  (setq pushed (internal--require-push feature))
-                  (internal--load-loop path)
-                  (internal--require-check feature))
-              (if pushed (internal--require-pop))))
-          nil)))
-   (internal--require-resolve feature filename))
-  feature))
+;;
+;; NOERROR is the third slot, and it covers ONE failure: the feature's
+;; file not being found.  Emacs 31.0.91, measured: (require 'absent nil t)
+;; answers nil and provides nothing, (require 'absent nil nil) raises
+;; (file-missing "Cannot open load file" "No such file or directory"
+;; "absent"), and all three arities answer the feature symbol for a
+;; feature already provided.  So the condition-case wraps the RESOLVE and
+;; nothing else -- a cyclic require, a nesting-depth refusal and any error
+;; raised by the file WHILE LOADING all still propagate, which is Emacs'
+;; rule (its `require' passes NOERROR down to `load', whose own NOERROR
+;; covers the missing file alone).  This is the guarded-require idiom
+;; `(require 'foo nil t)' every package writes, and `cython-mode's first
+;; blocker in the census.
+;;
+;; ONE CASE NOERROR DOES NOT COVER HERE, recorded rather than papered
+;; over: a FILENAME containing `/' is a literal path that
+;; internal--require-resolve returns without opening (`load's own rule
+;; for such a name), so the missing-file error comes from the LOAD and
+;; not from the resolve, and this condition-case is deliberately not
+;; around the load.  Emacs answers nil there; kg raises `file-missing'.
+;; Widening the catch is the wrong fix -- it would swallow a `file-
+;; missing' raised by the required file's OWN nested require, which
+;; Emacs propagates.  Measured demand for the combination across the
+;; whole ELPA tree: 92 `require' calls take a second argument, 19 of
+;; them a non-nil FILENAME, 17 of those a slashed one, and NONE of the
+;; 17 also passes NOERROR.
+(defalias 'require (lambda (feature &optional filename noerror)
+  ((lambda (path missing)
+     (if noerror
+         (condition-case nil
+             (setq path (internal--require-resolve feature filename))
+           (file-missing (setq missing t)))
+       (setq path (internal--require-resolve feature filename)))
+     (if missing
+         nil
+       (progn
+         (if path
+             ((lambda (pushed)
+                (unwind-protect
+                    (progn
+                      (setq pushed (internal--require-push feature))
+                      (internal--load-loop path)
+                      (internal--require-check feature))
+                  (if pushed (internal--require-pop))))
+              nil))
+         feature)))
+   nil nil)))
 
 ;; --- startup ---
 ;; The startup screen switch, declared here so it is `boundp' and
@@ -1747,7 +1781,7 @@ name inside the buffer it is filling.")
   (quasiquote . "The backquote reader macro: build FORM, evaluating its unquoted parts.")
   (regexp-opt . "Return a regexp matching exactly the strings in STRINGS, longest first.")
   (replace-regexp-in-string . "Return TEXT with each match of REGEXP replaced by REPLACEMENT.")
-  (require . "Load the feature FEATURE unless it has already been provided.")
+  (require . "Load FEATURE unless already provided; NOERROR answers nil when absent.")
   (reverse . "Return a fresh list with the elements of LIST in the opposite order.")
   (save-excursion . "Run the body and restore the buffer and point afterwards.")
   (seq-filter . "Return the elements of SEQUENCE for which PREDICATE is non-nil.")

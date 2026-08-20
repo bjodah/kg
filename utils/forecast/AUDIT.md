@@ -22,11 +22,11 @@ that a name which *stops* being covered is a diff and not a silence.
 | `lisp/help-fns.el` | 160 | 10 |
 | `lisp/pipeline-text.el` | 57 | 6 |
 | `lisp/pipeline.el` | 51 | 13 |
-| `lisp/prelude.el` | 1755 | 141 |
+| `lisp/prelude.el` | 1763 | 141 |
 | `utils/forecast/target-init.el` | 75 | 7 |
 | `utils/forecast/forecast-snippet.el` | 112 | 13 |
 | `utils/forecast/forecast-wordcount.el` | 118 | 10 |
-| **total** | **2477** | **215** |
+| **total** | **2485** | **215** |
 
 ## Implemented-name set
 
@@ -58,12 +58,12 @@ Measured demand for the three families the plan's Declined section keeps off the
 | vectors | 9 | `vectorp` x4, `aref` x3, `vconcat` x2 |
 | records | 0 | -- |
 
-## COVERED (261 names, 2473 references)
+## COVERED (261 names, 2481 references)
 
 | Refs | Name | Source |
 | ---: | --- | --- |
-| 173 | `setq` | fe-primitive |
-| 168 | `if` | fe-primitive |
+| 176 | `setq` | fe-primitive |
+| 170 | `if` | fe-primitive |
 | 155 | `list` | fe-primitive |
 | 143 | `cdr` | fe-primitive |
 | 140 | `defalias` | kg-lisp |
@@ -90,8 +90,8 @@ Measured demand for the three families the plan's Declined section keeps off the
 | 20 | `substring` | kg-native |
 | 19 | `+` | fe-primitive |
 | 19 | `concat` | kg-native |
+| 18 | `progn` | kg-lisp |
 | 17 | `or` | fe-primitive |
-| 17 | `progn` | kg-lisp |
 | 15 | `reverse` | kg-native |
 | 14 | `funcall` | fe-primitive |
 | 13 | `consp` | kg-native |
@@ -150,6 +150,7 @@ Measured demand for the three families the plan's Declined section keeps off the
 | 3 | `boundp` | fe-primitive |
 | 3 | `bounds-of-thing-at-point` | kg-native |
 | 3 | `char-to-string` | kg-native |
+| 3 | `condition-case` | fe-primitive |
 | 3 | `defmacro` | kg-lisp |
 | 3 | `erase-buffer` | kg-native |
 | 3 | `forecast-snippet--fields` | corpus |
@@ -174,7 +175,6 @@ Measured demand for the three families the plan's Declined section keeps off the
 | 2 | `beginning-of-line` | kg-native |
 | 2 | `buffer-name` | kg-native |
 | 2 | `char-after` | kg-native |
-| 2 | `condition-case` | fe-primitive |
 | 2 | `current-column` | kg-native |
 | 2 | `documentation` | kg-lisp |
 | 2 | `documentation-property` | kg-lisp |
@@ -199,6 +199,7 @@ Measured demand for the three families the plan's Declined section keeps off the
 | 2 | `internal--qq-dotted` | kg-lisp |
 | 2 | `internal--read-form` | kg-native |
 | 2 | `internal--replace-expand` | kg-lisp |
+| 2 | `internal--require-resolve` | kg-native |
 | 2 | `internal--setq-local-forms` | kg-lisp |
 | 2 | `internal--string-designator` | kg-lisp |
 | 2 | `internal--trim-char-p` | kg-lisp |
@@ -283,7 +284,6 @@ Measured demand for the three families the plan's Declined section keeps off the
 | 1 | `internal--require-check` | kg-native |
 | 1 | `internal--require-pop` | kg-native |
 | 1 | `internal--require-push` | kg-native |
-| 1 | `internal--require-resolve` | kg-native |
 | 1 | `internal--resolve-load` | kg-native |
 | 1 | `keywordp` | fe-primitive |
 | 1 | `listp` | kg-native |

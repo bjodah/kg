@@ -2,5 +2,5 @@
  "id": "u0-require-noerror-absent-is-nil",
  "setup": [],
  "expr": "(list (require 'u0-no-such-feature nil t) (featurep 'u0-no-such-feature))",
- "note": "NOERROR, THE ARGUMENT THE THIRD SLOT IS FOR. Emacs answers (nil nil): a missing feature with NOERROR non-nil returns nil instead of raising, and nothing is provided as a side effect. This is the guarded-require idiom every package writes (`(require \\'foo nil t)'), and it is `cython-mode''s first blocker. kg answers `wrong-number-of-arguments (require 3)' at this pin."
+ "note": "NOERROR, THE ARGUMENT THE THIRD SLOT IS FOR. Emacs answers (nil nil): a missing feature with NOERROR non-nil returns nil instead of raising, and nothing is provided as a side effect. This is the guarded-require idiom every package writes (`(require \\'foo nil t)'), and it is `cython-mode''s first blocker. U.1a added the slot and kg answers this too."
 }

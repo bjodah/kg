@@ -160,6 +160,11 @@ text above them.
   the longest-first preference it exists to provide.
   `frontier-regexp-shy-group-unsupported` is that row, and it is the one
   written NOT to flip -- phase26-anchor-line-vs-subject's shape.
+  [Superseded 2026-08-20 by the R2 repair: tiny-regex-c gained shy
+  groups (fe pin `e1d4fbd`), `regexp-opt` now emits exactly that
+  wrapper, and this row was re-classified in `f2da3ff` when kg began
+  answering Emacs' value.  See this document's F.1/F.2 results and
+  `doc/reviews/2026-08-20-elisp-phases23-26-review-adjudication.md`.]
 
 One more thing measured because F.1 would otherwise discover it:
 **`search-failed` is an fe change, not a `src/lisp_search.c` change.**
@@ -201,11 +206,20 @@ Implementation reads these; it does not re-litigate them.
    needs an ordering, not a matcher.  The empty-member answer is
    spellable for free: Emacs' unmatchable regexp is `` \`a\` `` inside
    its wrapper and both anchors have been kg's since 26.2.
+   [Superseded: once R2 delivered shy groups, `65dd1af` made the
+   result one `\(?:...\)`-wrapped atom -- the exact change this
+   decision explains the impossibility of.]
 7. **`regexp-opt`'s PAREN is a named arity error**
    (`wrong-number-of-arguments`), the Phase 14 `intern`-OBARRAY
    precedent -- refused by name, never accepted and ignored.  Measured
    demand: s.el calls `regexp-opt` exactly once, at s.el:420, with one
    argument.
+   [Reversed by Phase 29 (2026-08-21): the ELPA census named consumers
+   -- 69 two-argument sites in 16 packages, yaml-mode's first blocker
+   -- which is this campaign's stated condition for reopening a closed
+   question.  PAREN is accepted as of `6a0aff9`;
+   `doc/plans/2026-08-20-elisp-demand-first-unblock.md` §4.5 records
+   the reversal and the oracle case's note carries it.]
 8. **`multibyte-string-p` answers nil for every string, always** --
    chosen, not defaulted: answering `t` would send `s-reverse` into a
    branch that `(require 'ucs-normalize)`.  ASCII rows are written to

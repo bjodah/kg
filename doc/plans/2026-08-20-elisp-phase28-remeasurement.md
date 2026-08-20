@@ -780,3 +780,34 @@ this file, in kg and in fe.  Nothing under `/root/.emacs.d/elpa/` was
 copied, modified, or committed; the scratch shim and probe files used to
 see past one blocker at a time lived in the session scratchpad and are
 named where they are used.
+
+## Outcome, and two corrections recorded later
+
+Written 2026-08-21, after the fact.
+
+The owner selected NONE of the five branches on 2026-08-20 and chose
+the direction section 6.3's census surfaced: work the measured blocker
+classes directly.  That is Phase 29
+(`doc/plans/2026-08-20-elisp-demand-first-unblock.md`, `7d83f78`); its
+U.0 wave froze the items' Emacs contracts and its U.1a wave landed the
+prelude-side slice.  The five branches above stay evaluated and
+dormant, reopened only by a named consumer.  Of the two broken
+instruments this document reported: `make bench`'s
+`lisp-arithmetic-loop` assertion is recorded in Phase 29's plan and
+still owed; `src/lisp_core.c`'s stale 9336 was repaired in `1214021`.
+
+Two statements in this document were then corrected by Phase 29's U.0;
+the numbers they support are unchanged:
+
+* Section 6.3 describes its shim's `eval-when-compile` and
+  `eval-and-compile` "as inert macros".  Reproducing the published
+  shimmed column requires both to EVALUATE their bodies -- which is
+  what Emacs does when interpreting them; inert versions carry four
+  packages past a `require` they stop at.  Phase 29's plan, section 2
+  of its U.0 results, records the reproduction recipe.
+* Section 6.2's second exhibit (the `put` + `signal` divergence) is a
+  divergence only WITH the `put` in front: an undeclared condition
+  symbol answers identically in kg and Emacs
+  (`u0-signal-undeclared-symbol-baseline`, an agreement).  The exhibit
+  as printed is correct; the boundary is recorded here so it is not
+  over-read.

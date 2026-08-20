@@ -119,3 +119,22 @@ Two of the review's three remedies are adopted; one is not:
    already paid for itself: one real format finding (fixed, `071b6f5`)
    and a recurring dap-session deadline flake now hardened (`b7ccb0f`).
 4. Phase 28's remeasurement and selection, brought to the user.
+
+## Status (2026-08-21, after the fact)
+
+All four steps completed, in the order written:
+
+1. R1 landed as fe `9b09ad6`, kg pin `ebff28f`.
+2. R2 landed as tiny-regex-c `1bcd57b` + `29fc9fb`, fe pin `e1d4fbd`
+   (both submodule suites green), then kg's seam adoption
+   `f2da3ff`..`91a9740` -- bounded search, `count-matches`, the
+   query-replace region, `regexp-opt` as a shy-grouped atom, and the
+   differential's shy-group generation and bounded mode.
+3. F.2 closed at `0bfef81` after three matrix runs: run 2's one
+   failure was the MSan gc-stress budget, re-sized with fail/pass
+   proofs in `b852d51`; run 3's was a single oracle-side load flake
+   whose whole lane re-ran green.  The ledger is in the frontier plan
+   document.
+4. Phase 28's remeasurement landed as `5cd0e97`, and the owner
+   selected the demand-first direction its census surfaced -- none of
+   the five branches -- now Phase 29 (`7d83f78`).

@@ -8,6 +8,12 @@ The five branches stay evaluated and dormant exactly as Phase 27 does:
 a named consumer reopens one, and the census is how a consumer gets
 named.
 
+A note on numbering: this is the campaign's own Phase 29.  It does not
+continue the adversarial review's sketched phases 29-34, which were
+INPUT to Phase 28's selection and are cited throughout as "sketch
+Phase N" (the sketch's own 29, a regex substrate, was largely delivered
+early by the R2 repair).
+
 ## The measured backlog, in demand order
 
 Each item carries its consumers as the census counted them.  Cost
@@ -21,6 +27,12 @@ classes use prior phases' actual sizes.
 | 4 | `define-error`, and `signal` consulting `error-conditions` plists | s.el's own error path (measured wrong vs Emacs: `(error ("Invalid error symbol" sym))` where Emacs gives `(sym nil)`) | fe conditions (pin move) | M |
 | 5 | `$`/`^` as CONTEXTUAL anchors (literal mid-pattern, as Emacs) | s-lex-format silently expands to an empty binding list today | tiny-regex-c -> fe -> kg pin chain | M |
 | 6 | A cl-lib subset | 35 packages stop at `(require 'cl-lib)`; 12 more at `compat` | prelude module(s); U.0 must first measure what those packages reach for NEXT | L, split after U.0 |
+
+This table is preserved as written; U.0's measurements then corrected
+it -- the demand column counts STOPS, not unblocks (§4.1), item 3 is
+under-ranked (§4.6), and item 1's `regexp-opt` half splits into an
+argument cost and an engine cost (§4.4).  U.1a executed the corrected
+order.
 
 Two evidence-machinery repairs ride along as standalone commits, each
 with its own measured rationale:
@@ -36,7 +48,8 @@ with its own measured rationale:
 
 ## Waves
 
-**U.0 -- freeze (entry gate).**  For every backlog item: Emacs
+**U.0 -- freeze (entry gate).  DONE: `eed6da0` + `495f248`; results
+below.**  For every backlog item: Emacs
 31.0.91's exact behavior measured FIRST and frozen as oracle cases
 (runner-produced snapshots, fresh case names); and the demand map
 measured, not remembered -- for items 1-5 the census's plain-kgbatch
@@ -49,15 +62,25 @@ ranked, so the subset is sized by demand rather than by cl-lib's index.
 No implementation in U.0.
 
 **U.1 -- prelude and kg-side items** (1, 3, and 6's first slice per
-U.0's ranking).  Original code, Emacs-shaped, measured against the
+U.0's ranking).  **DONE as U.1a: `65f1ebb`..`bf6322e`; results
+below.**  The executed slice additionally covered the package-preamble
+names U.0's chain measurement surfaced (`static-if`,
+`lexical-binding`, `emacs-major-version`, `make-obsolete-variable`,
+and `eval-when-compile`/`eval-and-compile` evaluating their bodies per
+§4.7) -- each derived from §3.1 or §4.2 rather than from a backlog
+row.  Original code, Emacs-shaped, measured against the
 oracle; never ported from GPL sources (the external/ quarantine gate
 stays: nothing under external/ reaches shipped artifacts).
 
-**U.2 -- the engine and fe chain** (2, 4, 5), fe-first pin discipline,
+**U.2 -- the engine and fe chain** (2, 4, 5; plus the `words`/
+`symbols` boundary gap §4.4 moved here and the group-numbered shy
+opener U.1a found).  **ON HOLD (2026-08-21): further agent waves
+paused by the owner pending an external review of the plans.**
+fe-first pin discipline,
 tiny-regex-c first for item 5, every expectation measured on Emacs
 before code.
 
-**U.3 -- exit.**  The census re-run whole: the loadable-package count
+**U.3 -- exit.  Same hold as U.2.**  The census re-run whole: the loadable-package count
 (today: exactly 1 of 110) and the first-blocker histogram are the
 phase's before/after; the full 16-step matrix at the head; results
 written into this document.
@@ -507,7 +530,9 @@ beside the code.
 
 Phase 28's Branch 3 said the supported `cl-` neighbourhood must be
 stated before advertising it, and U.0 stated the numbers without
-deciding.  **U.1a decides**: kg answers `(require 'cl-lib)` with the
+deciding.  **U.1a decides -- provisionally, and subject to the
+owner's review, since a wave brief cannot ratify a policy the plan
+reserved**: kg answers `(require 'cl-lib)` with the
 feature and a NAMED SUBSET.  A package reaching any other `cl-` name
 gets `void-function` AT THE CALL, not `file-missing` at the require --
 the failure moves from load time to run time, deliberately, because

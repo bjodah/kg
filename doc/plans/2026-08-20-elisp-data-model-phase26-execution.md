@@ -448,6 +448,104 @@ green at that commit.
 9. **Forecast partition**: new names move MISSING -> COVERED;
    `utils/forecast/AUDIT.md` regenerated in the commit that binds them.
 
+## 26.2 results -- the transition, and what the demand track bought
+
+The commit roll.  tiny-regex-c `8e62ba7` (branch `adapt-to-fe`): `` \` ``
+and `\'` compile to the BEGIN/END nodes `^`/`$` already produce, the
+escaped-character fall-through no longer swallows them; 12 ok.lst + 7
+nok.lst rows (test1 185 -> 204), 14 test_api span cases, 3 fuzz seeds,
+both spellings in `select_python_subset.py`'s DIALECT list -- four nok
+rows had ridden into `pynok.lst` on an ACCIDENTAL agreement (Python reads
+`abc\'` as literal `abc'`) and would have failed test_rand_neg the first
+time a generated subject ended in "abc".  fe `657da21`: the one-line
+tiny-regex-c pin bump, fe's full ten-step runner green at that head.  kg:
+`4673c6f` (the transition: fe pin 8718046 -> 657da21, census/arena/
+partition re-measure, the differential generator grows both spellings,
+`phase26-anchor-spellings` divergent -> supported), `713d032`
+(count-matches, bound in Lisp because its loop is), `af9dc34`
+(replace-match string form, FIXEDCASE declined in writing), `6443516`
+(the s.el capability case grows s-trim / s-count-matches /
+s-replace-regexp), `c3f3477` (restores Phase 21's adversarial review to
+tracking -- the transition had untracked it on a stale orchestrator
+briefing; the bytes never changed).
+
+The census, one movement at a time (25.2 pin -> transition ->
++count-matches -> HEAD): peak 10141 -> 10142 -> 10275 -> 10400;
+reachable 9080 -> 9081 -> 9208 -> 9327; embedded 77304 -> 77304 ->
+79433 -> 82275; defs 133 -> 133 -> 134 -> 135; payload_capacity
+2349296 -> 2350896 (flat after); payload_live 35984 -> 44208 -> 44488 ->
+44776; payload_peak 66768 -> 81200 -> 81712 -> 82496; compactions 1 and
+failures 0 throughout.  The index's share is the transition column:
+CELLS moved by exactly +1 (the index's owner, a zero-length string
+header) and payload by +8224 live / +14432 peak -- 8192 of it is 1024
+table slots of eight bytes, the prelude having resized the 256-slot
+initial table twice, with peak carrying one resize's old-and-new pair.
+18.6% of payload_live at the 10 MiB default, 4.9% of the 768 KiB
+floor's payload capacity.  `FeMinimumArenaSize()` 72136 -> 74248.  The
+arena floor stays 768 KiB with the window re-derived, 3 x 9327 = 27981
+<= 30912 < 55962: both ends moved and the answer did not, which is why
+`test_arena_floor_matches_census()` reads the census file.  The
+partition moved everywhere (~88 fewer slots per size), so four PTY
+cases pinning slot counts and three `src/lisp_core.c` comments moved
+with it.
+
+Startup, measured against a clone at the old fe pin, interleaved three
+times so the box's load sits in both columns: prelude read 6.0 -> 0.63
+ms (9.5x), eval 11.2 -> 3.9 ms (2.9x), 50 kgbatch processes 0.59 ->
+0.26 s (2.3x, 11.8 -> 5.2 ms per process).  25.2 recorded the payload
+regression as 1.6-1.9x and predicted the index would claw part of it
+back; it lands UNDER the pre-payload baseline (read 2.55 ms, eval 6.5
+ms, 8.0 ms per process) instead.  Reading moves most because reading is
+almost nothing but interning.
+
+The oracle: 378 cases, 326/52/0 at the 26.0 freeze -> 345/33/0 at HEAD.
+Flipped to supported: `phase26-anchor-spellings` (7 cases),
+`phase26-count-matches` (6), `phase26-replace-match-errors` (1),
+`phase26-s-el-trim-silent-gap` (1), and Phase 24's `s-el-vendored-load`
+(2 -- the frontier case now agrees on all eight calls).  Still
+divergent, each for a stated reason: `phase26-anchor-line-vs-subject`
+(written not to flip, and did not -- kg's `` \` `` is right and kg's `^`
+still wrong, from the same two nodes), `phase26-replace-match-
+string-form` (four of five cases agree and carry `expect: agree`; the
+fifth needs case folding), and `phase26-replace-match-case-conversion`
+(the declined rule, and unaskable besides).
+
+The FIXEDCASE decision: DECLINED.  `replace-match` accepts FIXEDCASE
+and ignores it, exactly as `replace-regexp-in-string` beside it -- one
+argument, one meaning across the family, the shape 25.2 resolved for
+`string=` against `string<`.  Two reasons, neither taste: kg folds no
+case, so Emacs' rule could only fire where a pattern matched upper-case
+text WITHOUT folding to do so; and -- found by running the frozen
+cases, not reading them -- NO frozen case can ask the question: every
+element of both case rows needs `case-fold-search` to match at all.
+26.0's note that those subjects avoid folding is WRONG; the manifest
+and case notes record the correction.  The honouring version was built
+first, measured against the rows, found unadjudicable, and removed.
+
+The differential: the generator emits `` \` `` in 5.8% and `\'` in 4.9%
+of patterns; trailing anchors are deliberately never quantified (Emacs
+reads `$*`/`\'*` as a quantified empty assertion where kg reads a
+literal `*` -- a pre-existing divergence the aliases inherit unchanged
+and the generator has never produced).  `make check-regex-differential`
+green, plus seeds 12/13/14/15/20260729/20260820 at 20000 cases each:
+240 000 comparisons, diverged=0.
+
+The honest frontier, re-probed over 51 s.el entry points and asserted
+as a VALUE in `test_s_el_vendored_load`: `compare-strings`
+(s-shared-start/-end, s-ends-with?), `fill-region` (s-word-wrap),
+`regexp-opt` (s-replace-all), `multibyte-string-p` (s-reverse),
+`assoc-string` (s-format), and `re-search-forward`'s third argument
+NOERROR (s-split-up-to) -- an ARITY gap, not a name.  That list is
+Phase 27+'s demand signal.
+
+Deliberately not done, with reasons: `how-many` (Emacs' primary
+spelling; demand asked for the alias actually used), `upcase-initials`
+(existed only to serve the declined rule), `replace-match`'s buffer
+form (no frozen row demands it; a named error instead), NOERROR (found
+by the probe, recorded as demand).  Complexity/pmccabe ratchets unmoved
+in every commit; forecast, lisp-compat (597 features, 0 problems) and
+prelude-census gates green at HEAD.
+
 ## 26.3 -- required evidence (master plan's gates, verbatim)
 
 - a miss never interns, preserving `intern-soft`'s double-probe contract;

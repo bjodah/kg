@@ -1150,7 +1150,10 @@
 ;; string.  An escape Emacs rejects outright ("\\q") yields the escaped
 ;; character here; that is the one shape of replacement string the two
 ;; disagree about.
-(defalias 'internal--replace-expand (lambda (rep string)
+;; SUBEXP is which group \\& stands for.  It is 0 -- the whole match --
+;; for every caller but `replace-match' with an explicit SUBEXP, where
+;; Emacs' \\& is the SUBEXPRESSION being replaced and not group 0.
+(defalias 'internal--replace-expand (lambda (rep string &optional subexp)
   (let ((chars (string-to-list rep)) (out ""))
     (while chars
       (let ((c (car chars)))
@@ -1158,7 +1161,8 @@
             (let ((d (car (cdr chars))))
               (setq chars (cdr chars))
               (cond ((= d 38)
-                     (setq out (concat out (match-string 0 string))))
+                     (setq out (concat out
+                                 (match-string (if subexp subexp 0) string))))
                     ((= d 92) (setq out (concat out "\\")))
                     ((and (<= 48 d) (<= d 57))
                      (let ((m (match-string (- d 48) string)))
@@ -1167,6 +1171,51 @@
           (setq out (concat out (char-to-string c)))))
       (setq chars (cdr chars)))
     out)))
+;; Emacs' `replace-match', STRING form only -- which is the form s.el
+;; reaches, `(replace-match "" t t s)' from `s-trim-left' and
+;; `s-trim-right'.  It answers a NEW string and mutates nothing.  The
+;; buffer form is a different operation on a different object; kg does
+;; not have it, and says so rather than doing something else.
+;; FIXEDCASE is ACCEPTED AND IGNORED, which is what
+;; `replace-regexp-in-string' beside it already does with the same
+;; argument: kg never case-adjusts a replacement because it never
+;; case-folds a match, and two names taking one argument must not
+;; disagree about it.  Emacs' rule -- upcase the replacement after an
+;; all-upper match, `upcase-initials' it after a capitalised one -- can
+;; only fire where the pattern matched upper-case text WITHOUT folding
+;; to do it, which no frozen case can even ask (every one of them needs
+;; `case-fold-search' to match at all).  Declined here rather than
+;; approximated: see phase26-replace-match-case-conversion.
+;; Three properties are frozen against Emacs (phase26-replace-match-*)
+;; and none of them is guessable:
+;;
+;;   * SUBEXP selects the span to replace and defaults to the whole
+;;     match.  Naming a group that did not participate is `error' with
+;;     Emacs' own message -- and so is an EMPTY register, where group 0
+;;     is a subexpression like any other, so the two share a condition
+;;     AND a message and are told apart only by the SUBEXP AS WRITTEN in
+;;     the data: nil against 2.
+;;   * match data that does not fit STRING is `args-out-of-range'
+;;     carrying the offending span.
+;;   * THE MATCH DATA IS NOT ADJUSTED afterwards.  It still reads the
+;;     ORIGINAL subject's span over a returned string of another length.
+;;     The buffer form does adjust; one code path serving both would have
+;;     to choose, and Emacs' answer for the string form is "leave it".
+(defalias 'replace-match (lambda
+  (newtext &optional fixedcase literal string subexp)
+  (if (null string)
+      (error "replace-match: kg has the STRING form only")
+    (let* ((n (if subexp subexp 0)) (from (match-beginning n)))
+      (if (null from)
+          (signal 'error
+            (list "replace-match subexpression does not exist" subexp))
+        (let ((to (match-end n)))
+          (if (< (length string) to)
+              (signal 'args-out-of-range (list from to))
+            (concat (substring string 0 from)
+                    (if literal newtext
+                      (internal--replace-expand newtext string n))
+                    (substring string to)))))))))
 ;; REP is a replacement string or a function of the matched text.  Emacs'
 ;; FIXEDCASE is accepted and ignored -- kg never case-adjusts a
 ;; replacement, because it never case-folds a match either -- and its

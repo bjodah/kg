@@ -6106,10 +6106,11 @@ static void test_quit_uncaught(void)
  * primitives kg wraps (internal--fe-length, internal--fe-elt) and the two
  * helpers the sequence generalisation is built from
  * (internal--seq-to-list, internal--equal-vectors), taking it to 126.
- * Phase 26.2 added `count-matches', the missing NAME Phase 25's honest
- * frontier measured unmodified s.el stopping at, which is prelude Lisp
- * because its counting loop is. */
-#define PRELUDE_DEFS 134
+ * Phase 26.2 added `count-matches' and `replace-match', the two missing
+ * NAMES Phase 25's honest frontier measured unmodified s.el stopping at,
+ * both prelude Lisp because both are ordinary Lisp over what kg already
+ * had. */
+#define PRELUDE_DEFS 135
 
 /* What a value CAPTURED out of a symbol's function cell is: that symbol's
  * definition at the moment of capture, and it stays that definition
@@ -6964,6 +6965,68 @@ static void test_phase26_count_matches(void)
 	kg_lisp_shutdown();
 }
 
+/* Phase 26.2's `replace-match', STRING form, against the rows 26.0 froze
+ * (test/lisp-compat/cases/phase26-replace-match-*).  Two of the frozen
+ * five could not be asked of kg at all -- FIXEDCASE nil's case rule needs
+ * `case-fold-search' to make its own patterns match, which kg does not
+ * have -- so what is here is what is checkable: the basic replacement,
+ * both readings of LITERAL, SUBEXP, the register left ALONE afterwards,
+ * and the three error shapes. */
+static void test_phase26_replace_match(void)
+{
+	CHECK(kg_lisp_init() == 0);
+
+	/* A NEW string; nothing is mutated. */
+	CHECK(eval_eq("(progn (string-match \"b+\" \"abbbc\")"
+		      " (replace-match \"X\" t t \"abbbc\"))",
+	    "aXc"));
+	/* LITERAL nil expands \\N, \\& and \\\\ -- the same three
+	 * `replace-regexp-in-string' has, through the same helper. */
+	CHECK(eval_eq("(list (progn (string-match \"\\\\(a\\\\)\\\\(b\\\\)\" \"ab\")"
+		      "        (replace-match \"\\\\2\\\\1\" t nil \"ab\"))"
+		      " (progn (string-match \"b+\" \"abbbc\")"
+		      "  (replace-match \"[\\\\&]\" t nil \"abbbc\")))",
+	    "(\"ba\" \"a[bbb]c\")"));
+	/* LITERAL t inserts a replacement that WOULD have been an escape
+	 * verbatim, which is the half s.el uses. */
+	CHECK(eval_eq("(progn (string-match \"b\" \"ab\")"
+		      " (replace-match \"\\\\1x\" t t \"ab\"))",
+	    "a\\1x"));
+	/* SUBEXP replaces one group's span -- and after a STRING
+	 * replacement THE MATCH DATA IS NOT ADJUSTED: 1..4 still stands
+	 * over a string of another length. */
+	CHECK(eval_eq("(list (progn (string-match \"\\\\(a\\\\)\\\\(b\\\\)\" \"ab\")"
+		      "        (replace-match \"X\" t t \"ab\" 2))"
+		      " (progn (string-match \"b+\" \"abbbc\")"
+		      "  (list (replace-match \"XY\" t t \"abbbc\")"
+		      "   (match-beginning 0) (match-end 0))))",
+	    "(\"aX\" (\"aXYc\" 1 4))"));
+	/* The three error shapes, as VALUES.  The first two share a
+	 * condition AND a message and are told apart only by the SUBEXP as
+	 * written -- nil against 2 -- because group 0 is a subexpression
+	 * like any other and an empty register has none. */
+	CHECK(eval_eq(
+	    "(list (progn (set-match-data nil)"
+	    "        (condition-case e (replace-match \"x\" t t \"abc\")"
+	    "          (error (list (car e) (cdr e)))))"
+	    " (progn (string-match \"\\\\(a\\\\)\\\\|\\\\(b\\\\)\" \"a\")"
+	    "  (condition-case e (replace-match \"X\" t t \"a\" 2)"
+	    "    (error (list (car e) (cdr e)))))"
+	    " (progn (string-match \"b+\" \"abbbc\")"
+	    "  (condition-case e (replace-match \"X\" t t \"ab\")"
+	    "    (error (list (car e) (cdr e))))))",
+	    "((error (\"replace-match subexpression does not exist\" nil))"
+	    " (error (\"replace-match subexpression does not exist\" 2))"
+	    " (args-out-of-range (1 4)))"));
+	/* The buffer form is a different operation on a different object,
+	 * and kg says so rather than doing something else. */
+	CHECK(eval_error_contains("(progn (string-match \"b\" \"ab\")"
+				  " (replace-match \"X\"))",
+	    "STRING form"));
+
+	kg_lisp_shutdown();
+}
+
 /* Phase 24.3's last required case: the REAL package the synthetic
  * sel-frontier fixture stood in for.  external/elpa/s.el is 793 lines of
  * GPLv3+ Emacs Lisp vendored for testing only -- provenance in
@@ -7030,39 +7093,53 @@ static void test_s_el_vendored_load(void)
 		      " (s-match \"\\\\(b+\\\\)\" \"abbc\"))",
 	    "(t t (\"bb\" \"bb\"))"));
 
-	/* THE FRONTIER, named rather than described, and it MOVED again --
-	 * which is what this line is for.  Phase 26.2 taught the engine
-	 * (fe/tiny-regex-c) Emacs' subject anchors, so `string-match' finds
-	 * s-trim's own leading run where it used to answer nil -- and the
-	 * SILENT gap Phase 25.2 recorded became a LOUD one.  s.el's `if'
-	 * takes the THEN branch now and calls `replace-match', which kg
-	 * does not bind yet, so `s-trim' RAISES `void-function' instead of
-	 * quietly returning its argument untrimmed.  That is the whole
-	 * value of landing the spellings first: what is missing announces
-	 * itself.  `count-matches' landed with this commit, so
-	 * `s-count-matches' answers 3 where it answered its own missing
-	 * name.  ONE missing name is left, and it is not silent:
+	/* THE FRONTIER PHASE 25 LEFT IS CLOSED.  Both of its gaps landed in
+	 * 26.2 -- the two anchor spellings in the engine (fe/tiny-regex-c)
+	 * and then `count-matches' and `replace-match' in the prelude -- so
+	 * `s-trim' trims, `s-count-matches' counts, and the two
+	 * `string-match' elements are the spelling's own before and after in
+	 * one call each: "\\` " matches at offset 0 where "\\`h" cannot, and
+	 * `^ ' beside them is the control that has always worked. */
+	CHECK(eval_eq("(list (s-count-matches \"a\" \"banana\")"
+		      " (s-trim \"  hi  \") (s-trim-left \"  hi  \")"
+		      " (s-trim-right \"  hi  \")"
+		      " (string-match \"\\\\`h\" \"  hi\")"
+		      " (string-match \"\\\\` \" \"  hi\")"
+		      " (string-match \"^ \" \"  hi\")"
+		      " (fboundp 'replace-match))",
+	    "(3 \"hi\" \"hi  \" \"  hi\" nil 0 0 t)"));
+
+	/* AND THE NEXT ONE, measured the same way rather than predicted:
+	 * 51 of the package's own entry points were called and the ones
+	 * that raised are below.  Five are missing NAMES and the sixth is
+	 * not a name at all -- kg's `re-search-forward' takes REGEXP and
+	 * BOUND and s.el passes Emacs' third argument, NOERROR, so the gap
+	 * is an ARITY.  Phase 27+'s demand signal, and a phase that lands
+	 * one of them fails this line, which is the point of writing it
+	 * down.
 	 *
-	 *   * `replace-match', which `s-trim-left' and `s-trim-right'
-	 *     reach as (replace-match "" t t s).
-	 *
-	 * The two `string-match' elements are the spelling's own before and
-	 * after, in one call each: "\\` " matches at offset 0 where "\\`h"
-	 * cannot, and `^ ' beside them is the control that has always
-	 * worked.
-	 *
-	 * Phase 26's demand signal, measured from a real package rather
-	 * than counted out of a corpus.  A phase that lands one of them
-	 * fails this line, which is the point of writing it down. */
-	CHECK(
-	    eval_eq("(list (s-count-matches \"a\" \"banana\")"
-		    " (condition-case e (s-trim \"  hi  \")"
-		    "   (void-function (car e)))"
-		    " (string-match \"\\\\`h\" \"  hi\")"
-		    " (string-match \"\\\\` \" \"  hi\")"
-		    " (string-match \"^ \" \"  hi\")"
-		    " (fboundp 'replace-match))",
-		"(3 void-function nil 0 0 nil)"));
+	 *   compare-strings      s-shared-start, s-shared-end, s-ends-with?
+	 *   fill-region          s-word-wrap
+	 *   regexp-opt           s-replace-all
+	 *   multibyte-string-p   s-reverse
+	 *   assoc-string         s-format, s--aget
+	 *   re-search-forward/3  s-split-up-to
+	 */
+	CHECK(eval_eq(
+	    "(list (condition-case e (s-shared-start \"abc\" \"abd\")"
+	    "        (void-function (car (cdr e))))"
+	    " (condition-case e (s-word-wrap 3 \"aa bb\")"
+	    "   (void-function (car (cdr e))))"
+	    " (condition-case e (s-replace-all '((\"a\" . \"X\")) \"abc\")"
+	    "   (void-function (car (cdr e))))"
+	    " (condition-case e (s-reverse \"abc\")"
+	    "   (void-function (car (cdr e))))"
+	    " (condition-case e (s-format \"${a}\" 'aget '((\"a\" . \"1\")))"
+	    "   (void-function (car (cdr e))))"
+	    " (condition-case e (s-split-up-to \",\" \"a,b,c\" 1)"
+	    "   (wrong-number-of-arguments (cdr e))))",
+	    "(compare-strings fill-region regexp-opt multibyte-string-p"
+	    " assoc-string (re-search-forward 3))"));
 
 	kg_lisp_shutdown();
 }
@@ -8495,6 +8572,7 @@ int main(void)
 	RUN(test_phase25_strings);
 	RUN(test_phase25_match_data);
 	RUN(test_phase26_count_matches);
+	RUN(test_phase26_replace_match);
 	RUN(test_s_el_vendored_load);
 	RUN(test_phase8_library);
 	RUN(test_captured_function_value);

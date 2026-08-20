@@ -865,6 +865,7 @@ groups and up to nine of them.
 | `(match-string N &optional STRING)` | The `N`th group's text, `nil` when that group did not participate. With `STRING` it reads the string the last `string-match` ran over; without it, the buffer |
 | `(match-beginning N)` / `(match-end N)` | 0-based character indices after a `string-match`, 1-based buffer positions after a buffer search — the units of whichever subject was matched |
 | `(replace-regexp-in-string REGEXP REP STRING &optional FIXEDCASE LITERAL)` | `REP` is a replacement string understanding `\\&`, `\\N` and `\\\\`, or a function of the matched text. `LITERAL` suppresses the escapes; `FIXEDCASE` is accepted and ignored (kg never case-adjusts, because it never case-folds) |
+| `(replace-match NEWTEXT &optional FIXEDCASE LITERAL STRING SUBEXP)` | The **string** form only: with `STRING` it answers a new string with the last match's span replaced, and mutates nothing. `SUBEXP` picks which group's span. `LITERAL` suppresses `\\&`/`\\N`/`\\\\`; `FIXEDCASE` is accepted and ignored, the same as beside it. The match data is **not** adjusted afterwards, which is Emacs' answer for the string form. Without `STRING` it is an error: kg has no buffer form |
 | `(regexp-quote S)` | `S` as a regexp matching itself |
 | `(string-match-p REGEXP STRING &optional START)` | The same index `string-match` answers, WITHOUT touching the match data. That is its whole contract, and it is why it is `(save-match-data (string-match …))` here as in Emacs |
 | `(match-data &optional INTEGERS)` | The whole register as a flat list of BEGIN END pairs, group 0 first, `nil nil` for a group that did not participate, `nil` when nothing has matched |
@@ -1421,8 +1422,13 @@ primitive's function cell.
 - **A regexp never folds case, and its anchors are the subject's.**
   There is no `case-fold-search`: `string-match`, `re-search-forward`,
   `looking-at` and `replace-regexp-in-string` are all case-sensitive, and
-  `replace-regexp-in-string` therefore never case-adjusts a replacement
-  either (its `FIXEDCASE` argument is accepted and ignored). `^` and `$`
+  `replace-regexp-in-string` and `replace-match` therefore never
+  case-adjust a replacement either (both take a `FIXEDCASE` argument and
+  both ignore it — one argument, one meaning across the family).  The
+  rule they decline is Emacs' "upcase the replacement after an all-upper
+  match, upcase its word initials after a capitalised one", which without
+  case folding could only ever fire on a pattern that matched upper-case
+  text without needing to fold. `^` and `$`
   match the start and end of the whole subject, not of each line in it —
   except in the buffer, where the subject *is* one line, which is why
   `looking-at`'s anchors behave exactly as Emacs' do and why no pattern

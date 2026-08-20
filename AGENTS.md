@@ -51,10 +51,13 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   is not part of `make check`; CI runs it as `.ci/ci-10-*.sh`. Both sides
   report BYTE offsets — Emacs reports character offsets natively and the
   oracle converts, so do not remove that conversion.
-  Every generated pattern is asked in two modes (`--modes f,fa`): the
-  first match from offset 0, and every successive match iterated by
+  Every generated pattern is asked in three modes (`--modes f,fa,fb`):
+  the first match from offset 0; every successive match iterated by
   `kg_regex_next_offset()`'s rule, which is where empty-match progress
-  and leftover capture registers show up. Backward matching is still
+  and leftover capture registers show up; and the first match under a
+  bounded window, where both sides derive the limit from the subject
+  (half its byte length) so the limit is never in the protocol and a
+  case line means the same thing in every mode. Backward matching is still
   uncompared; `kg_regex_match_backward()`'s selection rule (last match
   ending at or before the limit, taking the plain forward match at each
   candidate start) is not Emacs' bounded backward search, so an oracle

@@ -1,0 +1,6 @@
+{
+ "id": "frontier-s-reverse-grapheme-cluster",
+ "setup": [],
+ "expr": "(list (string-to-list \"é\") (condition-case e (concat (nreverse (string-to-list \"é\"))) (error (car e))))",
+ "note": "WHAT THE DIVERGENCE ACTUALLY COSTS, measured on the one input where a character reversal is still wrong. The subject is `e' followed by COMBINING ACUTE ACCENT (U+0301), which Emacs reads as two characters: it answers ((101 769) \"\\u0301e\") -- the naive reversal puts the accent BEFORE the letter it modifies, which is the mojibake s.el's multibyte branch and its `ucs-normalize' dependency exist to avoid. kg's `string-to-list' already decodes it the same way and kg's `concat' then raises (frontier-s-reverse-concat-blocker), so kg answers ((101 769) wrong-type-argument) at this pin and will answer Emacs' NAIVE result -- not Emacs' `s-reverse' result -- after F.1. That is the honest statement of the recorded divergence: not `kg reverses bytes' but `kg reverses characters and does not know about grapheme clusters'."
+}

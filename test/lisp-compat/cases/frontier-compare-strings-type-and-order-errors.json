@@ -1,0 +1,6 @@
+{
+ "id": "frontier-compare-strings-type-and-order-errors",
+ "setup": [],
+ "expr": "(list (condition-case e (compare-strings 1 0 1 \"abc\" 0 3) (error (cons (car e) (cdr e)))) (condition-case e (compare-strings \"abc\" 2 1 \"abc\" 0 3) (error (cons (car e) (cdr e)))) (condition-case e (compare-strings \"abc\" 0 3 (quote abc) 0 3) (error (cons (car e) (cdr e)))))",
+ "note": "THE TWO ERRORS THAT ARE REAL, as values rather than as conditions so one case can hold both. Emacs answers ((wrong-type-argument stringp 1) (args-out-of-range \"abc\" 2 1) (wrong-type-argument stringp abc)). A non-string argument is `wrong-type-argument' with `(stringp N)' data -- and a SYMBOL is not coerced the way `assoc-string' coerces one, which is worth having in writing beside frontier-assoc-string-element-shapes since the two names sit one line apart in s.el. A START greater than its own END is `args-out-of-range' carrying (STRING START END), the one bounds shape frontier-compare-strings-bounds-clip-and-error does not cover, and the ordering is checked against the CLIPPED end. kg answers `void-function' at this pin."
+}

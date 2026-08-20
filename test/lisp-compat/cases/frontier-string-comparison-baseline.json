@@ -1,0 +1,7 @@
+{
+ "id": "frontier-string-comparison-baseline",
+ "setup": [],
+ "expr": "(list (string= \"abc\" \"abd\") (string< \"abc\" \"abd\") (string< \"abd\" \"abc\") (string= \"abc\" \"abc\"))",
+ "note": "THE CONTROL that makes the other seven attributable: kg's existing string comparison already answers exactly what Emacs answers, (nil t nil t), so what `compare-strings' adds is not comparison but the INDEX, the BOUNDS and the FLAG -- the three things the rows beside this one measure. It carries `expect: agree' inside a divergent row for the native-type-of reason: a feature is divergent, a case says which side of the line it is on.",
+ "expect": "agree"
+}

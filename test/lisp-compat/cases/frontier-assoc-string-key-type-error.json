@@ -1,0 +1,6 @@
+{
+ "id": "frontier-assoc-string-key-type-error",
+ "setup": [],
+ "expr": "(condition-case e (assoc-string 1 (list (cons \"1\" 2))) (error (cons (car e) (cdr e))))",
+ "note": "THE ONE ERROR, and it is on the KEY side only: Emacs answers (wrong-type-argument stringp 1) -- the condition and its `(stringp 1)' data, flattened by this case's own `cons'. A number KEY raises even though a number ELEMENT is skipped without complaint (frontier-assoc-string-skips-non-strings) -- the asymmetry is deliberate in Emacs and a kg implementation that treated both ends alike would get one of the two cases wrong whichever way it chose. kg answers `void-function' at this pin."
+}

@@ -1,0 +1,7 @@
+{
+ "id": "frontier-search-two-argument-baseline",
+ "setup": [],
+ "expr": "(with-temp-buffer (insert \"abcdef\") (goto-char (point-min)) (list (search-forward \"cd\" nil) (point) (re-search-forward \"e.\" nil) (point)))",
+ "note": "THE CONTROL for the NOERROR row: kg's existing two-argument search already agrees with Emacs on a SUCCESSFUL search, both sides answering (5 5 7 7) -- the value is the position after the match, point is left there, and BOUND nil means `to the end'. So every divergence in this row is about the third argument and about failure, and none of it is about searching.",
+ "expect": "agree"
+}

@@ -1,0 +1,6 @@
+{
+ "id": "frontier-fill-region-empty-region",
+ "setup": [],
+ "expr": "(with-temp-buffer (let ((fill-column 5)) (list (fill-region (point-min) (point-max)) (buffer-substring (point-min) (point-max)))))",
+ "note": "THE DEGENERATE REGION, which is `(s-word-wrap N \"\")'. Emacs answers (nil \"\"): an empty region fills to nothing and the return value is NIL rather than the empty string the filled cases give, so `fill-region''s value is `the prefix of the last paragraph it filled' and there was none. A binding that always answered \"\" would pass every other case in this row and fail this one. kg answers `void-function' at this pin."
+}

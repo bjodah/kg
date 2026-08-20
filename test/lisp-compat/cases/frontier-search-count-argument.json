@@ -1,0 +1,6 @@
+{
+ "id": "frontier-search-count-argument",
+ "setup": [],
+ "expr": "(with-temp-buffer (insert \"a b a b a\") (goto-char (point-min)) (condition-case e (list (re-search-forward \"a\" nil t 2) (point) (re-search-forward \"a\" nil t 5) (point)) (wrong-number-of-arguments (car e))))",
+ "note": "THE ARGUMENT THAT STAYS A NAMED ERROR, with its condition name proved rather than assumed. Emacs answers (6 6 nil 6): COUNT repeats the search, a COUNT that overshoots fails like any other failed search (nil, and with NOERROR t point does not move). kg answers `wrong-number-of-arguments' -- the exact symbol, caught by name here so the record is a VALUE and the case reads as `this is the error you get' rather than as a condition record. Measured demand: no s.el call passes COUNT, and the frontier probe asserts `(re-search-forward 3)' as the arity it wants. THE DECISION, MADE: F.1 binds NOERROR (the third argument) and stops there; a fourth argument keeps raising this exact condition, and this case is written to STAY DIVERGENT."
+}

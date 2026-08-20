@@ -1,0 +1,6 @@
+{
+ "id": "frontier-search-failed-condition-symbol",
+ "setup": [],
+ "expr": "(list (get (quote search-failed) (quote error-conditions)) (get (quote search-failed) (quote error-message)))",
+ "note": "THE ROW F.1 HAS TO ADD, and where it has to add it. Emacs answers ((search-failed error) \"Search failed\") -- `search-failed' is an ordinary condition with `error' as its parent, so an existing handler for `error' catches it and a handler naming it exactly catches only it. kg answers (nil nil), and that is not merely a missing property: fe's condition hierarchy is a TABLE (`condition_parents[]' in fe/fe_unwind.c) and `IsConditionSymbol' gates `signal' on it, so `(signal 'search-failed ...)' is `Invalid error symbol' in kg today -- measured -- and a `search-failed' kg can raise or catch by name is an FE change with a pin move behind it, not a `src/lisp_search.c' change. This case is the freeze saying so before F.1 discovers it."
+}

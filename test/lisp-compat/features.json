@@ -200,6 +200,134 @@
    "source_name": null
   },
   {
+   "id": "frontier-assoc-string",
+   "category": "sequences",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "frontier-assoc-string-element-shapes",
+    "frontier-assoc-string-skips-non-strings",
+    "frontier-assoc-string-fold",
+    "frontier-assoc-string-key-type-error",
+    "frontier-assoc-baseline",
+    "frontier-s-el-format-aget-route"
+   ],
+   "kg_test": "test/test_lisp.c:test_s_el_vendored_load",
+   "rationale": "The frontier demand phase's F.0 freeze for the want behind `s-format' and `s--aget', which are one demand: s--aget is `(cdr (assoc-string key alist))' and s-format's `aget' replacer is its only caller inside s.el. What the rows pin is the COERCION and the FOLD, since frontier-assoc-baseline shows kg's alist walk (`assoc', `assq') already agreeing and carries `expect: agree' to say so. The coercion: an element may be a cons compared by its car, or a bare string or symbol compared as itself, and the ELEMENT comes back either way; a symbol on either side is coerced with `symbol-name'. THE FINDING, which is not what `what does a non-string element do' invites you to assume: a non-string element is SKIPPED SILENTLY and the scan CONTINUES past it -- an alist of numbers is nil, not an error -- while a non-string KEY raises `wrong-type-argument'. An implementation that treated the two ends alike gets one of them wrong whichever way it chooses. THE FOLD DECISION, MADE: ASCII ONLY, the same answer frontier-compare-strings gives its IGNORE-CASE, and for the same reason plus one more -- 26.2's FIXEDCASE precedent, where `replace-match' and `replace-regexp-in-string' were made to agree about one argument rather than disagree one line apart. frontier-assoc-string-fold's non-ASCII element is therefore a recorded divergence that survives the phase; s.el reaches the name with no fold argument at all. source_name is null: no kg name is `assoc-string' yet.",
+   "source_name": null
+  },
+  {
+   "id": "frontier-compare-strings",
+   "category": "strings",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "frontier-compare-strings-return-contract",
+    "frontier-compare-strings-nil-and-offset-bounds",
+    "frontier-compare-strings-bounds-clip-and-error",
+    "frontier-compare-strings-type-and-order-errors",
+    "frontier-compare-strings-ignore-case",
+    "frontier-compare-strings-character-index",
+    "frontier-string-comparison-baseline",
+    "frontier-s-el-compare-strings-route"
+   ],
+   "kg_test": "test/test_lisp.c:test_s_el_vendored_load, test/test_lisp.c:test_string_length_and_substring",
+   "rationale": "The frontier demand phase's F.0 freeze, recorded BEFORE the name exists: `compare-strings' is the want behind three of unmodified s.el's entry points (`s-shared-start', `s-shared-end', `s-ends-with?'), and kg answers `void-function' to seven of these eight cases at this pin. The rows pin the FULL return contract -- `t' for equal spans, otherwise +/-(1+ the number of characters that compared equal), which is the arithmetic s-shared-start recovers its shared prefix from -- and TWO THINGS THIS PHASE'S PLAN PREDICTED WRONGLY. First, `out-of-range bounds (the error, exactly)' is not the rule: an END past the string is CLIPPED and is not an error, a START past it IS `args-out-of-range' whose data echoes the CLIPPED end rather than the argument, and a NEGATIVE index counts from the end, so -1 is legal where -5 over a three-character string is the range error. Second, the mismatch index is counted in CHARACTERS, so the implementation is written over kg's character view -- `length', `elt' and `substring', which string25-multibyte-character-view already measures as agreeing -- and not over fe's bytes. THE DECISION ON IGNORE-CASE, MADE: kg FOLDS ASCII ONLY, and frontier-compare-strings-ignore-case's non-ASCII element is a recorded divergence that survives this phase. kg's case surface is ASCII-only and measured (native-upcase: (upcase \"héllo\") is \"HéLLO\" here), so an IGNORE-CASE that folded É onto é would make `compare-strings' the only name in kg holding a Unicode case table, arriving through a flag rather than through a decision; s.el's own demand passes no fold. frontier-string-comparison-baseline carries `expect: agree' inside this divergent row, the native-type-of shape: comparison itself already agrees on both sides, so what the name adds is the INDEX, the BOUNDS and the FLAG. source_name is null: no kg native or prelude definition is called `compare-strings' yet.",
+   "source_name": null
+  },
+  {
+   "id": "frontier-fill-region",
+   "category": "editor-primitives",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "frontier-fill-region-single-paragraph",
+    "frontier-fill-region-multi-paragraph",
+    "frontier-fill-region-refill-and-squeeze",
+    "frontier-fill-region-long-word",
+    "frontier-fill-region-sentence-nobreak",
+    "frontier-fill-region-adaptive-prefix",
+    "frontier-fill-region-empty-region",
+    "frontier-fill-column-variable",
+    "frontier-temp-buffer-baseline",
+    "frontier-s-el-word-wrap-route"
+   ],
+   "kg_test": "test/test_lisp.c:test_s_el_vendored_load",
+   "rationale": "The frontier demand phase's F.0 freeze for the one want `s-word-wrap' has. THE PLAN IS WRONG ABOUT WHAT KG ALREADY HAS, and this row is where that is written down: it says kg has `the C fill (cmd_fill_paragraph, M-q) and a buffer-local-aware fill-column', and measurement says neither half is usable as stated. `fill-column' is a `defvar' in lisp/auto-fill.el, a LOADABLE PACKAGE, so in a plain Lisp session reading it is `void-variable' (frontier-fill-column-variable) -- and s-word-wrap's body is `(let ((fill-column len)) (fill-region ...))', a `let' over a name no `defvar' has made special, which in kg binds LEXICALLY and would be invisible to any fill. Meanwhile the C fill does not read that variable at all: src/word.c carries `#define FILL_COLUMN 72', clamped to the window width, and `editor_reflow_paragraph' fills THE PARAGRAPH AT POINT rather than a region. THE DECISIONS, MADE. (1) SCOPE: the binding fills paragraph by paragraph across the whole region, because frontier-fill-region-multi-paragraph measures Emacs doing exactly that and s-word-wrap hands it an arbitrary caller string -- a single-paragraph binding is a wrong function, not a smaller one. (2) `fill-column' becomes a prelude `defvar' (special, default 70, Emacs' own measured default) that kg's fill reads, and lisp/auto-fill.el's own `defvar' is reconciled in the same commit. (3) DECLINED: the `sentence-end-double-space' nobreak rule (frontier-fill-region-sentence-nobreak), which makes Emacs break EARLIER than the column allows after `. ' -- kg has no sentence machinery to hang it on and s-word-wrap's demand is a column, not a typographic convention; that case is a recorded divergence chosen here rather than discovered later. What the rows also pin, because a from-scratch wrapper gets them wrong: filling JOINS existing newlines and squeezes runs of spaces, the return value is the fill PREFIX (\"\" normally, the indent under adaptive fill, nil for an empty region), and point ends at the end of the region. frontier-temp-buffer-baseline carries `expect: agree': everything in s-word-wrap's body except the fill already works. source_name is null: no kg name is `fill-region' yet.",
+   "source_name": null
+  },
+  {
+   "id": "frontier-multibyte-string-p",
+   "category": "strings",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "frontier-multibyte-string-p-ascii",
+    "frontier-multibyte-string-p-non-ascii",
+    "frontier-s-reverse-concat-blocker",
+    "frontier-s-reverse-grapheme-cluster",
+    "frontier-s-el-reverse-route"
+   ],
+   "kg_test": "test/test_lisp.c:test_s_el_vendored_load",
+   "rationale": "The frontier demand phase's F.0 freeze for `s-reverse''s want, and THE DIVERGENCE IS CHOSEN HERE RATHER THAN DISCOVERED LATER. Phase 25 fixed kg's string as fe's unibyte byte string, so the honest answer is nil for EVERY kg string; Emacs answers `t' for any literal holding a non-ASCII character, because the flag is a property of the string OBJECT and not of the characters a caller can read out of it. THE DECISION, MADE: `multibyte-string-p' answers nil, always. Answering `t' would be strictly worse than answering nil, and that is measurable rather than aesthetic: `s-reverse' branches on this predicate and its multibyte branch calls `(require 'ucs-normalize)', a library kg does not have. So the ASCII cases are written to FLIP to agreement and frontier-multibyte-string-p-non-ascii is written to STAY divergent. TWO FINDINGS THE PLAN DID NOT HAVE. First, the demand is TWO NAMES DEEP: with the predicate answering nil, s-reverse runs `(concat (nreverse (string-to-list s)))' and lands on kg's `concat', which takes strings only and raises `(wrong-type-argument stringp (99 98 97))' -- the frontier probe could not see it because it stops at the first raise, and F.1 has to bind the list-of-characters arm of `concat' too or the want is not answered. Second, the plan's `kg will reverse bytes' is WRONG: `string-to-list' decodes UTF-8 into codepoints in kg already, so once `concat' accepts them kg reverses BY CHARACTER and frontier-s-el-reverse-route's \"héllo\" element is expected to AGREE. What actually stays divergent is grapheme clusters -- frontier-s-reverse-grapheme-cluster measures a base character and a combining accent coming back in the wrong order, which is the mojibake s.el's multibyte branch exists to prevent. source_name is null: no kg name is `multibyte-string-p' yet.",
+   "source_name": null
+  },
+  {
+   "id": "frontier-regexp-opt",
+   "category": "sequences",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "frontier-regexp-opt-longest-preference",
+    "frontier-regexp-opt-quotes-members",
+    "frontier-regexp-opt-every-member-matches",
+    "frontier-regexp-opt-degenerate-inputs",
+    "frontier-regexp-opt-paren-shapes",
+    "frontier-regexp-alternation-leftmost",
+    "frontier-s-el-replace-all-route"
+   ],
+   "kg_test": "test/test_lisp.c:test_s_el_vendored_load",
+   "rationale": "The frontier demand phase's F.0 freeze for `s-replace-all''s want, and the row where TEXT EQUALITY IS THE WRONG GATE: Emacs returns an optimized trie (`(regexp-opt '(\"a\" \"ab\"))' is \"\\\\(?:ab?\\\\)\") and matching its spelling would encode Emacs' optimizer in kg. So every case here is a CONTRACT case -- the returned regexp, compiled by kg's own engine, must match exactly the members, entirely, preferring the longest -- and not one of them compares the regexp itself. THE DECISION, MADE: kg's `regexp-opt' sorts its members LONGEST FIRST, `regexp-quote's each, and joins them with a bare `\\\\|'. Longest-first is required because alternation order is semantics in a backtracking engine and frontier-regexp-alternation-leftmost measures kg's engine taking the LEFTMOST alternative that can match, exactly as Emacs' does -- so the name needs an ORDERING, not a new matcher, and that case carries `expect: agree' as the licence. BARE, with no group around it, because frontier-regexp-shy-group-unsupported beside this row measures that kg's engine has no shy groups at all and MISREADS `\\\\(?:' as ordinary characters: emitting Emacs' own wrapper would invert the very preference this row exists to guarantee. The empty-member-list answer is spellable in kg for free -- Emacs' unmatchable regexp is `\\\\`a\\\\`' inside that wrapper, and both anchors have been kg's since 26.2. THE PAREN DECISION, MADE: measured demand is zero (s.el calls `regexp-opt' once, at s.el:420, with ONE argument), so kg's takes STRINGS only and a second argument is `wrong-number-of-arguments' -- refused by name, the Phase 14 `intern'-OBARRAY precedent, never accepted and ignored. frontier-regexp-opt-paren-shapes records what Emacs does with the argument kg declines. source_name is null: no kg name is `regexp-opt' yet.",
+   "source_name": null
+  },
+  {
+   "id": "frontier-regexp-shy-group",
+   "category": "sequences",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "frontier-regexp-shy-group-unsupported"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_regex_seam",
+   "rationale": "The frontier demand phase's F.0 freeze, and THE ROW THIS PHASE DOES NOT CLOSE -- phase26-anchor-line-vs-subject's shape, separated from frontier-regexp-opt for the same reason: that row is a name kg can bind out of what its engine already does, and this is the engine limit underneath it, which binding a name cannot touch. Measured: kg has NO shy groups. `\\\\(?:a\\\\)' does not match \"a\" here and DOES match the literal text \"?:a\", so kg reads the `?' and the `:' as ordinary characters inside an ordinary group -- it misreads the spelling rather than rejecting it, which is exactly what 26.0 found for `\\\\`'/`\\\\'' before 26.2 taught them. The consequence that matters is the one frontier-regexp-opt acts on: in `\\\\(?:ab\\\\|a\\\\)' the first alternative can never match, so kg answers the SECOND where Emacs answers the first, and a `regexp-opt' emitting Emacs' own wrapper would invert its longest-first preference silently. Nothing in this phase teaches the engine shy groups: that is a fe/tiny-regex-c change, with a group-numbering question behind it (kg has no way to spell `group me but do not number me'), and no demand in this phase's six wants asks for it. So this case is written NOT to flip. source_name is null: `string-match' is claimed by native-string-match.",
+   "source_name": null
+  },
+  {
+   "id": "frontier-search-noerror",
+   "category": "editor-primitives",
+   "status": "divergent",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "frontier-search-noerror-nil-raises",
+    "frontier-search-noerror-t-returns-nil",
+    "frontier-search-noerror-other-moves-point",
+    "frontier-search-count-argument",
+    "frontier-search-failed-condition-symbol",
+    "frontier-search-two-argument-baseline",
+    "frontier-s-el-split-up-to-route"
+   ],
+   "kg_test": "test/test_lisp.c:test_s_el_vendored_load, test/test_lisp.c:test_search_forward_backward",
+   "rationale": "The frontier demand phase's F.0 freeze for the one want that is an ARITY rather than a name: `s-split-up-to' passes Emacs' third argument, NOERROR, to a kg `re-search-forward' that takes REGEXP and BOUND. The demand names one function and this row measures FOUR -- `search-forward', `search-backward', `re-search-forward', `re-search-backward' -- on 26.2's FIXEDCASE precedent that one argument means one thing across a family; a NOERROR that raised from three names and not the fourth is the divergence that costs the most to find. THE CONTRACT IS THREE-WAY, and a two-valued reading of it misses the third: nil RAISES `search-failed' carrying the pattern and leaves point alone, `t' returns nil and leaves point alone, and ANY OTHER value returns nil AND MOVES POINT to BOUND -- to point-max forward and point-min backward when BOUND is nil. THE DECISION, MADE: all three answers, all four names; the third is not optional, since `t' and `'move' differ only in where point ends up and a caller has no other way to ask. kg today answers nil for every failed search whatever it is asked, which is the `t' behaviour applied unconditionally, so kg is silently the wrong one of the three answers before this lands. THE FINDING F.1 NEEDS BEFORE IT STARTS: `search-failed' is not a `src/lisp_search.c' change. fe's condition hierarchy is a TABLE (`condition_parents[]', fe/fe_unwind.c) and `IsConditionSymbol' gates `signal' on it, so `(signal 'search-failed ...)' is `Invalid error symbol' in kg today, measured; a `search-failed' anything can catch by name is an FE change with a pin move behind it, and frontier-search-failed-condition-symbol carries Emacs' own row for it -- parent `error', message \"Search failed\". COUNT, the fourth argument, STAYS A NAMED ERROR: no s.el call passes one, frontier-search-count-argument proves the condition kg raises is `wrong-number-of-arguments', and that case is written not to flip. frontier-search-two-argument-baseline carries `expect: agree': a successful two-argument search already agrees on both sides, so everything divergent here is the third argument and failure. source_name is null: the four names are claimed by native-search-forward, native-search-backward, native-re-search-forward and native-re-search-backward.",
+   "source_name": null
+  },
+  {
    "id": "hook-error-does-not-disarm",
    "category": "errors-and-non-local-exits",
    "status": "divergent",

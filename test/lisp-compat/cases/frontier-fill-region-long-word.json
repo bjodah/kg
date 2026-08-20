@@ -1,0 +1,6 @@
+{
+ "id": "frontier-fill-region-long-word",
+ "setup": [],
+ "expr": "(with-temp-buffer (insert \"aaaaaaaaaa bb\") (let ((fill-column 5)) (fill-region (point-min) (point-max)) (buffer-substring (point-min) (point-max))))",
+ "note": "A WORD LONGER THAN THE COLUMN OVERRUNS IT rather than being broken or dropped: Emacs answers \"aaaaaaaaaa\\nbb\". kg's C fill already has this rule (`reflow_wrap' in src/word.c ends a line only when it holds more than the indent), so this is a property the binding inherits rather than one it has to add -- which is why the case is here: it is the part of `fill-region' kg does NOT have to write. kg answers `void-function' at this pin."
+}

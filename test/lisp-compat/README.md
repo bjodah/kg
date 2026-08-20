@@ -266,6 +266,69 @@ and `test_phase15_regex_seam` for the engine's side of the anchors. The
 reason: both names are fe primitives and no kg test asserts either float
 corner.
 
+## A fourth group written ahead of its behaviour (`frontier`)
+
+The 44 `frontier-*` cases and their seven rows were recorded by the
+frontier demand phase's F.0 freeze
+(`doc/plans/2026-08-20-elisp-frontier-demand-phase.md`), the fourth group
+written before the behaviour it describes and the first whose membership
+was chosen by a *measurement* rather than by a design: Phase 26's closing
+probe called 51 of unmodified s.el's entry points and exactly six things
+stopped it — five missing names (`compare-strings`, `fill-region`,
+`regexp-opt`, `multibyte-string-p`, `assoc-string`) and one arity
+(`re-search-forward`'s NOERROR). 39 of the 44 are recorded divergences
+and five already agree.
+
+The five agreements are the group's controls, one per row, and they are
+what makes the 39 attributable to the missing name rather than to the
+machinery under it: `frontier-string-comparison-baseline` (string
+comparison itself agrees, so what `compare-strings` adds is the index,
+the bounds and the flag), `frontier-temp-buffer-baseline` (everything in
+`s-word-wrap`'s body except the fill already works),
+`frontier-regexp-alternation-leftmost` (kg's engine already prefers the
+leftmost alternative, which is the whole licence for implementing
+`regexp-opt` as a longest-first sort), `frontier-assoc-baseline` (the
+alist walk agrees, so `assoc-string` is coercion and folding) and
+`frontier-search-two-argument-baseline` (a successful two-argument search
+agrees, so the row is about the third argument and about failure).
+
+Four things a reader of these cases should know, because they are
+properties of the group:
+
+* **Every row carries its phase's DECISION in the rationale**, in the
+  form implementation reads rather than re-litigates — the two fold
+  flags (ASCII only, one answer for `compare-strings` and
+  `assoc-string`), `multibyte-string-p` (nil for every string, always),
+  `fill-region`'s scope (paragraph by paragraph across the region) and
+  what is declined (the `sentence-end-double-space` nobreak rule,
+  `regexp-opt`'s PAREN, the search family's COUNT).
+* **Two rows are written NOT to flip**, and one of them has a row of its
+  own for it. `frontier-regexp-shy-group` is separate from
+  `frontier-regexp-opt` for the reason `phase26-anchor-line-vs-subject`
+  is separate from the spellings: kg's engine has no shy groups and
+  MISREADS `\(?:` as ordinary characters, which is an engine limit no
+  bound name can close — and it is why kg's `regexp-opt` may not emit
+  Emacs' own wrapper. `frontier-search-count-argument` is the other:
+  COUNT stays a named `wrong-number-of-arguments`.
+* **The `regexp-opt` cases are CONTRACT cases, never spelling cases.**
+  Emacs returns an optimized trie and matching its text would encode
+  Emacs' optimizer here; every case instead compiles the returned regexp
+  with kg's own engine and asks what it matches.
+* **Two cases pin a name the frontier probe never reached.** A probe
+  stops at the first raise, so `frontier-s-reverse-concat-blocker` and
+  `frontier-fill-column-variable` measure the *second* thing each want
+  needs — `concat` accepting a list of characters, and a `fill-column`
+  that is special rather than a package's `defvar` — which is the
+  difference between binding a name and answering a demand.
+
+Rows here cite `test/test_lisp.c:test_s_el_vendored_load`, the vendored
+package's own frontier assertions, where the name does not exist yet, and
+the existing native test beside it (`test_phase15_regex_seam`,
+`test_search_forward_backward`, `test_string_length_and_substring`) where
+kg already has the machinery the row is measured against. Every
+`source_name` is `null`: none of the six wants is a kg native or prelude
+definition at this pin.
+
 ## Proof 2 — the representative user init, bullet by bullet
 
 The parent plan's §14 asks for "a tracked, isolated `.config/kg/init.el`

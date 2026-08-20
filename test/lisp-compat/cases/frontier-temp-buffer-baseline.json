@@ -1,0 +1,7 @@
+{
+ "id": "frontier-temp-buffer-baseline",
+ "setup": [],
+ "expr": "(with-temp-buffer (insert \"aa bb cc\") (list (buffer-substring (point-min) (point-max)) (point-max) (point)))",
+ "note": "THE CONTROL for the fill-region row: everything in s-word-wrap's body EXCEPT the fill already works in kg and answers exactly what Emacs answers, (\"aa bb cc\" 9 9). `with-temp-buffer', `insert', `point-min'/`point-max' and `buffer-substring' are kg's own, and 1-based buffer positions agree. So when the rows beside this one diverge, the divergence is the fill and not the buffer.",
+ "expect": "agree"
+}

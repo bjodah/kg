@@ -1,0 +1,6 @@
+{
+ "id": "frontier-regexp-shy-group-unsupported",
+ "setup": [],
+ "expr": "(list (string-match \"\\\\(?:a\\\\)\" \"a\") (string-match \"\\\\(?:a\\\\)\" \"?:a\") (string-match \"\\\\(?:ab\\\\|a\\\\)\" \"ab\") (match-end 0))",
+ "note": "THE CONSTRAINT ON THE IMPLEMENTATION, and the row this phase does NOT close. Emacs answers (0 2 0 2); kg answers (nil 0 0 1). kg's engine has NO SHY GROUPS: it reads `\\\\(?:' as a group whose first characters are an ordinary `?' and an ordinary `:', which is why kg matches the literal text \"?:a\" (element two, where Emacs matches the `a' at index 2 and kg matches at 0) and why the alternation in element three comes out INVERTED -- the branch carrying the `?:' can never match, so kg answers the second alternative where Emacs answers the first. So kg does not reject the spelling, it MISREADS it, the same shape 26.0 found for `\\\\`' and `\\\\'' before 26.2 taught them. THE CONSEQUENCE, WHICH IS THE POINT OF THE CASE: kg's `regexp-opt' MAY NOT emit `\\\\(?:...\\\\)', which is what Emacs' own output looks like, so kg's simple form is a BARE \\\\|-joined alternation. Nothing in F.1 teaches the engine shy groups -- that is a fe/tiny-regex-c change with no demand behind it -- so this case stays divergent after the phase, exactly as phase26-anchor-line-vs-subject did."
+}

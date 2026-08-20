@@ -1,0 +1,6 @@
+{
+ "id": "frontier-multibyte-string-p-non-ascii",
+ "setup": [],
+ "expr": "(list (multibyte-string-p \"é\") (multibyte-string-p \"héllo\") (multibyte-string-p \"日本語\"))",
+ "note": "THE CHOSEN DIVERGENCE. Emacs answers (t t t): a literal containing any non-ASCII character is a MULTIBYTE string, a property of the string OBJECT and not of the characters a caller can read out of it. kg has no such flag -- every kg string is fe's byte string -- so kg's answer is nil, and this case is a RECORDED DIVERGENCE that F.1 writes and does NOT close. THE DECISION, MADE: `multibyte-string-p' answers nil for every string, always, and this row exists so that is a choice rather than an accident. THE CONSEQUENCE, NAMED: `s-reverse' branches on exactly this predicate, so kg always takes its ELSE branch -- (concat (nreverse (string-to-list s))) -- which is a CHARACTER reversal in kg (string-to-list decodes UTF-8; frontier-s-el-reverse-route measures it) and therefore right for \"héllo\" and wrong for a base character followed by a combining one, which is what Emacs' multibyte branch exists to keep together (frontier-s-reverse-grapheme-cluster). Answering `t' would be worse than answering nil: s.el's multibyte branch calls `(require 'ucs-normalize)', a library kg does not have and will not get."
+}

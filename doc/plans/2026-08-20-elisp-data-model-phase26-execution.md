@@ -408,12 +408,31 @@ green at that commit.
    loop can be Lisp (a `while` over `re-search-forward`), C only if it
    cannot.  Emacs' return value and its message-vs-value shape per the
    frozen rows.
-5. **The anchor spellings.**  kg's engine learns `` \` `` and `\'` as
-   spellings of its existing whole-subject anchors.  Then, in the same
-   commit or the one after, `utils/regex_differential.py`'s generator
-   grows the two spellings, and `make check-regex-differential` holds --
-   which is the gate that says the ENGINE agrees with Emacs, not just the
-   four frozen cases.
+5. **The anchor spellings.**  The engine that must learn `` \` `` and
+   `\'` is `fe/tiny-regex-c/re.c` -- its escaped-character fall-through
+   (the `case '\\':` block near line 796) is what turns them into
+   literal punctuation today, the misread 26.0 measured.  kg is
+   tiny-regex-c's sole consumer, so the change is UNENCUMBERED: no
+   backward compatibility to hold, the right fix is the direct one
+   (user's directive, 2026-08-20).  The spellings become that engine's
+   own whole-subject anchors (what `^`/`$` mean there), with the
+   submodule's own tests growing vectors for them and the fall-through
+   no longer swallowing them.  Choreography is the pin chain:
+   tiny-regex-c commit(s) with the submodule's own suite and its
+   numbered `.ci` runners green (its standalone behaviour is kg's too,
+   and its own green light precedes a pin move -- `make verify-syntax`
+   included), then a one-line fe commit bumping fe's tiny-regex-c pin
+   with fe's suite green, then kg's 26.2 transition commit carries the
+   new fe pin, which transitively carries the engine.  Then, in the
+   same kg commit or the one after, `utils/regex_differential.py`'s
+   generator grows the two spellings, and `make check-regex-differential`
+   holds -- which is the gate that says the ENGINE agrees with Emacs,
+   not just the frozen cases, and it is safe exactly because the
+   differential's subjects are single-line (26.0's
+   `phase26-anchor-line-vs-subject` row: in an Emacs STRING match
+   `^`/`$` anchor LINES, so on a multi-line subject kg's `^` diverges
+   from Emacs' while `` \` `` agrees -- that row is written not to
+   flip).
 6. **`replace-match`** per the frozen rows: the string form s.el reaches,
    FIXEDCASE/LITERAL semantics as frozen, the error cases as frozen.
    Buffer form only if a frozen row demands it.
@@ -452,8 +471,18 @@ BEFORE Phase 27 builds on them; no Lisp hash table is exposed.
 
 * 26.0 lands as one kg commit (oracle rows + this plan's baseline
   numbers).  26.1 is fe-only, incremental commits, fe full CI at its
-  head.  26.2 is kg-side, transition commit first, capability commits
-  after, `make check` green at every commit.
+  head.  26.2 is kg-side plus the engine work in `fe/tiny-regex-c`,
+  transition commit first, capability commits after, `make check` green
+  at every commit.
+* The pin chain for the engine work: a commit in `fe/tiny-regex-c`
+  needs fe's tiny-regex-c pin bumped (an fe commit, fe suite green),
+  and any fe commit needs kg's fe pin bumped -- so 26.2's transition
+  carries BOTH the index (26.1's fe head) and the engine (the fresh
+  tiny-regex-c pin inside it) under one kg pin move, keeping the
+  one-transition rule.  Nothing in tiny-regex-c is encumbered: kg is
+  its sole consumer (user's directive, 2026-08-20), so a change there
+  answers only to its own suite, its `.ci` runners and the Emacs
+  differential above.
 * The orchestrator then runs the full 16-step kg matrix, writes the 26.2
   results section into this plan (the shape 25.2's results have), and
   closes the phase.

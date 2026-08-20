@@ -6105,8 +6105,11 @@ static void test_quit_uncaught(void)
  * macro, taking it to 122.  Phase 24.2 added four: the two captured fe
  * primitives kg wraps (internal--fe-length, internal--fe-elt) and the two
  * helpers the sequence generalisation is built from
- * (internal--seq-to-list, internal--equal-vectors), taking it to 126. */
-#define PRELUDE_DEFS 133
+ * (internal--seq-to-list, internal--equal-vectors), taking it to 126.
+ * Phase 26.2 added `count-matches', the missing NAME Phase 25's honest
+ * frontier measured unmodified s.el stopping at, which is prelude Lisp
+ * because its counting loop is. */
+#define PRELUDE_DEFS 134
 
 /* What a value CAPTURED out of a symbol's function cell is: that symbol's
  * definition at the moment of capture, and it stays that definition
@@ -6906,6 +6909,61 @@ static void test_phase25_match_data(void)
 	kg_lisp_shutdown();
 }
 
+/* Phase 26.2's `count-matches', against the five properties 26.0 froze
+ * from the pinned Emacs (test/lisp-compat/cases/phase26-count-matches-*).
+ * It is prelude Lisp over `re-search-forward', and the two lines a naive
+ * `while' gets wrong are the zero-width advance and the restored point. */
+static void test_phase26_count_matches(void)
+{
+	CHECK(kg_lisp_init() == 0);
+
+	/* The plain call counts from POINT to the end of the accessible
+	 * buffer, resumes at the END of the previous match -- so "ana" over
+	 * "banana" is 1 and not 2 -- and LEAVES POINT WHERE IT WAS. */
+	CHECK(eval_eq("(with-temp-buffer (insert \"banana\")"
+		      " (goto-char (point-min))"
+		      " (list (count-matches \"an\") (count-matches \"ana\")"
+		      "  (count-matches \"z\") (point)))",
+	    "(2 1 0 1)"));
+	/* The region form s.el takes, including an empty region and the
+	 * bounds THE WRONG WAY ROUND, which Emacs orders rather than
+	 * refuses. */
+	CHECK(eval_eq("(with-temp-buffer (insert \"banana\")"
+		      " (goto-char (point-min))"
+		      " (list (count-matches \"an\" 1 (point-max))"
+		      "  (count-matches \"a\" 1 4)"
+		      "  (count-matches \"a\" 4 (point-max))"
+		      "  (count-matches \"a\" 1 1)"
+		      "  (count-matches \"a\" 4 2)))",
+	    "(2 1 2 0 1)"));
+	/* A zero-width match counts and then advances one character: 6 over
+	 * a six-character buffer.  NOT 3 (the real `a' matches do not
+	 * absorb the empty ones) and NOT 7 (the position after the last
+	 * character gets no empty match of its own). */
+	CHECK(eval_eq("(with-temp-buffer (insert \"banana\")"
+		      " (goto-char (point-min))"
+		      " (list (count-matches \"a*\" 1 (point-max))"
+		      "  (count-matches \"\" 1 (point-max))))",
+	    "(6 6)"));
+	/* A VALUE, not a message. */
+	CHECK(eval_eq("(let ((r (with-temp-buffer (insert \"banana\")"
+		      "  (goto-char (point-min))"
+		      "  (count-matches \"an\" 1 (point-max)))))"
+		      " (list r (integerp r) (stringp r)))",
+	    "(2 t nil)"));
+	/* And it CLOBBERS the match register on its LAST match, which is a
+	 * requirement rather than an accident: s.el's own `save-match-data'
+	 * around the call is what makes `s-count-matches' side-effect-free.
+	 */
+	CHECK(eval_eq("(with-temp-buffer (insert \"banana\")"
+		      " (goto-char (point-min)) (string-match \"z*\" \"zzz\")"
+		      " (list (count-matches \"\\\\(a\\\\)n\" 1 (point-max))"
+		      "  (match-beginning 0) (match-end 0)))",
+	    "(2 4 6)"));
+
+	kg_lisp_shutdown();
+}
+
 /* Phase 24.3's last required case: the REAL package the synthetic
  * sel-frontier fixture stood in for.  external/elpa/s.el is 793 lines of
  * GPLv3+ Emacs Lisp vendored for testing only -- provenance in
@@ -6981,10 +7039,10 @@ static void test_s_el_vendored_load(void)
 	 * does not bind yet, so `s-trim' RAISES `void-function' instead of
 	 * quietly returning its argument untrimmed.  That is the whole
 	 * value of landing the spellings first: what is missing announces
-	 * itself.  Two missing NAMES are left, and nothing silent:
+	 * itself.  `count-matches' landed with this commit, so
+	 * `s-count-matches' answers 3 where it answered its own missing
+	 * name.  ONE missing name is left, and it is not silent:
 	 *
-	 *   * `count-matches', which `s-count-matches' reaches through
-	 *     `with-temp-buffer';
 	 *   * `replace-match', which `s-trim-left' and `s-trim-right'
 	 *     reach as (replace-match "" t t s).
 	 *
@@ -6997,15 +7055,14 @@ static void test_s_el_vendored_load(void)
 	 * than counted out of a corpus.  A phase that lands one of them
 	 * fails this line, which is the point of writing it down. */
 	CHECK(
-	    eval_eq("(list (condition-case e (s-count-matches \"a\" \"banana\")"
-		    "        (void-function (car (cdr e))))"
+	    eval_eq("(list (s-count-matches \"a\" \"banana\")"
 		    " (condition-case e (s-trim \"  hi  \")"
 		    "   (void-function (car e)))"
 		    " (string-match \"\\\\`h\" \"  hi\")"
 		    " (string-match \"\\\\` \" \"  hi\")"
 		    " (string-match \"^ \" \"  hi\")"
 		    " (fboundp 'replace-match))",
-		"(count-matches void-function nil 0 0 nil)"));
+		"(3 void-function nil 0 0 nil)"));
 
 	kg_lisp_shutdown();
 }
@@ -8437,6 +8494,7 @@ int main(void)
 	RUN(test_phase24_vectors);
 	RUN(test_phase25_strings);
 	RUN(test_phase25_match_data);
+	RUN(test_phase26_count_matches);
 	RUN(test_s_el_vendored_load);
 	RUN(test_phase8_library);
 	RUN(test_captured_function_value);

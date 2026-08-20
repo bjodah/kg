@@ -870,6 +870,7 @@ groups and up to nine of them.
 | `(match-data &optional INTEGERS)` | The whole register as a flat list of BEGIN END pairs, group 0 first, `nil nil` for a group that did not participate, `nil` when nothing has matched |
 | `(set-match-data LIST &optional RESEAT)` | `match-data`'s inverse: the accessors read `LIST` afterwards |
 | `(save-match-data BODY…)` | A macro. Runs BODY with the register restored on every way out, including a raise and a `C-g` |
+| `(count-matches REGEXP &optional START END INTERACTIVE)` | How many matches for `REGEXP` lie between `START` and `END`, counting from **point** to the end of the buffer when neither is given. Reversed bounds are ordered, not refused; a zero-width match counts and the scan then advances one character; point is where it was when it returns; the match register is left on the LAST match, as in Emacs, which is why callers wrap it in `save-match-data`. A non-nil `INTERACTIVE` also messages the count. Emacs' primary spelling is `how-many` and `count-matches` its alias; kg binds only `count-matches` |
 
 There is **one** match-data register, shared by string and buffer
 matches exactly as in Emacs, so a search of either kind replaces what

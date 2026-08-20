@@ -2603,7 +2603,7 @@
   {
    "id": "phase26-count-matches",
    "category": "sequences",
-   "status": "divergent",
+   "status": "supported",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -2615,8 +2615,8 @@
     "phase26-s-count-matches-route"
    ],
    "kg_test": "test/test_lisp.c:test_s_el_vendored_load",
-   "rationale": "Phase 26.0 froze `count-matches' before kg binds it -- one of the two things Phase 25's honest-frontier probe measured unmodified s.el still stopping at, the other being the anchor spellings. kg answers `void-function' to all six cases. What is frozen is more than the count: that a Lisp caller gets a VALUE and not a message (the INTERACTIVE argument is what makes it message, and s.el does not pass it), that point is where it was afterwards, that a zero-width match counts and the scan then advances one character, that reversed START and END are ORDERED rather than refused, and that the call CLOBBERS the match register on its last match -- which is why s.el wraps it in `save-match-data' and why a kg implementation is required to clobber it the same way rather than to preserve it. The sixth case calls `s-count-matches' itself and answers the missing name, the shape s-el-vendored-call-frontier established. source_name is null: kg has no `count-matches' to claim yet, and the citation is the vendored-package test that names the gap.",
-   "source_name": null
+   "rationale": "SUPPORTED SINCE 26.2, and all six cases agree. Phase 26.0 froze `count-matches' before kg bound it -- one of the two things Phase 25's honest-frontier probe measured unmodified s.el still stopping at, the other being the anchor spellings; kg answered `void-function' to all six cases then. It is prelude Lisp, not C, because the counting loop is a `while' over `re-search-forward' and the campaign binds a name in Lisp wherever the loop can be Lisp. What is frozen is more than the count: that a Lisp caller gets a VALUE and not a message (the INTERACTIVE argument is what makes it message, and s.el does not pass it), that point is where it was afterwards, that a zero-width match counts and the scan then advances one character, that reversed START and END are ORDERED rather than refused, and that the call CLOBBERS the match register on its last match -- which is why s.el wraps it in `save-match-data' and why a kg implementation is required to clobber it the same way rather than to preserve it. The sixth case calls `s-count-matches' itself, and unmodified s.el answers (3 2 2) now where it answered the missing NAME before. Two of the five were the ones a naive `while' gets wrong and both are in the implementation for that reason: the zero-width advance, and `save-excursion' around the whole thing. Emacs' INTERACTIVE argument is honoured rather than ignored, in Emacs' own two message spellings, because a function that reported through the echo area and returned nil would be a different function -- which is what phase26-count-matches-value-shape asks. Emacs' PRIMARY spelling is `how-many' and `count-matches' is the alias; kg binds only the name the demand asked for, so (how-many ...) is `void-function' here.",
+   "source_name": "count-matches"
   },
   {
    "id": "phase26-eql-float-corners",

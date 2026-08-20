@@ -1014,6 +1014,46 @@
 ;; VALUE and none of its contract.
 (defalias 'string-match-p (lambda (regexp string &optional start)
   (save-match-data (string-match regexp string start))))
+;; `count-matches' is Emacs' `how-many' under its other name, and it is a
+;; BUFFER function: s.el reaches it through `with-temp-buffer'
+;; (s-count-matches, s.el:718).  It is prelude Lisp because the loop is
+;; -- a `while' over `re-search-forward' -- and five of its properties
+;; were frozen against the pinned Emacs first (phase26-count-matches-*),
+;; because a naive loop gets two of them wrong:
+;;
+;;   * with no START and END it counts from POINT to the end of the
+;;     accessible buffer, and POINT IS UNCHANGED when it returns, which
+;;     is what `save-excursion' here is for;
+;;   * reversed bounds are ORDERED rather than refused, so
+;;     (count-matches "a" 4 2) is the count over 2..4;
+;;   * a zero-width match COUNTS and then advances one character, so
+;;     "a*" and "" both answer 6 over a six-character buffer -- not 3,
+;;     and not 7;
+;;   * the search resumes at the END of the previous match, so "ana" over
+;;     "banana" is 1;
+;;   * it CLOBBERS the match register on its last match, which is why
+;;     s.el wraps the call in `save-match-data'.
+;;
+;; Emacs' INTERACTIVE argument decides only whether the count is also
+;; MESSAGED; called from Lisp it is nil and the value is the whole
+;; answer.  kg honours it, in Emacs' own two spellings, because a
+;; function that reported through the echo area and returned nil would be
+;; a different function (phase26-count-matches-value-shape asks exactly
+;; that).
+(defalias 'count-matches (lambda (regexp &optional start end interactive)
+  (save-excursion
+    (let ((from (if start (if end (min start end) start) (point)))
+          (to (if (and start end) (max start end) (point-max)))
+          (count 0))
+      (goto-char from)
+      (while (and (< (point) to) (re-search-forward regexp to))
+        (if (and (= (match-beginning 0) (match-end 0))
+                 (< (point) (point-max)))
+            (forward-char 1))
+        (setq count (+ count 1)))
+      (if interactive
+          (message (if (= count 1) "%d occurrence" "%d occurrences") count))
+      count))))
 
 ;; --- strings ---
 ;; Emacs' long spellings of the three comparisons, which is all that was
@@ -1448,6 +1488,7 @@
   (cddr . "Return X without its first two elements.")
   (cond . "Evaluate the body of the first clause whose test is non-nil.")
   (copy-sequence . "Return a fresh copy of the list SEQUENCE.")
+  (count-matches . "Return how many matches for REGEXP lie between START and END.")
   (custom-set-variables . "Set each quoted (SYMBOL VALUE) pair, as a Custom file does.")
   (defconst . "Define NAME as a constant with VALUE, and mark it special.")
   (defcustom . "Define NAME as a user option with STANDARD value; a declaration over `defvar'.")

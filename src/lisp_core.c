@@ -56,8 +56,8 @@ void copy_result(char *result, size_t result_size, const char *text)
 #define lisp_free_arena free
 #endif
 
-static_assert(FE_API_VERSION == 13);
-static_assert(FE_LANGUAGE_VERSION == 15);
+static_assert(FE_API_VERSION == 14);
+static_assert(FE_LANGUAGE_VERSION == 16);
 
 #ifndef KG_LISP_ARENA_SIZE
 #define KG_LISP_ARENA_SIZE (10U * 1024U * 1024U)
@@ -67,13 +67,15 @@ static_assert(FE_LANGUAGE_VERSION == 15);
 #define KG_LISP_STEP_LIMIT (1U << 20)
 #endif
 
-/* The arena holds the whole Fe context, its 4096-slot GC stack and Fe's
- * arena-resident evaluator frames. FeMinimumArenaSize() measures 66544
- * bytes (~65.0 KiB) at the pinned Fe, so an override much below ~72 KiB
- * fails to start; the default's 10 MiB leaves roughly 99% of the
- * arena for objects and frame growth -- 586986 object slots and a
- * 10917-frame evaluator stack, as kg_lisp_arena_stats() reports them.
- * All three are measured at the pin, never carried forward. */
+/* The arena holds the whole Fe context, its 4096-slot GC stack, Fe's
+ * arena-resident evaluator frames and -- since the carve below -- the
+ * payload region a vector's elements live in. FeMinimumArenaSize()
+ * measures 67664 bytes (~66.1 KiB) at the pinned Fe, so an override much
+ * below ~72 KiB fails to start; the default's 10 MiB leaves roughly 99%
+ * of the arena for the three pools, partitioned into 440489 object slots,
+ * a 10916-frame evaluator stack and 2344064 payload bytes, as
+ * kg_lisp_arena_stats() reports them. All four are measured at the pin,
+ * never carried forward. */
 static constexpr size_t lisp_arena_size = KG_LISP_ARENA_SIZE;
 
 /* The size the environment sets instead, read once per kg_lisp_init(),
@@ -82,28 +84,26 @@ static const char lisp_arena_env[] = "KG_LISP_ARENA_BYTES";
 
 /* The floor that variable may not go under.  An arena that holds the
  * prelude and little else is not an editor, so kg refuses it rather than
- * starting into it: 640 KiB opens 34026 object slots at this pin, against
- * the 30048 that are three times the prelude's measured reachable set
- * (.ci/prelude-startup-census.json, reachable_live_objects 10016) -- the
- * same 3x margin test/test_lisp.c asserts of the default arena.  Both
- * halves of that sentence are re-derived by that file's
- * test_arena_floor_matches_census(), from the census file and from a real
- * arena opened at exactly this size, so the constant and the measurement
- * cannot drift apart in silence. */
-static constexpr size_t lisp_arena_min_size = 640U * 1024U;
+ * starting into it: 768 KiB opens 31299 object slots UNDER THE CARVE
+ * below, against the 30723 that are three times the prelude's measured
+ * reachable set (.ci/prelude-startup-census.json,
+ * reachable_live_objects 10241) -- the same 3x margin test/test_lisp.c
+ * asserts of the default arena.  Both halves of that sentence are
+ * re-derived by that file's test_arena_floor_matches_census(), from the
+ * census file and from a real arena opened at exactly this size, so the
+ * constant and the measurement cannot drift apart in silence. */
+static constexpr size_t lisp_arena_min_size = 768U * 1024U;
 /* How the arena is divided, which fe made the host's decision at
- * FE_API_VERSION 13.  kg asks for NO payload region -- an explicit
- * refusal, not the record's default, which is fe's 25% split -- because
- * nothing kg runs can own a payload until Phase 25 of
- * doc/plans/2026-08-18-elisp-data-model.md migrates strings into one.
- * Carving today would take a quarter of the cells (440466 instead of
- * 586986 at the default 10 MiB) for storage nothing can allocate from,
- * and every arena number kg holds itself to -- the 3x floor above, the
- * prelude census, the PTY cases that name a slot count -- is a cell
- * count.  Phase 25 is where this becomes FeDefaultPayloadPercent, and
- * where those numbers move with it. */
+ * FE_API_VERSION 13.  kg takes fe's own split, because at
+ * FE_LANGUAGE_VERSION 16 a vector's elements live in the payload region
+ * and a context that carves none cannot build a vector of any length,
+ * zero included: (vector) answers (payload-exhaustion).  The quarter it
+ * costs is measured, not nominal -- 440489 cells instead of 586993 at the
+ * 10 MiB default, beside 2344064 payload bytes -- and every arena number
+ * kg holds itself to, the 3x floor above included, is re-measured under
+ * the carve rather than carried over from before it. */
 static const FeOpenOptions lisp_arena_options
-    = { .payload_percent = FePayloadPercentNone };
+    = { .payload_percent = FeDefaultPayloadPercent };
 
 static constexpr size_t lisp_step_limit = KG_LISP_STEP_LIMIT;
 static constexpr size_t lisp_poll_interval = 256;

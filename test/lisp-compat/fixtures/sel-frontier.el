@@ -7,17 +7,16 @@
 ;;; separator between sections (s.el:770), and a `declare' debug spec
 ;;; carrying a vector literal -- in the order a load meets them.
 ;;;
-;;; The first two are landed: the autoload declaration is accepted and
-;;; inert, and the form feed below is reader whitespace.  The load
-;;; therefore reaches the third and stops there, with
+;;; All three are landed now.  The autoload declaration is accepted and
+;;; inert (Phase C1), the form feed below is reader whitespace (Phase C2),
+;;; and Phase 24 gave fe the vector reader, so this file LOADS CLEAN:
+;;; `sel-frontier-loaded' answers t and the macro is defined.  It stopped
+;;; at the third with
 ;;;
 ;;;     unsupported read syntax: vector brackets
 ;;;
-;;; which is the CHECKED-IN EXPECTED ERROR.  PHASE 24 FLIPS THIS: when kg
-;;; reads vector literals, this file loads clean, `sel-frontier-loaded'
-;;; answers t, and the sel-frontier-vector-literal case, its snapshot and
-;;; test_sel_frontier_vector_literal move in the same commit as the
-;;; behaviour.
+;;; until that commit.  The file stays in the suite as the cheapest
+;;; regression guard for all three blockers at once.
 (autoload 'sel-frontier-absent "sel-frontier-no-such-library" "Doc." t)
 
 (setq sel-frontier-past-autoload t)

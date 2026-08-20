@@ -47,13 +47,15 @@ after them are Fe's payload region, and their ceiling is ZERO:
   * payload_capacity_bytes, payload_live_bytes, payload_peak_bytes,
     payload_compactions, payload_allocation_failures -- Fe's payload
     region after the prelude (`test/kgbatch -g`'s `payload-*` fields).
-    All five are zero and all five are held to zero, which is the point:
-    kg opens its arena with no payload region until Phase 25 of
-    doc/plans/2026-08-18-elisp-data-model.md gives it an owner
-    (src/lisp_core.c's `lisp_arena_options`), so the first nonzero
-    reading here is either that decision changing or something starting
-    to allocate payloads at startup. A ceiling of zero is the only
-    ratchet that can catch that on the run it first happens.
+    The first is the CARVE, which Phase 24 turned on because a vector's
+    elements live in that region (src/lisp_core.c's
+    `lisp_arena_options`); the other four are USE, they are zero, and
+    they are held to zero, which is the point: the prelude defines
+    `length', `elt', `equal' and the sequence combinators over vectors
+    without ever building one, so the first nonzero reading here is
+    something starting to allocate payloads at startup. A ceiling of
+    zero is the only ratchet that can catch that on the run it first
+    happens.
 
 Reuse note: `utils/prelude_first_call_census.py` already has a
 `parse_prelude_names()` that counts these, but importing that module here
@@ -202,9 +204,11 @@ def write_manifest(path: Path, measured: dict) -> None:
 			 "startup, in four numbers: post-prelude peak live arena "
 			 "slots, still-reachable slots after a forced collection, "
 			 "embedded byte count, and top-level definition count -- "
-			 "plus Fe's payload region, whose five numbers are zero "
-			 "and are held to zero, since kg carves no region until "
-			 "Phase 25 gives it an owner. No "
+			 "plus Fe's payload region, which kg carves for the "
+			 "vectors of FE_LANGUAGE_VERSION 16 and whose four "
+			 "USE numbers are still zero and held there, because the "
+			 "prelude defines vector-aware names without building a "
+			 "vector. No "
 			 "number may rise without a rationale and measured proof "
 			 "in the commit message; regenerating is how a fall is "
 			 "banked."),

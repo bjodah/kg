@@ -1,0 +1,6 @@
+{
+ "id": "phase24-internal-seq-to-list",
+ "setup": [],
+ "expr": "(list (internal--seq-to-list '(1 2)) (internal--seq-to-list [1 2]) (internal--seq-to-list \"ab\") (internal--seq-to-list nil))",
+ "note": "kg-only helper: every sequence as the list the prelude's combinators walk. A list is returned unchanged (the common path allocates nothing), a vector is copied out by index, a string becomes its CHARACTER codes -- which is why (append \"ab\" nil) is (97 98) here as in Emacs. Not meant for user code."
+}

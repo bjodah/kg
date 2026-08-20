@@ -4389,11 +4389,11 @@ static void test_cyclic_result(void)
  * "GC stack overflow" the pre-frame-machine evaluator could hit.
  *
  * Measured on this build via kg_lisp_arena_stats(): frame_capacity is
- * 10917 at Phase B's 10 MiB default, and `(deep 200)` alone reaches
+ * 10916 at Phase B's 10 MiB default, and `(deep 200)` alone reaches
  * peak_frame_depth 604 -- about 3.02 frames per recursion level for this
  * chain's shape (`if`, `+`, and the recursive call each open a frame).
  * `(deep 1000000)` therefore asks for roughly 3 million frames against a
- * 10917-frame arena, more than 270x over capacity -- demonstrably above
+ * 10916-frame arena, more than 270x over capacity -- demonstrably above
  * it without depending on the private Fe frame-size struct or
  * reverse-engineering the arena layout, only on the public
  * frame_capacity/peak_frame_depth counters this file already asserts
@@ -4422,7 +4422,7 @@ static void test_recursion_depth(void)
 	CHECK(eval_eq("(deep 200)", "200"));
 	CHECK(kg_lisp_arena_stats(&before) == 0);
 	/* 200 real recursion levels cost 604 frames of a default-sized
-	 * arena's 10917; confirms the 3-frames-per-level shape this
+	 * arena's 10916; confirms the 3-frames-per-level shape this
 	 * comment's derivation relies on stays in that ballpark rather than
 	 * silently becoming O(1) or O(N^2). */
 	CHECK(before.peak_frame_depth > 200 * 2);
@@ -4513,7 +4513,7 @@ static void test_arena_exhaustion_conditions(void)
 	 * cons, so KG_LISP_STEP_LIMIT's 2^20 steps buy roughly 97000 of
 	 * them, and every arena whose slot count is above that raises
 	 * Budget -- case 5's uncatchable wall -- before it raises
-	 * arena-exhaustion.  Measured at the compiled 10 MiB default: 586986
+	 * arena-exhaustion.  Measured at the compiled 10 MiB default: 440489
 	 * slots, "evaluation step limit exceeded", peak-live 97449.  So this
 	 * function pins the 1 MiB arena (56145 slots) it was written
 	 * against, the way utils/check_lisp_gc_stress.py pins its own; Phase
@@ -6099,8 +6099,11 @@ static void test_quit_uncaught(void)
  * doc/plans/2026-08-19-fe-simplification-and-cheap-compat.md removed
  * internal--make-deferred-stub with the rest of the deferral machinery,
  * taking it to 121, and that plan's Phase C1 added the no-op `autoload'
- * macro, taking it to 122. */
-#define PRELUDE_DEFS 122
+ * macro, taking it to 122.  Phase 24.2 added four: the two captured fe
+ * primitives kg wraps (internal--fe-length, internal--fe-elt) and the two
+ * helpers the sequence generalisation is built from
+ * (internal--seq-to-list, internal--equal-vectors), taking it to 126. */
+#define PRELUDE_DEFS 126
 
 /* What a value CAPTURED out of a symbol's function cell is: that symbol's
  * definition at the moment of capture, and it stays that definition
@@ -6402,9 +6405,12 @@ static void test_phase8_reader_literals(void)
 	    "(\"A\" \"A\" \"\x1b\" \"\x7f\" \" \")"));
 
 	/* Rejections, by name.  Each of these used to be read as something
-	 * else -- a vector as three symbols, ?ab as one character plus a
-	 * leftover token, "\x41f" as "Af". */
-	CHECK(eval_error_contains("(list [1 2 3])", "vector brackets"));
+	 * else -- ?ab as one character plus a leftover token, "\x41f" as
+	 * "Af". */
+	/* `[1 2 3]' left this list in Phase 24, which gave fe a vector to
+	 * read into; test_phase24_vectors is where it is asserted now.
+	 * `#:' stays, because an uninterned symbol still has no
+	 * representation. */
 	CHECK(eval_error_contains("(list '#:sym)", "unsupported read syntax"));
 	/* Phase 14 implements symbol escapes, so what is left to reject
 	 * here is a backslash with nothing after it; the positive rows are
@@ -6487,15 +6493,14 @@ static void test_autoload_no_op(void)
 	kg_lisp_shutdown();
 }
 
-/* Phase C3: the frontier a package-shaped file stops kg at.  The fixture
- * is synthetic -- test/lisp-compat/fixtures/sel-frontier.el says why
- * nothing is vendored -- and reproduces s.el's blocker sequence in the
- * order a load meets it.  Two of the three are landed (C1's no-op
- * `autoload', C2's form-feed whitespace), so the load gets past the
- * header and the page separator and stops at the vector literal in a
- * `declare' debug spec, BY NAME.  That message is the checked-in
- * expected error; PHASE 24 FLIPS THIS TEST, and it is meant to fail
- * loudly when it does rather than be quietly right about nothing. */
+/* Phase C3's frontier, MOVED.  The fixture is synthetic --
+ * test/lisp-compat/fixtures/sel-frontier.el says why -- and reproduces
+ * s.el's blocker sequence in the order a load meets it: C1's autoload
+ * declaration, C2's page separator, and a `declare' debug spec carrying a
+ * vector literal.  All three are landed now, the third by Phase 24, so
+ * this test asserts the flip the row was written to demand: the file
+ * loads clean and every probe in it answers.  It stays because it is the
+ * cheapest regression guard for all three blockers at once. */
 static void test_sel_frontier_vector_literal(void)
 {
 	static const char *const paths[] = {
@@ -6525,15 +6530,154 @@ static void test_sel_frontier_vector_literal(void)
 	(void)snprintf(form, sizeof(form),
 	    "(condition-case e (load \"%s\") (error (error-message-string e)))",
 	    path);
-	CHECK(eval_eq(form, "unsupported read syntax: vector brackets"));
-	/* The frontier is that literal and nothing before it: the autoload
-	 * declaration and the page break are both past, and neither the
-	 * macro nor the form after it made it. */
+	CHECK(eval_eq(form, "t"));
+	/* Nothing is a frontier any more: the autoload declaration, the
+	 * page break AND the vector literal are all past, so the macro is
+	 * defined and the form after it ran.  (t t nil nil) is what this
+	 * answered while the third blocker stood. */
 	CHECK(eval_eq("(list (boundp 'sel-frontier-past-autoload)"
 		      " (boundp 'sel-frontier-past-page-break)"
 		      " (boundp 'sel-frontier-loaded)"
 		      " (fboundp 'sel-frontier-when-let))",
-	    "(t t nil nil)"));
+	    "(t t t t)"));
+	/* And the macro the debug spec is attached to WORKS, which is the
+	 * claim a load that merely stopped signalling would not make. */
+	CHECK(eval_eq("(sel-frontier-when-let (ignored 7) 'ran)", "ran"));
+
+	kg_lisp_shutdown();
+}
+
+/* Phase 24.2: the vector surface, seen from kg rather than from fe.
+ * test/lisp-compat/cases/vector-*.json is the contract -- thirty-four
+ * cases frozen against Emacs 31.0.91 before any code existed -- and
+ * `make lisp-oracle-check' is what compares kg to it.  This asserts the
+ * three things that runner structurally cannot:
+ *
+ *   1. condition DATA.  The runner compares a condition's SYMBOL, so
+ *      `args-out-of-range' would pass with the index alone, or with the
+ *      pair the wrong way round.  The frozen data is (SEQUENCE INDEX).
+ *   2. the STRING arm kg keeps for itself.  fe's `length' and `elt' are
+ *      generic, and fe counts a string's BYTES; every oracle case is
+ *      ASCII, where bytes and characters agree, so only a non-ASCII
+ *      string can tell kg's wrapper from fe's primitive.
+ *   3. the PAYLOAD region really being used, which is the substrate
+ *      claim under all of it: no vector allocates one byte of it in a
+ *      session that has only booted, and building one does. */
+static void test_phase24_vectors(void)
+{
+	struct kg_lisp_arena_stats before, after;
+
+	CHECK(kg_lisp_init() == 0);
+	CHECK(kg_lisp_arena_stats(&before) == 0);
+
+	/* Reader, writer and the type's two names. */
+	CHECK(eval_eq("[1 2 3]", "[1 2 3]"));
+	CHECK(eval_eq("[]", "[]"));
+	CHECK(eval_eq("'(a [1 2] b)", "(a [1 2] b)"));
+	CHECK(eval_eq("(type-of [1 2 3])", "vector"));
+	CHECK(eval_eq("(list (vectorp []) (vectorp \"ab\") (vectorp '(1)))",
+	    "(t nil nil)"));
+	/* A missing bracket is Emacs' GENERIC incomplete-input condition,
+	 * not a vector-specific invention -- the name 24.0 measured rather
+	 * than assumed. */
+	CHECK(eval_error_contains("[1 2", "end-of-file"));
+	CHECK(eval_error_contains("[1 2", "unclosed vector"));
+
+	/* 1. CONDITION DATA, which the oracle runner compares only by
+	 * symbol.  The offending sequence comes FIRST on both sides and for
+	 * all three names, and `aref' names `arrayp' -- strings are arrays
+	 * -- rather than `vectorp'. */
+	CHECK(eval_eq("(condition-case e (aref [10 20] 5)"
+		      " (args-out-of-range (cdr e)))",
+	    "([10 20] 5)"));
+	CHECK(eval_eq("(condition-case e (aref [10 20] -1)"
+		      " (args-out-of-range (cdr e)))",
+	    "([10 20] -1)"));
+	CHECK(eval_eq("(condition-case e (aset (make-vector 2 0) 2 1)"
+		      " (args-out-of-range (cdr e)))",
+	    "([0 0] 2)"));
+	CHECK(eval_eq("(condition-case e (elt [1 2] 9)"
+		      " (args-out-of-range (cdr e)))",
+	    "([1 2] 9)"));
+	CHECK(eval_eq("(condition-case e (aref 5 0)"
+		      " (wrong-type-argument (cdr e)))",
+	    "(arrayp 5)"));
+
+	/* Identity, mutation through two references, and structural
+	 * `equal' -- including the cross-type rule in both argument
+	 * orders, which is the half an implementation loses first. */
+	CHECK(eval_eq("(let ((a [1]) (b [1]))"
+		      " (list (eq a b) (eq a a) (eql a a) (eql a b)))",
+	    "(nil t t nil)"));
+	CHECK(eval_eq("(let* ((a (make-vector 3 0)) (b a))"
+		      " (list (aset a 1 'x) (aref b 1) (eq a b) b))",
+	    "(x x t [0 x 0])"));
+	CHECK(eval_eq("(list (equal [1 2] [1 2]) (equal [] [])"
+		      " (equal [1 2] [1 2 3]) (equal [1 2] '(1 2))"
+		      " (equal '(1 2) [1 2]) (equal [[1]] [[1]]))",
+	    "(t t nil nil nil t)"));
+
+	/* 2. THE STRING ARM.  Every oracle case for `length' and `elt' is
+	 * ASCII, where fe's byte answer and Emacs' character answer are the
+	 * same number.  These are not: "é" is two bytes and one character,
+	 * so a kg that had simply taken fe's generic primitives would
+	 * answer 2 and 195 here. */
+	CHECK(eval_eq("(list (length '(1 2 3)) (length \"abc\")"
+		      " (length [1 2 3]) (length []))",
+	    "(3 3 3 0)"));
+	CHECK(eval_eq("(length \"\xc3\xa9\")", "1"));
+	CHECK(eval_eq("(elt \"\xc3\xa9\" 0)", "233"));
+	CHECK(eval_eq("(list (elt '(a b c) 1) (elt \"abc\" 1) (elt [a b c] 1))",
+	    "(b 98 b)"));
+	/* And the asymmetry both sides of `elt' inherit from where they
+	 * route: past the end of a LIST is nil, past the end of a VECTOR
+	 * raises. */
+	CHECK(eval_eq("(elt '(1 2) 9)", "nil"));
+	CHECK(eval_error_contains("(elt [1 2] 9)", "out of range"));
+	/* The dotted and non-sequence conditions the hand-written `length'
+	 * used to raise are fe's now, and unchanged. */
+	CHECK(eval_eq("(condition-case e (length 5)"
+		      " (wrong-type-argument (cdr e)))",
+	    "(sequencep 5)"));
+	CHECK(eval_eq("(condition-case e (length '(1 . 2))"
+		      " (wrong-type-argument (cdr e)))",
+	    "(listp 2)"));
+
+	/* The combinators, and the result types Emacs gives them: a list
+	 * from `mapcar' over a vector, a flattened list from `append', a
+	 * fresh VECTOR from `copy-sequence', the sequence's own type from
+	 * `seq-take'. */
+	CHECK(eval_eq("(mapcar '1+ [1 2 3])", "(2 3 4)"));
+	CHECK(eval_eq("(let ((acc nil))"
+		      " (mapc (lambda (x) (setq acc (cons x acc))) [1 2 3])"
+		      " acc)",
+	    "(3 2 1)"));
+	CHECK(eval_eq("(mapconcat 'number-to-string [1 2 3] \"-\")", "1-2-3"));
+	CHECK(eval_eq("(list (append [1 2] nil) (append [1] '(2))"
+		      " (append \"ab\" nil))",
+	    "((1 2) (1 2) (97 98))"));
+	CHECK(eval_eq("(let* ((a [1 2]) (b (copy-sequence a)))"
+		      " (aset b 0 9) (list a b))",
+	    "([1 2] [9 2])"));
+	CHECK(eval_eq("(list (seq-map '1+ [1 2]) (seq-filter 'zerop [0 1 0])"
+		      " (seq-take [1 2 3] 2) (seq-take \"abc\" 2)"
+		      " (seq-take '(1 2 3) 2))",
+	    "((2 3) (0 0) [1 2] \"ab\" (1 2))"));
+
+	/* 3. THE PAYLOAD REGION, read at the end against the reading taken
+	 * before any of the above ran.  kg carves it (src/lisp_core.c's
+	 * lisp_arena_options) because a vector's elements live in it; a
+	 * session that has only booted has not used a byte of it, which is
+	 * what .ci/prelude-startup-census.json holds to zero; and a
+	 * thousand-element vector moves the high-water mark past the 8032
+	 * bytes fe prices it at (32 + 8n, fe's asserted equality and not
+	 * kg's to re-derive). */
+	CHECK(eval_eq("(length (make-vector 1000 0))", "1000"));
+	CHECK(kg_lisp_arena_stats(&after) == 0);
+	CHECK(before.payload_capacity_bytes > 0);
+	CHECK(before.payload_peak_bytes == 0);
+	CHECK(after.payload_peak_bytes >= 8032);
+	CHECK(after.payload_allocation_failures == 0);
 
 	kg_lisp_shutdown();
 }
@@ -6699,7 +6843,7 @@ static void test_phase8_library(void)
 	 * every form above it, more than half the arena is still free and
 	 * the high-water mark is a small fraction of it.  The arena the slot
 	 * counts in this comment were measured in is the 1 MiB one that was
-	 * the compiled default until Phase B made it 10 MiB and 586986
+	 * the compiled default until Phase B made it 10 MiB and 440489
 	 * slots; what the series tracks is fe's partitioning of a fixed size,
 	 * so it reads at the size it was taken at.  Re-measured on this
 	 * build via kg_lisp_arena_stats() at the let-binding-buffer-tag pin:
@@ -6802,7 +6946,7 @@ static void test_phase8_library(void)
 	 * history, and the point of the phase that produced it: fewer of the
 	 * prelude's own names are permanently live, not more docstrings or
 	 * more library added on top.  Every denominator in that series is
-	 * the 1 MiB arena's; Phase B made the default 10 MiB and 586986
+	 * the 1 MiB arena's; Phase B made the default 10 MiB and 440489
 	 * slots, so the same marks are now about a fortieth of it and the
 	 * numerator is the half of the fraction this file can move.  The
 	 * claim being made is still margin; what would not be is a bound
@@ -6910,7 +7054,7 @@ static void test_save_excursion_pool_bound(void)
 	 * raised "evaluation frame limit exceeded" (218/219 until the frame
 	 * partition fell 1089 -> 1087 at the let-binding-buffer-tag pin),
 	 * and `with-current-buffer' met the same ceiling at 155 deep, 156
-	 * raising.  Phase B's 10 MiB default takes frame_capacity to 10917
+	 * raising.  Phase B's 10 MiB default takes frame_capacity to 10916
 	 * and hands the bound back to the pool, re-measured on this tree:
 	 * 256 nested excursions answer `deep' and the 257th raises "too many
 	 * marker objects" -- LISP_MAX_OBJECTS, the constraint sub-plan 12D
@@ -7962,6 +8106,7 @@ int main(void)
 	RUN(test_reader_form_feed_page_break);
 	RUN(test_autoload_no_op);
 	RUN(test_sel_frontier_vector_literal);
+	RUN(test_phase24_vectors);
 	RUN(test_phase8_library);
 	RUN(test_captured_function_value);
 	RUN(test_native_reverse_gc_stack);

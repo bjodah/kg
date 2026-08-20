@@ -621,15 +621,19 @@ static void test_lisp_arena_stats_renders(void)
 	/* A session that has only booted has never failed an allocation. */
 	CHECKF(strstr(editor.statusmsg, "; fails 0") != NULL, "rendered %s",
 	    editor.statusmsg);
-	/* And has no payload region at all: kg opens its arena with none
-	 * until Phase 25 (src/lisp_core.c's lisp_arena_options), so the
-	 * rendered text is the literal zeros, not merely a matching pair of
-	 * numbers.  The whole-line comparison above already pins the
-	 * rendering; this pins the DECISION, in the one place a reader of
-	 * the command's output would look for it. */
+	/* And has a payload region it has not touched: kg carves one since
+	 * Phase 24 because a vector's elements live in it (src/lisp_core.c's
+	 * lisp_arena_options), and a session that has only booted has built
+	 * no vector, so live is 0 of a nonzero capacity and the three
+	 * counters after it are the literal zeros.  The whole-line
+	 * comparison above already pins the rendering; this pins the
+	 * DECISION, in the one place a reader of the command's output would
+	 * look for it. */
+	CHECK(stats.payload_capacity_bytes > 0);
+	CHECKF(strstr(editor.statusmsg, "; payload 0/") != NULL, "rendered %s",
+	    editor.statusmsg);
 	CHECKF(strstr(editor.statusmsg,
-		   "; payload 0/0 bytes, peak 0; "
-		   "compactions 0; payload fails 0")
+		   " bytes, peak 0; compactions 0; payload fails 0")
 		!= NULL,
 	    "rendered %s", editor.statusmsg);
 	kg_lisp_shutdown();

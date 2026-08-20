@@ -1,0 +1,6 @@
+{
+ "id": "phase24-internal-fe-length-and-elt",
+ "setup": [],
+ "expr": "(list (internal--fe-length [1 2 3]) (internal--fe-length '(1 2)) (internal--fe-elt [10 20] 1) (internal--fe-elt '(a b) 1))",
+ "note": "kg-only aliases: fe's generic `length' and `elt', captured before kg's prelude shadows the names. Asked here only about the arms kg passes straight through -- lists and vectors -- because the STRING arm is exactly the one kg does not use: fe counts and indexes a string's BYTES, and (internal--fe-length \"é\") is 2 where `length' answers Emacs' 1."
+}

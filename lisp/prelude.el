@@ -133,9 +133,26 @@
 ;; with no callback in between, so nothing can observe them.  doc/TODO.md
 ;; carries the census and the classification.
 ;; --- list library, all iterative ---
+;; Every sequence as a LIST, which is the one shape the combinators below
+;; walk.  A list is already one; a vector is copied out by index; a string
+;; becomes its CHARACTER codes, which is what Emacs flattens a string to --
+;; (append "ab" nil) is (97 98) -- and what `string-to-list' already
+;; produces.  A non-sequence never reaches the loop: `length' answers
+;; (wrong-type-argument sequencep X) for it, which is Emacs' answer too.
+(defalias 'internal--seq-to-list (lambda (sequence)
+  (if (listp sequence)
+      sequence
+    (if (stringp sequence)
+        (string-to-list sequence)
+      (internal--let n (length sequence))
+      (internal--let out nil)
+      (while (< 0 n)
+        (setq n (- n 1))
+        (setq out (cons (aref sequence n) out)))
+      out))))
 (defalias 'internal--append2 (lambda (a b)
   (internal--let res b)
-  (internal--let r (reverse a))
+  (internal--let r (reverse (internal--seq-to-list a)))
   (while r
     (setq res (cons (car r) res))
     (setq r (cdr r)))
@@ -148,22 +165,21 @@
     (setq res (internal--append2 (car r) res))
     (setq r (cdr r)))
   res))
-;; Emacs' `length' is generic over sequences and answers
-;; (wrong-type-argument sequencep X) for anything that is not one -- not
-;; `listp', which is what the bare `while' below reported for (length 5)
-;; by falling into (cdr 5).  A dotted pair still says listp, from the same
-;; walk and about the offending TAIL, which is Emacs' answer too:
-;; (length '(1 . 2)) is (wrong-type-argument listp 2) on both sides.
+;; fe's own `length' is generic over lists, strings and vectors, and kg
+;; keeps exactly one of those three arms for itself: a fe string is a chain
+;; of BYTES, so fe counts bytes where Emacs counts CHARACTERS -- (length
+;; "é") is 2 there and 1 in Emacs and here.  So a string is kg's
+;; character-counting native and everything else is fe's primitive, which
+;; already answers (wrong-type-argument sequencep X) for a non-sequence and
+;; (wrong-type-argument listp TAIL) for a dotted list, the two conditions
+;; this definition used to produce by hand.  Phase 25 of
+;; doc/plans/2026-08-18-elisp-data-model.md retires the wrapper by giving
+;; fe length-bearing strings.
+(defalias 'internal--fe-length (symbol-function 'length))
 (defalias 'length (lambda (x)
   (if (stringp x)
       (string-length x)
-    (if (not (listp x))
-        (signal 'wrong-type-argument (list 'sequencep x)))
-    (internal--let n 0)
-    (while x
-      (setq n (+ n 1))
-      (setq x (cdr x)))
-    n)))
+    (internal--fe-length x))))
 (defalias 'nthcdr (lambda (n lst)
   (while (and (< 0 n) lst)
     (setq n (- n 1))
@@ -173,8 +189,20 @@
 (defalias 'last (lambda (lst)
   (while (cdr lst) (setq lst (cdr lst)))
   lst))
-;; Structural on lists, then Emacs' atom rule: strings compare by
-;; content, numbers by eql, everything else by identity.  Only the car
+;; Two vectors compare element by element, from the end, so an unequal
+;; length answers before a single element is read.  Only two vectors ever
+;; reach here: `equal' has already ruled out every pair where one side is
+;; a cons, which is how Emacs' rule that a vector is never `equal' to a
+;; list with the same elements comes out right in both argument orders.
+(defalias 'internal--equal-vectors (lambda (a b)
+  (internal--let n (length a))
+  (internal--let same (= n (length b)))
+  (while (and same (< 0 n))
+    (setq n (- n 1))
+    (if (equal (aref a n) (aref b n)) nil (setq same nil)))
+  same))
+;; Structural on lists and vectors, then Emacs' atom rule: strings compare
+;; by content, numbers by eql, everything else by identity.  Only the car
 ;; descends, so the spine cost is a loop, not a frame.
 (defalias 'equal (lambda (a b)
   (internal--let same t)
@@ -187,15 +215,17 @@
         (string= a b)
       (if (and (numberp a) (numberp b))
           (eql a b)
-        (eq a b))))))
+        (if (and (vectorp a) (vectorp b))
+            (internal--equal-vectors a b)
+          (eq a b)))))))
 (defalias 'zerop (lambda (n) (= n 0)))
-(defalias 'mapcar (lambda (f lst)
-  ((lambda (res)
+(defalias 'mapcar (lambda (f sequence)
+  ((lambda (res lst)
      (while lst
        (setq res (cons (funcall f (car lst)) res))
        (setq lst (cdr lst)))
      (reverse res))
-   nil)))
+   nil (internal--seq-to-list sequence))))
 (defalias 'member (lambda (elt lst)
   (while (and lst (not (equal elt (car lst))))
     (setq lst (cdr lst)))
@@ -216,17 +246,17 @@
     (if (eq key (car (car alist))) (setq hit (car alist)))
     (setq alist (cdr alist)))
   hit))
-(defalias 'mapc (lambda (f lst)
-  ((lambda (original)
+(defalias 'mapc (lambda (f sequence)
+  ((lambda (lst)
      (while lst
        (funcall f (car lst))
        (setq lst (cdr lst)))
-     original)
-   lst)))
+     sequence)
+   (internal--seq-to-list sequence))))
 ;; SEPARATOR has been optional since Emacs 29, defaulting to "".
-(defalias 'mapconcat (lambda (f lst &optional separator)
+(defalias 'mapconcat (lambda (f sequence &optional separator)
   (if (null separator) (setq separator ""))
-  ((lambda (result first)
+  ((lambda (result first lst)
      (while lst
        (if first
            (setq first nil)
@@ -234,7 +264,7 @@
        (setq result (concat result (funcall f (car lst))))
        (setq lst (cdr lst)))
      result)
-   "" t)))
+   "" t (internal--seq-to-list sequence))))
 (defalias 'nreverse (lambda (lst)
   (internal--let result nil)
   (while lst
@@ -1105,13 +1135,19 @@
 (defalias 'caddr (lambda (x) (car (cdr (cdr x)))))
 (defalias 'cdddr (lambda (x) (cdr (cdr (cdr x)))))
 (defalias 'cadddr (lambda (x) (car (cdr (cdr (cdr x))))))
+;; The other name fe generalised, wrapped for the same one reason
+;; `length' is: a fe string indexes by BYTE and Emacs by CHARACTER.  Every
+;; other sequence is fe's primitive, which routes a list to its own walk
+;; (past the end is nil) and a vector to `aref' (past the end raises
+;; args-out-of-range) -- the asymmetry Phase 24.0 froze against Emacs.
+(defalias 'internal--fe-elt (symbol-function 'elt))
 (defalias 'elt (lambda (sequence n)
   (if (stringp sequence)
       (progn
         (if (or (< n 0) (<= (length sequence) n))
             (signal 'args-out-of-range (list sequence n)))
         (string-to-char (substring sequence n (+ n 1))))
-    (nth n sequence))))
+    (internal--fe-elt sequence n))))
 (defalias 'butlast (lambda (list &optional n)
   (let ((keep (- (length list) (if n n 1))) (out nil))
     (while (and (< 0 keep) list)
@@ -1119,14 +1155,20 @@
       (setq list (cdr list))
       (setq keep (- keep 1)))
     (reverse out))))
+;; A SHALLOW copy of the same type: a fresh string, a fresh vector whose
+;; elements are the originals, a fresh list spine.  `vconcat' of one
+;; vector is that fresh vector -- it always publishes a new payload block,
+;; which is what makes a write through the copy invisible to the original.
 (defalias 'copy-sequence (lambda (sequence)
   (if (stringp sequence)
       (substring sequence 0)
-    (let ((out nil))
-      (while sequence
-        (setq out (cons (car sequence) out))
-        (setq sequence (cdr sequence)))
-      (reverse out)))))
+    (if (vectorp sequence)
+        (vconcat sequence)
+      (let ((out nil))
+        (while sequence
+          (setq out (cons (car sequence) out))
+          (setq sequence (cdr sequence)))
+        (reverse out))))))
 (defalias 'number-sequence (lambda (from &optional to inc)
   (if (null to)
       (list from)
@@ -1228,41 +1270,52 @@
    (mapcar 'list sequence))))
 
 ;; --- the seq- shim ---
-;; Lists only: Emacs' seq- functions are generic over every sequence type
-;; through cl-generic, and kg has lists and strings and no dispatch.
+;; Generic over kg's three sequence types, and generic the cheap way:
+;; Emacs dispatches on cl-generic, kg converts once with
+;; `internal--seq-to-list' and walks a list.  The five below answer a LIST
+;; whatever they were given, as Emacs' do; `seq-take' is the one that
+;; answers the sequence's own type.
 (defalias 'seq-map (lambda (function sequence) (mapcar function sequence)))
 (defalias 'seq-filter (lambda (predicate sequence)
-  ((lambda (out)
-     (while sequence
-       (if (funcall predicate (car sequence))
-           (setq out (cons (car sequence) out)))
-       (setq sequence (cdr sequence)))
+  ((lambda (out lst)
+     (while lst
+       (if (funcall predicate (car lst))
+           (setq out (cons (car lst) out)))
+       (setq lst (cdr lst)))
      (reverse out))
-   nil)))
+   nil (internal--seq-to-list sequence))))
 (defalias 'seq-remove (lambda (predicate sequence)
   (seq-filter (lambda (x) (not (funcall predicate x))) sequence)))
 (defalias 'seq-find (lambda (predicate sequence &optional default)
-  ((lambda (hit found)
-     (while (and sequence (not found))
-       (if (funcall predicate (car sequence))
-           (progn (setq hit (car sequence)) (setq found t)))
-       (setq sequence (cdr sequence)))
+  ((lambda (hit found lst)
+     (while (and lst (not found))
+       (if (funcall predicate (car lst))
+           (progn (setq hit (car lst)) (setq found t)))
+       (setq lst (cdr lst)))
      (if found hit default))
-   nil nil)))
+   nil nil (internal--seq-to-list sequence))))
 (defalias 'seq-some (lambda (predicate sequence)
-  ((lambda (hit)
-     (while (and sequence (null hit))
-       (setq hit (funcall predicate (car sequence)))
-       (setq sequence (cdr sequence)))
+  ((lambda (hit lst)
+     (while (and lst (null hit))
+       (setq hit (funcall predicate (car lst)))
+       (setq lst (cdr lst)))
      hit)
-   nil)))
+   nil (internal--seq-to-list sequence))))
+;; Emacs' `seq-take' answers the sequence's OWN type -- (seq-take [1 2 3] 2)
+;; is [1 2] and (seq-take "abc" 2) is "ab" -- so this one rebuilds instead
+;; of answering the list it walked.
 (defalias 'seq-take (lambda (sequence n)
-  (let ((out nil))
-    (while (and sequence (< 0 n))
-      (setq out (cons (car sequence) out))
-      (setq sequence (cdr sequence))
+  (let ((out nil) (rest (internal--seq-to-list sequence)))
+    (while (and rest (< 0 n))
+      (setq out (cons (car rest) out))
+      (setq rest (cdr rest))
       (setq n (- n 1)))
-    (reverse out))))
+    (setq out (reverse out))
+    (if (vectorp sequence)
+        (vconcat out)
+      (if (stringp sequence)
+          (mapconcat 'char-to-string out "")
+        out)))))
 
 ;; --- arithmetic ---
 ;; (+ number 0) rather than `number' on the non-negative arm so that

@@ -1551,7 +1551,7 @@ static void test_lisp_prelude_arena_margin(void)
 	 * not a tight fit. */
 	CHECK(stats.free_slots * 2 > stats.total_slots);
 	/* frame_capacity is a fixed property of the arena layout, not the
-	 * workload; asserted nonzero and stable here (measured 10917 on this
+	 * workload; asserted nonzero and stable here (measured 10916 on this
 	 * build, at the 10 MiB default) rather than to a specific number,
 	 * per the same
 	 * bound-not-count convention as the slot counts above. */
@@ -1575,21 +1575,21 @@ static void test_lisp_prelude_arena_margin(void)
 	 * 0. */
 	CHECK(stats.peak_native_reentry == 1);
 
-	/* THE PAYLOAD REGION IS ZERO, in all five numbers and exactly.
+	/* THE PAYLOAD REGION IS CARVED AND UNUSED: capacity nonzero,
+	 * the four USE numbers exactly zero.
 	 *
-	 * kg opens its arena with no payload region at all until Phase 25 of
-	 * doc/plans/2026-08-18-elisp-data-model.md migrates strings into one
-	 * (src/lisp_core.c's lisp_arena_options).  Zeros are the shape that
-	 * decision has, and they are asserted rather than assumed for the
-	 * same reason .ci/prelude-startup-census.json holds them to a
-	 * ceiling of zero: the failure this catches is payload use
-	 * appearing EARLY -- a carve switched on before its consumer
-	 * exists, or a constructor that started publishing blocks -- which
-	 * moves every arena number kg pins elsewhere and would otherwise be
-	 * found by whichever of them broke first.  Phase 25 is where these
-	 * become nonzero assertions about a real region; the counters
-	 * below are named now so they have somewhere to be made. */
-	CHECK(stats.payload_capacity_bytes == 0);
+	 * Phase 24 of doc/plans/2026-08-18-elisp-data-model.md turned the
+	 * carve on, because a vector's elements live in that region and a
+	 * context that carves none cannot build a vector (src/lisp_core.c's
+	 * lisp_arena_options).  What the prelude does with it is nothing:
+	 * it defines `length', `elt', `equal' and the sequence combinators
+	 * over vectors without building one.  So the four zeros are the same
+	 * early-use ratchet .ci/prelude-startup-census.json holds to a
+	 * ceiling of zero -- a constructor that started publishing blocks at
+	 * startup moves every arena number kg pins elsewhere -- and the
+	 * nonzero capacity beside them is the decision itself, asserted in
+	 * the place a reader would look for it. */
+	CHECK(stats.payload_capacity_bytes > 0);
 	CHECK(stats.payload_live_bytes == 0);
 	CHECK(stats.payload_peak_bytes == 0);
 	CHECK(stats.payload_compaction_count == 0);
@@ -1599,12 +1599,14 @@ static void test_lisp_prelude_arena_margin(void)
 	 * which is a second seam and can drift from the first: the snapshot
 	 * is what src/main.c calls before kg_perf_dump(), so a gauge that
 	 * was never mirrored would read zero here for the wrong reason.
-	 * lisp_arena_total_slots is nonzero in the same reading, which is
-	 * what proves the snapshot ran at all. */
+	 * The capacity gauge is compared against the stats reading rather
+	 * than against a constant, which is what makes it a mirror test and
+	 * not a second copy of the partition. */
 	kg_perf_reset();
 	kg_lisp_perf_snapshot();
 	CHECK(counter(KG_PERF_LISP_ARENA_TOTAL_SLOTS) == stats.total_slots);
-	CHECK(counter(KG_PERF_LISP_PAYLOAD_CAPACITY) == 0);
+	CHECK(counter(KG_PERF_LISP_PAYLOAD_CAPACITY)
+	    == (unsigned long long)stats.payload_capacity_bytes);
 	CHECK(counter(KG_PERF_LISP_PAYLOAD_LIVE) == 0);
 	CHECK(counter(KG_PERF_LISP_PAYLOAD_PEAK) == 0);
 	CHECK(counter(KG_PERF_LISP_PAYLOAD_COMPACTIONS) == 0);
@@ -1853,7 +1855,7 @@ static void test_lisp_evaluator_shapes(void)
 	 * limit exceeded" somewhere between n=520 (still fits) and n=540-545
 	 * (does not; the two entry paths' own frame overhead differs by a
 	 * handful, hence the range).  Phase B's 10 MiB default moves that
-	 * ceiling to 10917, an order of magnitude clear of this walk, which
+	 * ceiling to 10916, an order of magnitude clear of this walk, which
 	 * is why the assertion below is against frame_capacity and not
 	 * against any of these numbers. */
 	CHECK(kg_lisp_init() == 0);
@@ -1903,13 +1905,13 @@ static void test_lisp_evaluator_shapes(void)
 
 	/* Deep call chain: 300 levels of non-tail self-recursion, well under
 	 * both the GC-stack ceiling and the arena's own frame_capacity
-	 * (measured peak_frame_depth 904 of frame_capacity 10917 on this
+	 * (measured peak_frame_depth 904 of frame_capacity 10916 on this
 	 * build -- about 3 frames per recursion level for this chain's
 	 * shape: the `if`, the `+`, and the recursive call each open one).
 	 * Asserted against frame_capacity rather than a hardcoded number so
 	 * this stays meaningful if KG_LISP_ARENA_SIZE, or Fe's per-frame
 	 * arena partition, ever changes -- as KG_LISP_ARENA_SIZE just did,
-	 * taking frame_capacity 1087 -> 10917; the assertion is what
+	 * taking frame_capacity 1087 -> 10916; the assertion is what
 	 * test_recursion_depth's comment (test_lisp.c) also measures. */
 	CHECK(kg_lisp_init() == 0);
 	static const char deep_call_chain[]

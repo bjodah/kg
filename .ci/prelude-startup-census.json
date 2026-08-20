@@ -1,7 +1,7 @@
 {
  "schema": "kg-prelude-startup-census/2",
  "regenerate_with": "make prelude-census-baseline",
- "note": "What the embedded Lisp prelude (lisp/prelude.el) costs at startup, in four numbers: post-prelude peak live arena slots, still-reachable slots after a forced collection, embedded byte count, and top-level definition count -- plus Fe's payload region, whose five numbers are zero and are held to zero, since kg carves no region until Phase 25 gives it an owner. No number may rise without a rationale and measured proof in the commit message; regenerating is how a fall is banked.",
+ "note": "What the embedded Lisp prelude (lisp/prelude.el) costs at startup, in four numbers: post-prelude peak live arena slots, still-reachable slots after a forced collection, embedded byte count, and top-level definition count -- plus Fe's payload region, which kg carves for the vectors of FE_LANGUAGE_VERSION 16 and whose four USE numbers are still zero and held there, because the prelude defines vector-aware names without building a vector. No number may rise without a rationale and measured proof in the commit message; regenerating is how a fall is banked.",
  "measured_with": {
   "peak_live_objects": "test/kgbatch -g /dev/null, peak-live=",
   "reachable_live_objects": "test/prelude_gc_probe, the \"reachable-live (total - free)\" line, read right after kg_lisp_init() -- which now runs the one forced collection this needs itself",
@@ -14,11 +14,11 @@
   "payload_allocation_failures": "test/kgbatch -g /dev/null, payload-failures="
  },
  "ceiling": {
-  "peak_live_objects": 10993,
-  "reachable_live_objects": 10016,
-  "embedded_bytes": 71720,
-  "definition_count": 122,
-  "payload_capacity_bytes": 0,
+  "peak_live_objects": 11248,
+  "reachable_live_objects": 10241,
+  "embedded_bytes": 74840,
+  "definition_count": 126,
+  "payload_capacity_bytes": 2344064,
   "payload_live_bytes": 0,
   "payload_peak_bytes": 0,
   "payload_compactions": 0,

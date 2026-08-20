@@ -102,7 +102,7 @@ trusting it.
   `with-current-buffer` over `(current-buffer)` ran to **155**, both the
   arena partition's verdict (1086 frames at the payload-substrate pin,
   1087 when those depths were measured) rather than the pool's. The
-  10 MiB default opens 10917 frames and hands the bound back to the
+  10 MiB default opens 10916 frames and hands the bound back to the
   pool: re-measured, nested `save-excursion` runs to **256** and the
   257th raises `too many marker objects`, and nested
   `with-current-buffer` runs to **256** and the 257th raises `cleanup
@@ -263,7 +263,7 @@ Ordering rules that hold across every subscriber:
     `(deep n)`-shaped recursion runs to 544 levels against the
     1095-frame arena of that pin), so in practice it stops such
     recursion a few thousand levels in. kg's default 10 MiB arena
-    measures `frame_capacity` 10917 (the 1 MiB arena that preceded
+    measures `frame_capacity` 10916 (the 1 MiB arena that preceded
     Phase B measured 1086); exceeding it raises
     `evaluation frame limit exceeded`. Macro expansion is bounded by the
     same limit, so a macro that expands into itself raises too.
@@ -360,8 +360,10 @@ Ordering rules that hold across every subscriber:
   ordinary catchable condition.** kg opens Fe with a 10 MiB arena that
   never grows (`KG_LISP_ARENA_SIZE`, `src/lisp_core.c`;
   `$KG_LISP_ARENA_BYTES` asks for another size), measured at the current
-  pin as 586986 object
-  slots and a 10917-frame evaluator stack.
+  pin as 440489 object slots, a 10916-frame evaluator stack and
+  2344064 bytes of payload region — the pool a vector's elements live in,
+  which kg carves a quarter of the arena for since Phase 24 and which the
+  same arena would turn into 586993 object slots if it did not.
   A program that consumes all of them raises `out of memory` under the
   condition `arena-exhaustion`, and a program that fills Fe's GC root
   stack raises `GC stack overflow` under `evaluation-stack-exhaustion`.
@@ -383,7 +385,7 @@ Ordering rules that hold across every subscriber:
   completion kind rather than by object shape. Budget exhaustion (steps,
   frames, native re-entry) remains catchable by nothing.
 
-  Reaching the end of 586986 slots takes more allocations than ONE
+  Reaching the end of 440489 slots takes more allocations than ONE
   evaluation's step budget buys — measured, a `(while t (setq l (cons 1
   l)))` costs about 10.7 steps per cons and `KG_LISP_STEP_LIMIT`'s 2^20
   steps stop it at roughly 97000 — so a single runaway loop meets
@@ -878,7 +880,7 @@ corpus of *target* Lisp reaches for against the names kg has, and
 | Trimming and testing | `string-trim`, `string-trim-left`, `string-trim-right`, `string-prefix-p`, `string-suffix-p`, `string-empty-p` |
 | Alists and plists | `alist-get`, `assq-delete-all`, `plist-get`, `plist-put` |
 | List utilities | `elt`, `butlast`, `copy-sequence`, `number-sequence`, `nconc`, `mapcan`, `sort`, `cdar`, `caddr`, `cdddr`, `cadddr` |
-| The `seq-` shim | `seq-map`, `seq-filter`, `seq-remove`, `seq-find`, `seq-some`, `seq-take` — **lists only** |
+| The `seq-` shim | `seq-map`, `seq-filter`, `seq-remove`, `seq-find`, `seq-some`, `seq-take` — over any sequence, see below |
 | Arithmetic | `abs`, `mod`, `%`, `ash` |
 
 `string<` and `string>` are **not** in this table any more: they were
@@ -904,6 +906,57 @@ Three notes a caller will want:
   `REGEXP`, `alist-get`'s `TESTFN`, `plist-get`'s `PREDICATE`,
   `split-string`'s `TRIM` — the extra argument is **refused by name**, not
   accepted and ignored.
+
+## Vectors and the sequence contract
+
+Since Phase 24, a vector is an ordinary fe object with reader syntax, so
+`[1 2 3]` reads and prints as itself and `(type-of [1 2 3])` is `vector`.
+Its elements live in fe's payload region, which is why kg's arena carves
+one (`src/lisp_core.c`); `aref` and `aset` are a field read and one
+multiply-add, not a walk.
+
+| Form | Notes |
+| ---- | ---- |
+| `vector`, `make-vector` | `(vector 1 "a" '(b))` is `[1 "a" (b)]`; `make-vector` STORES its init, so every slot is `eq` to every other |
+| `vectorp` | `t` for a vector only — `[]` is a vector and `nil` is not |
+| `aref`, `aset` | zero-based; `aset` answers the value it stored |
+| `vconcat` | vectors, lists and strings into one vector; a string contributes its CHARACTER CODES, so `(vconcat "ab")` is `[97 98]` |
+| `length`, `elt` | generic over lists, strings and vectors |
+
+Out of range on either `aref` or `aset` is `args-out-of-range` with data
+`(SEQUENCE INDEX)` — the offending sequence first — and a negative index
+takes the same route. A non-array argument is `wrong-type-argument` with
+data `(arrayp OBJ)`, naming `arrayp` rather than `vectorp` because `aref`
+is an array operation and strings are arrays. `[1 2` with no closing
+bracket is `end-of-file`, Emacs' generic incomplete-input condition.
+
+**`elt` past the end is asymmetric, and deliberately so**: `(elt '(1 2) 9)`
+is `nil` because it routes to `nth`, while `(elt [1 2] 9)` raises because
+it routes to `aref`. Emacs does the same.
+
+**Generic means generic, and it means the RESULT TYPE Emacs gives.**
+`mapcar`, `mapc`, `mapconcat`, `append`, `copy-sequence` and every `seq-`
+form take a list, a string or a vector:
+
+```elisp
+(mapcar #'1+ [1 2 3])        ; => (2 3 4)      -- a LIST, not a vector
+(append [1 2] nil)           ; => (1 2)        -- the idiomatic conversion
+(append "ab" nil)            ; => (97 98)      -- a string flattens to codes
+(copy-sequence [1 2])        ; => [1 2]        -- a fresh VECTOR
+(seq-take [1 2 3] 2)         ; => [1 2]        -- the sequence's own type
+(seq-filter #'zerop [0 1 0]) ; => (0 0)        -- a list, as in Emacs
+```
+
+`copy-sequence` is shallow: the copy is `equal` but not `eq`, and a write
+through it does not reach the original.
+
+**Two divergences, both recorded rather than incidental.** `length` and
+`elt` count and index a string's CHARACTERS, as Emacs does, because kg
+keeps its own string arm in front of fe's generic primitives — fe counts
+bytes, and `(aref "é" 0)` is fe's byte 195 where `(elt "é" 0)` is 233.
+And a self-referential vector prints as fe's bounded nesting ending in
+`#<deep>` rather than Emacs' `[0 #0]`: kg has no `print-circle`, and the
+reasons are in `doc/fe-upstream.md`'s Phase 24 row.
 
 ## Symbols, property lists and the reader's escapes
 
@@ -949,8 +1002,9 @@ the whole token a symbol. An escaped dot is an ordinary list element
 where a bare one is the dotted-tail marker: `(a \. b)` has three
 elements and `(a . b)` is a pair. `##` is the symbol with the empty name.
 A backslash with nothing after it is a read error, and the strict-reader
-policy is otherwise unchanged — vectors, `#:` and the other `#`
-dispatches are still named read errors rather than misreadings.
+policy is otherwise unchanged — `#:` and the other `#` dispatches are
+still named read errors rather than misreadings. Vectors left that list
+in Phase 24; `[1 2 3]` reads.
 
 The printer is the inverse, so a symbol always reads back as itself:
 bytes at or below the space, and `"#'(),;[]\` and the backquote, escape
@@ -1468,7 +1522,8 @@ primitive's function cell.
   `phase18-automatically-buffer-local`, and the closed pair are
   `phase18-let-buffer-switched-out` and
   `phase18-make-local-while-let-bound`.
-- **No vectors, no hash tables, no property lists.**
+- **No hash tables.** Vectors landed in Phase 24 (see "Vectors and the
+  sequence contract" above) and symbol property lists in Phase 14.
 - **A macro's function cell holds fe's own macro object**, not Emacs'
   `(macro . FUNCTION)` cons: `(symbol-function 'a-macro)` prints
   `(macro (args) ...)` rather than Emacs' `(macro . FUNCTION)`. A
@@ -1531,14 +1586,19 @@ primitive's function cell.
 Things a reader coming from Emacs might expect are deliberately absent
 from this surface, each recorded here rather than silently missing:
 
-- **Hash tables, vectors and records.** Off-roadmap, and Phase 15's
-  forecast audit is the instrument that re-answers it with kg-relevant
-  data rather than intuition: across the whole corpus it measured
+- **Hash tables and records.** Off-roadmap, and Phase 15's forecast
+  audit is the instrument that re-answers it with kg-relevant data
+  rather than intuition: across the whole corpus it measures
   **4 references to hash-table names** (one package sketch's word tally,
-  which the same sketch also spells with an alist), **0 to vectors** and
-  **0 to records**. `utils/forecast/AUDIT.md`'s watch-item table carries
-  the number on every run, so reopening the question has evidence to
-  start from.
+  which the same sketch also spells with an alist) and **0 to records**.
+  `utils/forecast/AUDIT.md`'s watch-item table carries the number on
+  every run, so reopening the question has evidence to start from.
+  **Vectors used to head this bullet and no longer do**: the same audit
+  measured 0 references to them too, and they were funded anyway, because
+  a reference count is not a product decision — one vector literal in a
+  `declare` spec stopped a whole package file from being read, which is
+  what `test/lisp-compat/cases/sel-frontier-*.json` pinned until Phase 24
+  moved it.
 - **`logand`, `logior`, `logxor`.** `ash` is here because it is exact in
   three lines of prelude Lisp over `expt` and `floor`; the three bitwise
   operations are not, and the forecast audit measured **zero** references

@@ -239,16 +239,15 @@ static void display_lisp_result(int error, const char *result)
  * longer a constant of the build.
  *
  * The payload region comes LAST, appended rather than woven in, so every
- * word before it is the line PTY cases and test_cmd.c already read.  It
- * is all zeros in kg and says so plainly: kg opens its arena with no
- * region until Phase 25 (src/lisp_core.c's lisp_arena_options), and a
- * diagnostic that omitted the pool because it is currently empty would
- * be the one that cannot show it filling up.  Last is also where the
- * whole line is cut on a narrow screen -- the echo area truncates at the
- * window width, and this message passed a screenful long ago -- which is
- * the right order to lose it in: the pool that is empty by construction
- * is the one a reader can spare.  test/kgbatch -g prints every field on
- * a line nothing truncates. */
+ * word before it is the line PTY cases and test_cmd.c already read.  kg
+ * carves one since Phase 24, because a vector's elements live in it
+ * (src/lisp_core.c's lisp_arena_options), so `live/capacity' is a real
+ * fraction and a session that has built no vector reads 0 of it.  Last is
+ * also where the whole line is cut on a narrow screen -- the echo area
+ * truncates at the window width, and this message passed a screenful long
+ * ago -- which is the right order to lose it in: the pool a session
+ * typically leaves empty is the one a reader can spare.  test/kgbatch -g
+ * prints every field on a line nothing truncates. */
 static void cmd_lisp_arena_stats(int fd)
 {
 	struct kg_lisp_arena_stats stats;

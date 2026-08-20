@@ -2,5 +2,6 @@
  "id": "u0-regexp-opt-paren-empty-members-never-match",
  "setup": [],
  "expr": "(let ((re (regexp-opt (list) t))) (list (string-match re \"a\") (string-match re \"\")))",
- "note": "THE DEGENERATE MEMBER LIST, still wrapped. Emacs answers (nil nil): `(regexp-opt (list) t)' is \"\\\\(\\\\`a\\\\`\\\\)\" -- an anchor pinned against a literal, which cannot match anything, not even the empty string. kg's ONE-argument answer for the same input is \"\\\\(?:\\\\`a\\\\`\\\\)\" (`frontier-regexp-opt-degenerate-inputs' pins it), so what this case adds is that PAREN does not rescue the empty list into a match-everything regexp. kg answers `wrong-number-of-arguments' at this pin."
+ "note": "THE DEGENERATE MEMBER LIST, still wrapped. Emacs answers (nil nil): `(regexp-opt (list) t)' is \"\\\\(\\\\`a\\\\`\\\\)\" -- an anchor pinned against a literal, which cannot match anything, not even the empty string. kg's ONE-argument answer for the same input is \"\\\\(?:\\\\`a\\\\`\\\\)\" (`frontier-regexp-opt-degenerate-inputs' pins it), so what this case adds is that PAREN does not rescue the empty list into a match-everything regexp. U.1a wraps the same unmatchable body in whichever wrapper PAREN asks for, so kg answers (nil nil) too.",
+ "expect": "agree"
 }

@@ -14,13 +14,13 @@
   "payload_allocation_failures": "test/kgbatch -g /dev/null, payload-failures="
  },
  "ceiling": {
-  "peak_live_objects": 10912,
-  "reachable_live_objects": 9738,
-  "embedded_bytes": 93186,
+  "peak_live_objects": 10987,
+  "reachable_live_objects": 9813,
+  "embedded_bytes": 96138,
   "definition_count": 140,
   "payload_capacity_bytes": 2350944,
-  "payload_live_bytes": 46512,
-  "payload_peak_bytes": 86400,
+  "payload_live_bytes": 46840,
+  "payload_peak_bytes": 86728,
   "payload_compactions": 1,
   "payload_allocation_failures": 0
  }

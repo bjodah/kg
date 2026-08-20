@@ -3412,13 +3412,54 @@ static void test_regexp_opt(void)
 		      " (list (string-match re \"axb\") (match-end 0)))",
 	    "(1 2)"));
 
-	/* THE ARGUMENT KG DECLINES, refused BY NAME rather than accepted
-	 * and ignored -- the Phase 14 `intern'-OBARRAY precedent.  Measured
-	 * demand for PAREN is zero: s.el calls this once, with one
-	 * argument. */
-	CHECK(eval_eq("(condition-case e (regexp-opt (list \"a\") t)"
-		      " (wrong-number-of-arguments (car e)))",
-	    "wrong-number-of-arguments"));
+	/* PAREN, the second argument (Phase 29 U.1a, reversing F.0's
+	 * refuse-by-name decision after the Phase 28 census named a
+	 * consumer).  It decides the WRAPPER and nothing else; every
+	 * spelling below is Emacs 31.0.91's own, measured, and the
+	 * behaviours are recorded in
+	 * test/lisp-compat/cases/u0-regexp-opt-paren-*.json. */
+	CHECK(
+	    eval_eq("(regexp-opt (list \"a\" \"ab\") nil)", "\\(?:ab\\|a\\)"));
+	CHECK(eval_eq("(regexp-opt (list \"a\" \"ab\") t)", "\\(ab\\|a\\)"));
+	CHECK(eval_eq("(regexp-opt (list \"ab\") 'words)", "\\<\\(ab\\)\\>"));
+	CHECK(
+	    eval_eq("(regexp-opt (list \"ab\") 'symbols)", "\\_<\\(ab\\)\\_>"));
+	/* A STRING is the literal group OPENER and regexp-opt closes it. */
+	CHECK(
+	    eval_eq("(regexp-opt (list \"ab\") \"\\\\(?2:\")", "\\(?2:ab\\)"));
+	/* Every other non-nil value behaves as t -- measured for `zzz',
+	 * `WORDS', 5 and (1), so no table of accepted symbols is needed. */
+	CHECK(eval_eq("(list (equal (regexp-opt (list \"a\" \"ab\") t)"
+		      " (regexp-opt (list \"a\" \"ab\") 'zzz))"
+		      " (equal (regexp-opt (list \"a\" \"ab\") t)"
+		      " (regexp-opt (list \"a\" \"ab\") 5)))",
+	    "(t t)"));
+	/* The whole match is also group 1 under PAREN t -- the numbering
+	 * shift the argument forces on the caller. */
+	CHECK(
+	    eval_eq("(let ((re (regexp-opt (list \"a\" \"ab\") t)))"
+		    " (list (string-match re \"ab\") (match-string 1 \"ab\")))",
+		"(0 \"ab\")"));
+	/* No members stays unmatchable inside whichever wrapper is asked
+	 * for. */
+	CHECK(eval_eq("(let ((re (regexp-opt nil t)))"
+		      " (list (string-match re \"a\") (string-match re \"\")))",
+	    "(nil nil)"));
+	/* WHAT THE TEXT ABOVE DOES NOT BUY YET: kg's engine has no \< \>
+	 * or \_< \_> and reads each as the ordinary character after the
+	 * backslash, so the `words' wrapper matches a literal <ab> and not
+	 * a word.  Asserted rather than left implicit, because it is a
+	 * SILENT wrong match and the assertion is what will fail -- loudly
+	 * -- when Phase 29's U.2 gives the engine the boundaries. */
+	CHECK(eval_eq("(let ((re (regexp-opt (list \"ab\") 'words)))"
+		      " (list (string-match re \"x ab y\")"
+		      " (string-match re \"x <ab> y\")))",
+	    "(nil 2)"));
+	/* And an explicitly numbered group is refused by the engine
+	 * outright, where the shy one beside it reads. */
+	CHECK(eval_error_contains(
+	    "(string-match (regexp-opt (list \"ab\") \"\\\\(?2:\") \"ab\")",
+	    "invalid regexp"));
 
 	/* The caller's own list is NOT rewritten, though kg's `sort' is
 	 * destructive: `regexp-opt' copies first. */

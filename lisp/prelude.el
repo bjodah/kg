@@ -1542,19 +1542,70 @@ name inside the buffer it is filling.")
 ;;     and with the wrapper kg's answer is now Emacs' text exactly:
 ;;     `\\(?:\\`a\\`\\)', an `a' required at both ends of the subject at
 ;;     once.
-;;   * ONE ARGUMENT.  Emacs' PAREN is refused by name from the arity
-;;     itself; measured demand is zero (s.el calls this once, s.el:420).
+;;   * PAREN, THE SECOND ARGUMENT, is Emacs' and is now kg's.  F.0 froze
+;;     the opposite -- refused by name from the arity itself, on the
+;;     Phase 14 `intern'-OBARRAY precedent, because measured demand was
+;;     zero (s.el calls this once, at s.el:420, with one argument).  The
+;;     Phase 28 census then NAMED a consumer (`yaml-mode's first blocker
+;;     behind the shim is `Wrong number of arguments: regexp-opt, 2'),
+;;     which is how this campaign says a closed question reopens, and
+;;     Phase 29's U.0 froze every value Emacs accepts.  Over the whole
+;;     ELPA tree there are 140 `regexp-opt' call sites: 31 pass `t' (8
+;;     packages), 6 a STRING (1), 5 `symbols' (3), 3 `words' (1), and
+;;     one nil.
+;;
+;; PAREN decides the WRAPPER and nothing else, which is why it costs a
+;; `cond' and not a rewrite.  Emacs 31.0.91's own text, measured for
+;; each value over the members ("a" "ab"):
+;;
+;;     nil        "\\(?:ab?\\)"        shy, the wrapper kg already had
+;;     t          "\\(ab?\\)"          CAPTURING -- so the whole match is
+;;                                    also group 1, and every group
+;;                                    number in the caller's own regexp
+;;                                    shifts by one
+;;     'words     "\\<\\(ab\\)\\>"      capturing, inside word boundaries
+;;     'symbols   "\\_<\\(ab\\)\\_>"    capturing, inside symbol boundaries
+;;     "\\(?2:"    "\\(?2:ab?\\)"       the STRING is the literal group
+;;                                    OPENER and regexp-opt closes it --
+;;                                    the escape hatch from that shift
+;;     anything   "\\(ab?\\)"          measured for `zzz', `WORDS', 5 and
+;;     else                           (1): every other non-nil value is
+;;                                    `t', so no table of accepted
+;;                                    symbols is needed
+;;
+;; The empty member list keeps its unmatchable body inside whichever
+;; wrapper PAREN asks for, which is Emacs' answer too.
+;;
+;; TWO OF THE SIX VALUES PRODUCE TEXT KG'S ENGINE CANNOT YET MATCH, and
+;; that is worth more than a footnote: kg's regexp engine has no `\\<',
+;; `\\>', `\\_<' or `\\_>' and reads each as the ORDINARY CHARACTER after
+;; the backslash, so `(regexp-opt '("ab") 'words)' produces Emacs' exact
+;; text and that text matches "x <ab> y" here and not "x ab y" --
+;; silently, with no error.  It is produced anyway rather than refused,
+;; because the string IS the contract Emacs publishes and the day the
+;; engine gains the four boundaries these two values become right with
+;; no change here.  Until then the two frozen rows that ask what they
+;; MATCH (u0-regexp-opt-paren-words-are-boundaries and
+;; -symbols-are-boundaries) stay recorded divergences naming the engine
+;; work, which is Phase 29's U.2.
 ;;
 ;; The list is COPIED because kg's `sort' rewrites what it is given.
-(defalias 'regexp-opt (lambda (strings)
-  (concat "\\(?:"
+(defalias 'regexp-opt (lambda (strings &optional paren)
+  (concat
+    (cond ((null paren) "\\(?:")
+          ((stringp paren) paren)
+          ((eq paren 'words) "\\<\\(")
+          ((eq paren 'symbols) "\\_<\\(")
+          (t "\\("))
     (if (null strings)
         "\\`a\\`"
       (mapconcat 'regexp-quote
         (sort (copy-sequence strings)
               (lambda (a b) (< (length b) (length a))))
         "\\|"))
-    "\\)")))
+    (cond ((eq paren 'words) "\\)\\>")
+          ((eq paren 'symbols) "\\)\\_>")
+          (t "\\)")))))
 
 ;; --- the seq- shim ---
 ;; Generic over kg's three sequence types, and generic the cheap way:
@@ -1779,7 +1830,7 @@ name inside the buffer it is filling.")
   (progn . "Run the body and return the value of its last form.")
   (push . "Add ELEMENT to the front of the list in PLACE.")
   (quasiquote . "The backquote reader macro: build FORM, evaluating its unquoted parts.")
-  (regexp-opt . "Return a regexp matching exactly the strings in STRINGS, longest first.")
+  (regexp-opt . "Return a regexp matching exactly STRINGS, longest first, wrapped per PAREN.")
   (replace-regexp-in-string . "Return TEXT with each match of REGEXP replaced by REPLACEMENT.")
   (require . "Load FEATURE unless already provided; NOERROR answers nil when absent.")
   (reverse . "Return a fresh list with the elements of LIST in the opposite order.")

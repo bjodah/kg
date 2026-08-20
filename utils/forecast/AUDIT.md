@@ -22,11 +22,11 @@ that a name which *stops* being covered is a diff and not a silence.
 | `lisp/help-fns.el` | 160 | 10 |
 | `lisp/pipeline-text.el` | 57 | 6 |
 | `lisp/pipeline.el` | 51 | 13 |
-| `lisp/prelude.el` | 1763 | 141 |
+| `lisp/prelude.el` | 1771 | 141 |
 | `utils/forecast/target-init.el` | 75 | 7 |
 | `utils/forecast/forecast-snippet.el` | 112 | 13 |
 | `utils/forecast/forecast-wordcount.el` | 118 | 10 |
-| **total** | **2485** | **215** |
+| **total** | **2493** | **215** |
 
 ## Implemented-name set
 
@@ -58,7 +58,7 @@ Measured demand for the three families the plan's Declined section keeps off the
 | vectors | 9 | `vectorp` x4, `aref` x3, `vconcat` x2 |
 | records | 0 | -- |
 
-## COVERED (261 names, 2481 references)
+## COVERED (261 names, 2489 references)
 
 | Refs | Name | Source |
 | ---: | --- | --- |
@@ -75,18 +75,18 @@ Measured demand for the three families the plan's Declined section keeps off the
 | 59 | `let` | kg-lisp |
 | 57 | `internal--let` | kg-lisp |
 | 56 | `and` | fe-primitive |
-| 32 | `eq` | fe-primitive |
+| 36 | `eq` | fe-primitive |
 | 30 | `<` | fe-primitive |
 | 30 | `not` | fe-primitive |
 | 29 | `length` | kg-lisp |
 | 27 | `macro` | fe-primitive |
 | 26 | `=` | fe-primitive |
-| 24 | `null` | kg-lisp |
+| 25 | `null` | kg-lisp |
 | 23 | `-` | fe-primitive |
 | 23 | `format` | kg-native |
 | 21 | `defvar` | kg-lisp |
+| 21 | `stringp` | kg-native |
 | 20 | `interactive` | kg-lisp |
-| 20 | `stringp` | kg-native |
 | 20 | `substring` | kg-native |
 | 19 | `+` | fe-primitive |
 | 19 | `concat` | kg-native |
@@ -118,6 +118,7 @@ Measured demand for the three families the plan's Declined section keeps off the
 | 7 | `symbol-name` | fe-primitive |
 | 7 | `when` | kg-lisp |
 | 6 | `1+` | kg-lisp |
+| 6 | `cond` | kg-lisp |
 | 6 | `equal` | kg-lisp |
 | 6 | `let*` | kg-lisp |
 | 6 | `match-beginning` | kg-native |
@@ -134,7 +135,6 @@ Measured demand for the three families the plan's Declined section keeps off the
 | 4 | `>` | fe-primitive |
 | 4 | `apply` | fe-primitive |
 | 4 | `commandp` | kg-native |
-| 4 | `cond` | kg-lisp |
 | 4 | `fboundp` | fe-primitive |
 | 4 | `gensym` | fe-primitive |
 | 4 | `intern` | fe-primitive |

@@ -3207,6 +3207,71 @@ static void test_marker_survives_buffer_kill(void)
  * was frozen as an oracle case first (frontier-assoc-string-*); what this
  * adds is the DESIGNATOR asked directly, and the two ends of the
  * asymmetry side by side, which is where a reimplementation goes wrong. */
+/* Emacs' `regexp-opt', asked as a CONTRACT rather than as a spelling:
+ * Emacs returns an optimized trie -- (regexp-opt '("a" "ab")) is
+ * "\\(?:ab?\\)" there -- and matching that text would encode Emacs'
+ * optimizer here.  So every assertion below compiles kg's answer with
+ * kg's own engine and asks what it matches, which is what
+ * frontier-regexp-opt-* froze. */
+static void test_regexp_opt(void)
+{
+	CHECK(kg_lisp_init() == 0);
+
+	/* LONGEST FIRST, whichever order the members arrive in.  This is
+	 * the smallest input that tells a right implementation from a wrong
+	 * one: an unsorted alternation matches only the "a". */
+	CHECK(eval_eq("(let ((re (regexp-opt (list \"a\" \"ab\"))))"
+		      " (list (string-match re \"ab\") (match-end 0)))",
+	    "(0 2)"));
+	CHECK(eval_eq("(let ((re (regexp-opt (list \"ab\" \"a\"))))"
+		      " (list (string-match re \"ab\") (match-end 0)))",
+	    "(0 2)"));
+	/* Every member matches ENTIRELY, and the longest that fits wins,
+	 * over three levels of shared prefix. */
+	CHECK(eval_eq("(let* ((members (list \"cat\" \"car\" \"cart\" \"c\"))"
+		      " (re (regexp-opt members)))"
+		      " (mapcar (lambda (m) (list (string-match re m)"
+		      " (match-end 0))) members))",
+	    "((0 3) (0 3) (0 4) (0 1))"));
+
+	/* MEMBERS ARE LITERAL TEXT: the regexp has to say so. */
+	CHECK(eval_eq("(let ((re (regexp-opt (list \"a.c\" \"a+b\"))))"
+		      " (list (string-match re \"axc\") (string-match re"
+		      " \"a.c\") (match-end 0) (string-match re \"a+b\")))",
+	    "(nil 0 3 0)"));
+
+	/* NO MEMBERS is an UNMATCHABLE regexp and not the empty one, which
+	 * would match everywhere.  Proved against four subjects including
+	 * the regexp's OWN TEXT, since kg's engine misreads Emacs' shy
+	 * group as ordinary characters and a wrong answer here would look
+	 * like a match on the spelling. */
+	CHECK(eval_eq("(let ((re (regexp-opt nil)))"
+		      " (list (string-match re \"\") (string-match re \"x\")"
+		      " (string-match re \"a\")"
+		      " (string-match re \"\\\\`a\\\\`\")))",
+	    "(nil nil nil nil)"));
+	/* ONE member comes back BARE, with no group around it. */
+	CHECK(eval_eq("(let ((re (regexp-opt (list \"x\"))))"
+		      " (list (string-match re \"axb\") (match-end 0)))",
+	    "(1 2)"));
+
+	/* THE ARGUMENT KG DECLINES, refused BY NAME rather than accepted
+	 * and ignored -- the Phase 14 `intern'-OBARRAY precedent.  Measured
+	 * demand for PAREN is zero: s.el calls this once, with one
+	 * argument. */
+	CHECK(eval_eq("(condition-case e (regexp-opt (list \"a\") t)"
+		      " (wrong-number-of-arguments (car e)))",
+	    "wrong-number-of-arguments"));
+
+	/* The caller's own list is NOT rewritten, though kg's `sort' is
+	 * destructive: `regexp-opt' copies first. */
+	CHECK(eval_eq("(let ((members (list \"a\" \"abc\" \"ab\")))"
+		      " (regexp-opt members) members)",
+	    "(\"a\" \"abc\" \"ab\")"));
+
+	kg_lisp_shutdown();
+}
+
 static void test_assoc_string_and_designator(void)
 {
 	CHECK(kg_lisp_init() == 0);
@@ -6427,8 +6492,8 @@ static void test_quit_uncaught(void)
  * both prelude Lisp because both are ordinary Lisp over what kg already
  * had.  The frontier demand phase added `assoc-string' and the one
  * internal name under it, `internal--string-designator', and then
- * `multibyte-string-p', taking it to 138. */
-#define PRELUDE_DEFS 138
+ * `multibyte-string-p' and `regexp-opt', taking it to 139. */
+#define PRELUDE_DEFS 139
 
 /* What a value CAPTURED out of a symbol's function cell is: that symbol's
  * definition at the moment of capture, and it stays that definition
@@ -7468,7 +7533,7 @@ static void test_s_el_vendored_load(void)
 	    "   (void-function (car (cdr e))))"
 	    " (condition-case e (s-split-up-to \",\" \"a,b,c\" 1)"
 	    "   (wrong-number-of-arguments (cdr e))))",
-	    "(\"ab\" fill-region regexp-opt \"cba\""
+	    "(\"ab\" fill-region \"Xbc\" \"cba\""
 	    " \"1\" (\"a\" \"b,c\"))"));
 
 	kg_lisp_shutdown();
@@ -8845,6 +8910,7 @@ int main(void)
 	RUN(test_process_callback_designator);
 	RUN(test_keymap_apis);
 	RUN(test_compare_strings);
+	RUN(test_regexp_opt);
 	RUN(test_assoc_string_and_designator);
 	RUN(test_string_length_and_substring);
 	RUN(test_string_concat_and_equal);

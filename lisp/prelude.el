@@ -1461,6 +1461,37 @@
      sequence)
    (mapcar 'list sequence))))
 
+;; `regexp-opt' answers a regexp matching exactly the given strings.
+;; Emacs answers an optimized trie -- (regexp-opt '("a" "ab")) is
+;; "\\(?:ab?\\)" there -- so what is frozen is the CONTRACT
+;; (frontier-regexp-opt-*) and never the spelling: the returned regexp,
+;; compiled by kg's own engine, matches every member entirely and prefers
+;; the longest.  Four decisions, each measured rather than chosen:
+;;
+;;   * LONGEST FIRST.  Alternation order IS semantics in a backtracking
+;;     engine and kg's takes the leftmost alternative that can match, so
+;;     the name needs an ORDERING and not a new matcher.  Without it
+;;     s-replace-all silently replaces the shorter of two overlapping
+;;     keys.
+;;   * BARE, with no group: kg's engine has no shy group and MISREADS
+;;     `\\(?:' as ordinary characters, so Emacs' own wrapper would make
+;;     the first alternative unmatchable and invert the preference; a
+;;     capturing group would renumber a caller's groups.
+;;   * NO MEMBERS is UNMATCHABLE, not empty (which matches everywhere):
+;;     `\\`a\\`', the inside of Emacs' `\\(?:\\`a\\`\\)', an `a' required at
+;;     both ends of the subject at once.
+;;   * ONE ARGUMENT.  Emacs' PAREN is refused by name from the arity
+;;     itself; measured demand is zero (s.el calls this once, s.el:420).
+;;
+;; The list is COPIED because kg's `sort' rewrites what it is given.
+(defalias 'regexp-opt (lambda (strings)
+  (if (null strings)
+      "\\`a\\`"
+    (mapconcat 'regexp-quote
+      (sort (copy-sequence strings)
+            (lambda (a b) (< (length b) (length a))))
+      "\\|"))))
+
 ;; --- the seq- shim ---
 ;; Generic over kg's three sequence types, and generic the cheap way:
 ;; Emacs dispatches on cl-generic, kg converts once with
@@ -1652,6 +1683,7 @@
   (progn . "Run the body and return the value of its last form.")
   (push . "Add ELEMENT to the front of the list in PLACE.")
   (quasiquote . "The backquote reader macro: build FORM, evaluating its unquoted parts.")
+  (regexp-opt . "Return a regexp matching exactly the strings in STRINGS, longest first.")
   (replace-regexp-in-string . "Return TEXT with each match of REGEXP replaced by REPLACEMENT.")
   (require . "Load the feature FEATURE unless it has already been provided.")
   (reverse . "Return a fresh list with the elements of LIST in the opposite order.")

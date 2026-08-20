@@ -2,6 +2,12 @@
 #include "def.h"
 #include <string.h>
 
+/* kg spells "no limit" for its own callers; the engine spells it for
+ * its own.  They are handed straight through to each other, so they
+ * have to be the same value. */
+static_assert(KG_REGEX_LIMIT_NONE == RE_LIMIT_NONE,
+    "kg's unbounded spelling must be the engine's");
+
 /* First byte of the glyph containing byte `pos`: walk back over
  * continuation bytes to a lead byte whose glyph really covers `pos`.  A
  * stray continuation byte is a glyph of its own, matching
@@ -164,6 +170,13 @@ int kg_regex_compile(struct kg_regex *rx, const char *pattern, int flags)
 int kg_regex_match_forward(const struct kg_regex *rx, const char *text,
     int start_offset, struct kg_match *out)
 {
+	return kg_regex_match_forward_bounded(
+	    rx, text, start_offset, KG_REGEX_LIMIT_NONE, out);
+}
+
+int kg_regex_match_forward_bounded(const struct kg_regex *rx, const char *text,
+    int start_offset, int limit, struct kg_match *out)
+{
 	if (!rx || !rx->regex || !text) {
 		return KG_REGEX_NOMATCH;
 	}
@@ -184,7 +197,15 @@ int kg_regex_match_forward(const struct kg_regex *rx, const char *text,
 	 * the engine match from a continuation byte, and kg_span_snap()
 	 * would then hand back a match starting before the request. */
 	from = kg_utf8_forward_boundary(text, text_len, start_offset);
-	status = re_exec(rx->regex, text, from, &res);
+	/* The limit goes to the engine rather than to a filter over its
+	 * answer, which is the whole point: it is enforced inside
+	 * match_atom(), the one place this engine consumes, so every
+	 * alternative, repetition and group above it backtracks under it.
+	 * A limit past the subject, and KG_REGEX_LIMIT_NONE, are the
+	 * unbounded call there too, so no normalization happens here.  The
+	 * anchors are untouched by it: `\'` still asks about `text`'s
+	 * terminator, not about `limit`. */
+	status = re_exec_bounded(rx->regex, text, from, limit, NULL, &res);
 
 	if (status != RE_STATUS_OK) {
 		return kg_regex_exec_status(status);
@@ -198,23 +219,50 @@ int kg_regex_match_forward(const struct kg_regex *rx, const char *text,
 int kg_regex_match_backward(const struct kg_regex *rx, const char *text,
     int before, struct kg_match *out)
 {
+	return kg_regex_match_backward_bounded(rx, text, 0, before, out);
+}
+
+int kg_regex_match_backward_bounded(const struct kg_regex *rx,
+    const char *text, int start_offset, int limit, struct kg_match *out)
+{
 	if (!rx || !rx->regex || !text) {
 		return KG_REGEX_NOMATCH;
 	}
 
-	int offset = 0;
+	int offset;
 	int found = 0;
 	struct kg_match last_match;
 	int text_len = (int)strlen(text);
+	int end_bound;
+
+	if (limit < 0 && limit != KG_REGEX_LIMIT_NONE) {
+		return KG_REGEX_NOMATCH;
+	}
+	/* One quantity from here down: the window's upper end in bytes of
+	 * `text`.  "No limit" is the end of the subject for the empty-match
+	 * rule below -- which is what kg_regex_match_backward(text, len) has
+	 * always meant -- and the engine reads any limit at or past the
+	 * subject as unbounded, so the same value serves both. */
+	end_bound = (limit == KG_REGEX_LIMIT_NONE || limit > text_len)
+	    ? text_len
+	    : limit;
+	offset = kg_utf8_forward_boundary(
+	    text, text_len, start_offset < 0 ? 0 : start_offset);
 
 	while (offset <= text_len) {
 		re_match_result res;
 		struct kg_match cur;
-		re_status status = re_exec(rx->regex, text, offset, &res);
+		/* THE SAME LIMIT TO EVERY CANDIDATE, which is what makes this
+		 * sweep agree with a bounded forward search: a start whose
+		 * preferred branch crosses `end_bound` yields its shorter
+		 * branch here instead of producing an over-limit match that a
+		 * filter would then drop, taking the start with it. */
+		re_status status = re_exec_bounded(
+		    rx->regex, text, offset, end_bound, NULL, &res);
 		if (status != RE_STATUS_OK) {
 			/* Only a genuine no-match ends the scan with whatever
 			 * it has found.  Anything else leaves it unfinished, so
-			 * "the last match before `before`" was never
+			 * "the last match before `limit`" was never
 			 * established -- an earlier one is not the answer to
 			 * the question that was asked, and the caller gets the
 			 * same reason the forward wrapper would give it. */
@@ -234,12 +282,19 @@ int kg_regex_match_backward(const struct kg_regex *rx, const char *text,
 		int next;
 
 		if (start == end) {
-			if (start < before) {
+			/* Not redundant, and not the engine's rule: an empty
+			 * match exactly AT the window's end is an ordinary
+			 * engine result and is not a match BEFORE it. */
+			if (start < end_bound) {
 				last_match = cur;
 				found = 1;
 			}
 		} else {
-			if (end <= before) {
+			/* The engine enforced `end_bound` while matching, so a
+			 * consuming match already ends at or before it; this
+			 * stays as the one place that would catch an engine
+			 * that did not. */
+			if (end <= end_bound) {
 				last_match = cur;
 				found = 1;
 			}

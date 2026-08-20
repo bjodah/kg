@@ -531,3 +531,58 @@ the master plan's one-third conditions are read in.  The ADR's own follow-up
 favour of a number" -- is NOT done and is not this section's to claim: fe
 counts string cells and bytes, not string objects, so the payload-pool
 estimate in the ADR is still a bound.
+
+## 23.3 exit
+
+Phase 23 is complete.  The four items, and where each one's evidence
+lives:
+
+1. **fe green, including the new lanes.**  Three full `.ci` runs, one
+   per pin move, all EXIT=0 with ci-04 armed with
+   `FE_DEBUG_PAYLOAD_MOVE=1`: at `a219b14` (the census), `44efb18` (the
+   substrate; ci-07's two findings on the new code fixed, not
+   suppressed), and `c2515c6` (the API).  The counting-and-owning
+   `perfobj/payload_tests` build rides `make perf-check`/ci-10 from
+   `c2515c6` on, so the four payload counters are tested code.
+2. **kg green in both configurations, stats threaded.**  `make check`
+   at `f512bc6`: 59/59 native, 588 PTY (583 pass, 5 feature-gated
+   skips), zero PTY or oracle files changed across 23.2 -- the phase's
+   own "nothing Lisp-visible" assertion.  `WITH_LISP=0` builds and its
+   `test_cmd`/`test_perf` pass; the full matrix run recorded below
+   covers ci-08 and the sanitizer lanes.
+3. **The margins, in the one-third conditions' shape.**  The cell
+   condition (reachable x 3 <= pool) at the default 1 MiB arena:
+   30048 <= 56145, reachable is 17.8% of the pool, a factor 1.87
+   inside the bar.  At the deliberately small arena -- Phase B's
+   655360-byte floor -- 30048 <= 34026, 11.7% headroom, which is
+   exactly the band the floor was derived to sit in.  The payload
+   pool: kg opens with `FePayloadPercentNone`, so capacity is 0 and
+   the five census ceilings hold it at zero -- the pool's own margins
+   are measured fe-side, where the future default carve gives 42335
+   cells and 220952 payload bytes at 1 MiB (still 30048 <= 42335, so
+   the cell condition survives the carve at the default size).  At the
+   floor arena the same carve projects to roughly 25.5k cells, BELOW
+   30048: **when Phase 25 flips kg to the default carve, the Phase-B
+   floor must be re-derived** -- recorded here so it is a listed task
+   and not a surprise.  Derived figure, not measured; the
+   re-derivation measures it.
+4. **The pins moved citing 1-3**: `4fcf8cd`, `f28ccb9`, `f512bc6`.
+
+What the census found that the ADR did not predict is recorded in
+"Two findings this phase adds to the ADR's record" above, plus 23.0's
+own third: fe's payload write surface is one statement (`fe.c:946`),
+the measured reason Phase 25 is small where nelisp's equivalent
+decoupling touched ~257 sites.  The stopping rule was not exercised:
+the release implementation reproduced the spike's O(1)-by-counter
+result exactly (mark-phase C-stack delta 0 bytes at 100k-deep
+aggregate chains, in the plain, GC-stress and ASan+UBSan builds).
+
+Open items this phase hands forward, all named in their sections:
+Phase 24 flips the two `sel-frontier` cases and the vector reader row;
+Phase 25 migrates strings (census rows A3-A13 as checklist, `Equal`'s
+word-compare arm rewritten not re-derived, the `FeWriteFn` allocation
+contract decided, the string-object counter added so the ADR's bound
+retires, kg's carve flipped and the Phase-B floor re-derived); Phase 26
+is interning, with Phase A's 2.0 ms prelude ceiling holding a claw-back
+hook.  Their execution plans are authored at their own boundaries, per
+the campaign rule.

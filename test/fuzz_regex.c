@@ -78,8 +78,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	 * KG_REGEX_LIMIT_NONE depends on. */
 	{
 		int len0 = (int)txt_len;
-		int limits[4]
-		    = { 0, len0 / 2, len0 > 0 ? len0 - 1 : 0, len0 };
+		int limits[4] = { 0, len0 / 2, len0 > 0 ? len0 - 1 : 0, len0 };
 		int i;
 
 		for (i = 0; i < 4; i++) {

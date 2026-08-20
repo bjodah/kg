@@ -222,8 +222,8 @@ int kg_regex_match_backward(const struct kg_regex *rx, const char *text,
 	return kg_regex_match_backward_bounded(rx, text, 0, before, out);
 }
 
-int kg_regex_match_backward_bounded(const struct kg_regex *rx,
-    const char *text, int start_offset, int limit, struct kg_match *out)
+int kg_regex_match_backward_bounded(const struct kg_regex *rx, const char *text,
+    int start_offset, int limit, struct kg_match *out)
 {
 	if (!rx || !rx->regex || !text) {
 		return KG_REGEX_NOMATCH;

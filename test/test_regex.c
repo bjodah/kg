@@ -1043,8 +1043,8 @@ static void test_match_window_backward(void)
 	/* Anchors, again independent of the window.  Emacs: nil from point
 	 * 4, and 5 for `b\'` from point-max. */
 	CHECK(kg_regex_compile(&rx, "x\\'", 0) == KG_REGEX_OK);
-	CHECK(kg_regex_match_backward(&rx, text, 3, &match)
-	    == KG_REGEX_NOMATCH);
+	CHECK(
+	    kg_regex_match_backward(&rx, text, 3, &match) == KG_REGEX_NOMATCH);
 	CHECK(kg_regex_compile(&rx, "b\\'", 0) == KG_REGEX_OK);
 	CHECK(kg_regex_match_backward(&rx, text, 5, &match) == KG_REGEX_OK);
 	CHECK(match.spans[0].start == 4 && match.spans[0].end == 5);
@@ -1062,8 +1062,7 @@ static void test_match_window_backward(void)
 	/* "No limit" is the whole row, which is what the unbounded entry
 	 * point has always meant. */
 	CHECK(kg_regex_compile(&rx, "a.*b\\|ax", 0) == KG_REGEX_OK);
-	CHECK(kg_regex_match_backward(&rx, text, 5, &unbounded)
-	    == KG_REGEX_OK);
+	CHECK(kg_regex_match_backward(&rx, text, 5, &unbounded) == KG_REGEX_OK);
 	CHECK(kg_regex_match_backward_bounded(
 		  &rx, text, 0, KG_REGEX_LIMIT_NONE, &match)
 	    == KG_REGEX_OK);

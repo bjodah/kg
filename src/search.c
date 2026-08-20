@@ -1217,10 +1217,10 @@ void editor_query_replace_regexp(int fd)
 		 * row, not a test applied to its answer.  Every other row is
 		 * inside the region whole, so it has no limit at all.  Both
 		 * are bytes of row->chars. */
-		status = kg_regex_match_forward_bounded(&rx, row->chars,
-		    match_col, filerow == end_row ? end_col
-						 : KG_REGEX_LIMIT_NONE,
-		    &match_res);
+		status
+		    = kg_regex_match_forward_bounded(&rx, row->chars, match_col,
+			filerow == end_row ? end_col : KG_REGEX_LIMIT_NONE,
+			&match_res);
 
 		/* Each step of this loop, accepted or refused, must leave less
 		 * of the row ahead of the scan than the step before it did.

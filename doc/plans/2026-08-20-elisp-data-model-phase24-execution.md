@@ -334,3 +334,37 @@ inserting anything.
   `stray ')'`.  `utils/check_lisp_oracle.py` now reads a failing run's
   diagnostic from a second, unwrapped evaluation, which is what the
   case's own note had assumed all along.
+
+## 24.4 exit
+
+Phase 24 is complete.  The four exit items:
+
+1. **fe green including the armed lanes** at both pin moves: full
+   `.ci` runs EXIT=0 at `81e9df0` (the re-pin) and `1fd0dce` (the
+   vector surface, with the poison lane's bite proved on a planted
+   violation first).
+2. **kg green in both configurations**: `make check` at `1575884`
+   59/59 unit and 589 PTY with 0 FAIL in both `WITH_LISP` builds, and
+   the full sixteen-step matrix -- sanitizers, valgrind, coverage,
+   both disabled-subsystem lanes -- all PASS at this tree (730 s
+   parallel).
+3. **The results are recorded above**: the partition and floor
+   derivations, the census, fe's exact `32 + 8n` cost table, the
+   counter-identity O(1) proof, the 34 flips with the two deliberate
+   survivors, and the frontier finding -- unmodified s.el LOADS, and
+   the next demand signal is the match-data surface
+   (`save-match-data`, `string-match-p`, `string-equal`), not the
+   string representation.  The stopping rule was not exercised.
+4. **The pins moved citing the evidence**: `c4ea89d` (the one
+   transition: pin, carve, floor, prelude, flips) and `1575884` (the
+   s.el capability and this record).
+
+Open items handed forward: Phase 25 takes the census's string rows
+(A3-A13), the `Equal` word-compare rewrite, the `FeWriteFn` allocation
+contract, the string-object counter, and now the measured fact that
+its CAPABILITY case for s.el is three match-data names rather than a
+representation change -- the payload-string phase keeps its own
+justification (reader, symbol names, the C boundary) and should say
+so without borrowing s.el's.  The deferred one-file follow-ups from
+24.1 stand: a vector shape in fe's perf workload battery, and a
+payload carve in the fuzz harness; both re-derive tracked baselines.

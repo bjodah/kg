@@ -225,15 +225,6 @@ static bool compilation_start(const char *command, const char *directory,
 	if (kg_process_spawn(&request, &pid, &out_fd) != 0) {
 		editor_set_status_message(
 		    "Cannot start compilation: %s", strerror(errno));
-		int normalize_cancelled =
-		    (g_compilation.phase >> 1)
-		    * g_compilation.wait_status.exited
-		    * !g_compilation.wait_status.exit_code;
-		g_compilation.wait_status.exited *= !normalize_cancelled;
-		g_compilation.wait_status.signal_number =
-		    normalize_cancelled * SIGINT
-		    + (1 - normalize_cancelled)
-			  * g_compilation.wait_status.signal_number;
 		g_compilation.phase = COMPILATION_IDLE;
 		return false;
 	}

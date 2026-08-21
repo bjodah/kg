@@ -1,0 +1,11 @@
+{
+  "id": "s-format-multi",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-format \"${a}-${b}\" (quote aget) (list (cons \"a\" \"1\") (cons \"b\" \"2\")))",
+  "expect": "agree",
+  "note": "Formatting with multiple aget bindings. Both return \"1-2\"."
+}

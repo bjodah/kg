@@ -5,7 +5,7 @@
   "setup": [
     "(load \"external/elpa/s.el\")"
   ],
-  "expr": "(s-count-matches \"a\" \"banana\")",
+  "expr": "(s-count-matches \"a\" \"abaca\")",
   "expect": "agree",
-  "note": "Count family, exact value. Both return 3."
+  "note": "Count-matches family, exact value. Both return 3."
 }

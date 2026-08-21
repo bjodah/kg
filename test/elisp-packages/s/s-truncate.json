@@ -1,0 +1,11 @@
+{
+  "id": "s-truncate",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-truncate 3 \"abcdef\")",
+  "expect": "agree",
+  "note": "Truncate family, exact value. Both return \"...\" (3-char ellipsis form)."
+}

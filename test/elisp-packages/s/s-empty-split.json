@@ -1,0 +1,11 @@
+{
+  "id": "s-empty-split",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-split \"-\" \"\")",
+  "expect": "agree",
+  "note": "Empty string split. Both return (\"\")."
+}

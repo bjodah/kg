@@ -1,0 +1,11 @@
+{
+  "id": "s-repeat",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-repeat 3 \"ab\")",
+  "expect": "agree",
+  "note": "Repeat family, exact value. Both return \"ababab\"."
+}

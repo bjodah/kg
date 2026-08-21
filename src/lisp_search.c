@@ -336,12 +336,8 @@ static FeObject *lisp_search(FeContext *context, FeObject *arguments,
 			FeHandleError(context, "regexp too complex to compile");
 		}
 		if (status != KG_REGEX_OK) {
-			char message[400];
-
-			(void)snprintf(message, sizeof(message),
-			    "invalid regexp: %s", pattern);
 			release_scratch();
-			FeHandleError(context, message);
+			lisp_raise_invalid_regexp(context, pattern);
 		}
 	}
 
@@ -635,15 +631,12 @@ static void lisp_compile_or_raise(
     FeContext *context, struct kg_regex *rx, const char *pattern)
 {
 	int status = kg_regex_compile(rx, pattern, 0);
-	char message[400];
 
 	if (status == KG_REGEX_TOODEEP) {
 		FeHandleError(context, "regexp too complex to compile");
 	}
 	if (status != KG_REGEX_OK) {
-		(void)snprintf(
-		    message, sizeof(message), "invalid regexp: %s", pattern);
-		FeHandleError(context, message);
+		lisp_raise_invalid_regexp(context, pattern);
 	}
 }
 

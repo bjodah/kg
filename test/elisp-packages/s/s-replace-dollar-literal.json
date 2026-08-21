@@ -1,0 +1,11 @@
+{
+  "id": "s-replace-dollar-literal",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(replace-regexp-in-string \"a$b\" \"X\" \"a$b\")",
+  "expect": "agree",
+  "note": "Regexp replacement with mid-pattern $ literal (M2.1). Both return \"X\"."
+}

@@ -1,0 +1,11 @@
+{
+  "id": "s-lex-format-one",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(let ((a \"x\")) (s-lex-format \"${a}\"))",
+  "expect": "agree",
+  "note": "s-lex-format with ONE binding (lexical var). Both return \"x\"."
+}

@@ -1031,6 +1031,75 @@ static void cleanup_prefix_binding(FeContext *context, void *ptr)
 	    context, "search-failed", FeMakeList(context, parts, 1));
 }
 
+/* Emacs' diagnostic text for the common compile failures tiny-regex-c
+ * reports as RE_STATUS_BAD_PATTERN.  Best-effort: the condition symbol is the
+ * contract, and only the frozen scenarios compare the message byte-for-byte.
+ * The scan tracks bracket classes and group-paren depth, and treats a
+ * trailing backslash-escaped brace as its unmatched form -- the shapes
+ * Emacs 31.0.91 reports as a named `invalid-regexp' datum. */
+static const char *kg_invalid_regexp_message(const char *pattern)
+{
+	bool in_class = false;
+	bool prev_bs = false;
+	int depth = 0;
+
+	for (const char *p = pattern; *p; p++) {
+		if (prev_bs) {
+			if (*p == '{') {
+				return "Unmatched \\{";
+			}
+			prev_bs = false;
+			continue;
+		}
+		if (*p == '\\') {
+			prev_bs = true;
+			continue;
+		}
+		if (in_class) {
+			if (*p == ']') {
+				in_class = false;
+			}
+			continue;
+		}
+		if (*p == '[') {
+			in_class = true;
+		} else if (*p == '(') {
+			depth++;
+		} else if (*p == ')') {
+			if (depth > 0) {
+				depth--;
+			} else {
+				return "Unmatched ) or \\)";
+			}
+		}
+	}
+	if (in_class) {
+		return "Unmatched [ or [^";
+	}
+	if (depth > 0) {
+		return "Unmatched ( or \\(";
+	}
+	return "Invalid regexp";
+}
+
+/* Raise Emacs' `(invalid-regexp MESSAGE)' -- what a search whose REGEXP fails
+ * to compile answers, carrying the engine's diagnostic as its one data item.
+ * Measured on 31.0.91, (string-match "[" "") signals `(invalid-regexp
+ * "Unmatched [ or [^")' and a handler naming `error' catches it (lisp_core.c,
+ * mirroring fe's own FexCompileRE). */
+[[noreturn]] void lisp_raise_invalid_regexp(
+    FeContext *context, const char *pattern)
+{
+	const char *diagnostic = kg_invalid_regexp_message(pattern);
+	FeObject *message = FeMakeString(context, diagnostic);
+	FeObject *parts[1];
+
+	FePushGC(context, message);
+	parts[0] = message;
+	raise_signal_form(
+	    context, "invalid-regexp", FeMakeList(context, parts, 1));
+}
+
 /* Raise Emacs' `(end-of-buffer)` or `(beginning-of-buffer)`: the two edges
  * a motion or an edit runs into, both with NO data -- measured on the
  * pinned 31.0.90, `(condition-case e (forward-char 20) (error e))` in a

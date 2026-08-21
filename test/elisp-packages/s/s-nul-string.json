@@ -1,0 +1,11 @@
+{
+  "id": "s-nul-string",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-contains? \"a\\0b\" \"a\\0b\")",
+  "expect": "agree",
+  "note": "Embedded NUL where byte-safe: s-contains? on a NUL-bearing string. Both return t."
+}

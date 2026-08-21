@@ -1,0 +1,11 @@
+{
+  "id": "s-pad-right",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-pad-right 5 \" \" \"ab\")",
+  "expect": "agree",
+  "note": "Pad family, exact value. Both return \"ab   \"."
+}

@@ -1,0 +1,11 @@
+{
+  "id": "s-starts-with-case",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-starts-with? \"Abc\" \"a\")",
+  "expect": "agree",
+  "note": "Prefix family, case-sensitive. Both return nil ('A' != 'a')."
+}

@@ -5,7 +5,7 @@
   "source_sha256": "3871128406fb69c763777542d4e5bdfbc46f24fa8701fb4259f62e79489fd3c2",
   "record": {
     "kind": "value",
-    "type": "symbol",
-    "printed": "invalid-regexp"
+    "type": "cons",
+    "printed": "(invalid-regexp . \"Unmatched [ or [^\")"
   }
 }

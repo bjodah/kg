@@ -840,8 +840,29 @@ loading kg does not have yet. The honest consequence is that nothing is
 armed — the miss surfaces at the first CALL of a function no later form
 defined, as an ordinary `void-function`, which is the same answer a typo
 gets. It is recorded as the `prelude-autoload` row of
-`test/lisp-compat/features.json`, with an oracle case for the inert
+ `test/lisp-compat/features.json`, with an oracle case for the inert
 shape both dialects agree on and one for each half of the divergence.
+
+### Supported external packages
+
+kg ships a small set of vendored Emacs packages. Each carries one of four
+labels — `loads`, `smoke-green`, `scenario-green`, `supported` (master plan
+section 3.1) — and only `scenario-green` and `supported` are product claims.
+A package is scenario-green **for a published input domain only**: every
+required scenario in that domain agrees with the pinned Emacs by exact
+value, condition, or handler selection, and everything outside the domain
+is an explicit, named exclusion. The 73-call `s.el` smoke probe exists to
+surface missing names; a green smoke run is not a support claim and is never
+reported as one.
+
+| Package | Label | Input domain | Excluded (recorded divergences) |
+| --- | --- | --- | --- |
+| `s.el` | scenario-green | `s-core/ascii` — ASCII plus byte-preserving strings (embedded NUL included) | non-ASCII case folding, `multibyte-string-p`, combining marks, canonical normalization |
+
+`make package-compat-check` is the gate; `make package-oracle` regenerates
+the Emacs snapshots it compares against. The full contract, the per-family
+scenario inventory and the untested public families live in
+`test/elisp-packages/manifest.json`.
 
 ### Features kg provides without a file
 

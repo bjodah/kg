@@ -1,0 +1,11 @@
+{
+  "id": "s-titleize-ascii",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-titleize \"hello world\")",
+  "expect": "agree",
+  "note": "ASCII titleize, exact value. Both return \"Hello World\"."
+}

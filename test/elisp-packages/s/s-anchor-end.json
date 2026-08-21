@@ -1,0 +1,11 @@
+{
+  "id": "s-anchor-end",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-match \"c$\" \"abc\")",
+  "expect": "agree",
+  "note": "Anchor $ at pattern end still anchors. Both return (\"c\")."
+}

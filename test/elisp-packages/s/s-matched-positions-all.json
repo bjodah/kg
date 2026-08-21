@@ -1,0 +1,11 @@
+{
+  "id": "s-matched-positions-all",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-matched-positions-all \"a\" \"abaca\")",
+  "expect": "agree",
+  "note": "Match extraction, exact value. Both return ((0 . 1) (2 . 3) (4 . 5))."
+}

@@ -27,8 +27,8 @@ keys:
   - k
 expected_saved: ok
 expected_screen_contains:
-  # The counters, in the order the renderer writes them.  440128 slots,
-  # a 10907-frame capacity and 2350672 payload bytes are the COMPILED
+  # The counters, in the order the renderer writes them.  440129 slots,
+  # a 10907-frame capacity and 2350696 payload bytes are the COMPILED
   # DEFAULT arena's measured partitioning at the string pin
   # (doc/fe-upstream.md's row).
   # That default is 10 MiB since Phase B of
@@ -58,6 +58,10 @@ expected_screen_contains:
   # grew 74248 -> 74488 and the same 10 MiB reads 440128 / 10907 / 2350672
   # here -- the region's floor rising by both blocks while the cells it
   # shares a surplus with fall by two.
+  # Phase M2's fe adds the `invalid-regexp' condition row (fe cf343eb) --
+  # one cell and one payload block at context open, plus the thirteen
+  # slots its seeded plist costs after the post-prelude collect -- so the
+  # same 10 MiB reads 440129 / 10907 / 2350696 here.
   # Phase 26's fe indexes the obarray, and the index's table is payload
   # with one stable owner, so `FeMinimumArenaSize()` grew 72136 -> 74248
   # to fund the first block: the same 10 MiB reads 440190 / 10911 /
@@ -72,7 +76,7 @@ expected_screen_contains:
   # results") is kg_lisp_init()'s own last act, so a session that has only
   # booted has already collected exactly once by the time this command can
   # run.
-  - "Arena: 440128 slots,"
+  - "Arena: 440129 slots,"
   - " free, peak "
   - "; GC 1; roots "
   - "/10907; fails 0"
@@ -85,7 +89,7 @@ expected_screen_contains:
   # was written), and .ci/prelude-startup-census.json is the ratchet that
   # owns those three -- spelling them twice would only mean two places to
   # correct when the prelude gains a definition.
-  - "/2350672 bytes, peak "
+  - "/2350696 bytes, peak "
   - "; payload fails 0"
 expected_screen_not_contains:
   - "Lisp not available"

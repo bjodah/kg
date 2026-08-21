@@ -1,0 +1,11 @@
+{
+  "id": "s-regexp-caret-literal",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-match \"a^b\" \"a^b\")",
+  "expect": "agree",
+  "note": "Contextual ^: a ^ not at pattern start is a literal character (M2.1). Both return (\"a^b\")."
+}

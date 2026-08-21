@@ -292,6 +292,12 @@ FeObject *lisp_callable_designator(FeContext *context, FeObject *object,
  * is what added it to fe's condition table (lisp_core.c). */
 [[noreturn]] void lisp_raise_search_failed(
     FeContext *context, FeObject *pattern);
+/* Raise Emacs' `(invalid-regexp MESSAGE)' -- what a search whose REGEXP
+ * fails to compile answers, carrying the engine's diagnostic as its one data
+ * item.  The symbol became raisable at the Phase M2 fe pin (fe commit
+ * cf343eb), which is what added it to fe's condition table (lisp_core.c). */
+[[noreturn]] void lisp_raise_invalid_regexp(
+    FeContext *context, const char *pattern);
 /* Raise Emacs' `(end-of-buffer)' / `(beginning-of-buffer)', the two edges
  * a motion or an edit runs into.  Both carry no data, and both became
  * raisable at the Phase 20 fe pin, which is what added them to fe's

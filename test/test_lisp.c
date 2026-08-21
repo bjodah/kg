@@ -3217,7 +3217,7 @@ static void test_regex_too_complex_and_bad_pattern(void)
 	 * silently treated as "no match" either. */
 	fe_regex_source(source, sizeof(source), "(re-search-forward \"%s\")",
 	    "\\(unclosed");
-	CHECK(eval_error_contains(source, "invalid regexp"));
+	CHECK(eval_error_contains(source, "Invalid regexp"));
 
 	kg_lisp_shutdown();
 	teardown_editor();
@@ -3465,7 +3465,7 @@ static void test_regexp_opt(void)
 	 * outright, where the shy one beside it reads. */
 	CHECK(eval_error_contains(
 	    "(string-match (regexp-opt (list \"ab\") \"\\\\(?2:\") \"ab\")",
-	    "invalid regexp"));
+	    "Invalid regexp"));
 
 	/* The caller's own list is NOT rewritten, though kg's `sort' is
 	 * destructive: `regexp-opt' copies first. */
@@ -6258,7 +6258,7 @@ static void test_phase15_regex_seam(void)
 	CHECK(eval_eq("(condition-case e (string-match \"a\" 1) (error e))",
 	    "(wrong-type-argument stringp 1)"));
 	CHECK(eval_error_contains(
-	    "(string-match \"[\" \"a\")", "invalid regexp"));
+	    "(string-match \"[\" \"a\")", "Invalid regexp"));
 
 	/* Character indices, not bytes: the group starts after two
 	 * multi-byte characters, so it begins at 2 and not at 6. */
@@ -7875,27 +7875,27 @@ static void test_phase26_replace_match(void)
 	kg_lisp_shutdown();
 }
 
- /* SMOKE probe for vendored s.el (master plan 2026-08-21, M1.5: this is
-  * reported as SMOKE, never as package support).  Phase 24.3's last
-  * required case: the REAL package the synthetic sel-frontier fixture
-  * stood in for.  external/elpa/s.el is 793 lines of GPLv3+ Emacs Lisp
-  * vendored for testing only -- provenance in
-  * external/provenance-ledger.toml, quarantine enforced by
-  * utils/check_external_quarantine.py -- and kg could not READ it before
-  * this phase, because one `declare' debug spec at s.el:455 carries a
-  * vector literal and every top-level form has to be read before `load'
-  * can finish.
-  *
-  * What this pins is BOTH halves of the honest answer: the file loads
-  * unmodified, and the frontier moved rather than vanished.  The corpus
-  * cases s-el-vendored-load and s-el-vendored-call-frontier are the same
-  * two claims against a checked-in Emacs snapshot; this is the kg-side
-  * assertion the manifest row cites, and it names the missing functions
-  * exactly, which a comparison against Emacs cannot (Emacs has them).
-  * SMOKE, not support: loading and a handful of entry points completing
-  * without a raise is the smoke-green label, not a scenario-green or
-  * supported claim -- those require exact-value scenarios (see
-  * test/elisp-packages/). */
+/* SMOKE probe for vendored s.el (master plan 2026-08-21, M1.5: this is
+ * reported as SMOKE, never as package support).  Phase 24.3's last
+ * required case: the REAL package the synthetic sel-frontier fixture
+ * stood in for.  external/elpa/s.el is 793 lines of GPLv3+ Emacs Lisp
+ * vendored for testing only -- provenance in
+ * external/provenance-ledger.toml, quarantine enforced by
+ * utils/check_external_quarantine.py -- and kg could not READ it before
+ * this phase, because one `declare' debug spec at s.el:455 carries a
+ * vector literal and every top-level form has to be read before `load'
+ * can finish.
+ *
+ * What this pins is BOTH halves of the honest answer: the file loads
+ * unmodified, and the frontier moved rather than vanished.  The corpus
+ * cases s-el-vendored-load and s-el-vendored-call-frontier are the same
+ * two claims against a checked-in Emacs snapshot; this is the kg-side
+ * assertion the manifest row cites, and it names the missing functions
+ * exactly, which a comparison against Emacs cannot (Emacs has them).
+ * SMOKE, not support: loading and a handful of entry points completing
+ * without a raise is the smoke-green label, not a scenario-green or
+ * supported claim -- those require exact-value scenarios (see
+ * test/elisp-packages/). */
 static void test_s_el_vendored_load(void)
 {
 	static const char *const paths[] = {
@@ -8595,7 +8595,7 @@ static void test_phase17_looking_at(void)
 	    "(progn (goto-char 8) (looking-at \"bar\\nsecond\"))", "nil"));
 
 	CHECK(eval_error_contains("(looking-at 5)", "Wrong type argument"));
-	CHECK(eval_error_contains("(looking-at \"[\")", "invalid regexp"));
+	CHECK(eval_error_contains("(looking-at \"[\")", "Invalid regexp"));
 
 	kg_lisp_shutdown();
 	teardown_editor();

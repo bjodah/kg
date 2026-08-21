@@ -355,6 +355,29 @@ your own definitions as well as on kg's — a `defun` with a docstring and
 an `(interactive ...)` declaration describes itself exactly as a built-in
 does.
 
+### Supported Lisp packages
+
+kg's Elisp surface is versioned and the packages it ships are held to one
+of four labels (see `doc/plans/2026-08-21-mature-elisp-master-plan.md`,
+section 3.1): `loads`, `smoke-green`, `scenario-green`, and `supported`.
+Only `scenario-green` and `supported` are product claims.
+
+A package is **scenario-green** only for a published **input domain**, and
+every required scenario in that domain must agree with the pinned Emacs by
+exact value, condition, or handler selection; anything outside the domain
+is listed as an explicit exclusion. A 73-call smoke probe exists for `s.el`
+to find missing names, but a green smoke run is **not** a support claim and
+is never reported as one.
+
+| Package | Label | Input domain | Excluded (recorded divergences) |
+| --- | --- | --- | --- |
+| `s.el` | scenario-green | `s-core/ascii` (ASCII plus byte-preserving strings, including embedded NUL) | non-ASCII case folding, `multibyte-string-p`, combining marks, canonical normalization |
+
+`make package-compat-check` runs the scenario gate; `make package-oracle`
+regenerates the Emacs snapshots it compares against. Neither claim is made
+for any package whose required in-domain scenarios have not been frozen and
+verified.
+
 ## Tree-sitter (optional, off by default)
 
 Syntax highlighting has two interchangeable backends, chosen at build time.

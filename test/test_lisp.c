@@ -7875,21 +7875,27 @@ static void test_phase26_replace_match(void)
 	kg_lisp_shutdown();
 }
 
-/* Phase 24.3's last required case: the REAL package the synthetic
- * sel-frontier fixture stood in for.  external/elpa/s.el is 793 lines of
- * GPLv3+ Emacs Lisp vendored for testing only -- provenance in
- * external/provenance-ledger.toml, quarantine enforced by
- * utils/check_external_quarantine.py -- and kg could not READ it before
- * this phase, because one `declare' debug spec at s.el:455 carries a
- * vector literal and every top-level form has to be read before `load'
- * can finish.
- *
- * What this pins is BOTH halves of the honest answer: the file loads
- * unmodified, and the frontier moved rather than vanished.  The corpus
- * cases s-el-vendored-load and s-el-vendored-call-frontier are the same
- * two claims against a checked-in Emacs snapshot; this is the kg-side
- * assertion the manifest row cites, and it names the missing functions
- * exactly, which a comparison against Emacs cannot (Emacs has them). */
+ /* SMOKE probe for vendored s.el (master plan 2026-08-21, M1.5: this is
+  * reported as SMOKE, never as package support).  Phase 24.3's last
+  * required case: the REAL package the synthetic sel-frontier fixture
+  * stood in for.  external/elpa/s.el is 793 lines of GPLv3+ Emacs Lisp
+  * vendored for testing only -- provenance in
+  * external/provenance-ledger.toml, quarantine enforced by
+  * utils/check_external_quarantine.py -- and kg could not READ it before
+  * this phase, because one `declare' debug spec at s.el:455 carries a
+  * vector literal and every top-level form has to be read before `load'
+  * can finish.
+  *
+  * What this pins is BOTH halves of the honest answer: the file loads
+  * unmodified, and the frontier moved rather than vanished.  The corpus
+  * cases s-el-vendored-load and s-el-vendored-call-frontier are the same
+  * two claims against a checked-in Emacs snapshot; this is the kg-side
+  * assertion the manifest row cites, and it names the missing functions
+  * exactly, which a comparison against Emacs cannot (Emacs has them).
+  * SMOKE, not support: loading and a handful of entry points completing
+  * without a raise is the smoke-green label, not a scenario-green or
+  * supported claim -- those require exact-value scenarios (see
+  * test/elisp-packages/). */
 static void test_s_el_vendored_load(void)
 {
 	static const char *const paths[] = {

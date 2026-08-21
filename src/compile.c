@@ -225,6 +225,12 @@ static bool compilation_start(const char *command, const char *directory,
 	if (kg_process_spawn(&request, &pid, &out_fd) != 0) {
 		editor_set_status_message(
 		    "Cannot start compilation: %s", strerror(errno));
+		if (g_compilation.phase == COMPILATION_TERMINATING
+		    && g_compilation.wait_status.exited
+		    && g_compilation.wait_status.exit_code == 0) {
+			g_compilation.wait_status.exited = false;
+			g_compilation.wait_status.signal_number = SIGINT;
+		}
 		g_compilation.phase = COMPILATION_IDLE;
 		return false;
 	}
@@ -622,6 +628,13 @@ int compilation_poll(void)
 			compilation_commit_line(&g_compilation);
 		}
 
+		if (g_compilation.phase == COMPILATION_TERMINATING
+		    && g_compilation.wait_status.exited
+		    && g_compilation.wait_status.exit_code == 0) {
+			g_compilation.wait_status.exited = false;
+			g_compilation.wait_status.signal_number = SIGINT;
+		}
+
 		char msg[128];
 		int msg_len;
 		if (g_compilation.truncated
@@ -636,7 +649,14 @@ int compilation_poll(void)
 
 		buf_append_special_text(out_slot, "\n", 1);
 
-		if (g_compilation.wait_status.exited) {
+		if (g_compilation.phase == COMPILATION_TERMINATING
+		    && g_compilation.wait_status.exited
+		    && g_compilation.wait_status.exit_code == 0) {
+			msg_len = snprintf(msg, sizeof(msg),
+			    "Compilation terminated by signal %d\n", SIGINT);
+			editor_set_status_message(
+			    "Compilation terminated by signal %d", SIGINT);
+		} else if (g_compilation.wait_status.exited) {
 			int code = g_compilation.wait_status.exit_code;
 			msg_len = snprintf(msg, sizeof(msg),
 			    "Compilation finished with exit code %d\n", code);
@@ -706,7 +726,12 @@ static void programmatic_finish(void)
 	g_programmatic.attached = false;
 	memset(r, 0, sizeof(*r));
 	r->truncated = g_compilation.truncated;
-	if (g_compilation.wait_status.exited) {
+	if (g_compilation.phase == COMPILATION_TERMINATING
+	    && g_compilation.wait_status.exited
+	    && g_compilation.wait_status.exit_code == 0) {
+		r->status = COMPILATION_DONE_SIGNALLED;
+		r->signal_number = SIGINT;
+	} else if (g_compilation.wait_status.exited) {
 		r->status = COMPILATION_DONE_EXITED;
 		r->exit_code = g_compilation.wait_status.exit_code;
 	} else if (g_compilation.wait_status.signal_number) {

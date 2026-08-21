@@ -541,7 +541,7 @@ static void test_programmatic_is_busy_rather_than_prompting(void)
 	if (!getcwd(dir, sizeof(dir))) {
 		strcpy(dir, ".");
 	}
-	start_programmatic("sleep 5");
+	start_programmatic("exec sleep 5");
 	for (int i = 0; i < 200 && !compilation_is_running(); i++) {
 		compilation_poll();
 		usleep(1000);

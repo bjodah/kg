@@ -326,6 +326,13 @@ static void detach_controlling_terminal(void)
 [[noreturn]] static void spawn_child(
     const struct kg_spawn_request *req, const int p[2], int stderr_fd)
 {
+	/* A command must not inherit signals ignored by the editor's parent
+	 * (notably make's SIGINT disposition), or group cancellation becomes a
+	 * silent success. */
+	signal(SIGINT, SIG_DFL);
+	signal(SIGTERM, SIG_DFL);
+	signal(SIGHUP, SIG_DFL);
+
 	/* Both sides of the fork call setpgid() so neither has to win the
 	 * race: the child is a group leader before it can exec, and before
 	 * the parent can signal the group. */

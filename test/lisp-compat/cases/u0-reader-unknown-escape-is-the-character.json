@@ -2,5 +2,6 @@
  "id": "u0-reader-unknown-escape-is-the-character",
  "setup": [],
  "expr": "(list \"a\\(b)\" (length \"a\\(b)\"))",
+ "expect": "agree",
  "note": "THE RULE, IN ONE LINE: Emacs' reader turns an UNKNOWN escape into the character itself. Emacs answers (\"a(b)\" 4) for \"a\\\\(b)\" -- the backslash vanishes, the paren stays, and the string is four characters. kg's reader REFUSES it: `unsupported read syntax: unknown escape', a file-level failure that no `condition-case' in the file can catch, which is why this is a substrate item and not a library one."
 }

@@ -12,7 +12,7 @@ rewritten.
 The supported embedding interface is `FE_API_VERSION 15`; `src/lisp_core.c`
 asserts it at compile time. Fe's *language* — its evaluated behaviour,
 independent of the C embedding contract — is versioned separately as
-`FE_LANGUAGE_VERSION 18`, which `src/lisp_core.c` also asserts at compile
+`FE_LANGUAGE_VERSION 20`, which `src/lisp_core.c` also asserts at compile
 time, beside the API assertion. The two move independently: language
 version 2 was the `setq`/`set`/numeric-`=` hard cut below, which broke no
 C function, type, or callback contract, so `FE_API_VERSION` stayed at 1

@@ -7289,7 +7289,8 @@ static void test_phase8_reader_literals(void)
 	 * here is a backslash with nothing after it; the positive rows are
 	 * in test_phase14_symbols below. */
 	CHECK(eval_error_contains("(list 'a\\", "unterminated symbol escape"));
-	CHECK(eval_error_contains("(list \"\\q\")", "unknown escape"));
+	CHECK(eval_eq(
+	    "(list \"\\q\" \"\\(\" \"a\\ b\\\nb\")", "(\"q\" \"(\" \"abb\")"));
 	CHECK(eval_error_contains("(list ?ab)", "? literal without delimiter"));
 	CHECK(eval_error_contains("(list ?\\s-a)", "\\s character modifier"));
 	CHECK(eval_error_contains("(list ?\\^a)", "\\^ character modifier"));

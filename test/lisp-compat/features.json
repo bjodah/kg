@@ -5615,8 +5615,7 @@
   {
    "id": "u0-reader-unknown-escape",
    "category": "reader-and-literals",
-   "status": "divergent",
-   "failure_mode": "loud-unsupported",
+   "status": "supported",
    "owner": "fe-core",
    "comparison": "emacs",
    "cases": [

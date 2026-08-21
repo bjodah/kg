@@ -57,7 +57,7 @@ void copy_result(char *result, size_t result_size, const char *text)
 #endif
 
 static_assert(FE_API_VERSION == 15);
-static_assert(FE_LANGUAGE_VERSION == 19);
+static_assert(FE_LANGUAGE_VERSION == 20);
 
 #ifndef KG_LISP_ARENA_SIZE
 #define KG_LISP_ARENA_SIZE (10U * 1024U * 1024U)

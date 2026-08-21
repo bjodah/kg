@@ -2,5 +2,6 @@
  "id": "u0-reader-backslash-space-is-nothing",
  "setup": [],
  "expr": "(list \"a\\ b\" (length \"a\\ b\"))",
+ "expect": "agree",
  "note": "THE ESCAPE THAT IS NOT A CHARACTER AT ALL. Emacs answers (\"ab\" 2): backslash-SPACE in a string reads as NOTHING -- it exists so a long string can be broken across source lines (backslash-newline does the same). It is measured here because it is the counterexample to \"an unknown escape is the character itself\": an implementation that made `\\\\ ' a space would silently change the text of every docstring that uses the continuation. kg refuses it as an unknown escape."
 }

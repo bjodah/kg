@@ -45,6 +45,7 @@
    "id": "cleanup-raise-residuals",
    "category": "errors-and-non-local-exits",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -177,6 +178,7 @@
    "id": "format-exceptional-float",
    "category": "sequences",
    "status": "divergent",
+   "failure_mode": "loud-unsupported",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -203,6 +205,7 @@
    "id": "frontier-assoc-string",
    "category": "sequences",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -221,6 +224,7 @@
    "id": "frontier-compare-strings",
    "category": "strings",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -241,6 +245,7 @@
    "id": "frontier-fill-region",
    "category": "editor-primitives",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -263,6 +268,7 @@
    "id": "frontier-multibyte-string-p",
    "category": "strings",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -281,6 +287,7 @@
    "id": "frontier-regexp-opt",
    "category": "sequences",
    "status": "divergent",
+   "failure_mode": "intentional-policy",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -317,6 +324,7 @@
    "id": "frontier-search-noerror",
    "category": "editor-primitives",
    "status": "divergent",
+   "failure_mode": "loud-unsupported",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -336,6 +344,7 @@
    "id": "hook-error-does-not-disarm",
    "category": "errors-and-non-local-exits",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
@@ -362,6 +371,7 @@
    "id": "hook-post-command",
    "category": "editor-primitives",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
@@ -446,6 +456,7 @@
    "id": "load-path-search",
    "category": "loading",
    "status": "divergent",
+   "failure_mode": "intentional-policy",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
@@ -576,6 +587,7 @@
    "id": "macro-expand-every-invocation",
    "category": "functions-and-macros",
    "status": "divergent",
+   "failure_mode": "resource-bound",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
@@ -668,6 +680,7 @@
    "id": "native-buffer-file-name",
    "category": "editor-primitives",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
@@ -760,6 +773,7 @@
    "id": "native-capitalize",
    "category": "sequences",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -813,6 +827,7 @@
    "id": "native-commandp",
    "category": "interactive-commands",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -1011,6 +1026,7 @@
    "id": "native-downcase",
    "category": "sequences",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -1339,6 +1355,7 @@
    "id": "native-looking-at",
    "category": "sequences",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -1938,6 +1955,7 @@
    "id": "native-skip-chars-backward",
    "category": "sequences",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -1952,6 +1970,7 @@
    "id": "native-skip-chars-forward",
    "category": "sequences",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -2005,6 +2024,7 @@
    "id": "native-string-length",
    "category": "sequences",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -2018,6 +2038,7 @@
    "id": "native-string-match",
    "category": "sequences",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -2032,6 +2053,7 @@
    "id": "native-string-to-char",
    "category": "sequences",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -2045,6 +2067,7 @@
    "id": "native-string-to-number",
    "category": "sequences",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -2085,6 +2108,7 @@
    "id": "native-switch-to-buffer",
    "category": "editor-primitives",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
@@ -2111,6 +2135,7 @@
    "id": "native-type-of",
    "category": "values-and-equality",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -2125,6 +2150,7 @@
    "id": "native-upcase",
    "category": "sequences",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -2230,6 +2256,7 @@
    "id": "phase11-one-arg-defvar-file-scope",
    "category": "bindings",
    "status": "divergent",
+   "failure_mode": "intentional-policy",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -2438,6 +2465,7 @@
    "id": "phase16-completing-read-collection",
    "category": "interactive-commands",
    "status": "divergent",
+   "failure_mode": "loud-unsupported",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
@@ -2451,6 +2479,7 @@
    "id": "phase16-read-buffer-default",
    "category": "interactive-commands",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
@@ -2464,6 +2493,7 @@
    "id": "phase16-read-history",
    "category": "interactive-commands",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
@@ -2477,6 +2507,7 @@
    "id": "phase16-unsupported-predicates",
    "category": "interactive-commands",
    "status": "divergent",
+   "failure_mode": "loud-unsupported",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
@@ -2490,6 +2521,7 @@
    "id": "phase16-y-or-n-p-single-key",
    "category": "interactive-commands",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
@@ -2503,6 +2535,7 @@
    "id": "phase18-automatically-buffer-local",
    "category": "bindings",
    "status": "divergent",
+   "failure_mode": "loud-unsupported",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
@@ -2692,6 +2725,7 @@
    "id": "phase19-interactive-form-builtin",
    "category": "interactive-commands",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
@@ -2718,6 +2752,7 @@
    "id": "phase26-anchor-line-vs-subject",
    "category": "sequences",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -2784,6 +2819,7 @@
    "id": "phase26-replace-match-case-conversion",
    "category": "sequences",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -2810,6 +2846,7 @@
    "id": "phase26-replace-match-string-form",
    "category": "sequences",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -3095,6 +3132,7 @@
    "id": "phase8-format-strictness",
    "category": "formatting",
    "status": "divergent",
+   "failure_mode": "loud-unsupported",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
@@ -3391,6 +3429,7 @@
    "id": "phase8-reader-backquote-symbol-names",
    "category": "reader-and-literals",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "fe-core",
    "comparison": "emacs",
    "cases": [
@@ -3435,6 +3474,7 @@
    "id": "phase8-reader-unsupported-syntax",
    "category": "reader-and-literals",
    "status": "divergent",
+   "failure_mode": "loud-unsupported",
    "owner": "fe-core",
    "comparison": "emacs",
    "cases": [
@@ -3567,6 +3607,7 @@
    "id": "prelude-autoload",
    "category": "loading",
    "status": "divergent",
+   "failure_mode": "intentional-policy",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -3582,6 +3623,7 @@
    "id": "prelude-beginning-of-buffer",
    "category": "editor-primitives",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -3878,6 +3920,7 @@
    "id": "prelude-emacs-major-version",
    "category": "bindings",
    "status": "divergent",
+   "failure_mode": "intentional-policy",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -3891,6 +3934,7 @@
    "id": "prelude-end-of-buffer",
    "category": "editor-primitives",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -4346,6 +4390,7 @@
    "id": "prelude-lexical-binding",
    "category": "bindings",
    "status": "divergent",
+   "failure_mode": "intentional-policy",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -4674,6 +4719,7 @@
    "id": "prelude-replace-regexp-in-string",
    "category": "sequences",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -5242,6 +5288,7 @@
    "id": "r2-backward-empty-match-at-point",
    "category": "sequences",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -5332,6 +5379,7 @@
    "id": "string25-embedded-nul-construction",
    "category": "strings",
    "status": "divergent",
+   "failure_mode": "loud-unsupported",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -5346,6 +5394,7 @@
    "id": "string25-embedded-nul-reader",
    "category": "strings",
    "status": "divergent",
+   "failure_mode": "loud-unsupported",
    "owner": "fe-core",
    "comparison": "emacs",
    "cases": [
@@ -5414,6 +5463,7 @@
    "id": "string25-raw-byte-round-trip",
    "category": "strings",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "fe-core",
    "comparison": "emacs",
    "cases": [
@@ -5483,6 +5533,7 @@
    "id": "string25-string-index-and-mutation",
    "category": "strings",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "fe-core",
    "comparison": "emacs",
    "cases": [
@@ -5512,6 +5563,7 @@
    "id": "string25-substring-bounds",
    "category": "strings",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -5564,6 +5616,7 @@
    "id": "u0-reader-unknown-escape",
    "category": "reader-and-literals",
    "status": "divergent",
+   "failure_mode": "loud-unsupported",
    "owner": "fe-core",
    "comparison": "emacs",
    "cases": [
@@ -5600,6 +5653,7 @@
    "id": "u0-regexp-opt-paren",
    "category": "sequences",
    "status": "divergent",
+   "failure_mode": "loud-unsupported",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -5653,6 +5707,7 @@
    "id": "u0-subr-x",
    "category": "loading",
    "status": "divergent",
+   "failure_mode": "intentional-policy",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -5673,6 +5728,7 @@
    "id": "u1a-cl-lib",
    "category": "loading",
    "status": "divergent",
+   "failure_mode": "intentional-policy",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -5783,6 +5839,7 @@
    "id": "vector-printing",
    "category": "vectors",
    "status": "divergent",
+   "failure_mode": "intentional-policy",
    "owner": "fe-core",
    "comparison": "emacs",
    "cases": [

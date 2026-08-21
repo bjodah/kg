@@ -1,0 +1,11 @@
+{
+  "id": "s-format",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-format \"${a}-${b}\" (quote aget) (quote ((\"a\" . \"1\") (\"b\" . \"2\"))))",
+  "expect": "agree",
+  "note": "Formatting family via aget, exact value. Both return \"1-2\"."
+}

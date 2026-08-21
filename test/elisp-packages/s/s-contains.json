@@ -1,0 +1,11 @@
+{
+  "id": "s-contains",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-contains? \"an\" \"banana\")",
+  "expect": "agree",
+  "note": "Contains family, exact value. Both return t."
+}

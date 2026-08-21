@@ -1,0 +1,11 @@
+{
+  "id": "s-join",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-join \"-\" (quote (\"a\" \"b\" \"c\")))",
+  "expect": "agree",
+  "note": "Join family, exact value. Both return \"a-b-c\"."
+}

@@ -1,0 +1,11 @@
+{
+  "id": "s-collapse",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-collapse-whitespace \"a  b\\n c\")",
+  "expect": "agree",
+  "note": "Whitespace-collapse family, exact value. Both return \"a b c\"."
+}

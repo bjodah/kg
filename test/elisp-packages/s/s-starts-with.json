@@ -1,0 +1,11 @@
+{
+  "id": "s-starts-with",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-starts-with? \"ab\" \"abc\")",
+  "expect": "agree",
+  "note": "Prefix family, exact value. Both return t."
+}

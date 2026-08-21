@@ -906,7 +906,7 @@ $(OBJDIR)/fe_run.o: fe/fe_run.c fe/fe.h fe/fe_internal.h
 $(OBJDIR)/fe_unwind.o: fe/fe_unwind.c fe/fe.h fe/fe_internal.h fe/fe_perf.h
 	$(CC) $(FE_CFLAGS) -c $< -o $@
 
-check: header-check lisp-include-check docs-check external-quarantine-check lisp-compat-check lisp-prelude-check lisp-package-check forecast-check lisp-oracle-check lisp-gc-stress-check prelude-census-check prelude-probe-link-check forecast-init-check check-unit-decoding check-pty-tokens check-unit check-pty
+check: header-check lisp-include-check docs-check external-quarantine-check lisp-compat-check lisp-prelude-check lisp-package-check forecast-check lisp-oracle-check lisp-gc-stress-check package-compat-check prelude-census-check prelude-probe-link-check forecast-init-check check-unit-decoding check-pty-tokens check-unit check-pty
 
 # Cheap documentation drift: every key the built-in help table names has
 # to be spelled somewhere in kg(1).  Not a substitute for reading either
@@ -997,6 +997,35 @@ else
 lisp-oracle-check:
 	@echo "# lisp-oracle-check: WITH_LISP=0, no evaluator to compare"
 endif
+
+# Phase M1's package-scenario gate (doc/plans/2026-08-21-mature-elisp-
+# master-plan.md, section 5).  Reuses the canonical-record machinery
+# test/lisp-compat already owns -- the same oracle/*.json snapshots and
+# the same test/kgbatch wrapper -- and runs in `make check`.  It
+# regenerates nothing: snapshots are written only by the explicit
+# `package-oracle' target below, mirroring lisp-compat-oracle.  The
+# self-test is run first and is the reason "0 failed" means anything: it
+# builds a temp corpus and proves all six gate failure modes fire (wrong
+# value, wrong condition, stale source hash, missing scenario, stale
+# snapshot, XPASS).
+ifeq ($(WITH_LISP),1)
+package-compat-check: $(TESTDIR)/kgbatch
+	@$(PYTHON) utils/check_elisp_packages.py --self-test
+	@$(PYTHON) utils/check_elisp_packages.py $(PACKAGE_COMPAT_ARGS)
+else
+package-compat-check:
+	@echo "# package-compat-check: WITH_LISP=0, no evaluator to compare"
+endif
+
+# Snapshot generation for the package corpus: regenerates oracle/*.json
+# from the pinned Emacs, mirrors lisp-compat-oracle.  Not part of
+# `make check'; an existing snapshot is refused if the running Emacs
+# version differs (pass --allow-version-change to re-pin).  Resolves the
+# Emacs binary the same way utils/pty_accept.py does.
+package-oracle:
+	$(PYTHON) utils/check_elisp_packages.py --regenerate-oracle \
+		$(if $(KG_PTY_EMACS),--emacs $(KG_PTY_EMACS),) \
+		$(PACKAGE_ORACLE_ARGS)
 
 # Elisp-subset sub-plan 01A: lisp/prelude.el is the canonical prelude
 # source and src/lisp_prelude_generated.inc is a checked-in, byte-for-byte
@@ -2048,7 +2077,7 @@ uninstall:
 	rm -f $(addprefix $(DESTDIR)$(lispdir)/,$(notdir $(LISP_PACKAGES)))
 	-rmdir $(DESTDIR)$(lispdir) $(DESTDIR)$(datadir)/kg
 
-.PHONY: all clean distclean check header-check lisp-include-check docs-check lisp-compat-check lisp-compat-oracle lisp-prelude-generate lisp-prelude-check lisp-package-check lisp-oracle-check forecast-audit forecast-check forecast-init-check check-unit check-pty-tokens check-pty check-regex-differential \
+.PHONY: all clean distclean check header-check lisp-include-check docs-check lisp-compat-check lisp-compat-oracle lisp-prelude-generate lisp-prelude-check lisp-package-check lisp-oracle-check package-compat-check package-oracle forecast-audit forecast-check forecast-init-check check-unit check-pty-tokens check-pty check-regex-differential \
 	bench bench-lisp-toggle perf-baseline complexity complexity-check \
 	pmccabe pmccabe-check pmccabe-baseline gateway-check gateway-baseline prelude-census-check prelude-census-baseline prelude-probe-link-check coverage coverage-check coverage-baseline coverage-clean format format-check compile-db iwyu \
 	fuzz-keypress fuzz-keypress-seed fuzz-keypress-smoke \

@@ -1,0 +1,11 @@
+{
+  "id": "s-invalid-regexp",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(condition-case e (s-match \"[a\" \"x\") (error (car e)))",
+  "expect": "diverge",
+  "note": "Deliberately divergent control: an invalid regexp. Emacs raises invalid-regexp; kg raises the generic error symbol. Recorded as a divergence; if kg ever starts raising invalid-regexp, this scenario becomes an XPASS and fails the gate, forcing re-classification."
+}

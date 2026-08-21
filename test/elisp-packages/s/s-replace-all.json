@@ -1,0 +1,11 @@
+{
+  "id": "s-replace-all",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-replace-all (quote ((\"a\" . \"X\"))) \"abc\")",
+  "expect": "agree",
+  "note": "Literal replacement (alist) family, exact value. Both return \"Xbc\"."
+}

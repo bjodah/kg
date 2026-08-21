@@ -1,0 +1,11 @@
+{
+  "id": "s-condition-wrong-type",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(condition-case e (s-replace \"a\" \"b\" nil) (error (car e)))",
+  "expect": "agree",
+  "note": "Condition/error-path pin: a wrong-type-argument is raised and captured exactly. Both oracles return the wrong-type-argument symbol, proving structured condition capture works."
+}

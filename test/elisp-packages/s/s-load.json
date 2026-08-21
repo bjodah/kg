@@ -1,0 +1,11 @@
+{
+  "id": "s-load",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(condition-case e (progn (load \"external/elpa/s.el\") (fboundp (quote s-trim))) (error (error-message-string e)))",
+  "expect": "agree",
+  "note": "Pins that unmodified s.el loads and defines s-trim. Both oracles return t; this is the load half of the smoke claim, exact-valued rather than a prose 'loads'."
+}

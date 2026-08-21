@@ -1,0 +1,11 @@
+{
+  "id": "s-lex-format",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-lex-format \"${x}\" x \"1\")",
+  "expect": "agree",
+  "note": "Macro-expansion path: s-lex-format currently fails to expand in kg, raising wrong-number-of-arguments -- the same condition Emacs' eager macro expansion raises. Recorded as agree on the condition; the value path is the excluded s-lex-format-value gap (M2)."
+}

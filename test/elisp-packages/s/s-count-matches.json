@@ -1,0 +1,11 @@
+{
+  "id": "s-count-matches",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-count-matches \"a\" \"banana\")",
+  "expect": "agree",
+  "note": "Count family, exact value. Both return 3."
+}

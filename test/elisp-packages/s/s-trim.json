@@ -1,0 +1,11 @@
+{
+  "id": "s-trim",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-trim \"  hi  \")",
+  "expect": "agree",
+  "note": "Trim family, exact value. kg and Emacs both return \"hi\"."
+}

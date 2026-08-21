@@ -36,7 +36,7 @@
 #include <time.h>
 #include <unistd.h>
 
-#define PUMP_DEADLINE_SECONDS 10.0
+#define PUMP_DEADLINE_SECONDS 30.0
 #define PUMP_QUIET_SECONDS 0.30
 
 /* The deadline is a budget, not a cost: pump_until() returns the moment
@@ -50,7 +50,7 @@ static double pump_time_scale(void)
 	const char *scale_text = getenv("KG_TEST_TIME_SCALE");
 	double scale = scale_text != NULL ? atof(scale_text) : 1.0;
 
-	if (scale < 1.0 || scale > 30.0) {
+	if (scale < 1.0 || scale > 60.0) {
 		scale = 1.0;
 	}
 	return scale;

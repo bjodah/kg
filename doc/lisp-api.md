@@ -845,12 +845,23 @@ shape both dialects agree on and one for each half of the divergence.
 
 ### Features kg provides without a file
 
-`(require 'subr-x)` succeeds on a kg with no `load-path` entry at all,
-because the prelude `provide`s it: its names are already loaded, exactly
-as Emacs 31 answers `string-trim`, `string-empty-p` and `string-join`
-before any require. This is what Phase 28's package census measured as
-one of the two largest first blockers in the tree — `subr-x` stops 13 of
-110 packages — and the measurement was that the FEATURE is the blocker.
+**`(require 'subr-x)` is NOT provided.** It was, briefly: Phase 29's
+U.1a answered the require with the feature plus a named subset
+(`string-blank-p`, `string-remove-prefix`, `string-remove-suffix`,
+`string-pad`, `string-clean-whitespace`, `thread-first`, `thread-last`),
+and that was a claim the surface did not back — exactly the false-capability
+shape that had already caused `cl-lib` to be retracted. A provided feature
+is a capability promise `require` and `featurep` can see, and `named-let`,
+`hash-table-keys`, `-values` and `-empty-p` are real consumers behind
+successful `subr-x` requires. So **the feature claim is retracted** (Phase
+M0.1): `(require 'subr-x)` now raises `file-missing`, the honest
+diagnostic. The implemented names stay, **unadvertised** — Emacs 31 answers
+`string-trim`, `string-empty-p` and `string-join` before any require, and
+kg's own definitions are still callable — and removing working
+definitions would only narrow what an init file can do without making any
+package truer. Completing the selected-version `subr-x` surface is a
+later, separately sized package vertical; growing M0 to hash tables just
+to retain the feature bit was explicitly declined.
 
 **`(require 'cl-lib)` is NOT provided.** It was, briefly: Phase 29's
 U.1a answered the require with the feature plus a named subset
@@ -883,12 +894,17 @@ silently ignoring.
 than a convenience: fe's evaluator is lexical-by-default, so `nil` —
 which U.1a bound first — was a silent semantic lie, telling every probe
 that closures close over nothing while they went on closing. `t` is the
-truthful value, and a package that passes this variable into `eval`
-selects the dialect it would select in Emacs. What kg does not have is a
-first-class lexical *environment*: `eval` refuses a non-nil `LEXICAL`
-argument by name, so `(eval FORM lexical-binding)`, the shape a
-package's `static-if` polyfill writes, raises here where Emacs evaluates
-FORM lexically. (Emacs' own `(default-value 'lexical-binding)` is `nil`
+truthful value, but it does **not** make a `nil` or absent `LEXICAL`
+argument behave exactly as Emacs: Emacs evaluates `eval`'s form
+*Dynamically* when `LEXICAL` is `nil` or absent, so a closure created
+inside the evaluated form captures nothing and `funcall` of it raises
+`void-variable`, whereas kg evaluates lexically by default and the same
+lambda closes over its binding and returns the captured value (the
+`eval-nil-lexical-closure-inside-form` compat case records this
+divergence). What kg does not have is a first-class lexical *environment*:
+`eval` refuses a non-nil `LEXICAL` argument by name, so `(eval FORM
+lexical-binding)`, the shape a package's `static-if` polyfill writes,
+raises here where Emacs evaluates FORM lexically. (Emacs' own `(default-value 'lexical-binding)` is `nil`
 — there the `t` a file sees is a per-file binding over that global,
 which kg has no per-file evaluation mode to represent.)
 
@@ -1146,7 +1162,7 @@ before any init file runs — this is what makes `defun`, `let`, `cond`,
 | Small library | `identity` `prog2` `max` `min` `documentation` `number-to-string` `string-to-list` `kbd` |
 | Buffer-local | `setq-local` `setq-default` `set-default` `default-value` `make-local-variable` `kill-local-variable` `local-variable-p` `buffer-local-value` — see "Buffer-local variables" below |
 | Package preamble | `static-if` `eval-when-compile` `eval-and-compile` `make-obsolete-variable`, and the variable `lexical-binding` (`t` — see below) — the names a package file reaches before any of its own code runs |
-| `subr-x` | `string-blank-p` `string-remove-prefix` `string-remove-suffix` `string-pad` `string-clean-whitespace` `thread-first` `thread-last`, joining `string-join` `string-trim` `string-empty-p` `string-prefix-p` above — provided as a feature, so `(require 'subr-x)` succeeds |
+| `subr-x` | `string-blank-p` `string-remove-prefix` `string-remove-suffix` `string-pad` `string-clean-whitespace` `thread-first` `thread-last`, joining `string-join` `string-trim` `string-empty-p` `string-prefix-p` above — defined but UNADVERTISED: the feature is not provided, so `(require 'subr-x)` raises `file-missing`; see "Features kg provides without a file" above |
 | `cl-lib` | `cl-incf` `cl-case` `cl-find-if` — defined but UNADVERTISED: the feature is not provided; see "Features kg provides without a file" below |
 
 The table is the whole startup surface, not only what the prelude adds:
@@ -1162,8 +1178,12 @@ it reaches the handler, catch or recovery the caller is standing in:
 which is Emacs' answer and not an approximation of it: Emacs' optional
 LEXICAL argument *selects* an environment rather than inheriting the
 caller's, and `(let ((qq 1)) (eval 'qq))` is `(void-variable qq)` under
-the pinned Emacs 31.0.90 exactly as it is here. A non-nil LEXICAL is
-refused by name, the way `macroexpand`'s ENVIRONMENT is.
+the pinned Emacs 31.0.90 exactly as it is here. The agreement is for the
+*global* environment only: a closure created inside the evaluated form
+captures under kg's lexical-by-default evaluation and not under Emacs'
+dynamic `nil` evaluation, which is the `eval-nil-lexical-closure-inside-form`
+compat case. A non-nil LEXICAL is refused by name, the way `macroexpand`'s
+ENVIRONMENT is.
 
 `load-path` remains a bounded C search-path
 array; use kg's `add-to-load-path` native rather than modifying it with

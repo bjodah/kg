@@ -1,5 +1,6 @@
 {
  "id": "u0-subr-x-thread-macros",
+ "expect": "agree",
  "setup": [],
  "expr": "(list (thread-first 5 (- 1) (* 2)) (thread-last 5 (- 1) (* 2)))",
  "note": "THE THREADING MACROS, the part of `subr-x' that is not a string helper. Emacs answers (8 -8): `thread-first' inserts the value as the FIRST argument of each step ((5 - 1) then * 2 = 8) and `thread-last' as the LAST ((1 - 5) then 2 * -4 = -8). The two differ in sign here on purpose -- an implementation that confused them would still pass a test written with commutative steps. 3 of the 13 packages reach `thread-last'. kg answers `void-function'."

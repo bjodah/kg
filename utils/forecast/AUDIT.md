@@ -22,11 +22,11 @@ that a name which *stops* being covered is a diff and not a silence.
 | `lisp/help-fns.el` | 160 | 10 |
 | `lisp/pipeline-text.el` | 57 | 6 |
 | `lisp/pipeline.el` | 51 | 13 |
-| `lisp/prelude.el` | 1929 | 158 |
+| `lisp/prelude.el` | 1928 | 158 |
 | `utils/forecast/target-init.el` | 75 | 7 |
 | `utils/forecast/forecast-snippet.el` | 112 | 13 |
 | `utils/forecast/forecast-wordcount.el` | 118 | 10 |
-| **total** | **2651** | **232** |
+| **total** | **2650** | **232** |
 
 ## Implemented-name set
 
@@ -58,7 +58,7 @@ Measured demand for the three families the plan's Declined section keeps off the
 | vectors | 9 | `vectorp` x4, `aref` x3, `vconcat` x2 |
 | records | 0 | -- |
 
-## COVERED (265 names, 2647 references)
+## COVERED (265 names, 2646 references)
 
 | Refs | Name | Source |
 | ---: | --- | --- |
@@ -110,10 +110,10 @@ Measured demand for the three families the plan's Declined section keeps off the
 | 9 | `string-match` | kg-native |
 | 8 | `downcase` | kg-native |
 | 8 | `internal--seq-to-list` | kg-lisp |
-| 8 | `provide` | kg-native |
 | 8 | `regexp-quote` | kg-native |
 | 7 | `dolist` | kg-lisp |
 | 7 | `match-end` | kg-native |
+| 7 | `provide` | kg-native |
 | 7 | `push` | kg-lisp |
 | 7 | `setcdr` | fe-primitive |
 | 7 | `symbol-name` | fe-primitive |

@@ -1685,36 +1685,20 @@ name inside the buffer it is filling.")
       (floor value (expt 2 (- count)))
     (* value (expt 2 count)))))
 
-;; --- subr-x, a module kg PROVIDES ------------------------------------
+;; --- subr-x, a module kg NO LONGER PROVIDES --------------------------
 ;;
-;; `(require 'subr-x)' is the census's third-largest absent-library
-;; class.  U.0 measured what it costs and what it buys: four packages
-;; stop there today and NINE more reach it once `cl-lib' and `compat'
-;; exist, so the demand is 13; and standing the item in with a file that
-;; does nothing but `(provide 'subr-x)' advances all four, with not one
-;; of them then stopping on a subr-x NAME.  So the FEATURE is the
-;; blocker and the names are a short tail behind it.
+;; M0.1 retraction: the feature bit is gone, so `(require 'subr-x)'
+;; raises `file-missing'.  The string/threading names below stay defined
+;; and callable (Emacs 31 answers them before any require) but are
+;; UNADVERTISED: a provided feature is a capability promise `require' and
+;; `featurep' can see, and `named-let' / `hash-table-*-*' -- real
+;; consumers behind `subr-x' requires -- would make it a false one.
+;; Completing the selected-version `subr-x' surface is a later, separately
+;; sized package vertical.
 ;;
-;; It is provided from the prelude rather than shipped as a lisp/*.el
-;; package because that is what Emacs 31 does: `string-trim' and
-;; `string-empty-p' live in subr.el, `string-join' is autoloaded, and
-;; all of them answer before any require.  kg's load-path defaults to
-;; one per-user directory and nothing installs into it, so a file would
-;; make `(require 'subr-x)' depend on the user having added a directory
-;; -- which is the opposite of what the four blocked packages need.
-;;
-;; The tail, ranked by U.0's source census over those 13 packages:
-;; `string-join' 11 packages (kg had it), `string-blank-p' 5,
-;; `string-remove-prefix' 3, `thread-last' 3, `string-remove-suffix' 3,
-;; `string-clean-whitespace' 2, then singletons.  `hash-table-keys',
-;; `-values' and `-empty-p' are one package's and belong to the dormant
-;; hash-table branch, not here; `named-let' is one package's and needs a
-;; self-referential local function, which is not the cheap thing this
-;; section is for.  Both are named so their absence is a decision.
-;;
-;; `string-blank-p' answers a MATCH POSITION and not `t' -- it is
-;; `string-match' over a whitespace-only regexp, measured: 0 for "  ",
-;; 0 for "", nil for " a " and for "a".
+;; `string-blank-p' answers a MATCH POSITION, not `t': it is
+;; `string-match' over a whitespace-only regexp (0 for "  " and "",
+;; nil for " a " and "a").
 (defalias 'string-blank-p (lambda (string)
   (string-match "\\`[ \t\n\r]*\\'" string)))
 (defalias 'string-remove-prefix (lambda (prefix string)
@@ -1755,7 +1739,6 @@ name inside the buffer it is filling.")
   (internal--thread form steps nil)))
 (defalias 'thread-last (macro (form . steps)
   (internal--thread form steps t)))
-(provide 'subr-x)
 
 ;; --- the names a package file reaches on its way past the top --------
 ;;

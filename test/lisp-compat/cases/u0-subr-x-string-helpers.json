@@ -1,5 +1,6 @@
 {
  "id": "u0-subr-x-string-helpers",
+ "expect": "agree",
  "setup": [],
  "expr": "(list (string-blank-p \"  \") (string-remove-prefix \"ab\" \"abc\") (string-remove-suffix \"bc\" \"abc\") (string-pad \"a\" 3))",
  "note": "WHAT THE CONSUMERS ACTUALLY REACH FOR, ranked by U.0's source census over the 13 packages that stop at this require: `string-join' (11 packages), `string-blank-p' (5), `string-remove-prefix' (3), `string-remove-suffix' (3). Emacs answers (0 \"c\" \"a\" \"a  \") -- and the first element is the shape to notice: `string-blank-p' returns a MATCH POSITION (0), not t, because it is `string-match-p' over a whitespace regexp. `string-pad' pads on the right by default. kg answers `void-function' at this pin."

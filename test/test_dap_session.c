@@ -45,7 +45,7 @@
  * wall-clock is not the test's own -- the parallel CI runner sets it for
  * the same reason PTY_TIMEOUT doubles there.  Clamped so a typo cannot
  * make a real hang look like a pass that never returns. */
-static double pump_deadline_seconds(void)
+static double pump_time_scale(void)
 {
 	const char *scale_text = getenv("KG_TEST_TIME_SCALE");
 	double scale = scale_text != NULL ? atof(scale_text) : 1.0;
@@ -53,7 +53,17 @@ static double pump_deadline_seconds(void)
 	if (scale < 1.0 || scale > 30.0) {
 		scale = 1.0;
 	}
-	return PUMP_DEADLINE_SECONDS * scale;
+	return scale;
+}
+
+static double pump_deadline_seconds(void)
+{
+	return PUMP_DEADLINE_SECONDS * pump_time_scale();
+}
+
+static double pump_quiet_seconds(void)
+{
+	return PUMP_QUIET_SECONDS * pump_time_scale();
 }
 
 /* Bounded well under PATH_MAX on purpose: it is interpolated into a
@@ -326,7 +336,7 @@ static bool pump_until(struct dap_session *s, done_fn done)
 
 static void pump_quietly(struct dap_session *s)
 {
-	double deadline = monotonic_seconds() + PUMP_QUIET_SECONDS;
+	double deadline = monotonic_seconds() + pump_quiet_seconds();
 
 	while (monotonic_seconds() < deadline) {
 		(void)dap_session_poll(s);
@@ -1028,7 +1038,7 @@ static void test_the_debuggee_output_on_the_adapters_stderr(void)
 		return;
 	}
 	CHECK(pump_until(s, is_configured));
-	deadline = monotonic_seconds() + PUMP_DEADLINE_SECONDS;
+	deadline = monotonic_seconds() + pump_deadline_seconds();
 	while (strstr(heard.output_text, want) == NULL
 	    && monotonic_seconds() < deadline) {
 		(void)dap_session_poll(s);

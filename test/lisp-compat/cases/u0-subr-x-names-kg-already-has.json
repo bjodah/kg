@@ -1,5 +1,6 @@
 {
  "id": "u0-subr-x-names-kg-already-has",
+ "expect": "agree",
  "setup": [],
  "expr": "(list (string-join (list \"a\" \"b\") \"-\") (string-trim \"  x  \") (string-empty-p \"\") (string-prefix-p \"ab\" \"abc\"))",
  "note": "THE CONTROL, and the measurement that shrinks this item: three of the four names most reached from `subr-x' are ALREADY kg's. Both sides answer (\"a-b\" \"x\" t t) for `string-join', `string-trim', `string-empty-p' and `string-prefix-p'. So what `(require \\'subr-x)' costs is the FEATURE plus a short tail of names, not a library -- and in Emacs 31 these names are not even subr-x's own any more: `string-trim' and `string-empty-p' live in subr.el, `string-join' is autoloaded from subr-x, and all of them answer before any require.",

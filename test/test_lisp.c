@@ -6477,10 +6477,15 @@ static void test_phase29_subr_x(void)
 {
 	CHECK(kg_lisp_init() == 0);
 
-	/* The FEATURE is what 13 packages stop at; kg provides it from the
-	 * prelude, as Emacs 31 answers these names before any require. */
+	/* M0.1 retraction: `subr-x' is no longer advertised as a feature.
+	 * The string/threading names stay callable (defined directly in the
+	 * prelude), but `(require 'subr-x)' must now fail loudly instead of
+	 * promising a contract kg does not implement, and `featurep' agrees.
+	 */
+	CHECK(eval_eq("(featurep 'subr-x)", "nil"));
 	CHECK(eval_eq(
-	    "(list (require 'subr-x) (featurep 'subr-x))", "(subr-x t)"));
+	    "(condition-case e (require 'subr-x) (file-missing (car e)))",
+	    "file-missing"));
 
 	/* string-blank-p answers a MATCH POSITION, not t. */
 	CHECK(eval_eq("(list (string-blank-p \"  \") (string-blank-p \"\") "

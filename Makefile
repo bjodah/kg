@@ -709,6 +709,7 @@ CHECK_RESULTS_DIR ?= $(TESTDIR)/.results
 PTY_ACCEPT_ARGS ?=
 PTY_TIMEOUT ?= 15.0
 PTY_STARTUP_DELAY_ADD ?=
+PTY_ORACLE_STARTUP_DELAY_ADD ?=
 PTY_KEY_DELAY_ADD ?=
 # Minimum seconds a tmux case waits after its last key before the harness
 # may call the pane settled.  Empty here (a plain `make check` does not
@@ -1249,6 +1250,7 @@ check-pty: $(TARGET) $(PTY_TESTS)
 		--json $(CHECK_RESULTS_DIR)/pty.json \
 		$(if $(PTY_TIMEOUT),--timeout $(PTY_TIMEOUT),) \
 		$(if $(PTY_STARTUP_DELAY_ADD),--startup-delay-add $(PTY_STARTUP_DELAY_ADD),) \
+		$(if $(PTY_ORACLE_STARTUP_DELAY_ADD),--oracle-startup-delay-add $(PTY_ORACLE_STARTUP_DELAY_ADD),) \
 		$(if $(PTY_KEY_DELAY_ADD),--key-delay-add $(PTY_KEY_DELAY_ADD),) \
 		$(if $(PTY_SETTLE_FLOOR),--settle-floor $(PTY_SETTLE_FLOOR),) \
 		$(if $(PTY_JOBS),--jobs $(PTY_JOBS),) \

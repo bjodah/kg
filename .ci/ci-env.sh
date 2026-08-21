@@ -36,6 +36,7 @@ fi
 # so it cannot push an inter-key gap below the 30 ms paste threshold in
 # kbd.c.  PTY_TIMEOUT still doubles under --parallel, as failure headroom.
 PTY_STARTUP_DELAY_ADD=${PTY_STARTUP_DELAY_ADD:-0.3}
+PTY_ORACLE_STARTUP_DELAY_ADD=${PTY_ORACLE_STARTUP_DELAY_ADD:-$([ "${CI_PARALLEL}" = 1 ] && echo 2.0 || echo 0.5)}
 PTY_KEY_DELAY_ADD=${PTY_KEY_DELAY_ADD:-0.01}
 
 # What the key add cannot buy, bought once per case instead of once per

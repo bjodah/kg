@@ -178,16 +178,14 @@ class ReadinessTest(unittest.TestCase):
 		child.expect.assert_not_called()
 		child.send.assert_not_called()
 
-	def test_unrecognised_editor_sleeps_the_startup_delay_not_the_budget(
-			self) -> None:
-		# The Emacs oracle's readiness cannot be recognised (KG_READY
-		# describes kg's mode line), so it takes a fixed sleep -- and
-		# that sleep is startup_delay.  The budget beside it is the
-		# case's whole timeout, which the oracle must never sleep.
-		with mock.patch.object(pty_accept.time, "sleep") as slept:
+	def test_unrecognised_editor_reports_startup_failure(self) -> None:
+		# Emacs readiness is recognised from its mode line now.  A process
+		# that never paints one must be reported as infrastructure failure,
+		# rather than receiving keys in the pty's cooked mode.
+		with self.assertRaisesRegex(pty_accept.EditorNotReady,
+							   "Emacs startup settle"):
 			pty_accept.wait_ready_pexpect(mock.Mock(), False,
-						      0.5, 20.0)
-		slept.assert_called_once_with(0.5)
+							      0.5, 20.0)
 
 
 if __name__ == "__main__":

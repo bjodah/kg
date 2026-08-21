@@ -90,6 +90,11 @@ KG_READY_BYTES = re.compile(KG_READY_PATTERN.encode())
 # valgrind without --quiet would otherwise have its banner mistaken for kg
 # reaching raw mode.
 KG_RAW_BYTES = re.compile(rb"\x1b\[\?1000;1002;1006h")
+# Emacs has no kg-specific raw-mode marker.  Its mode line is the first
+# stable, editor-owned output after startup and is sufficient to keep keys
+# out of the shell/terminal startup race.
+EMACS_READY = re.compile(rb"(?:All|Top|Bot|[0-9]+%)[^\r\n]*\([^\r\n]+\)")
+EMACS_READY_TEXT = re.compile(r"(?:All|Top|Bot|[0-9]+%)[^\r\n]*\([^\r\n]+\)")
 READY_POLL = 0.005
 # Floor under the readiness budget; the budget itself is the case's own
 # --timeout.  Waiting longer costs a healthy editor nothing -- the wait ends
@@ -870,8 +875,23 @@ def wait_ready_pexpect(child: pexpect.spawn, ready: bool,
 	anyway is worse than reporting nothing.
 	"""
 	if not ready:
-		time.sleep(startup_delay)
-		return
+		budget = max(startup_delay, READY_DEADLINE)
+		try:
+			child.expect(EMACS_READY, timeout=budget)
+		except (pexpect.TIMEOUT, pexpect.EOF) as exc:
+			raise EditorNotReady(budget,
+					    "Emacs mode line") from exc
+		deadline = time.monotonic() + budget
+		last = time.monotonic()
+		while time.monotonic() < deadline:
+			try:
+				if child.read_nonblocking(4096, READY_POLL):
+					last = time.monotonic()
+			except (pexpect.TIMEOUT, pexpect.EOF):
+				pass
+			if time.monotonic() - last >= READY_SETTLE:
+				return
+		raise EditorNotReady(budget, "Emacs startup settle")
 	budget = max(budget, READY_DEADLINE)
 	deadline = time.monotonic() + budget
 	try:
@@ -996,8 +1016,24 @@ def wait_ready_tmux(sock: str, pane: str, ready: bool,
 	exactly what it means there, and raises for the same reason.
 	"""
 	if not ready:
-		time.sleep(startup_delay)
-		return
+		budget = max(startup_delay, READY_DEADLINE)
+		deadline = time.monotonic() + budget
+		last = time.monotonic()
+		seen = False
+		prev = None
+		while time.monotonic() < deadline:
+			cp = run_tmux_cmd(sock, "capture-pane", "-t", pane, "-p", check=False)
+			now = time.monotonic()
+			if cp.stdout != prev:
+				prev = cp.stdout
+				last = now
+			if EMACS_READY_TEXT.search(cp.stdout):
+				seen = True
+			if seen and now - last >= READY_SETTLE:
+				return
+			time.sleep(READY_POLL)
+		raise EditorNotReady(budget, "Emacs startup settle" if seen
+						 else "Emacs mode line")
 	budget = max(budget, READY_DEADLINE)
 	deadline = time.monotonic() + budget
 	prev = None
@@ -1218,8 +1254,9 @@ def evaluate_case(case: Case, **kwargs) -> tuple[str, str | None, float]:
 
 
 def evaluate_case_status(case: Case, kg_argv: list[str], features: set[str],
-			 timeout: float, startup_delay_add: float,
-			 key_delay_add: float, emacs: str | None,
+				 timeout: float, startup_delay_add: float,
+				 key_delay_add: float, oracle_startup_delay_add: float,
+				 emacs: str | None,
 			 have_tmux: bool,
 			 settle_floor: float = 0.0) -> tuple[str, str | None]:
 	if feature_mismatch(case, features):
@@ -1259,7 +1296,8 @@ def evaluate_case_status(case: Case, kg_argv: list[str], features: set[str],
 		# plain one in a way the case did not intend.
 		emacs_run = run_editor([emacs, "-q", "-nw"], case.filename, case.initial,
 				       case.keys, case.trailer_keys, oracle_backend,
-				       startup_delay, key_delay, case.dimensions,
+				       startup_delay + oracle_startup_delay_add, key_delay,
+				       case.dimensions,
 				       timeout, {}, ready=False,
 				       workspace_files=case.workspace_files,
 				       file_mode=case.file_mode)
@@ -1349,6 +1387,8 @@ def main() -> int:
 	                    help="Per-run timeout in seconds")
 	parser.add_argument("--startup-delay-add", type=float, default=0.0,
 	                    help="Additional startup delay added to every case")
+	parser.add_argument("--oracle-startup-delay-add", type=float, default=0.0,
+	                    help="Additional startup deadline for Emacs oracle cases")
 	parser.add_argument("--key-delay-add", type=float, default=0.0,
 	                    help="Additional per-key delay added to every case")
 	parser.add_argument("--settle-floor", type=float, default=0.0,
@@ -1433,6 +1473,7 @@ def main() -> int:
 				    features=features, timeout=args.timeout,
 				    startup_delay_add=args.startup_delay_add,
 				    key_delay_add=args.key_delay_add,
+				    oracle_startup_delay_add=args.oracle_startup_delay_add,
 				    emacs=emacs, have_tmux=have_tmux,
 				    settle_floor=args.settle_floor)
 

@@ -1196,7 +1196,8 @@ static void test_one_poll_cannot_be_monopolised(void)
 		return;
 	}
 	CHECK(dap_client_initialize(c, "kg-test", record, &a) > 0);
-	CHECK(pump_until(c, &heard.events, DAP_CLIENT_MAX_MESSAGES_PER_POLL));
+	CHECK(pump_until(c, &heard.events,
+		DAP_CLIENT_MAX_MESSAGES_PER_POLL + 1));
 	CHECK(dap_client_wants_poll(c));
 	before = heard.events;
 	(void)dap_client_poll(c);

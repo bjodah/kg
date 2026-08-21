@@ -207,6 +207,48 @@ def check_source_coverage(fe_data: dict, kg_data: dict) -> list[str]:
 
 PHASE_RE = re.compile(r"Phase \d")
 
+VALID_FAILURE_MODES = {
+	"silent-wrong",
+	"loud-unsupported",
+	"intentional-policy",
+	"resource-bound",
+}
+
+
+def check_failure_mode(data: dict, path: Path) -> list[str]:
+	"""Every non-supported feature row must name exactly one failure_mode.
+
+	Phase M3 step 1 (master plan section 7) requires a `failure_mode` on
+	every row whose status is not `supported`, so the debt dashboard has
+	honest per-case classification: `silent-wrong` (kg gives a plausible
+	but incorrect answer), `loud-unsupported` (kg refuses/errors by
+	name), `intentional-policy` (a documented deliberate divergence), or
+	`resource-bound` (correct within stated bounds).  A row that lost its
+	mode, or that carries a value this gate does not define, fails -- the
+	whole point is that the field cannot drift back to absent or to a
+	spelling nobody gated.
+	"""
+	errors = []
+	for feature in data.get("features", []):
+		if feature.get("status") == "supported":
+			continue
+		fid = feature.get("id")
+		try:
+			where = f"{path.relative_to(ROOT)}:{fid}"
+		except ValueError:
+			where = f"{path}:{fid}"
+		mode = feature.get("failure_mode")
+		if mode is None:
+			errors.append(
+				f"{where}: status={feature.get('status')!r} has no "
+				f"failure_mode (required by master plan M3.1)")
+			continue
+		if mode not in VALID_FAILURE_MODES:
+			errors.append(
+				f"{where}: failure_mode is {mode!r}, not one of "
+				f"{sorted(VALID_FAILURE_MODES)}")
+	return errors
+
 
 def check_planned_names_phase(data: dict, path: Path) -> list[str]:
 	errors = []
@@ -500,6 +542,8 @@ def main() -> int:
 	errors += check_planned_names_phase(fe_data, FE_MANIFEST)
 	errors += check_planned_names_phase(kg_data, KG_MANIFEST)
 	errors += check_defcustom(kg_data)
+	errors += check_failure_mode(fe_data, FE_MANIFEST)
+	errors += check_failure_mode(kg_data, KG_MANIFEST)
 	errors += check_orphan_snapshots(kg_data)
 	errors += check_kg_test_targets(kg_data, KG_MANIFEST)
 	errors += check_kg_test_targets(fe_data, FE_MANIFEST)
@@ -510,6 +554,20 @@ def main() -> int:
 	total = len(fe_data.get("features", [])) + len(kg_data.get("features", []))
 	print(f"lisp compat check: {total} feature(s) across both manifests, "
 	      f"{len(errors)} problem(s)")
+
+	from collections import Counter
+	fe_counts = Counter(
+		f.get("failure_mode") for f in fe_data.get("features", [])
+		if f.get("status") != "supported")
+	kg_counts = Counter(
+		f.get("failure_mode") for f in kg_data.get("features", [])
+		if f.get("status") != "supported")
+	order = ["silent-wrong", "loud-unsupported",
+		 "intentional-policy", "resource-bound"]
+	def fmt(c):
+		return " ".join(f"{m}:{c.get(m, 0)}" for m in order)
+	print(f"failure_mode dashboard: "
+	      f"kg={{{fmt(kg_counts)}}} fe={{{fmt(fe_counts)}}}")
 	if errors:
 		print("FAIL:", file=sys.stderr)
 		for line in errors:
@@ -603,6 +661,44 @@ def self_test() -> int:
 		expect_clean(snapshot_errors, "good-case",
 			     "an emacs case that has a snapshot")
 
+		# failure_mode gate (master plan M3.1): a non-supported row
+		# missing the field, or carrying an unknown value, must fail;
+		# a row with a valid mode must be left alone.
+		manifest_ok = root / "manifest-ok.json"
+		manifest_ok.write_text(json.dumps({
+			"features": [{
+				"id": "ok-row",
+				"status": "divergent",
+				"failure_mode": "silent-wrong",
+			}]}), encoding="utf-8")
+		manifest_missing = root / "manifest-missing.json"
+		manifest_missing.write_text(json.dumps({
+			"features": [{
+				"id": "missing-row",
+				"status": "divergent",
+			}]}), encoding="utf-8")
+		manifest_bad = root / "manifest-bad.json"
+		manifest_bad.write_text(json.dumps({
+			"features": [{
+				"id": "bad-row",
+				"status": "divergent",
+				"failure_mode": "totally-wrong",
+			}]}), encoding="utf-8")
+
+		ok_errors = check_failure_mode(
+			json.loads(manifest_ok.read_text()), manifest_ok)
+		missing_errors = check_failure_mode(
+			json.loads(manifest_missing.read_text()), manifest_missing)
+		bad_errors = check_failure_mode(
+			json.loads(manifest_bad.read_text()), manifest_bad)
+
+		expect_clean(ok_errors, "ok-row",
+			     "a non-supported row with a valid failure_mode")
+		expect_flagged(missing_errors, "missing-row",
+			       "a non-supported row with no failure_mode")
+		expect_flagged(bad_errors, "bad-row",
+			       "a non-supported row with an unknown failure_mode")
+
 		if not ok:
 			return 1
 		print("self-test: a case id != filename fails the rule")
@@ -610,6 +706,12 @@ def self_test() -> int:
 		print("self-test: a comparison=emacs case with no snapshot "
 		      "fails the rule")
 		print("self-test: correctly-formed files are left untouched")
+		print("self-test: a non-supported row with no failure_mode "
+		      "fails the rule")
+		print("self-test: a non-supported row with an unknown "
+		      "failure_mode fails the rule")
+		print("self-test: a non-supported row with a valid "
+		      "failure_mode is left untouched")
 		return 0
 
 

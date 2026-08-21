@@ -930,6 +930,7 @@ external-quarantine-check:
 # not part of this or ordinary `make check`.
 lisp-compat-check:
 	@$(PYTHON) utils/check_lisp_compat.py
+	@$(PYTHON) utils/check_lisp_compat.py --self-test
 
 # Sub-plan 10D Part 1's drift gate, in lisp-prelude-check's mold: a PTY
 # case's config_files: is inline YAML, so a case exercising a tracked

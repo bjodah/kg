@@ -336,7 +336,6 @@ static FeObject *lisp_search(FeContext *context, FeObject *arguments,
 			FeHandleError(context, "regexp too complex to compile");
 		}
 		if (status != KG_REGEX_OK) {
-			release_scratch();
 			lisp_raise_invalid_regexp(context, pattern);
 		}
 	}

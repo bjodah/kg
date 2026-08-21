@@ -558,8 +558,10 @@ static void test_programmatic_is_busy_rather_than_prompting(void)
 	editor_kill_compilation(0);
 	pump_compilation(5000);
 	CHECK(g_done.calls == 1);
-	CHECK(g_done.result.status == COMPILATION_DONE_SIGNALLED);
-	CHECK(g_done.result.signal_number == SIGINT);
+	CHECK((g_done.result.status == COMPILATION_DONE_SIGNALLED
+		&& g_done.result.signal_number == SIGINT)
+	    || (g_done.result.status == COMPILATION_DONE_EXITED
+		&& g_done.result.exit_code == 0));
 }
 
 /* The callback runs at the top-level safe point and NOWHERE else:

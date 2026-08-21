@@ -453,6 +453,18 @@ podman build --target export --output . -f Containerfile.apk .
 DOCKER_BUILDKIT=1 docker build --target export --output . -f Containerfile.apk .
 ```
 
+### Fedora
+
+How to build and extract the `.rpm`:
+
+```console
+# Using Podman
+podman build --target export --output . -f Containerfile.fedora .
+
+# Using Docker (with BuildKit)
+DOCKER_BUILDKIT=1 docker build --target export --output . -f Containerfile.fedora .
+```
+
 
 ## Origin & References
 

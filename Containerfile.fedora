@@ -1,0 +1,124 @@
+# syntax=docker/dockerfile:1
+# =============================================================================
+# Containerfile.fedora
+# Builds a Fedora (44) RPM package (.rpm) of kg with:
+#   - WITH_LISP=1
+#   - WITH_LSP=1
+#   - WITH_DAP=1
+#   - WITH_TREE_SITTER=1
+#   - Statically linked tree-sitter core (libtree-sitter.a)
+#   - Bundled tree-sitter grammar shared libraries in %{_libdir}/tree-sitter
+# =============================================================================
+
+FROM docker.io/library/fedora:44 AS builder
+
+# Install packaging and compilation prerequisites
+RUN dnf install -y \
+    ca-certificates \
+    diffutils \
+    findutils \
+    gcc \
+    git \
+    make \
+    python3 \
+    python3-pexpect \
+    python3-pyyaml \
+    rpm-build \
+    tar \
+    && dnf clean all
+
+WORKDIR /src/kg
+COPY . .
+
+# Initialize submodules (fe, fe/tiny-regex-c) if not already present
+RUN if [ ! -f fe/fe.c ] || [ ! -f fe/tiny-regex-c/re.c ]; then \
+        git submodule update --init --recursive; \
+    fi
+
+# Build tree-sitter core and all grammars using kg's pinned manifest
+RUN ./utils/build-tree-sitter.sh --prefix /opt/tree-sitter
+
+# Remove shared libtree-sitter.so from prefix to force static linking against libtree-sitter.a
+# (Grammar .so files remain untouched in /opt/tree-sitter/lib/)
+RUN rm -f /opt/tree-sitter/lib/libtree-sitter.so*
+
+# Set up RPM build directory tree
+RUN mkdir -p /root/rpmbuild/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+
+# Configure RPM spec file
+COPY <<'EOF_SPEC' /root/rpmbuild/SPECS/kg.spec
+Name:           kg
+Version:        VERSION_PLACEHOLDER
+Release:        1%{?dist}
+Summary:        Light Weight UTF-8 Terminal Text Editor
+
+License:        BSD-2-Clause
+URL:            https://github.com/troglobit/kg
+Source0:        kg-%{version}.tar.gz
+
+%description
+kg is a small terminal text editor based on the kilo editor by
+Salvatore Sanfilippo.  It provides Emacs-style key bindings for
+navigation, editing, search, and file operations, with support for
+multiple buffers, split windows, syntax highlighting for common
+languages, incremental search, multi-level undo, and paragraph reflow.
+
+%global debug_package %{nil}
+
+%prep
+%setup -q -c -n kg-%{version}
+
+%build
+make clean
+make WITH_LISP=1 WITH_LSP=1 WITH_DAP=1 WITH_TREE_SITTER=1 \
+	TREE_SITTER_PREFIX=/opt/tree-sitter \
+	TS_GRAMMAR_PATH=%{_libdir}/tree-sitter
+
+%check
+KG_TS_GRAMMAR_PATH=/opt/tree-sitter/lib make check-unit \
+	WITH_LISP=1 WITH_LSP=1 WITH_DAP=1 WITH_TREE_SITTER=1 \
+	TREE_SITTER_PREFIX=/opt/tree-sitter
+
+%install
+make install WITH_LISP=1 WITH_LSP=1 WITH_DAP=1 WITH_TREE_SITTER=1 \
+	TREE_SITTER_PREFIX=/opt/tree-sitter \
+	TS_GRAMMAR_PATH=%{_libdir}/tree-sitter \
+	DESTDIR=%{buildroot} prefix=%{_prefix} mandir=%{_mandir} bindir=%{_bindir} datadir=%{_datadir}
+install -d %{buildroot}%{_libdir}/tree-sitter
+install -m 0755 /opt/tree-sitter/lib/libtree-sitter-*.so %{buildroot}%{_libdir}/tree-sitter/
+
+%files
+%license LICENSE
+%doc README.md
+%{_bindir}/kg
+%{_mandir}/man1/kg.1*
+%{_datadir}/kg
+%{_libdir}/tree-sitter
+
+%changelog
+EOF_SPEC
+
+RUN VER=$(sed -n 's/^#define KG_VERSION "\(.*\)"/\1/p' /src/kg/src/def.h) && \
+    sed -i "s/VERSION_PLACEHOLDER/${VER}/" /root/rpmbuild/SPECS/kg.spec && \
+    tar -czf /root/rpmbuild/SOURCES/kg-${VER}.tar.gz -C /src/kg .
+
+# Build RPM binary package (.rpm)
+RUN rpmbuild -ba /root/rpmbuild/SPECS/kg.spec
+
+# Stage the generated RPM package(s) for extraction
+RUN mkdir -p /dist && cp /root/rpmbuild/RPMS/*/*.rpm /dist/
+
+# Test and verify package installation
+RUN dnf install -y /dist/kg-*.rpm && \
+    kg -V && \
+    kg -V | grep -q '+tree-sitter' && \
+    ! ldd /usr/bin/kg | grep -q libtree-sitter.so && \
+    (test -f /usr/lib64/tree-sitter/libtree-sitter-c.so || test -f /usr/lib/tree-sitter/libtree-sitter-c.so)
+
+# -----------------------------------------------------------------------------
+# Exporter stage: outputs only the built .rpm artifacts
+# Usage: podman build --target export --output . -f Containerfile.fedora .
+#        or docker build --target export --output . -f Containerfile.fedora .
+# -----------------------------------------------------------------------------
+FROM scratch AS export
+COPY --from=builder /dist/ /

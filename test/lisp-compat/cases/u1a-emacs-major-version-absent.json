@@ -1,0 +1,6 @@
+{
+ "id": "u1a-emacs-major-version-is-an-integer",
+ "setup": [],
+ "expr": "(list emacs-major-version (integerp emacs-major-version) (< emacs-major-version 25) (>= emacs-major-version 30))",
+ "note": "`emacs-major-version', the variable a package's version gate reads. Emacs 31.0.91 answers (31 t nil t). kg answers the same, and the equality is a DECISION rather than a coincidence: 31 is the Emacs whose behaviour every contract in this corpus is measured against, so kg never implements an older Emacs' answer for a name and a gate asking `at least N' gets the right answer for every name kg has. dash.el:3980's (< emacs-major-version 25) is the measured consumer -- it guards a font-lock list for pre-25 Emacsen.  RETRACTED since: a version claim is a capability promise, and packages read 31 as modern code paths are safe -- font-lock keyword lists, static-if branches, define-minor-mode generations -- for capabilities kg does not have. The variable is gone; a package that needs the name gets void-variable, which names the gap, where the number papered over it."
+}

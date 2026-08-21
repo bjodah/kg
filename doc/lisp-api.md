@@ -845,51 +845,61 @@ shape both dialects agree on and one for each half of the divergence.
 
 ### Features kg provides without a file
 
-`(require 'subr-x)` and `(require 'cl-lib)` both succeed on a kg with no
-`load-path` entry at all, because the prelude `provide`s them: their
-names are already loaded, exactly as Emacs 31 answers `string-trim`,
-`string-empty-p` and `string-join` before any require. This is what
-Phase 28's package census measured as the two largest first blockers in
-the tree — `cl-lib` stops 35 of 110 packages and `subr-x` 13 — and in
-both cases the measurement was that the FEATURE is the blocker: with
-`cl-lib` standing in as a bare `provide`, only two of the 35 packages
-then stop on a `cl-` name at all.
+`(require 'subr-x)` succeeds on a kg with no `load-path` entry at all,
+because the prelude `provide`s it: its names are already loaded, exactly
+as Emacs 31 answers `string-trim`, `string-empty-p` and `string-join`
+before any require. This is what Phase 28's package census measured as
+one of the two largest first blockers in the tree — `subr-x` stops 13 of
+110 packages — and the measurement was that the FEATURE is the blocker.
 
-**What `(require 'cl-lib)` claims.** A NAMED SUBSET, listed in the
-surface table above and nowhere else: `cl-incf`, `cl-case` and
-`cl-find-if`. A package that reaches any other `cl-` name gets
-`void-function` **at the call**, not `file-missing` at the require — the
-failure moves from load time to run time, and it moves deliberately.
-Refusing the require instead would keep those 47 packages from loading
-at all, in exchange for a diagnostic they get anyway, one call later and
-with the name in it. Three names are absent on purpose and each has a
-measurement behind it: `cl-loop` is an iteration sub-language rather
-than a name; `cl-defun` is absent because of 533 `cl-defun` sites across
-the ELPA tree, 462 use `&key`, and a `cl-defun` that was `defun` would
-mis-bind 87% of its callers *silently*; `cl-defstruct` needs records.
-The three that are here match Emacs value for value, including the
-edges — `cl-case` compares with `eql` (a string key does not match an
-equal string, a float key does), treats `t` and `otherwise` alike, and
-answers `nil` for a clause with no body — but `cl-incf`'s PLACE must be
-a **symbol**: kg has no generalised variables, so anything else is
-refused at expansion with a message naming the limit (measured: 188 of
-212 `cl-incf` sites in the tree pass a bare symbol).
+**`(require 'cl-lib)` is NOT provided.** It was, briefly: Phase 29's
+U.1a answered the require with the feature plus a named subset
+(`cl-incf`, `cl-case`, `cl-find-if`), and that was a claim the surface
+did not back — inheritenv loaded past the require and died at
+`cl-letf*` with `void-function`, and `featurep` answering `t` told
+packages kg cannot run to take modern code paths. A provided feature is
+a capability promise, so **the feature claim is retracted** until every
+operation needed by one complete target-package scenario works
+unmodified; `(require 'cl-lib)` raises `file-missing`, the honest
+diagnostic. The three implemented names stay, **unadvertised** — they
+are Emacs-comparable where they stand, and removing working definitions
+would only narrow what an init file can do without making any package
+truer. What is not here is unchanged, each absence with a measurement
+behind it: `cl-loop` is an iteration sub-language rather than a name;
+`cl-defun` is absent because of 533 `cl-defun` sites across the ELPA
+tree, 462 use `&key`, and a `cl-defun` that was `defun` would mis-bind
+87% of its callers *silently*; `cl-defstruct` needs records; `cl-letf*`
+needs generalised-variable machinery. Of the three that are here:
+`cl-case` compares with `eql` (a string key does not match an equal
+string, a float key does), treats `t` and `otherwise` alike, and answers
+`nil` for a clause with no body; `cl-incf`'s PLACE must be a **symbol**
+(kg has no generalised variables, so anything else is refused at
+expansion with a message naming the limit — measured: 188 of 212
+`cl-incf` sites in the tree pass a bare symbol), and a third argument is
+`wrong-number-of-arguments`, which the expansion checks rather than
+silently ignoring.
 
-**`lexical-binding` is `nil`, always**, and that is a statement about kg
-rather than a convenience: kg's binder is dynamic, there are no
-first-class lexical environments, and `eval` refuses a non-nil `LEXICAL`
-argument by name. It is also Emacs' own `(default-value
-'lexical-binding)` — the `t` a file sees there is a per-file binding
-over that global. One consequence is worth knowing: `(eval FORM
-lexical-binding)`, the shape a package's `static-if` polyfill writes, is
-`(eval FORM nil)` here, which kg evaluates.
+**`lexical-binding` is `t`**, and that is a measurement about kg rather
+than a convenience: fe's evaluator is lexical-by-default, so `nil` —
+which U.1a bound first — was a silent semantic lie, telling every probe
+that closures close over nothing while they went on closing. `t` is the
+truthful value, and a package that passes this variable into `eval`
+selects the dialect it would select in Emacs. What kg does not have is a
+first-class lexical *environment*: `eval` refuses a non-nil `LEXICAL`
+argument by name, so `(eval FORM lexical-binding)`, the shape a
+package's `static-if` polyfill writes, raises here where Emacs evaluates
+FORM lexically. (Emacs' own `(default-value 'lexical-binding)` is `nil`
+— there the `t` a file sees is a per-file binding over that global,
+which kg has no per-file evaluation mode to represent.)
 
-**`emacs-major-version` is 31** because 31 is the Emacs whose behaviour
-every contract in this tree is measured against. That is the honest
-reading of a version gate: kg never implements an older Emacs' answer
-for a name, so a gate asking "at least N" gets the right answer for
-every name kg has, and a name kg lacks is `void-function` whichever
-branch the gate takes. It is not a claim to be Emacs.
+**There is no `emacs-major-version`.** U.1a bound it to 31, on the
+theory that a version gate reading "at least N" gets the right answer
+for every name kg has. The external review's finding removed it: a
+version claim is a capability promise, and packages read 31 as "modern
+code paths are safe" — font-lock keyword lists, `static-if` branches,
+`define-minor-mode` generations — for capabilities kg does not have. A
+package that needs the name now gets `void-variable`, which names the
+gap, where the number papered over it.
 
 ## Strings and the prelude
 
@@ -911,7 +921,7 @@ argument, the echo area -- it truncates at the first NUL on purpose;
 | `(concat A B ...)` | Joins any number of arguments; `(concat)` is `""`. An argument is a string, or a LIST OF CHARACTER CODES, which is encoded as UTF-8 — so `(concat (nreverse (string-to-list S)))` reverses S by character. A non-integer element is `(wrong-type-argument characterp X)`; an argument that is neither string nor list is `(wrong-type-argument stringp X)` |
 | `(string= A B)` | `t` when equal. Either argument may be a SYMBOL, whose name is compared, or `nil`, which compares as `"nil"` — Emacs' rule, and already `string<`'s. Anything else is `(wrong-type-argument stringp X)` |
 | `(compare-strings S1 START1 END1 S2 START2 END2 &optional IGNORE-CASE)` | `t` when the two spans are equal, else ±(1 + the characters that compared equal), signed by which side sorts first. A nil `START` is 0 and a nil `END` the length; a negative index counts from the end; an `END` past the string is clipped silently, while a `START` past it is `(args-out-of-range STRING START CLIPPED-END)`. The index is in CHARACTERS. `IGNORE-CASE` folds ASCII only — `É` and `é` do not compare equal here, where in Emacs they do |
-| `(regexp-opt STRINGS &optional PAREN)` | A regexp matching exactly the strings in `STRINGS`, as ONE ATOM: sorted LONGEST FIRST, each member `regexp-quote`d, joined with `\|` and wrapped as `PAREN` says, where Emacs returns an optimized trie. The wrapper is what makes the result composable — text concatenated before or after it, an outer alternation, and a quantifier all bind to the whole result. No members gives Emacs' own unmatchable body, `\`a\``, inside that same wrapper; one member comes back wrapped too, which is safe under a quantifier where Emacs' bare one-member answer is not. Spelling is not the contract and never was: what is guaranteed is that the result matches exactly the members, entirely, preferring the longest, and composes. `PAREN` decides the wrapper and nothing else, and is Emacs' rule value for value: absent or `nil` is the SHY group `\(?:…\)`, so a caller's own capture groups keep their numbers; `t` is a CAPTURING group `\(…\)`, so the whole match is also group 1 and every group number in the caller's surrounding regexp shifts by one; `words` is `\<\(…\)\>` and `symbols` is `\_<\(…\)\_>`; a STRING is used as the literal group OPENER and `regexp-opt` closes it (`"\(?2:"` numbers the group itself — the escape hatch from that shift); any other non-nil value behaves as `t`. **Two of those values produce text kg's engine cannot yet match**: it has no `\<`, `\>`, `\_<` or `\_>` and reads each as the ordinary character after the backslash, so `(regexp-opt '("ab") 'words)` returns Emacs' exact string and that string matches `x <ab> y` here rather than `x ab y`, silently. A STRING opener naming a group number is worse-behaved and better-signposted: kg's engine has no explicitly numbered group and rejects the whole regexp with `invalid regexp` |
+| `(regexp-opt STRINGS &optional PAREN)` | A regexp matching exactly the strings in `STRINGS`, as ONE ATOM: sorted LONGEST FIRST, each member `regexp-quote`d, joined with `\|` and wrapped as `PAREN` says, where Emacs returns an optimized trie. The wrapper is what makes the result composable — text concatenated before or after it, an outer alternation, and a quantifier all bind to the whole result. No members gives Emacs' own unmatchable body, `\`a\``, inside that same wrapper; one member comes back wrapped too, which is safe under a quantifier where Emacs' bare one-member answer is not. Spelling is not the contract and never was: what is guaranteed is that the result matches exactly the members, entirely, preferring the longest, and composes. `PAREN` decides the wrapper and nothing else, and is Emacs' rule value for value: absent or `nil` is the SHY group `\(?:…\)`, so a caller's own capture groups keep their numbers; `t` is a CAPTURING group `\(…\)`, so the whole match is also group 1 and every group number in the caller's surrounding regexp shifts by one; `words` is `\<\(…\)\>` and `symbols` is `\_<\(…\)\_>` — **and those two are REFUSED, loudly**: kg's engine has no `\<`, `\>`, `\_<` or `\_>` and reads each as the ordinary character after the backslash, so producing Emacs' exact string gave callers a plausible-but-wrong match (`(regexp-opt '("ab") 'words)` matched `x <ab> y` rather than `x ab y`, silently), and a plausible-but-wrong match is worse than an error. The two arms raise at the call naming the engine gap (Phase 29's U.2); the day the engine gains the four boundaries they become wrappers again, exactly as written. A STRING is used as the literal group OPENER and `regexp-opt` closes it (`"\(?2:"` numbers the group itself — the escape hatch from that shift); any other non-nil value behaves as `t`. A STRING opener naming a group number is rejected by the engine at match time with `invalid regexp`, loudly |
 | `(assoc-string KEY ALIST &optional CASE-FOLD)` | ALIST's first element whose string form matches `KEY`, the ELEMENT itself. An element may be a cons (compared by its car) or a bare string or symbol; a symbol on either side is coerced with `symbol-name`. A non-string, non-symbol ELEMENT is skipped silently and the scan continues, while such a KEY is `(wrong-type-argument stringp KEY)` — the asymmetry is Emacs'. `CASE-FOLD` is `compare-strings`' ASCII-only fold |
 | `(multibyte-string-p S)` | `nil` for every string, always — kg's string is fe's unibyte byte string, and answering `t` would send callers such as `s-reverse` into a `ucs-normalize` branch kg has no library for. A non-string is `(wrong-type-argument stringp X)` |
 | `(string-equal A B)` / `(string-lessp A B)` / `(string-greaterp A B)` | Emacs' long spellings of `string=`, `string<` and `string>`; aliases of the same objects, so they cannot differ |
@@ -1135,9 +1145,9 @@ before any init file runs — this is what makes `defun`, `let`, `cond`,
 | Editor | `string-empty-p` `thing-at-point` `multibyte-string-p` |
 | Small library | `identity` `prog2` `max` `min` `documentation` `number-to-string` `string-to-list` `kbd` |
 | Buffer-local | `setq-local` `setq-default` `set-default` `default-value` `make-local-variable` `kill-local-variable` `local-variable-p` `buffer-local-value` — see "Buffer-local variables" below |
-| Package preamble | `static-if` `eval-when-compile` `eval-and-compile` `make-obsolete-variable`, and the variables `lexical-binding` (always `nil` — see below) and `emacs-major-version` (31) — the names a package file reaches before any of its own code runs |
+| Package preamble | `static-if` `eval-when-compile` `eval-and-compile` `make-obsolete-variable`, and the variable `lexical-binding` (`t` — see below) — the names a package file reaches before any of its own code runs |
 | `subr-x` | `string-blank-p` `string-remove-prefix` `string-remove-suffix` `string-pad` `string-clean-whitespace` `thread-first` `thread-last`, joining `string-join` `string-trim` `string-empty-p` `string-prefix-p` above — provided as a feature, so `(require 'subr-x)` succeeds |
-| `cl-lib` | `cl-incf` `cl-case` `cl-find-if` — a NAMED SUBSET behind a provided feature; see "What `(require 'cl-lib)` claims" below |
+| `cl-lib` | `cl-incf` `cl-case` `cl-find-if` — defined but UNADVERTISED: the feature is not provided; see "Features kg provides without a file" below |
 
 The table is the whole startup surface, not only what the prelude adds:
 the forms in `Functions` and `Numbers`, like `setq` in `Binding`, are

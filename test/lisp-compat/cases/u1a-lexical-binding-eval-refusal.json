@@ -1,0 +1,6 @@
+{
+ "id": "u1a-lexical-binding-is-nil-in-kg",
+ "setup": [],
+ "expr": "(list lexical-binding (condition-case e (eval (list '+ 1 2) lexical-binding) (error (car e))))",
+ "note": "THE ONE-WORD PROOF THAT KG IS DYNAMIC-ONLY, recorded as a divergence on purpose. The oracle shim evaluates every case with `(eval FORM t)', so Emacs answers (t 3): inside that lexical evaluation the current binding of `lexical-binding' is t. kg answers (nil 3), and the nil is not a gap -- kg has no first-class lexical environments and its `eval' refuses a NON-NIL LEXICAL argument by name, so nil is the only honest value and it is also Emacs' own global (the case beside this one). The second element is why the pair matters in practice: `(eval FORM lexical-binding)' -- dash.el:52's exact shape -- is `(eval FORM nil)' here, which kg EVALUATES, so both sides answer 3 by different routes.  The id's is-nil is stale with the same change: kg's value is t now, so the FIRST element agrees and what diverges is the second -- (eval FORM lexical-binding) is (eval FORM t)'s named refusal here, having no first-class lexical environments to evaluate in, where Emacs evaluates FORM lexically."
+}

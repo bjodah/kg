@@ -1,8 +1,6 @@
 {
  "id": "u1a-cl-find-if",
- "setup": [
-  "(require 'cl-lib)"
- ],
+ "setup": [],
  "expr": "(list (cl-find-if (lambda (x) (> x 2)) (list 1 2 3 4)) (cl-find-if (lambda (x) (> x 9)) (list 1 2 3 4)) (cl-find-if 'stringp (list 1 \"a\" 2)))",
- "note": "`cl-find-if', 9 of the 35 packages. Emacs answers (3 nil \"a\"): the FIRST element satisfying the predicate, nil when none does, and a symbol designator works as the predicate. Every call here passes exactly two arguments, which is all kg implements -- Emacs' takes :key, :start, :end and :from-end, and measured across ELPA all 34 `cl-find-if' call sites pass exactly two."
+ "note": "`cl-find-if', 9 of the 35 packages. Emacs answers (3 nil \"a\"): the FIRST element satisfying the predicate, nil when none does, and a symbol designator works as the predicate. Every call here passes exactly two arguments, which is all kg implements -- Emacs' takes :key, :start, :end and :from-end, and measured across ELPA all 34 `cl-find-if' call sites pass exactly two.  THE REQUIRE THAT USED TO PRECEDE THESE CALLS IS GONE: the cl-lib FEATURE claim is retracted -- a provided feature is a capability promise inheritenv proved false by loading past the require and dying at cl-letf* -- so the three names stand UNADVERTISED, defined and Emacs-comparable but answering no (featurep 'cl-lib), and a package meets (require 'cl-lib)'s honest file-missing instead of a promise."
 }

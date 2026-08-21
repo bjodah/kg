@@ -1,8 +1,6 @@
 {
  "id": "u1a-cl-case-shapes",
- "setup": [
-  "(require 'cl-lib)"
- ],
+ "setup": [],
  "expr": "(list (cl-case 2 (1 'one) (2 'two) (t 'other)) (cl-case 9 (1 'one) (t 'other)) (cl-case 9 (1 'one)) (cl-case 'b ((a b) 'ab) (t 'no)) (cl-case 3 (otherwise 'ow)) (cl-case 1 (1)) (cl-case \"a\" (\"a\" 'str) (t 'no)) (cl-case 2.0 (2.0 'flt) (t 'no)))",
- "note": "EVERY CLAUSE SHAPE `cl-case' HAS, in one case, because each one is a place an implementation goes wrong. Emacs answers (two other nil ab ow nil no flt): a matching key, the `t' default, NO default (nil rather than an error), a LIST of keys, `otherwise' as the other spelling of the default, a clause with NO BODY (nil, not the test's own value -- what a naive `cond' expansion would answer), and the two that pin the comparison as `eql': a STRING key does NOT match an equal string, and a float key does."
+ "note": "EVERY CLAUSE SHAPE `cl-case' HAS, in one case, because each one is a place an implementation goes wrong. Emacs answers (two other nil ab ow nil no flt): a matching key, the `t' default, NO default (nil rather than an error), a LIST of keys, `otherwise' as the other spelling of the default, a clause with NO BODY (nil, not the test's own value -- what a naive `cond' expansion would answer), and the two that pin the comparison as `eql': a STRING key does NOT match an equal string, and a float key does.  THE REQUIRE THAT USED TO PRECEDE THESE CALLS IS GONE: the cl-lib FEATURE claim is retracted -- a provided feature is a capability promise inheritenv proved false by loading past the require and dying at cl-letf* -- so the three names stand UNADVERTISED, defined and Emacs-comparable but answering no (featurep 'cl-lib), and a package meets (require 'cl-lib)'s honest file-missing instead of a promise."
 }

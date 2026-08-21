@@ -1576,36 +1576,37 @@ name inside the buffer it is filling.")
 ;; The empty member list keeps its unmatchable body inside whichever
 ;; wrapper PAREN asks for, which is Emacs' answer too.
 ;;
-;; TWO OF THE SIX VALUES PRODUCE TEXT KG'S ENGINE CANNOT YET MATCH, and
-;; that is worth more than a footnote: kg's regexp engine has no `\\<',
-;; `\\>', `\\_<' or `\\_>' and reads each as the ORDINARY CHARACTER after
-;; the backslash, so `(regexp-opt '("ab") 'words)' produces Emacs' exact
-;; text and that text matches "x <ab> y" here and not "x ab y" --
-;; silently, with no error.  It is produced anyway rather than refused,
-;; because the string IS the contract Emacs publishes and the day the
-;; engine gains the four boundaries these two values become right with
-;; no change here.  Until then the two frozen rows that ask what they
-;; MATCH (u0-regexp-opt-paren-words-are-boundaries and
-;; -symbols-are-boundaries) stay recorded divergences naming the engine
-;; work, which is Phase 29's U.2.
+;; TWO OF THE SIX VALUES ARE REFUSED, AND THE REFUSAL IS THE REVIEW'S
+;; FINDING ACTED ON: kg's regexp engine has no `\\<', `\\>', `\\_<' or
+;; `\\_>' and reads each as the ORDINARY CHARACTER after the backslash,
+;; so U.1a's `(regexp-opt '("ab") 'words)' produced Emacs' exact text and
+;; that text matched "x <ab> y" here and not "x ab y" -- silently, with
+;; no error.  A plausible-but-wrong match is worse than a loud one, so
+;; `words' and `symbols' now raise at the call, naming the engine gap
+;; that is Phase 29's U.2.  The day the engine gains the four boundaries
+;; these two arms become wrappers again, exactly as written in Emacs.
+;;
+;; The STRING opener stays accepted for every spelling: a shy opener
+;; passed as a string works today, and an explicitly numbered one --
+;; "\\(?2:" -- is refused by the ENGINE at match time, loudly, as
+;; invalid-regexp.  Neither is ever silently misread.
 ;;
 ;; The list is COPIED because kg's `sort' rewrites what it is given.
 (defalias 'regexp-opt (lambda (strings &optional paren)
   (concat
     (cond ((null paren) "\\(?:")
           ((stringp paren) paren)
-          ((eq paren 'words) "\\<\\(")
-          ((eq paren 'symbols) "\\_<\\(")
-          (t "\\("))
+          ((eq paren 'words)
+           (error "regexp-opt: PAREN words needs word boundaries kg's engine lacks (Phase 29 U.2)"))
+          ((eq paren 'symbols)
+           (error "regexp-opt: PAREN symbols needs symbol boundaries kg's engine lacks (Phase 29 U.2)"))          (t "\\("))
     (if (null strings)
         "\\`a\\`"
       (mapconcat 'regexp-quote
         (sort (copy-sequence strings)
               (lambda (a b) (< (length b) (length a))))
         "\\|"))
-    (cond ((eq paren 'words) "\\)\\>")
-          ((eq paren 'symbols) "\\)\\_>")
-          (t "\\)")))))
+    "\\)")))
 
 ;; --- the seq- shim ---
 ;; Generic over kg's three sequence types, and generic the cheap way:
@@ -1763,29 +1764,28 @@ name inside the buffer it is filling.")
 ;; their own code ran.  `dash.el' reaches five of the six, and the chain
 ;; it walks is why they are here rather than in a package.
 ;;
-;; `lexical-binding' IS NIL, AND THAT IS A STATEMENT ABOUT KG, not a
-;; convenience.  kg's binder is dynamic; there are no first-class
-;; lexical environments, and `eval' refuses a non-nil LEXICAL argument
-;; by name.  nil is also Emacs' own `(default-value 'lexical-binding)',
-;; measured -- the `t' an Emacs prints inside a file is a per-file
-;; binding, not the global value.  So this says what kg is and matches
-;; the oracle's global at the same time.  It has a measured consequence
-;; worth writing down: `(eval FORM lexical-binding)' -- dash.el:52's
-;; shape -- is `(eval FORM nil)' here, which kg EVALUATES, where
-;; `(eval FORM t)' is its named refusal.
-(defvar lexical-binding nil
-  "Non-nil means bind variables lexically; always nil in kg, whose
-binder is dynamic and whose `eval' refuses a non-nil LEXICAL argument.")
-;; `emacs-major-version' answers 31 because 31 is the Emacs whose
-;; behaviour every contract in this tree is measured against
-;; (test/lisp-compat's oracle is pinned to 31.0.91).  That is the honest
-;; reading of a version gate: kg never implements an OLDER Emacs' answer
-;; for a name, so `(< emacs-major-version 25)' -- dash.el:3980, which
-;; guards a font-lock list for pre-25 Emacsen -- is correctly false
-;; here, and a name kg does not have is `void-function' whichever branch
-;; the gate takes.  It is not a claim to be Emacs.
-(defconst emacs-major-version 31
-  "Major version number of the Emacs dialect kg implements.")
+;; `lexical-binding' IS T, AND THAT IS A MEASUREMENT ABOUT KG, not a
+;; convenience.  fe's binder is lexical -- a lambda captures the bindings
+;; that enclose it, which the closure probe in test_lisp.c asserts -- so
+;; t is the truthful value, and a package that passes this variable to
+;; `eval' selects the dialect it would select in Emacs.  What kg does not
+;; have is a first-class lexical ENVIRONMENT: `eval' refuses a non-nil
+;; LEXICAL argument by name, so `(eval FORM lexical-binding)' --
+;; dash.el:52's shape -- raises here where Emacs evaluates FORM lexically.
+;; nil was tried first and was a lie the other way: it told every probe
+;; that closures close over nothing while they went on closing.
+(defvar lexical-binding t
+  "Non-nil means bind variables lexically; t in kg, whose evaluator is
+lexical.  `eval' itself refuses a non-nil LEXICAL argument, having no
+first-class lexical environments to evaluate in.")
+;; `emacs-major-version' WAS BOUND TO 31 AND IS NOW GONE, on the external
+;; review's finding: a version claim is a capability promise, and packages
+;; read 31 as "modern code paths are safe" -- font-lock keyword lists,
+;; `static-if' branches, `define-minor-mode' generations -- for
+;; capabilities kg does not have.  A package that needs the name now gets
+;; `void-variable', which names the gap, where a number papered over it.
+;; Nothing in tree reads it; the census chain step it closed
+;; (dash.el:3966) reopens, and that is the honest cost.
 ;; `make-obsolete-variable' is STORAGE and a no-op, which is all of it
 ;; that is observable outside a byte-compiler: Emacs stores
 ;; (CURRENT-NAME ACCESS-TYPE WHEN) on `byte-obsolete-variable' and
@@ -1822,49 +1822,47 @@ binder is dynamic and whose `eval' refuses a non-nil LEXICAL argument.")
 (defalias 'eval-and-compile (macro body
   (list 'quote (eval (cons 'progn body)))))
 
-;; --- cl-lib, a module kg PROVIDES and a POLICY it states -------------
+;; --- cl-lib names, UNADVERTISED ---------------------------------------
 ;;
-;; 35 of the 110 census packages stop at `(require 'cl-lib)' and 12 more
-;; at `(require 'compat)'.  U.0 measured what is behind those requires,
-;; and the answer decided the shape of this section: with the feature
-;; standing in as a bare `provide', only TWO of the 35 then stop on a
-;; `cl-' name at all (`llm' at `cl-defstruct', `zmq' at `cl-deftype'),
-;; one loads to completion, and the other 32 stop somewhere else
-;; entirely.  So the FEATURE is the load-time blocker and the names are
-;; a RUN-time surface behind it.
+;; THE EXTERNAL REVIEW'S FINDING, ACTED ON: U.1a answered `(require
+;; 'cl-lib)' with the feature plus a named subset, and that was a claim
+;; the surface did not back -- inheritenv loaded past the require and
+;; died at `cl-letf*' with void-function, and `featurep' 'cl-lib''
+;; answering t told packages kg cannot run to take modern code paths.
+;; THE FEATURE CLAIM IS RETRACTED until every operation needed by one
+;; complete target-package scenario works unmodified; `(require
+;; 'cl-lib)' raises `file-missing' again -- the honest diagnostic --
+;; instead of moving the failure past a require that said otherwise.
 ;;
-;; THE POLICY, STATED RATHER THAN IMPLIED: kg answers `(require
-;; 'cl-lib)' with the feature and a NAMED SUBSET, listed here and
-;; nowhere else.  A package that reaches a `cl-' name kg does not have
-;; gets `void-function' AT THE CALL, not at the require -- the failure
-;; moves from load time to run time, and it moves deliberately.  The
-;; alternative -- refusing the require -- keeps 47 packages from
-;; loading at all in exchange for a diagnostic they get anyway, one
-;; call later and with the name in it.
+;; The three implemented names stay, unadvertised: they are
+;; Emacs-comparable where they stand, and removing working definitions
+;; would only narrow what an init file can do without making any package
+;; truer.  What is NOT here is unchanged, with U.0's measurements behind
+;; each absence:
 ;;
-;; The subset is U.0's demand ranking, restricted to what can be
-;; implemented HONESTLY over what kg has (packages of 35 / references):
-;;
-;;     cl-incf     12 / 30   here
-;;     cl-case     10 / 23   here
-;;     cl-find-if   9 / 14   here
-;;     cl-loop     15 / 105  NOT here: an iteration sub-language
-;;     cl-defun    13 / 66   NOT here, and the measurement is why: of
-;;                           533 `cl-defun' sites across ELPA, 462 use
+;;     cl-loop     15 / 105  an iteration sub-language
+;;     cl-defun    13 / 66   of 533 `cl-defun' sites across ELPA, 462 use
 ;;                           &key.  A `cl-defun' that is `defun' would
 ;;                           mis-bind 87% of its callers SILENTLY, which
 ;;                           is worse than not having the name.
-;;     cl-defstruct 8 / 47   NOT here: records, a dormant branch
+;;     cl-defstruct 8 / 47   records, a dormant branch
+;;     cl-letf*    inheritenv's stop, and the case that decided the
+;;                 retraction: no generalised-variable machinery
 ;;
 ;; `cl-incf' takes a SYMBOL place.  Emacs takes any generalised
 ;; variable; kg has no `gv', so a non-symbol is refused at expansion
 ;; with a message naming the limit rather than expanding into a `setq'
 ;; nobody can read.  Measured demand: of 212 `cl-incf' sites across
-;; ELPA, 188 pass a bare symbol.  The value is the NEW one, and the
-;; default increment is 1.
+;; ELPA, 188 pass a bare symbol.  The value is the NEW one, the default
+;; increment is 1, and a THIRD argument is wrong-number-of-arguments --
+;; measured on Emacs 31.0.91 -- which the expansion checks rather than
+;; silently ignoring as U.1a's did.
 (defalias 'cl-incf (macro (place . rest)
   (if (symbolp place)
-      (list 'setq place (list '+ place (if rest (car rest) 1)))
+      (if (cdr rest)
+          (signal 'wrong-number-of-arguments
+            (cons 'cl-incf (+ 1 (length rest))))
+        (list 'setq place (list '+ place (if rest (car rest) 1))))
     (error "cl-incf: PLACE must be a variable name"))))
 ;; `cl-case' compares with `eql', takes an atom or a LIST of keys, and
 ;; treats `t' and `otherwise' as the default clause; no clause matching
@@ -1905,7 +1903,8 @@ binder is dynamic and whose `eval' refuses a non-nil LEXICAL argument.")
 ;; passes one gets `wrong-number-of-arguments' from this parameter list.
 (defalias 'cl-find-if (lambda (predicate sequence)
   (seq-find predicate sequence)))
-(provide 'cl-lib)
+;; NO `provide' here.  See the section header above: the feature claim is
+;; retracted until a complete package scenario runs against it.
 
 ;; --- defalias with a docstring ---------------------------------------
 ;; LAST, deliberately.  Everything above this line is defined with fe's
@@ -1931,8 +1930,29 @@ binder is dynamic and whose `eval' refuses a non-nil LEXICAL argument.")
 ;; (wrong-type-argument symbolp ...)), and it is a primitive nothing
 ;; here shadows.  The return value is the SYMBOL, which is `defalias''s
 ;; answer and not `fset''s.
+;;
+;; The registry entry goes with the definition, which is the external
+;; review's finding: `internal--doc-put' conses a NEW entry per defun and
+;; `documentation' reads the newest one, so a documented defun redefined
+;; through THIS form kept answering its old docs -- Emacs answers nil,
+;; because there the docstring lives in the replaced closure and dies
+;; with it.  Invalidating rewrites every entry for NAME to "present but
+;; undocumented" rather than deleting it: apropos lists names from this
+;; same registry, and a name that is still fboundp must stay findable.
+;; The `function-documentation' PROPERTY is deliberately untouched -- a
+;; nil DOCSTRING storing nothing rather than clearing what is there is
+;; Emacs' own measured behaviour, and a property a program put by hand
+;; is not this form's to remove.  A DOCSTRING given here lands after the
+;; invalidation, so re-documenting works.
+(defalias 'internal--doc-invalidate (lambda (name)
+  (internal--let tail internal--docs)
+  (while tail
+    (if (eq (car (car tail)) name)
+        (setcdr (car tail) nil))
+    (setq tail (cdr tail)))))
 (defalias 'defalias (lambda (symbol definition &optional docstring)
   (fset symbol definition)
+  (internal--doc-invalidate symbol)
   (if docstring (put symbol 'function-documentation docstring))
   symbol))
 

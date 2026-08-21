@@ -3421,9 +3421,16 @@ static void test_regexp_opt(void)
 	CHECK(
 	    eval_eq("(regexp-opt (list \"a\" \"ab\") nil)", "\\(?:ab\\|a\\)"));
 	CHECK(eval_eq("(regexp-opt (list \"a\" \"ab\") t)", "\\(ab\\|a\\)"));
-	CHECK(eval_eq("(regexp-opt (list \"ab\") 'words)", "\\<\\(ab\\)\\>"));
-	CHECK(
-	    eval_eq("(regexp-opt (list \"ab\") 'symbols)", "\\_<\\(ab\\)\\_>"));
+	/* `words' and `symbols' ARE REFUSED, not produced: kg's engine has
+	 * no \\< \\> \\_< or \\_>, so U.1a's producing Emacs' exact text
+	 * gave callers a plausible-but-wrong match -- worse than a loud
+	 * error.  The refusal names the engine gap that is Phase 29's
+	 * U.2; the day the engine gains the four boundaries these two arms
+	 * become wrappers again. */
+	CHECK(eval_error_contains(
+	    "(regexp-opt (list \"ab\") 'words)", "word boundaries"));
+	CHECK(eval_error_contains(
+	    "(regexp-opt (list \"ab\") 'symbols)", "symbol boundaries"));
 	/* A STRING is the literal group OPENER and regexp-opt closes it. */
 	CHECK(
 	    eval_eq("(regexp-opt (list \"ab\") \"\\\\(?2:\")", "\\(?2:ab\\)"));
@@ -3445,16 +3452,15 @@ static void test_regexp_opt(void)
 	CHECK(eval_eq("(let ((re (regexp-opt nil t)))"
 		      " (list (string-match re \"a\") (string-match re \"\")))",
 	    "(nil nil)"));
-	/* WHAT THE TEXT ABOVE DOES NOT BUY YET: kg's engine has no \< \>
-	 * or \_< \_> and reads each as the ordinary character after the
-	 * backslash, so the `words' wrapper matches a literal <ab> and not
-	 * a word.  Asserted rather than left implicit, because it is a
-	 * SILENT wrong match and the assertion is what will fail -- loudly
-	 * -- when Phase 29's U.2 gives the engine the boundaries. */
-	CHECK(eval_eq("(let ((re (regexp-opt (list \"ab\") 'words)))"
-		      " (list (string-match re \"x ab y\")"
-		      " (string-match re \"x <ab> y\")))",
-	    "(nil 2)"));
+	/* WHAT THE REFUSAL ABOVE REPLACED: kg's engine has no \\< \\> or
+	 * \\_< \\_>, and U.1a's words wrapper therefore matched a literal
+	 * <ab> and not a word -- silently, with no error.  That assertion
+	 * is gone with the production of the text; what stays pinned is
+	 * that the refusal happens AT THE CALL, before any string exists
+	 * to mis-match. */
+	CHECK(eval_error_contains(
+	    "(string-match (regexp-opt (list \"ab\") 'words) \"x ab y\")",
+	    "word boundaries"));
 	/* And an explicitly numbered group is refused by the engine
 	 * outright, where the shy one beside it reads. */
 	CHECK(eval_error_contains(
@@ -5645,6 +5651,25 @@ static void test_help_fns_surface(void)
 	CHECK(eval_eq(
 	    "(if (memq 'p19var (internal--defined-names)) 'yes 'no)", "yes"));
 
+	/* A redefinition takes the registry entry with the definition:
+	 * a documented defun redefined through `defalias' with a docless
+	 * lambda answers nil, as Emacs does -- the old docs died with the
+	 * closure they were written on, where kg used to keep answering
+	 * them from the alist.  "Present but undocumented" rather than
+	 * deleted, so `apropos''s walk still finds the name. */
+	CHECK(eval_ok("(defun p19redef (x) \"First docs.\" x)"));
+	CHECK(eval_eq("(documentation 'p19redef)", "First docs."));
+	CHECK(eval_ok("(defalias 'p19redef (lambda (x) x))"));
+	CHECK(eval_eq("(documentation 'p19redef)", "nil"));
+	CHECK(eval_eq(
+	    "(if (memq 'p19redef (internal--defined-names)) 'yes 'no)", "yes"));
+	/* Re-documenting lands after the invalidation, so it works; and a
+	 * fresh documented defun beside it is untouched by another name's
+	 * invalidation. */
+	CHECK(eval_ok("(defalias 'p19redef (lambda (x) x) \"Second docs.\")"));
+	CHECK(eval_eq("(documentation 'p19redef)", "Second docs."));
+	CHECK(eval_eq("(documentation 'p19doc)", "Return X."));
+
 	/* Every symbol fe has interned is enumerable without a new
 	 * primitive: `env' is the obarray walk `apropos' needs, and it
 	 * reaches the natives and the prelude alike. */
@@ -6502,22 +6527,30 @@ static void test_phase29_package_preamble_names(void)
 {
 	CHECK(kg_lisp_init() == 0);
 
-	/* kg is dynamic-only, so lexical-binding is nil -- which is also
-	 * Emacs' own global value -- and it is special. */
+	/* kg's evaluator IS lexical, so lexical-binding is t -- the
+	 * truthful value, measured by the closure probe in
+	 * test_phase11_dynamic_binding -- and it is special.  nil was a
+	 * lie the other way: it told every probe that closures close over
+	 * nothing while they went on closing. */
 	CHECK(eval_eq("(list lexical-binding (boundp 'lexical-binding) "
 		      "(special-variable-p 'lexical-binding) "
 		      "(default-value 'lexical-binding))",
-	    "(nil t t nil)"));
-	/* And (eval FORM lexical-binding) is therefore (eval FORM nil),
-	 * which kg evaluates; a non-nil LEXICAL is its named refusal. */
-	CHECK(eval_eq("(eval (list '+ 1 2) lexical-binding)", "3"));
+	    "(t t t t)"));
+	/* The closure probe beside the claim: the advertised dialect and
+	 * the observed one cannot drift apart again. */
+	CHECK(eval_eq("(let ((n 7)) "
+		      "(funcall (funcall (lambda () (lambda () n)))))",
+	    "7"));
 	CHECK(eval_error_contains(
-	    "(eval (list '+ 1 2) t)", "eval lexical argument"));
+	    "(eval (list '+ 1 2) lexical-binding)", "eval lexical argument"));
 
-	CHECK(
-	    eval_eq("(list emacs-major-version (integerp emacs-major-version) "
-		    "(< emacs-major-version 25))",
-		"(31 t nil)"));
+	/* emacs-major-version WAS BOUND TO 31 AND IS GONE: a version claim
+	 * is a capability promise, and packages read 31 as "modern code
+	 * paths are safe" for capabilities kg does not have.  A package
+	 * that needs the name gets void-variable, which names the gap. */
+	CHECK(eval_eq("(condition-case e emacs-major-version "
+		      "(error (car e)))",
+	    "void-variable"));
 
 	/* make-obsolete-variable is storage: (CURRENT-NAME ACCESS-TYPE WHEN),
 	 * which is not the argument order, and it answers OBSOLETE-NAME. */
@@ -6553,22 +6586,31 @@ static void test_phase29_package_preamble_names(void)
 	kg_lisp_shutdown();
 }
 
-/* The cl-lib slice, and the policy behind it: kg answers (require
- * 'cl-lib) with the feature and a NAMED SUBSET, so a name outside it is
- * void-function at the call rather than file-missing at the require.
- * Recorded in test/lisp-compat/cases/u1a-cl-*.json. */
+/* The cl-lib slice, and the policy behind it: the FEATURE claim is
+ * RETRACTED -- `(require 'cl-lib)' raises `file-missing' again, because a
+ * provided feature is a capability promise and inheritenv proved it
+ * false by loading past the require and dying at `cl-letf*'.  The three
+ * implemented names stay, unadvertised.  Recorded in
+ * test/lisp-compat/cases/u1a-cl-*.json. */
 static void test_phase29_cl_lib(void)
 {
 	CHECK(kg_lisp_init() == 0);
 
-	CHECK(eval_eq(
-	    "(list (require 'cl-lib) (featurep 'cl-lib))", "(cl-lib t)"));
+	CHECK(eval_eq("(featurep 'cl-lib)", "nil"));
+	CHECK(eval_eq("(condition-case e (require 'cl-lib) "
+		      "(file-missing (car e)))",
+	    "file-missing"));
 
-	/* cl-incf answers the NEW value; the default increment is 1. */
+	/* cl-incf answers the NEW value; the default increment is 1; and a
+	 * THIRD argument is wrong-number-of-arguments -- measured on Emacs
+	 * 31.0.91 -- which the expansion checks rather than silently
+	 * ignoring as it first did. */
 	CHECK(eval_eq("(list (let ((x 1)) (list (cl-incf x) x)) "
 		      "(let ((x 1)) (list (cl-incf x 5) x)) "
 		      "(let ((x 1.0)) (cl-incf x)))",
 	    "((2 2) (6 6) 2.0)"));
+	CHECK(eval_error_contains(
+	    "(let ((x 1)) (cl-incf x 1 2))", "Wrong number of arguments"));
 	/* A generalised place is refused at expansion, by name. */
 	CHECK(eval_error_contains(
 	    "(macroexpand '(cl-incf (nth 0 lst)))", "must be a variable name"));
@@ -6597,7 +6639,9 @@ static void test_phase29_cl_lib(void)
 	    "(3 nil \"a\")"));
 
 	/* THE POLICY: a cl- name outside the subset is void-function at the
-	 * CALL, and the require above still succeeded. */
+	 * CALL -- but the require above no longer succeeds, so the
+	 * diagnostic a package meets first is `file-missing' at the
+	 * require, which is the honest one. */
 	CHECK(eval_eq("(condition-case e (cl-loop for x in '(1 2) collect x) "
 		      "(error (car e)))",
 	    "void-function"));
@@ -6901,10 +6945,13 @@ static void test_quit_uncaught(void)
  * string-pad, string-clean-whitespace, internal--thread, thread-first,
  * thread-last), the four package-preamble names that are functions or
  * macros (make-obsolete-variable, static-if, eval-when-compile,
- * eval-and-compile -- `lexical-binding' and `emacs-major-version' are
- * variables and are not counted here), and cl-lib's four (cl-incf,
- * internal--cl-case-test, cl-case, cl-find-if), taking it to 156. */
-#define PRELUDE_DEFS 156
+ * eval-and-compile -- `lexical-binding' is a variable and is not counted
+ * here; `emacs-major-version' was one too and is gone), and cl-lib's
+ * four (cl-incf, internal--cl-case-test, cl-case, cl-find-if), taking it
+ * to 156.  The external-review correctness tranche added
+ * `internal--doc-invalidate', the registry half of defalias's redefined
+ * definition taking its stale documentation with it, taking it to 157. */
+#define PRELUDE_DEFS 157
 
 /* What a value CAPTURED out of a symbol's function cell is: that symbol's
  * definition at the moment of capture, and it stays that definition

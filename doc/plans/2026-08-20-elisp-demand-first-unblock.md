@@ -718,3 +718,81 @@ or committed: every ELPA file was read IN PLACE, and the census shim,
 the `gv-define-setter` stand-in and the escape-rewritten copy of
 `dash.el` used to walk past the reader all lived in the session
 scratchpad.
+
+## The external-review correctness tranche
+
+An external review of the U.1a tips (kg `1ca486e`, fe `e1d4fbd`) said:
+continue, but do not merge; the Fe foundation is promising, the kg
+compatibility façade overstates what is usable. Its verdict funded one
+bounded correctness tranche and a stop after it. This section records
+what that tranche did. Package success stays defined as the review
+stated it: unmodified load plus representative public operations with
+Emacs-comparable results -- "first blocker moved" ranks work, it does
+not crown it.
+
+### What was retracted, and why
+
+* **`(provide 'cl-lib)` is gone.** The feature was a false positive:
+  inheritenv loaded because the require succeeded and died at
+  `cl-letf*` with `void-function`, so U.1a's "loadable count rose from
+  1 to 2" advertised an unusable package -- and worse, `featurep`
+  answering t told packages kg cannot run to take fallbacks. The three
+  implemented names stay, unadvertised.
+* **`emacs-major-version` is gone entirely** rather than lowered. A
+  version claim is a capability promise: packages read 31 as "modern
+  code paths are safe" (font-lock keyword lists, `static-if` branches,
+  `define-minor-mode` generations) for capabilities kg does not have.
+  A package that needs the name now gets `void-variable`, which names
+  the gap.
+* **`lexical-binding` is `t`.** The plan's own §4.2 had recognized nil
+  would "lie about the dialect"; it lied anyway. fe's evaluator IS
+  lexical-by-default, so nil told every probe that closures close over
+  nothing while they went on closing -- a silent semantic lie, not an
+  Emacs-version difference, and packages pass this value into `eval`.
+  The closure probe sits beside the claim in test_lisp.c so the two
+  cannot drift apart again.
+
+### regexp-opt's PAREN words/symbols: refuse, don't mis-match
+
+U.1a produced Emacs' exact wrapper text for `words`/`symbols` while kg's
+engine read `\< \> \_< \_>` as ordinary characters -- plausible-but-wrong
+matches, which are worse than a loud error. The tranche chose the
+review's option (b): **the two arms raise at the call**, naming the
+engine gap, until U.2 gives the engine the four boundaries -- at which
+point they become wrappers again with no further change here. The STRING
+opener stays accepted for every spelling: a shy opener works, and an
+explicitly numbered one is refused by the ENGINE at match time, loudly,
+as it always was. No silent wrong behavior remains.
+
+### Fe/Fex boundaries: length-bearing strings end at every C-string wall
+
+fe moved to language version 19: `read-file` builds its record from
+getdelim's byte count (`/proc/self/cmdline` answers the whole
+NUL-separated record now, where it answered the first argv element), and
+every boundary that cannot carry a NUL -- open-file's path and mode,
+remove-file, execute's argv, compile-re's pattern, match-re's subject --
+refuses an embedded NUL by name instead of silently truncating;
+`write-file` keeps writing exact bytes. Fex reports
+`0.2 (fe language 19)`, composed from the version macro so the two
+cannot drift.
+
+### defalias takes the docs with the definition
+
+`internal--doc-invalidate` rewrites the registry entries for a redefined
+name to present-but-undocumented, so a documented defun redefined with a
+docless lambda answers nil as Emacs does; apropos still finds the name,
+a hand-set `function-documentation` property is untouched, and a
+DOCSTRING given to the same form lands after the invalidation.
+
+### cl-incf arity
+
+A third argument is `wrong-number-of-arguments` (measured on Emacs
+31.0.91), checked in the expansion, where it first destructured
+`(place . rest)` and ignored everything past the increment.
+
+### Scope guardrails, restated
+
+No cl-defun, cl-loop, cl-defstruct, compat or record support was started.
+The decision NOT to implement a thin cl-defun stands: with 462/533
+observed callers using &key, a shortcut would mostly create silent
+misbinding. Stop and reassess after s.el.

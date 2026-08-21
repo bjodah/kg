@@ -412,28 +412,33 @@ CASES = {
 	], None, {"lisp_peak_frame_depth": 200, "lisp_minibuffer_eval": 0}),
 	# Iterative, not recursive: peak_frame_depth stays flat at 8 (the
 	# bare-prelude baseline itself, per the block comment above)
-	# regardless of 20000 vs. 3 iterations, so it cannot be the signal.
-	# What does scale with the iteration count is the garbage the loop's
-	# own `+`/`-` results leave behind, forcing a collection -- but
-	# `lisp_gc_count > 0` no longer says that: kg_lisp_init()'s own
-	# post-prelude collect (doc/plans/2026-08-14-embedded-prelude.md) is
-	# now counted before ANY case's key script runs, so lisp_gc_count
-	# reads 1 in every case in this file, this loop's own included -- the
-	# baseline moved out from under a threshold of 0 the same way
-	# frame_depth's did, and this is the second instance of it: a
-	# threshold of >0 is satisfied by the prelude's own forced collect
-	# alone and no longer proves the loop's garbage forced anything.
-	# Measured at this pin: lisp_gc_count 2 here (the loop's own garbage
-	# forces a SECOND collection on top of the prelude's), 1 everywhere
-	# else in this file including a truncated run of the same script.
-	# Threshold raised from 0 to 1 so the assertion is against the
-	# CURRENT baseline again, not the pre-post-prelude-collect one.
+	# regardless of iteration count, so it cannot be the signal.
+	# The GC assertion this case carried is GONE, and the removal is a
+	# measurement rather than a relaxation. It asserted the loop's own
+	# `+` garbage forcing a collection (lisp_gc_count > 1, raised from
+	# > 0 when kg_lisp_init()'s post-prelude collect began being counted
+	# before any case's key script runs). Since Phase B of
+	# doc/plans/2026-08-19-fe-simplification-and-cheap-compat.md grew
+	# the default arena to 10 MiB (~440k slots, ~430k free after the
+	# prelude), that collection is unreachable BY CONSTRUCTION for any
+	# loop that completes: KG_LISP_STEP_LIMIT is 1 << 20 steps and each
+	# iteration costs at least ~5 of them, so a budget-completing loop
+	# allocates at most ~200k slots -- measured 90k for this one --
+	# while pushing past the free space needs >430k. Every variant tried
+	# (200000 scalar iterations; discarded-list bodies of 3, 10 and 16
+	# elements per iteration, which trade steps for slots at just under
+	# 1 slot/step) truncated at the step limit or peaked below the line,
+	# and a truncated run measures nothing. What the case CAN still
+	# witness is allocation volume far beyond the startup constant:
+	# lisp_arena_peak_live reads 11865 at startup (-Q, quit immediately)
+	# and 90551 here, so the floor below sits well between them with
+	# margin for prelude rewrites on both sides.
 	"lisp-arithmetic-loop": (None, [
 		"\x1b:",
 		"(setq i 0) (setq acc 0) (while (< i 20000) (setq acc (+ acc i)) "
 		"(setq i (+ i 1))) acc\r",
 		"\x18\x03",
-	], None, {"lisp_gc_count": 1, "lisp_minibuffer_eval": 0}),
+	], None, {"lisp_arena_peak_live": 50000, "lisp_minibuffer_eval": 0}),
 	# Also iterative (peak_frame_depth 10, same non-signal as the
 	# arithmetic loop above): fe.c re-expands a macro on every call
 	# (doc/fe-upstream.md) rather than rewriting the call site, so 2000

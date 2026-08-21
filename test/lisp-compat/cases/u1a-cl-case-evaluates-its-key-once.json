@@ -1,8 +1,6 @@
 {
  "id": "u1a-cl-case-evaluates-its-key-once",
- "setup": [
-  "(require 'cl-lib)"
- ],
+ "setup": [],
  "expr": "(progn (setq u1a-side 0) (list (cl-case (progn (setq u1a-side (+ u1a-side 1)) 2) (1 'one) (2 'two)) u1a-side))",
- "note": "The property no value-only case can see: `cl-case' evaluates its KEY FORM exactly once, however many clauses it then tests. Emacs answers (two 1). An expansion that substituted the form into each clause's test would answer (two 2) here and pass u1a-cl-case-shapes unchanged."
+ "note": "The property no value-only case can see: `cl-case' evaluates its KEY FORM exactly once, however many clauses it then tests. Emacs answers (two 1). An expansion that substituted the form into each clause's test would answer (two 2) here and pass u1a-cl-case-shapes unchanged.  THE REQUIRE THAT USED TO PRECEDE THESE CALLS IS GONE: the cl-lib FEATURE claim is retracted -- a provided feature is a capability promise inheritenv proved false by loading past the require and dying at cl-letf* -- so the three names stand UNADVERTISED, defined and Emacs-comparable but answering no (featurep 'cl-lib), and a package meets (require 'cl-lib)'s honest file-missing instead of a promise."
 }

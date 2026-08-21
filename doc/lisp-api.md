@@ -1560,7 +1560,11 @@ primitive's function cell.
   oracle; unlike Emacs, one named `nil` or a keyword is refused rather
   than bound (a divergence recorded in fe's own compat corpus).
 - **`condition-case` exists; `catch`/`throw` exist; `signal`/`error`
-  exist.** Conditions have a static hierarchy: `wrong-type-argument`,
+  exist.** Built-in condition symbols are seeded with Emacs-compatible
+   `error-conditions` and `error-message` properties, and `signal` and
+   handlers consult those live properties. `define-error` writes the same
+   properties for new conditions. The built-in hierarchy includes
+   `wrong-type-argument`,
   `wrong-number-of-arguments`, `void-function`, `void-variable`,
   `arith-error`, `args-out-of-range`, `file-error`, `setting-constant`,
   `end-of-buffer`, `beginning-of-buffer`

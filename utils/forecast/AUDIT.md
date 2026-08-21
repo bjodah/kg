@@ -34,7 +34,7 @@ that a name which *stops* being covered is a diff and not a silence.
 | --- | ---: |
 | kg-native | 138 |
 | kg-lisp | 202 |
-| fe-primitive | 81 |
+| fe-primitive | 82 |
 | fe-native | 14 |
 | reader | 6 |
 | corpus (defined by the corpus itself) | 232 |

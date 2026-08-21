@@ -25,7 +25,7 @@
     }
    ],
    "support_label": "smoke-green",
-   "support_label_rationale": "Unmodified s.el loads and a wide band of entry points completes without a raise (trim, collapse, split, join, lines, prefix/suffix/contains, literal replacement, aget formatting, match, count-matches, repeat, ASCII capitalize/titleize, exact-condition captures, and s-lex-format value expansion all agree with the pinned Emacs). It is NOT scenario-green: the published core input domain is not green because (1) non-ASCII case folding diverges (s-upcase-utf8), and (2) error-conditions-declared signals are rejected by signal. Those two are explicit exclusions; 'smoke-green' is the honest top label, not a support claim.",
+    "support_label_rationale": "Unmodified s.el loads and a wide band of entry points completes without a raise (trim, collapse, split, join, lines, prefix/suffix/contains, literal replacement, aget formatting, match, count-matches, repeat, ASCII capitalize/titleize, exact-condition captures, s-lex-format value expansion, and s-format-resolve all agree with the pinned Emacs). It is NOT scenario-green because non-ASCII case folding still diverges (s-upcase-utf8); 'smoke-green' is the honest top label, not a support claim.",
    "scenarios": [
     "s-load",
     "s-trim",
@@ -40,8 +40,9 @@
     "s-format",
     "s-match",
     "s-count-matches",
-    "s-condition-wrong-type",
-    "s-lex-format",
+     "s-condition-wrong-type",
+     "s-lex-format",
+     "s-format-resolve",
     "s-upcase-utf8",
     "s-trim-byte",
     "s-invalid-regexp"
@@ -52,14 +53,8 @@
      "scenario": "s-upcase-utf8",
      "domain": "utf8-codepoint",
      "reason": "kg case-folds ASCII-only; non-ASCII codepoints are left unchanged, so (s-upcase \"café\") returns \"CAFé\" where Emacs returns \"CAFÉ\". Recorded as a divergence, not fixed (M2)."
-    },
-    {
-     "id": "s-error-conditions",
-     "scenario": null,
-     "domain": "ascii",
-     "reason": "A condition declared through error-conditions is rejected by signal; kg's signal/handler matching does not consult a symbol's error-conditions plist. No scenario in this slice pins it yet; tracked for M2."
-    }
-   ]
-  }
- ]
-}
+     }
+    ]
+   }
+  ]
+ }

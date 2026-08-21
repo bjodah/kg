@@ -5542,19 +5542,23 @@
   {
    "id": "u0-define-error",
    "category": "errors-and-non-local-exits",
-   "status": "divergent",
+   "status": "supported",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
     "u0-define-error-conditions-and-message",
     "u0-define-error-parent-chain",
-    "u0-define-error-multiple-parents",
-    "u0-define-error-unknown-parent",
-    "u0-error-message-string-shapes"
+     "u0-define-error-multiple-parents",
+     "u0-define-error-unknown-parent",
+     "u0-error-conditions-mutation",
+     "u0-error-conditions-cleanup",
+     "u0-define-error-message-format",
+     "u0-error-conditions-controls",
+     "u0-error-message-string-shapes"
    ],
    "kg_test": "test/test_lisp.c:test_signal, test/test_lisp.c:test_error_message_rendering",
    "rationale": "Phase 29's U.0 freeze for `define-error', the NAME half of backlog item 4 (the plist half is u0-signal-error-conditions-plist, and the two are one feature: `define-error' is nothing but two `put's). The rows pin the whole shape a caller can observe -- conditions as symbol-consed-onto-parent, read at DEFINE time; multiple parents APPENDED in order, duplicates and all; and the edge that shows it does not validate, where an unknown parent yields a condition that `error' does NOT catch and `t' does. `error-message-string''s four renderings are here because they are the other thing packages read out of these plists and kg already has the name. DEMAND: 12 ELPA packages call `define-error', 66 times; none of them is a first blocker, so this item is measured in call sites rather than in unblocked loads -- U.0 says so plainly rather than inventing a load probe for it.",
-   "source_name": null
+    "source_name": null
   },
   {
    "id": "u0-reader-unknown-escape",
@@ -5630,14 +5634,16 @@
   {
    "id": "u0-signal-error-conditions-plist",
    "category": "errors-and-non-local-exits",
-   "status": "divergent",
+   "status": "supported",
    "owner": "fe-core",
    "comparison": "emacs",
    "cases": [
-    "u0-signal-consults-the-error-conditions-plist",
-    "u0-signal-undeclared-symbol-baseline",
-    "u0-builtin-error-conditions-are-plists",
-    "u0-condition-hierarchy-baseline"
+     "u0-signal-consults-the-error-conditions-plist",
+     "u0-signal-undeclared-symbol-baseline",
+     "u0-builtin-error-conditions-are-plists",
+     "u0-condition-hierarchy-baseline",
+     "u0-error-conditions-mutation",
+     "u0-error-conditions-controls"
    ],
    "kg_test": "test/test_lisp.c:test_signal, test/test_lisp.c:test_condition_case_kg_native_conditions",
    "rationale": "Phase 29's U.0 freeze for the half of backlog item 4 that no bound name closes: Emacs' `signal' READS the signalled symbol's `error-conditions' property, and its own built-in conditions are the same readable plists. kg has a fixed condition table in fe, so `(get \\'wrong-type-argument \\'error-conditions)' is nil and a symbol declared by `put' alone is `Invalid error symbol'. THIS ROW ALSO CORRECTS THE CENSUS. Phase 28's remeasurement (section 6.2) prints kg's `(error (\"Invalid error symbol\" my-err))' against an Emacs of `(my-err nil)'; U.0 measured the same expression WITHOUT the `put' and Emacs answers exactly what kg answers -- u0-signal-undeclared-symbol-baseline, `expect: agree'. So the divergence is entirely the plist consultation, and u0-condition-hierarchy-baseline (also `expect: agree') shows kg's built-in hierarchy already BEHAVES correctly while being unreadable. DEMAND: 5 ELPA packages declare conditions through the plist directly (s, f, websocket, emacsql) or read one back (ellama.el:3607), and `s.el:627' is the measured one -- kg's `s-format' error path answers the wrong condition today. owner is fe-core: the change is fe's condition machinery and arrives as a pin move.",

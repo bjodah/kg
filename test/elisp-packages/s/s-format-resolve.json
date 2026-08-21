@@ -1,0 +1,11 @@
+{
+  "id": "s-format-resolve",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(condition-case e (s-format \"${missing}\" (quote aget) nil) (s-format-resolve (list 'caught (car e) (error-message-string e))))",
+  "expect": "agree",
+  "note": "s-format's declared error-conditions condition is catchable through its plist ancestry."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "u0-error-conditions-cleanup",
+ "setup": [],
+ "expr": "(progn (define-error 'u0-clean \"Clean\") (condition-case e (let ((out nil)) (unwind-protect (signal 'u0-clean nil) (setq out 'cleanup)) out) (u0-clean (list 'handled e))))",
+ "note": "An unwind-protect cleanup runs before a plist-declared handler receives the condition."
+}

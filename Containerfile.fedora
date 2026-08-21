@@ -15,6 +15,7 @@ FROM docker.io/library/fedora:44 AS builder
 # Install packaging and compilation prerequisites
 RUN dnf install -y \
     ca-certificates \
+    chrpath \
     diffutils \
     findutils \
     gcc \
@@ -84,6 +85,7 @@ make install WITH_LISP=1 WITH_LSP=1 WITH_DAP=1 WITH_TREE_SITTER=1 \
 	TREE_SITTER_PREFIX=/opt/tree-sitter \
 	TS_GRAMMAR_PATH=%{_libdir}/tree-sitter \
 	DESTDIR=%{buildroot} prefix=%{_prefix} mandir=%{_mandir} bindir=%{_bindir} datadir=%{_datadir}
+chrpath -d %{buildroot}%{_bindir}/kg || true
 install -d %{buildroot}%{_libdir}/tree-sitter
 install -m 0755 /opt/tree-sitter/lib/libtree-sitter-*.so %{buildroot}%{_libdir}/tree-sitter/
 
@@ -96,6 +98,8 @@ install -m 0755 /opt/tree-sitter/lib/libtree-sitter-*.so %{buildroot}%{_libdir}/
 %{_libdir}/tree-sitter
 
 %changelog
+* Fri Aug 21 2026 Maintainer <maintainer@example.com> - VERSION_PLACEHOLDER-1
+- Release VERSION_PLACEHOLDER
 EOF_SPEC
 
 RUN VER=$(sed -n 's/^#define KG_VERSION "\(.*\)"/\1/p' /src/kg/src/def.h) && \

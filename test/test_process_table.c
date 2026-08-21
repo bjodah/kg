@@ -28,7 +28,11 @@
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
 #include <unistd.h>
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
 
 static struct kg_process_handle spawn_cmd(
     const char *command, struct kg_buffer_handle buf)
@@ -518,6 +522,7 @@ static pid_t grandchild_pid_from_buffer(struct kg_buffer_handle buf)
 static bool pid_is_gone(pid_t pid)
 {
 	for (int i = 0; i < 2000; i++) {
+		waitpid(pid, NULL, WNOHANG);
 		if (kill(pid, 0) < 0 && errno == ESRCH) {
 			return true;
 		}
@@ -566,6 +571,9 @@ static void test_shutdown_leaves_no_survivor(void)
 
 int main(void)
 {
+#if defined(__linux__) && defined(PR_SET_CHILD_SUBREAPER)
+	prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0);
+#endif
 	RUN(test_empty_argv_is_refused);
 	RUN(test_generation_checked_handles);
 	RUN(test_slot_reuse_bumps_generation);

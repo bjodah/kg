@@ -11,7 +11,11 @@
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
 #include <unistd.h>
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
 
 static char g_next_command[256] = "";
 
@@ -401,6 +405,7 @@ static pid_t model_announced_pid(void)
 static bool process_gone(pid_t pid)
 {
 	for (int i = 0; i < 2000; i++) {
+		waitpid(pid, NULL, WNOHANG);
 		if (kill(pid, 0) < 0 && errno == ESRCH) {
 			return true;
 		}
@@ -748,6 +753,9 @@ static void test_a_running_compilation_refuses_the_feed(void)
 
 int main(void)
 {
+#if defined(__linux__) && defined(PR_SET_CHILD_SUBREAPER)
+	prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0);
+#endif
 	RUN(test_stream_seam_drives_parser);
 	RUN(test_budget_charges_newlines);
 	RUN(test_budget_bounds_pending_line);

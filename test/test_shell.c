@@ -22,6 +22,9 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
 
 /* The test exercises shell_run() only; the editor wrappers it calls below
  * are linked in via the full object set, so we stub the one symbol the
@@ -264,6 +267,7 @@ static int read_line_from(int fd, char *buf, size_t bufsize)
 static bool wait_until_gone(pid_t pid)
 {
 	for (int i = 0; i < 2000; i++) {
+		waitpid(pid, NULL, WNOHANG);
 		if (kill(pid, 0) < 0 && errno == ESRCH) {
 			return true;
 		}
@@ -607,6 +611,9 @@ static void test_echo_rejects_empty_output(void)
 
 int main(void)
 {
+#if defined(__linux__) && defined(PR_SET_CHILD_SUBREAPER)
+	prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0);
+#endif
 	RUN(test_shell_run_no_input);
 	RUN(test_shell_run_pipe_through_cat);
 	RUN(test_shell_run_large_output);

@@ -4,9 +4,8 @@
   "emacs_version": "GNU Emacs 31.0.91 (build 1, x86_64-pc-linux-gnu, GTK+ Version 3.24.49, cairo version 1.18.4)\n of 2026-08-09",
   "source_sha256": "3871128406fb69c763777542d4e5bdfbc46f24fa8701fb4259f62e79489fd3c2",
   "record": {
-    "kind": "condition",
-    "condition": "wrong-number-of-arguments",
-    "data": "(#[(format-str) ((s-lex-fmt|expand format-str)) (ucs-normalize-combining-chars t) nil \"`s-format` with the current environment.\n\nFORMAT-STR may use the `s-format' variable reference to refer to\nany variable:\n\n (let ((x 1))\n   (s-lex-format \\\"x is: ${x}\\\"))\n\nThe values of the variables are interpolated with \\\"%s\\\" unless\nthe variable `s-lex-value-as-lisp' is `t' and then they are\ninterpolated with \\\"%S\\\".\"] 3)",
-    "condition_source": "structured"
+    "kind": "value",
+    "type": "string",
+    "printed": "\"1\""
   }
 }

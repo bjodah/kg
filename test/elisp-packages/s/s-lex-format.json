@@ -5,7 +5,7 @@
   "setup": [
     "(load \"external/elpa/s.el\")"
   ],
-  "expr": "(s-lex-format \"${x}\" x \"1\")",
+  "expr": "(let ((x \"1\")) (s-lex-format \"${x}\"))",
   "expect": "agree",
-  "note": "Macro-expansion path: s-lex-format currently fails to expand in kg, raising wrong-number-of-arguments -- the same condition Emacs' eager macro expansion raises. Recorded as agree on the condition; the value path is the excluded s-lex-format-value gap (M2)."
+  "note": "Package acceptance: the exact one-binding expansion returns the same value as Emacs."
 }

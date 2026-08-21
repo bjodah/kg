@@ -5577,7 +5577,7 @@
   {
    "id": "u0-regexp-contextual-anchors",
    "category": "sequences",
-   "status": "divergent",
+   "status": "supported",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [

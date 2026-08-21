@@ -25,7 +25,7 @@
     }
    ],
    "support_label": "smoke-green",
-   "support_label_rationale": "Unmodified s.el loads and a wide band of entry points completes without a raise (trim, collapse, split, join, lines, prefix/suffix/contains, literal replacement, aget formatting, match, count-matches, repeat, ASCII capitalize/titleize, and exact-condition captures all agree with the pinned Emacs). It is NOT scenario-green: the published core input domain is not green because (1) non-ASCII case folding diverges (s-upcase-utf8), (2) contextual $/^ regexp semantics make s-lex-format silently wrong (recorded as s-lex-format / s-lex-format-value), and (3) error-conditions-declared signals are rejected by signal. Those three are explicit exclusions; 'smoke-green' is the honest top label, not a support claim.",
+   "support_label_rationale": "Unmodified s.el loads and a wide band of entry points completes without a raise (trim, collapse, split, join, lines, prefix/suffix/contains, literal replacement, aget formatting, match, count-matches, repeat, ASCII capitalize/titleize, exact-condition captures, and s-lex-format value expansion all agree with the pinned Emacs). It is NOT scenario-green: the published core input domain is not green because (1) non-ASCII case folding diverges (s-upcase-utf8), and (2) error-conditions-declared signals are rejected by signal. Those two are explicit exclusions; 'smoke-green' is the honest top label, not a support claim.",
    "scenarios": [
     "s-load",
     "s-trim",
@@ -52,12 +52,6 @@
      "scenario": "s-upcase-utf8",
      "domain": "utf8-codepoint",
      "reason": "kg case-folds ASCII-only; non-ASCII codepoints are left unchanged, so (s-upcase \"café\") returns \"CAFé\" where Emacs returns \"CAFÉ\". Recorded as a divergence, not fixed (M2)."
-    },
-    {
-     "id": "s-lex-format-value",
-     "scenario": "s-lex-format",
-     "domain": "ascii",
-     "reason": "Contextual $/^ regexp semantics are not implemented in tiny-regex-c, so s-lex-format's expansion is silently wrong under M2. Today kg cannot even expand the macro (wrong-number-of-arguments, which Emacs' eager macro-expansion also raises), so the recorded scenario agrees on the condition; the value-path gap is excluded and tracked for M2."
     },
     {
      "id": "s-error-conditions",

@@ -2,5 +2,6 @@
  "id": "u0-anchor-dollar-is-literal-mid-pattern",
  "setup": [],
  "expr": "(list (string-match \"a$b\" \"a$b\") (string-match \"a$b\" \"ab\") (string-match \"a$*\" \"a$$\"))",
- "note": "THE RULE: in Emacs a `$' is an anchor only at the END of the regexp or before `\\\\|' or `\\\\)'; ANYWHERE ELSE IT IS A LITERAL DOLLAR. Emacs answers (0 nil 0): \"a$b\" matches the text \"a$b\" and does NOT match \"ab\", and \"a$*\" -- a dollar with a quantifier after it -- matches \"a$$\". kg answers (nil nil nil): its engine treats `$' as an anchor everywhere, so every one of these is a pattern that can never match. This is the seam under `s-lex-format'."
+ "expect": "agree",
+ "note": "The contextual `$' rule: it is an anchor only at the END of the regexp or before `\\\\|' or `\\\\)'; anywhere else it is a literal dollar. Both Emacs and kg answer (0 nil 0)."
 }

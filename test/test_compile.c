@@ -477,7 +477,15 @@ static void note_done(const struct compilation_result *result, void *ctx)
  * main loop does; bounded, so a case that would hang fails instead. */
 static void pump_compilation(int milliseconds)
 {
-	for (int i = 0; i < milliseconds; i++) {
+	const char *scale_text = getenv("KG_TEST_TIME_SCALE");
+	double scale = scale_text != NULL ? atof(scale_text) : 1.0;
+	int budget;
+
+	if (scale < 1.0 || scale > 30.0) {
+		scale = 1.0;
+	}
+	budget = (int)(milliseconds * scale);
+	for (int i = 0; i < budget; i++) {
 		compilation_poll();
 		compilation_deliver_completion();
 		if (!compilation_is_running() && g_done.calls > 0) {

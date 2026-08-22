@@ -496,6 +496,42 @@ static void cmd_delete_trailing_space(int fd)
 	    "Removed %d trailing space%s", removed, removed == 1 ? "" : "s");
 }
 
+static void cmd_toggle_truncate_lines(int fd)
+{
+	int filecol = wcur()->coloff + wcur()->cx;
+	int filerow = wcur()->rowoff + wcur()->cy;
+	struct editor_buffer *b = bcur();
+
+	(void)fd;
+	if (b->visual_line_mode && !b->truncate_lines) {
+		b->visual_line_mode = 0;
+		b->display.word_wrap = 0;
+	}
+	b->truncate_lines = !b->truncate_lines;
+	if (b->truncate_lines) {
+		struct editor_window *w = &winlist[win_current];
+
+		wcur()->rowoff = filerow > 10 ? filerow - 10 : 0;
+		wcur()->cy = filerow - wcur()->rowoff;
+		if (filecol > w->w - 1) {
+			wcur()->coloff = filecol - w->w + 1;
+			wcur()->cx = w->w - 1;
+		} else {
+			wcur()->coloff = 0;
+			wcur()->cx = filecol;
+		}
+	} else {
+		struct editor_window *w = &winlist[win_current];
+
+		wcur()->coloff = 0;
+		wcur()->cx = filecol;
+		wcur()->rowoff_visual
+		    = get_visual_row(w, b, filerow, filecol);
+	}
+	editor_set_status_message("truncate-lines %s",
+	    b->truncate_lines ? "enabled" : "disabled");
+}
+
 static void cmd_visual_line_mode(int fd)
 {
 	int filecol = wcur()->coloff + wcur()->cx;
@@ -506,6 +542,10 @@ static void cmd_visual_line_mode(int fd)
 	if (bcur()->visual_line_mode) {
 		struct editor_window *w = &winlist[win_current];
 
+		bcur()->saved_truncate_lines = bcur()->truncate_lines;
+		bcur()->truncate_lines = 0;
+		bcur()->display.word_wrap = 1;
+
 		/* Soft wrapping has no horizontal viewport.  Preserve point by
 		 * converting the old screen-relative position to its absolute
 		 * byte offset before clearing coloff. */
@@ -514,8 +554,28 @@ static void cmd_visual_line_mode(int fd)
 		wcur()->rowoff_visual
 		    = get_visual_row(w, bcur(), filerow, filecol);
 	} else {
-		wcur()->rowoff = filerow > 10 ? filerow - 10 : 0;
-		wcur()->cy = filerow - wcur()->rowoff;
+		bcur()->truncate_lines = bcur()->saved_truncate_lines;
+		bcur()->display.word_wrap = 0;
+		if (bcur()->truncate_lines) {
+			struct editor_window *w = &winlist[win_current];
+
+			wcur()->rowoff = filerow > 10 ? filerow - 10 : 0;
+			wcur()->cy = filerow - wcur()->rowoff;
+			if (filecol > w->w - 1) {
+				wcur()->coloff = filecol - w->w + 1;
+				wcur()->cx = w->w - 1;
+			} else {
+				wcur()->coloff = 0;
+				wcur()->cx = filecol;
+			}
+		} else {
+			struct editor_window *w = &winlist[win_current];
+
+			wcur()->coloff = 0;
+			wcur()->cx = filecol;
+			wcur()->rowoff_visual
+			    = get_visual_row(w, bcur(), filerow, filecol);
+		}
 	}
 	editor_set_status_message("visual-line-mode %s",
 	    bcur()->visual_line_mode ? "enabled" : "disabled");
@@ -1933,6 +1993,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Switch to another buffer by name" },
 	{ "toggle-read-only", cmd_read_only_mode, LISP_OK,
 	    "Toggle whether this buffer refuses edits" },
+	{ "toggle-truncate-lines", cmd_toggle_truncate_lines, LISP_OK,
+	    "Toggle line truncation in current buffer" },
 	{ "transpose-chars", cmd_transpose_chars, EDITS | REPEATS | LISP_OK,
 	    "Transpose the characters around point" },
 	{ "transpose-words", cmd_transpose_words, EDITS | REPEATS | LISP_OK,

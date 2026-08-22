@@ -100,6 +100,8 @@ void init_editor(void)
 	bcur()->disk_changed = 0;
 	bcur()->auto_revert = 0;
 	bcur()->visual_line_mode = 0;
+	bcur()->truncate_lines = 1;
+	bcur()->saved_truncate_lines = 1;
 	wcur()->rowoff_visual = 0;
 	editor.prefix_pending = 0;
 	editor.prefix_arg = 0;

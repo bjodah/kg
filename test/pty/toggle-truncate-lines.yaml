@@ -1,0 +1,25 @@
+# toggle-truncate-lines toggles between default character wrapping
+# (where lines occupy multiple screen lines and C-n visits visual rows)
+# and truncated lines (where lines occupy one screen line and C-n visits logical rows).
+name: toggle-truncate-lines
+filename: sample.txt
+backend: pexpect
+oracle_backend: tmux
+startup_delay: 1.0
+key_delay: 0.1
+dimensions: [10, 10]
+initial: "12345678901234567890\nsecond\n"
+keys:
+  - M-x
+  - "toggle-truncate-lines"
+  - RET
+  - C-a
+  - C-n
+  - "X"
+  - M-x
+  - "toggle-truncate-lines"
+  - RET
+  - C-a
+  - C-n
+  - "Y"
+expected_saved: "1234567890X1234567890\nYsecond\n"

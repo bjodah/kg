@@ -91,6 +91,19 @@ int visual_segments(
  * starts on a continuation byte. */
 int render_offset_at_visual(erow *row, int target_vcol, int win_w);
 
+/* Start and end render-byte offsets in row->render for wrap segment
+ * `segment` of `row`. */
+void render_span_of_segment(erow *row, int segment, int win_w,
+    const struct kg_display_options *options, int *out_start, int *out_end);
+
+/* Start of visual line chars offset for segment containing `chars_col`. */
+int visual_bol_to_chars(erow *row, int chars_col, int win_w,
+    const struct kg_display_options *options);
+
+/* End of visual line chars offset for segment containing `chars_col`. */
+int visual_eol_to_chars(erow *row, int chars_col, int win_w,
+    const struct kg_display_options *options);
+
 /* ---- The persistent per-window index (src/vgeom.c) ----------------------
  *
  * Lazily built the first time a window asks a geometry question, keyed by
@@ -175,6 +188,7 @@ struct vgeom_iter {
 	int row_count;
 	int cur_row;
 	int segment;
+	int cur_render_end;
 };
 
 /* Start `it` at visual row `start_vrow` of `w`'s view of `b`. */

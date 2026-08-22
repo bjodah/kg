@@ -220,7 +220,7 @@ static void mouse_set_point(int row, int col)
 	erow *r;
 	int filerow, chars;
 
-	if (bcur()->visual_line_mode) {
+	if (!bcur()->truncate_lines) {
 		goto_visual_row_col(w->rowoff_visual + y, dx);
 		return;
 	}
@@ -277,7 +277,7 @@ static void mouse_scroll(int lines)
 	int last = bcur()->numrows > 0 ? bcur()->numrows - 1 : 0;
 
 	w->desired_visual_col = -1;
-	if (bcur()->visual_line_mode) {
+	if (!bcur()->truncate_lines) {
 		mouse_scroll_visual(w, lines);
 		return;
 	}

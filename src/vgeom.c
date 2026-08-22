@@ -67,6 +67,7 @@ struct kg_vgeom_index {
 	struct kg_buffer_handle buf;
 	uint64_t layout_generation;
 	int win_w;
+	int word_wrap;
 	int row_count;
 	/* Length numrows + 1; entry i is the visual rows before logical row
 	 * i, so entry numrows is the total.  int32_t and bounds-checked in
@@ -104,7 +105,9 @@ static bool vgeom_key_matches(const struct kg_vgeom_index *idx,
 	return idx && idx->buf.slot == h.slot && idx->buf.id == h.id
 	    && idx->buf.generation == h.generation
 	    && idx->layout_generation == b->layout_generation
-	    && idx->win_w == win_w && idx->row_count == b->numrows;
+	    && idx->win_w == win_w
+	    && idx->word_wrap == b->display.word_wrap
+	    && idx->row_count == b->numrows;
 }
 
 /* (Re)build w->vgeom for (b, win_w), replacing whatever was there.  Leaves
@@ -150,6 +153,7 @@ static void vgeom_rebuild(
 	idx->buf = buf_handle_of(b);
 	idx->layout_generation = b->layout_generation;
 	idx->win_w = win_w;
+	idx->word_wrap = b->display.word_wrap;
 	idx->row_count = b->numrows;
 	w->vgeom = idx;
 	KG_PERF_INC(KG_PERF_VGEOM_REBUILD);
@@ -335,8 +339,14 @@ void find_visual_row(struct editor_window *w, struct editor_buffer *b,
 		return;
 	}
 	*logical_row = row;
-	*render_offset
-	    = render_offset_at_visual(&b->row[row], segment * win_w, win_w);
+	if (b->display.word_wrap) {
+		int end_off;
+		render_span_of_segment(&b->row[row], segment, win_w, &b->display,
+		    render_offset, &end_off);
+	} else {
+		*render_offset
+		    = render_offset_at_visual(&b->row[row], segment * win_w, win_w);
+	}
 }
 
 void goto_visual_row_col(int target_vrow, int target_rcol_in_segment)
@@ -383,6 +393,7 @@ void vgeom_iter_init(struct vgeom_iter *it, struct editor_window *w,
 	it->row_count = b->numrows;
 	it->cur_row = row;
 	it->segment = segment;
+	it->cur_render_end = 0;
 }
 
 bool vgeom_iter_next(
@@ -400,11 +411,19 @@ bool vgeom_iter_next(
 		 * it. */
 		*out_row = it->row_count;
 		*out_render_offset = 0;
+		it->cur_render_end = 0;
 		return false;
 	}
 	*out_row = it->cur_row;
-	*out_render_offset = render_offset_at_visual(
-	    &it->b->row[it->cur_row], it->segment * it->win_w, it->win_w);
+	if (it->b->display.word_wrap) {
+		render_span_of_segment(&it->b->row[it->cur_row], it->segment,
+		    it->win_w, &it->b->display, out_render_offset,
+		    &it->cur_render_end);
+	} else {
+		*out_render_offset = render_offset_at_visual(
+		    &it->b->row[it->cur_row], it->segment * it->win_w, it->win_w);
+		it->cur_render_end = it->b->row[it->cur_row].rsize;
+	}
 
 	/* it->idx's prefix already holds this row's segment count -- the
 	 * difference of two consecutive entries -- so a warm iterator never

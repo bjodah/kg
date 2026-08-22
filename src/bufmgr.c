@@ -617,6 +617,9 @@ static void buf_reset(void)
 	bcur()->disk_changed = 0;
 	bcur()->auto_revert = 0;
 	bcur()->visual_line_mode = 0;
+	bcur()->truncate_lines = 1;
+	bcur()->saved_truncate_lines = 1;
+	bcur()->display.word_wrap = 0;
 	wcur()->rowoff_visual = 0;
 	bcur()->overwrite_mode = 0;
 	undo_stack_free(&b->undostack);
@@ -2739,6 +2742,8 @@ static void buf_reset_slot(int slot)
 	b->generation
 	    = generation; /* Handovers accumulate; they don't reset. */
 	buf_claim_slot(slot);
+	b->truncate_lines = 1;
+	b->saved_truncate_lines = 1;
 	b->readonly_override = -1;
 	undo_stack_init(&b->undostack);
 	b->active = 1;

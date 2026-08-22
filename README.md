@@ -160,6 +160,8 @@ standard VT100 escape sequences.
   is the way off, and is callable from Lisp, so
   `(command-execute "show-paren-mode")` in an init file turns it off for
   good
+- Visual-line mode (`M-x visual-line-mode`): soft-wraps long lines at word (whitespace) boundaries, with `C-a` and `C-e` navigating to visual line beginning/end and `C-n`/`C-p` moving across visual rows
+- Line truncation toggle (`M-x toggle-truncate-lines`): toggles between truncated lines (with horizontal scrolling) and character-wrapped display
 - Suspend to background (C-z)
 - Mouse support, on by default: click to put point where you clicked (in
   the window you clicked in), drag to select a region, wheel to scroll

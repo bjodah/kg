@@ -1,0 +1,19 @@
+# In visual-line-mode, C-a (beginning-of-visual-line) and C-e
+# (end-of-visual-line) navigate to the boundaries of the word-wrapped
+# visual segment rather than the whole logical line or a rigid column cutoff.
+name: visual-line-word-wrap-bol-eol
+filename: wrap-bol-eol.txt
+backend: pexpect
+oracle_backend: tmux
+startup_delay: 1.0
+key_delay: 0.1
+dimensions: [10, 10]
+initial: |
+  alpha bravo charlie
+keys:
+  - M-x
+  - "visual-line-mode"
+  - RET
+  - C-e
+  - "!"
+oracle: emacs

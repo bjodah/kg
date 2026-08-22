@@ -3041,6 +3041,17 @@ Alias for
 .Ic read-only-mode .
 Equivalent to
 .Ic C-x C-q .
+.It toggle-truncate-lines
+Toggle line truncation in current buffer between single-line display
+with horizontal scrolling and character-wrapped display.
+.It visual-line-mode
+Toggle visual-line mode in current buffer: soft-wraps long lines at word
+boundaries (whitespace) and navigates by visual lines with
+.Ic C-a ,
+.Ic C-e ,
+.Ic C-n
+and
+.Ic C-p .
 .It transpose-chars
 Transpose characters around point.
 Equivalent to

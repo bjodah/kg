@@ -75,6 +75,8 @@ static void page_show(const char *what)
 		return;
 	}
 	buflist[slot].visual_line_mode = 1;
+	buflist[slot].truncate_lines = 0;
+	buflist[slot].display.word_wrap = 1;
 	buf_select(slot);
 	wcur()->cx = wcur()->cy = wcur()->rowoff = wcur()->coloff = 0;
 	editor_set_status_message(

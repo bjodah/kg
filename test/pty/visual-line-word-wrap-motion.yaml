@@ -1,0 +1,20 @@
+# In Emacs visual-line-mode, long lines are wrapped at word boundaries
+# (spaces) rather than breaking words across window edges. Moving down
+# with C-n lands point at the start of the wrapped word on the next visual
+# line rather than in the middle of a split word.
+name: visual-line-word-wrap-motion
+filename: wrap-motion.txt
+backend: pexpect
+oracle_backend: tmux
+startup_delay: 1.0
+key_delay: 0.1
+dimensions: [10, 10]
+initial: |
+  hello world
+keys:
+  - M-x
+  - "visual-line-mode"
+  - RET
+  - C-n
+  - X
+oracle: emacs

@@ -1125,6 +1125,8 @@ static void setup_visual_line_rows(int rows, int len)
 	}
 	free(line);
 	bcur()->visual_line_mode = 1;
+	bcur()->truncate_lines = 0;
+	bcur()->display.word_wrap = 1;
 }
 
 /* Phase 1 acceptance: a warm, wholly unchanged repaint scans zero row
@@ -1209,16 +1211,16 @@ static void test_visual_line_new_width_scans_each_row_once(void)
 }
 
 /* The row cache's RSS cost, recorded rather than left to be inferred:
- * window width, tab width and measured width are three int fields.  On a
- * 64-bit build they fill the struct through byte 64, so adding tab width
- * to the cache key consumes padding and does not enlarge erow. */
+ * window width, tab width and word_wrap are three int fields.  On a
+ * 64-bit build the cache key (3 ints) plus wrap_cache_vcols (1 int)
+ * add 16 bytes, placing erow at 72 bytes. */
 static void test_erow_wrap_cache_size_cost(void)
 {
 	erow r;
 
-	CHECK(sizeof(r.wrap_cache_key) == 2 * sizeof(int));
+	CHECK(sizeof(r.wrap_cache_key) == 3 * sizeof(int));
 	CHECK(sizeof(r.wrap_cache_vcols) == sizeof(int));
-	CHECK(sizeof(erow) <= 64);
+	CHECK(sizeof(erow) <= 72);
 }
 
 /* This assertion used to pin the bad shape on purpose (`> win_h`, "the
@@ -1372,12 +1374,16 @@ static void test_visual_line_scan_per_refresh(void)
 		    bcur(), i, "a reasonably long line of text", 30);
 	}
 	bcur()->visual_line_mode = 1;
+	bcur()->truncate_lines = 0;
+	bcur()->display.word_wrap = 1;
 	kg_perf_reset();
 	refresh_quietly();
 	scans = counter(KG_PERF_VISUAL_ROW_SCAN);
 	CHECK(scans > 0);
 	CHECK(scans <= (unsigned long long)rows);
 	bcur()->visual_line_mode = 0;
+	bcur()->truncate_lines = 1;
+	bcur()->display.word_wrap = 0;
 	teardown();
 }
 

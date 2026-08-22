@@ -62,6 +62,8 @@ void reset_current_buffer(void)
 	b->undostack = keep.undostack;
 	b->readonly_override = -1;
 	b->active = 1;
+	b->truncate_lines = 1;
+	b->saved_truncate_lines = 1;
 }
 
 /* Reset the selected window's view: point, scroll and goal column.  Its

@@ -75,6 +75,9 @@ divergence that is correct but reads wrong.
 | 6 | `visual_line_cursor_col(row, chars_col, win_w, display)` (`mode.c`) | vcol (wrapped) | `basic.c:57,68,85,96`; `display.c:707`; `mode.c:171` | ok |
 | 7 | `visual_line_width(row, win_w, display)` (`mode.c`) | vcol (wrapped) | `basic.c:70`; `mode.c:116,132,210,233` | ok |
 | 8 | `render_offset_at_visual(row, vcol, win_w)` (`mode.c`) | **render byte offset** | `mode.c:193` `find_visual_row`'s `render_offset` out-param, consumed by `display.c:238` as the render slice start | ok |
+| 8b | `render_span_of_segment(row, seg, win_w, display, &start, &end)` (`mode.c`) | **render byte offsets** | `vgeom.c` segment start and end render byte offsets for word-wrap drawing | ok |
+| 8c | `visual_bol_to_chars(row, chars_col, win_w, display)` (`mode.c`) | chars | `basic.c` visual line beginning of line (HOME_KEY) in visual-line-mode | ok |
+| 8d | `visual_eol_to_chars(row, chars_col, win_w, display)` (`mode.c`) | chars | `basic.c` visual line end of line (END_KEY) in visual-line-mode | ok |
 | 9 | `get_visual_row(rows, n, win_w, cy, cx)` (`mode.c`) | visual row index; `cx` in | chars | `basic.c:87,98`; `cmd.c:319`; `display.c:542,595,709` | ok |
 | 10 | `row->hl[i]` | render | `syntax.c` highlighters (walk `row->render`, bound by `row->rsize`); `display.c:394` the draw loop; `search.c` match highlight; `dired.c:119-129` (gutter is ASCII, so chars == render) | ok, except `generic_keyword_scan`'s single-line comment, which filled a render-indexed run with the **chars** length `row->size - i` and so stopped the colour one tab expansion short — **audit** |
 | 11 | `wcur()->coloff` | chars (`filecol = coloff + cx` at `buffer.c:80`) | every command; `editor_reveal_position_centered`; `basic.c` motion | ok |

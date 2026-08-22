@@ -475,6 +475,32 @@ static void test_coordinate_space_round_trips(void)
 	 * spaces disagree.  Also checked at a width that wraps it. */
 	check_round_trips("\t\xe4\xb8\xadz", 5, 80);
 	check_round_trips("\t\xe4\xb8\xadz", 5, 10);
+
+	/* Word-wrap round-trips */
+	{
+		const struct kg_display_options ww = { .word_wrap = 1 };
+		erow *row;
+		int c;
+
+		setup(0);
+		editor_insert_row(bcur(), 0, "hello world foo", 15);
+		row = &bcur()->row[0];
+		for (c = 0; c <= row->size; c++) {
+			int vcol = visual_line_cursor_col(row, c, 10, &ww);
+			CHECK(visual_col_to_chars(row, vcol, 10, &ww) == c);
+		}
+		CHECK(visual_bol_to_chars(row, 0, 10, &ww) == 0);
+		CHECK(visual_bol_to_chars(row, 3, 10, &ww) == 0);
+		CHECK(visual_bol_to_chars(row, 6, 10, &ww) == 6); /* "world foo" */
+		CHECK(visual_bol_to_chars(row, 8, 10, &ww) == 6);
+		CHECK(visual_bol_to_chars(row, 12, 10, &ww) == 6);
+
+		CHECK(visual_eol_to_chars(row, 0, 10, &ww) == 5); /* "hello" */
+		CHECK(visual_eol_to_chars(row, 3, 10, &ww) == 5);
+		CHECK(visual_eol_to_chars(row, 6, 10, &ww) == 15); /* "world foo" */
+		CHECK(visual_eol_to_chars(row, 12, 10, &ww) == 15);
+		teardown();
+	}
 }
 
 /* visual_col_to_chars() takes a display column, never the render offset

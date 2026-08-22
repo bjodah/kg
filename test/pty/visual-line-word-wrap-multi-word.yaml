@@ -1,0 +1,21 @@
+# In visual-line-mode, multiple words wrap at space boundaries across
+# successive visual lines, and successive C-n moves visit each word's start.
+name: visual-line-word-wrap-multi-word
+filename: wrap-multi-word.txt
+backend: pexpect
+oracle_backend: tmux
+startup_delay: 1.0
+key_delay: 0.1
+dimensions: [10, 10]
+initial: "one two three four five six\n"
+keys:
+  - M-x
+  - "visual-line-mode"
+  - RET
+  - C-n
+  - ">"
+  - C-n
+  - ">"
+  - C-n
+  - ">"
+oracle: emacs

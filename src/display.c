@@ -350,9 +350,9 @@ static void flat_row_advance(
  * complexity budget (.ci/pmccabe-baseline.json) and this `if` would count
  * against it. */
 static void vline_iter_begin(struct vgeom_iter *it, struct editor_window *w,
-    struct editor_buffer *b, int rowoff, int visual_line_mode)
+    struct editor_buffer *b, int rowoff, int wrapping)
 {
-	if (visual_line_mode) {
+	if (wrapping) {
 		vgeom_iter_init(it, w, b, rowoff);
 	}
 }
@@ -371,7 +371,7 @@ static void vline_iter_begin(struct vgeom_iter *it, struct editor_window *w,
 static void draw_window_rows(struct abuf *ab, struct editor_window *w,
     struct editor_buffer *b, int win_y, int win_x, int win_h, int win_w,
     int rowoff, int coloff, int numrows, erow *rows, int is_active,
-    int is_full_width, int visual_line_mode)
+    int is_full_width, int wrapping)
 {
 	int y, j;
 	int region_active = 0;
@@ -390,11 +390,11 @@ static void draw_window_rows(struct abuf *ab, struct editor_window *w,
 	int flat_row_idx = -1;
 	size_t flat_row_pos = 0;
 	/* One placement per window, not one search per screen row: see the
-	 * loop below.  Left uninitialized when !visual_line_mode, where it is
+	 * loop below.  Left uninitialized when !wrapping, where it is
 	 * never touched. */
 	struct vgeom_iter vline_it;
 
-	vline_iter_begin(&vline_it, w, b, rowoff, visual_line_mode);
+	vline_iter_begin(&vline_it, w, b, rowoff, wrapping);
 
 	if (is_active && bcur()->mark_highlight) {
 		int p_row = wcur()->rowoff + wcur()->cy;
@@ -439,7 +439,7 @@ static void draw_window_rows(struct abuf *ab, struct editor_window *w,
 	for (y = 0; y < win_h; y++) {
 		int fr;
 		int offset;
-		if (visual_line_mode) {
+		if (wrapping) {
 			/* The iterator fills both out-params past the end
 			 * too, with find_visual_row()'s own (numrows, 0):
 			 * the tilde/empty-row drawing below, and
@@ -551,8 +551,11 @@ static void draw_window_rows(struct abuf *ab, struct editor_window *w,
 			 * edge — the padding below leaves that cell blank
 			 * rather than letting half a glyph bleed into the next
 			 * pane. */
+			int max_render = (wrapping && options->word_wrap)
+			    ? vline_it.cur_render_end
+			    : r->rsize;
 			len = 0;
-			while (offset + len < r->rsize) {
+			while (offset + len < max_render && offset + len < r->rsize) {
 				int w = utf8_width_at(
 				    r->render, r->rsize, offset + len);
 
@@ -737,10 +740,11 @@ static void draw_mode_line(struct abuf *ab, int ml_row, int win_x, int win_w,
 	char mode_buf[128];
 	int readonly = b->readonly;
 	int vline = b->visual_line_mode;
+	int wrapping = !b->truncate_lines;
 	int ovwrt = b->overwrite_mode;
 
 	snprintf(mode_buf, sizeof(mode_buf), "%s%s%s%s", modename,
-	    vline ? " VLine" : "", ovwrt ? " Ovwrt" : "",
+	    vline ? " VLine" : (wrapping ? " Wrap" : ""), ovwrt ? " Ovwrt" : "",
 	    readonly ? " RO" : "");
 
 	len = snprintf(status, sizeof(status), "%s  %s%s  %s (%d,%d)  (%s)",
@@ -807,7 +811,8 @@ void editor_refresh_screen(void)
 	 * be stuck across. */
 	KG_EVENT_DEBUG_ENTER(KG_EVENT_UNSAFE_RENDER);
 	kg_lisp_sync_display_options();
-	if (bcur()->visual_line_mode) {
+	int cur_wrapping = !bcur()->truncate_lines;
+	if (cur_wrapping) {
 		struct editor_window *w_act = &winlist[win_current];
 		int filerow = wcur()->rowoff + wcur()->cy;
 		int filecol = wcur()->coloff + wcur()->cx;
@@ -848,7 +853,7 @@ void editor_refresh_screen(void)
 			continue;
 		}
 
-		int vline = b->visual_line_mode;
+		int wrapping = !b->truncate_lines;
 		/* The rows come from the buffer the window shows, whichever
 		 * window this is: there is one row array per buffer now, so
 		 * there is no longer a live copy to prefer over a stale one. */
@@ -856,22 +861,22 @@ void editor_refresh_screen(void)
 		rows = b->row;
 		/* And the scroll comes from the window, whichever window this
 		 * is: the selected one is not a special case any more. */
-		rowoff = vline ? w->rowoff_visual : w->rowoff;
+		rowoff = wrapping ? w->rowoff_visual : w->rowoff;
 		coloff = w->coloff;
 
 		draw_window_rows(&ab, w, b, w->y, w->x, w->h, win_text_width(w),
 		    rowoff, coloff, numrows, rows, is_active, is_full_width,
-		    vline);
+		    wrapping);
 
 		ml_row = w->y + w->h;
 		{
-			int wrowoff = vline ? w->rowoff_visual : w->rowoff;
+			int wrowoff = wrapping ? w->rowoff_visual : w->rowoff;
 			/* cx/coloff: cx is relative to the horizontal scroll
 			 * offset, so the file column is their sum. */
 			int filerow = w->rowoff + w->cy;
 			int filecol = w->coloff + w->cx;
 			int cur_row;
-			if (vline) {
+			if (wrapping) {
 				cur_row = get_visual_row(w, b, filerow, filecol)
 				    + 1;
 			} else {
@@ -880,7 +885,7 @@ void editor_refresh_screen(void)
 			int cur_col = editor_display_col(
 			    rows, numrows, filerow, filecol, &b->display);
 			int total_rows
-			    = vline ? get_total_visual_rows(w, b) : b->numrows;
+			    = wrapping ? get_total_visual_rows(w, b) : b->numrows;
 			draw_mode_line(&ab, ml_row, w->x, w->w, bidx, is_active,
 			    cur_row, cur_col, total_rows, wrowoff, w->h);
 		}
@@ -968,7 +973,7 @@ void editor_refresh_screen(void)
 			    - editor_visual_col(row, wcur()->coloff,
 				buf_display_options(bcur()));
 		}
-		if (bcur()->visual_line_mode) {
+		if (cur_wrapping) {
 			int filerow = wcur()->rowoff + wcur()->cy;
 			int filecol = wcur()->coloff + wcur()->cx;
 			int win_w = win_text_width(w);

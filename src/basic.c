@@ -10,6 +10,12 @@
 
 static void cursor_advance_screen_col(void)
 {
+	if (!bcur()->truncate_lines) {
+		if (wcur()->cx < INT_MAX) {
+			wcur()->cx++;
+		}
+		return;
+	}
 	if (wcur()->cx == wcur()->w - 1) {
 		if (wcur()->coloff < INT_MAX) {
 			wcur()->coloff++;
@@ -24,6 +30,11 @@ static void cursor_advance_screen_col(void)
  * to match.  Every "jump to a column" motion lands here. */
 static void cursor_place_col(int col)
 {
+	if (!bcur()->truncate_lines) {
+		wcur()->cx = col;
+		wcur()->coloff = 0;
+		return;
+	}
 	if (col > wcur()->w - 1) {
 		wcur()->coloff = col - wcur()->w + 1;
 		wcur()->cx = wcur()->w - 1;
@@ -41,7 +52,7 @@ static void cursor_retreat_screen_col(int n)
 	while (n--) {
 		if (wcur()->cx > 0) {
 			wcur()->cx -= 1;
-		} else if (wcur()->coloff) {
+		} else if (bcur()->truncate_lines && wcur()->coloff) {
 			wcur()->coloff--;
 		} else {
 			break;
@@ -111,28 +122,39 @@ static bool move_visual_line(int key, int filerow, erow *row, int filecol)
 	switch (key) {
 	case HOME_KEY:
 		if (row) {
-			rcol = visual_line_cursor_col(
-			    row, filecol, win_w, options);
-			char_idx = visual_col_to_chars(
-			    row, (rcol / win_w) * win_w, win_w, options);
+			if (options && options->word_wrap) {
+				char_idx = visual_bol_to_chars(
+				    row, filecol, win_w, options);
+			} else {
+				rcol = visual_line_cursor_col(
+				    row, filecol, win_w, options);
+				char_idx = visual_col_to_chars(
+				    row, (rcol / win_w) * win_w, win_w, options);
+			}
 			editor_cursor_goto(filerow, char_idx);
 		}
 		return true;
 	case END_KEY:
 		if (row) {
-			int max_rcol = visual_line_width(row, win_w, options);
-			int target_rcol;
+			if (options && options->word_wrap) {
+				char_idx = visual_eol_to_chars(
+				    row, filecol, win_w, options);
+			} else {
+				int max_rcol = visual_line_width(
+				    row, win_w, options);
+				int target_rcol;
 
-			rcol = visual_line_cursor_col(
-			    row, filecol, win_w, options);
-			target_rcol = filecol == row->size
-			    ? max_rcol
-			    : ((rcol / win_w) + 1) * win_w - 1;
-			if (target_rcol > max_rcol) {
-				target_rcol = max_rcol;
+				rcol = visual_line_cursor_col(
+				    row, filecol, win_w, options);
+				target_rcol = filecol == row->size
+				    ? max_rcol
+				    : ((rcol / win_w) + 1) * win_w - 1;
+				if (target_rcol > max_rcol) {
+					target_rcol = max_rcol;
+				}
+				char_idx = visual_col_to_chars(
+				    row, target_rcol, win_w, options);
 			}
-			char_idx = visual_col_to_chars(
-			    row, target_rcol, win_w, options);
 			editor_cursor_goto(filerow, char_idx);
 		}
 		return true;
@@ -294,6 +316,13 @@ void editor_move_cursor(int key)
 	if (is_vertical && wcur()->desired_visual_col < 0 && row) {
 		wcur()->desired_visual_col = editor_visual_col(
 		    row, filecol, buf_display_options(bcur()));
+	}
+
+	int wrapping = !bcur()->truncate_lines;
+	if (wrapping && !bcur()->visual_line_mode && is_vertical) {
+		if (move_visual_line(key, filerow, row, filecol)) {
+			return;
+		}
 	}
 
 	if (bcur()->visual_line_mode

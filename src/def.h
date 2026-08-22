@@ -168,13 +168,15 @@ enum KEY_ACTION {
 #define KG_TAB_WIDTH_MAX 1000
 struct kg_display_options {
 	int tab_width;
+	int word_wrap;
 };
 
 struct kg_wrap_cache_key {
 	int win_w;
 	int tab_width;
+	int word_wrap;
 };
-static_assert(sizeof(struct kg_wrap_cache_key) == 2 * sizeof(int),
+static_assert(sizeof(struct kg_wrap_cache_key) == 3 * sizeof(int),
     "wrap cache key must have no padding");
 
 static inline int display_tab_width(const struct kg_display_options *options)
@@ -415,6 +417,8 @@ struct editor_buffer {
 	int disk_changed;
 	int auto_revert;
 	int visual_line_mode;
+	int truncate_lines;
+	int saved_truncate_lines;
 	int overwrite_mode;
 	struct kg_display_options display;
 	/* 1 when `filename` is this buffer's name and not a path: C-x b to a

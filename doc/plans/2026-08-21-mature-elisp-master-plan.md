@@ -1,8 +1,18 @@
 # Mature Elisp support for fe + kg: master plan
 
-Status: **proposed**.  Phase M0 is the entry gate.  Later phases are not
-authorization to implement every item they name; each phase has an explicit
-exit or selection gate.
+Status: **addressed through M4; verified 2026-08-22**.  C1 is published for
+the bounded `s-core/ascii` domain.  M4 made the permitted **defer** decision,
+so C2 is not claimed.  The later owner decision to activate the dormant hash
+table substrate has its own plan,
+`doc/plans/2026-08-22-hash-tables.md`; it does not retroactively turn M4 into
+a C2 package selection.
+
+The verification found one release-discipline exception, not a functional
+failure: tiny-regex-c commit `1a30b9f` raised its exact scc total/file ceiling
+from 360 to 361 without the required rationale and old/new measured proof in
+the commit message.  The hash-table plan carries that provenance repair as
+entry item H0.0.  Current-tree functional, structural, benchmark and full-CI
+evidence is recorded there.
 
 This plan starts after Phase 29 U.1a and its external-review correctness
 tranche.  It coordinates work that belongs in three repositories/layers:

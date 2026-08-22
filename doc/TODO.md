@@ -436,9 +436,16 @@ cache keyed by that manifest's hash.  Known follow-ups, none blocking:
       Phase 17).  It was six names and seven references, partitioning
       cleanly: `erase-buffer` (2) and `beginning-of-line` (1) were editor
       natives and joined Phase 17's missing-natives list, which is what
-      made the grep/occur helper writable; the four hash-table names are
-      the watch item and stay off the roadmap.  The audit now reports a
-      MISSING list of exactly those four.
+      made the grep/occur helper writable; the four hash-table names were
+      the watch item.  The audit reports a MISSING list of exactly those
+      four.
+- [ ] **Strong hash tables.**  The owner activated the dormant Phase 27
+      substrate after the mature-Elisp M4 defer decision.  The dedicated
+      execution plan is `doc/plans/2026-08-22-hash-tables.md`: executable
+      hash/equality law first, then a GC-safe table type and core operations,
+      then `maphash`, kg helpers and the forecast word-count scenario.  Weak
+      tables, custom tests, `#s(hash-table ...)`, and an automatic
+      `(provide 'subr-x)` remain outside that plan.
 - [x] **`beginning-of-buffer`/`end-of-buffer` as conditions** (Phase 17,
       closed by Phase 20).  Done exactly as this row priced it: two data
       lines in fe's `condition_parents[]` (now `fe/fe_unwind.c`), an

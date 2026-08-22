@@ -832,7 +832,21 @@ static struct dap_session *start_spawn_port_session(const char *cwd,
 	    "python3 '%s' --mode protocol --announce '%s' %s", script_path,
 	    DELVE_PREFIX, extra ? extra : "");
 	error[0] = '\0';
-	return dap_session_start(&request, error, error_size);
+	{
+		struct dap_session *session
+		    = dap_session_start(&request, error, error_size);
+
+		if (session) {
+			/* The outer pump budget scales under CI load; keep the
+			 * adapter's announce deadline in the same budget so a
+			 * slow child reports a real timeout rather than
+			 * poisoning the following assertions. */
+			dap_session_set_spawn_deadline(session,
+			    (unsigned)(DAP_TRANSPORT_SPAWN_TIMEOUT_MS
+				* pump_time_scale()));
+		}
+		return session;
+	}
 }
 
 static pid_t session_child(struct dap_session *s)

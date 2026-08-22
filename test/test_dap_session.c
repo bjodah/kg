@@ -842,8 +842,7 @@ static struct dap_session *start_spawn_port_session(const char *cwd,
 			 * slow child reports a real timeout rather than
 			 * poisoning the following assertions. */
 			dap_session_set_spawn_deadline(session,
-			    (unsigned)(DAP_TRANSPORT_SPAWN_TIMEOUT_MS
-				* pump_time_scale()));
+			    (unsigned)(pump_deadline_seconds() * 1000.0));
 		}
 		return session;
 	}

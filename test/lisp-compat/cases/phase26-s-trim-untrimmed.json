@@ -1,0 +1,9 @@
+{
+ "id": "phase26-s-trim-untrimmed",
+ "setup": [
+  "(setq s-el-path (if (fboundp 'expand-file-name) (expand-file-name \"external/elpa/s.el\") \"external/elpa/s.el\"))",
+  "(condition-case e (load s-el-path) (error nil))"
+ ],
+ "expr": "(list (condition-case e (s-trim-left \"  hi  \") (error (car e))) (condition-case e (s-trim-right \"  hi  \") (error (car e))) (condition-case e (s-trim \"\\n\\thi \") (error (car e))))",
+ "note": "THE SILENT GAP AT PACKAGE LEVEL, which is the one the frontier probe calls the more interesting of the two. Emacs answers (\"hi  \" \"  hi\" \"hi\"); kg answers the three arguments UNCHANGED and raises nothing, because `string-match' on s-trim's patterns answers nil (phase26-anchor-s-trim-patterns) and s.el's `if' takes the else branch. `replace-match' is missing too and is masked by this: s.el never reaches the call. Both halves had to land before this case flipped, which is what made it the capability witness for the whole kg-side track rather than for either name alone. Both landed and it answers (\"hi  \" \"  hi\" \"hi\") now."
+}

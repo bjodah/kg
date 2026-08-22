@@ -1,0 +1,6 @@
+{
+ "id": "phase26-count-matches-region",
+ "setup": [],
+ "expr": "(with-temp-buffer (insert \"banana\") (goto-char (point-min)) (list (count-matches \"an\" 1 (point-max)) (count-matches \"a\" 1 4) (count-matches \"a\" 4 (point-max)) (count-matches \"a\" 1 1) (count-matches \"a\" 4 2)))",
+ "note": "THE ROUTE s.el TAKES, which is the region form: `s-count-matches' is `with-temp-buffer' + `insert' + `goto-char' + `(count-matches regexp (or start 1) (or end (point-max)))' (s.el:718). Emacs answers (2 1 2 0 1). The last element is the surprise and is why the case asks it: (count-matches \"a\" 4 2) with the bounds THE WRONG WAY ROUND is not an error and not zero -- Emacs orders them and counts the region 2..4, which holds one `a'. An empty region counts 0. kg answered `void-function' before 26.2 and answers (2 1 2 0 1) now."
+}

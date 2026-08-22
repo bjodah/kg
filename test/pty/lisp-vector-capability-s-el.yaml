@@ -1,0 +1,81 @@
+# Phase 24.3's "one named capability from Phase 21's shortlist that
+# previously failed at vector syntax, end to end".  The capability is
+# Entry 1 of doc/plans/2026-08-18-elisp-data-model-phase21-capabilities.md
+# -- VECTORS -- and the evidence package that document names for it is
+# `s.el`: 793 lines of Emacs Lisp that kg could not READ before this
+# phase, because one `declare' debug spec on line 455 carries a vector
+# literal and every top-level form has to be read before `load' can
+# finish.  Nothing in s.el ever constructs a vector; the one vector token
+# in it is pure Edebug metadata, which is exactly the shape the document
+# argued a reference count cannot price.
+#
+# So this case is a live editor loading the REAL vendored file from its
+# own init.el -- external/elpa/s.el, unmodified; its provenance is in
+# external/provenance-ledger.toml and utils/check_external_quarantine.py
+# is what guarantees nothing under external/ reaches a shipped artifact --
+# and then USING it.  `{REPO}` in a config_files: value is what lets a
+# case whose working directory is a fresh mkdtemp name a file in the
+# checkout.
+#
+# The saved file is the whole assertion, and it has FIVE parts now:
+#
+#   * the capabilities document's own acceptance form, verbatim --
+#     (let ((v [1 2 3])) (and (vectorp v) (= (aref v 1) 2) (= (length v) 3)))
+#     -- which answers t;
+#   * a call into the loaded package, whose answer is text s.el computed
+#     through kg's own `mapconcat';
+#   * `s-match', which is the Phase 25.2 capability itself and not a
+#     second `s-join': its body is `save-match-data' over `string-match'
+#     and `(match-data)', so a kg missing any one of those three answers
+#     `void-function' here instead of ("bb" "bb").  Phase 24's frontier
+#     probe stopped s.el at exactly those names; and
+#   * `s-matches?' and `s-equals?', the two one-line wrappers over the
+#     other names 25.2 added -- `string-match-p', whose contract is that
+#     it does NOT perturb the match data, and `string-equal', which kg
+#     had all along under its short spelling; and
+#   * Phase 26.2's three, which is the whole kg-side track in one line.
+#     `s-trim' is the SILENT gap closed: it asks for "\`[ \t\n\r]+", so it
+#     needs the engine to know the spelling AND `replace-match' to exist,
+#     and it used to answer its argument untrimmed with no error
+#     anywhere.  `s-count-matches' is the missing NAME closed, through
+#     `with-temp-buffer' and `count-matches'.  `s-replace-regexp' is the
+#     `replace-match'-shaped name the frozen rows cover from the other
+#     side: s.el defines it as a plain alias of `replace-regexp-in-string'
+#     (s.el:409), so this element pins that the alias reaches kg's own
+#     name through the package rather than through a second
+#     implementation.
+#
+# A failure to load would be visible as an empty save: the init.el error
+# leaves the editor running, so the M-: forms would still be typed and
+# the second would answer `void-function s-join' into the echo area
+# instead of inserting anything.
+#
+# No Emacs oracle, by design: Emacs has had vectors since long before kg
+# existed, so an oracle comparison would only restate that.  The corpus's
+# s-el-vendored-load case is the oracle-compared half of this pair, and
+# it is where the frontier s.el stops at NOW is recorded.
+name: lisp-vector-capability-s-el
+filename: s-el-capability.txt
+requires_feature: lisp
+config_files:
+  .config/kg/init.el: |
+    ;;; init.el --- load the real vendored s.el, unmodified.
+    (load "{REPO}/external/elpa/s.el")
+initial: ""
+keys:
+  - "M-:"
+  - (insert (format "%S " (let ((v [1 2 3])) (and (vectorp v) (= (aref v 1) 2) (= (length v) 3)))))
+  - RET
+  - "M-:"
+  - (insert (s-join "-" (list "s" "el" "joined")))
+  - RET
+  - "M-:"
+  - (insert (format " %S" (s-match "\\(b+\\)" "abbc")))
+  - RET
+  - "M-:"
+  - (insert (format " %S %S" (s-matches? "b+" "abbc") (s-equals? "a" "a")))
+  - RET
+  - "M-:"
+  - (insert (format " %S %S %S" (s-trim "  hi  ") (s-count-matches "a" "banana") (s-replace-regexp "b+" "X" "abbbc")))
+  - RET
+expected_saved: 't s-el-joined ("bb" "bb") t t "hi" 3 "aXc"'

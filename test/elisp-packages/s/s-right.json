@@ -1,0 +1,11 @@
+{
+  "id": "s-right",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-right 2 \"abc\")",
+  "expect": "agree",
+  "note": "s-right family, exact value. Both return \"bc\"."
+}

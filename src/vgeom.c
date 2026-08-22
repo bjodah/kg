@@ -105,8 +105,7 @@ static bool vgeom_key_matches(const struct kg_vgeom_index *idx,
 	return idx && idx->buf.slot == h.slot && idx->buf.id == h.id
 	    && idx->buf.generation == h.generation
 	    && idx->layout_generation == b->layout_generation
-	    && idx->win_w == win_w
-	    && idx->word_wrap == b->display.word_wrap
+	    && idx->win_w == win_w && idx->word_wrap == b->display.word_wrap
 	    && idx->row_count == b->numrows;
 }
 
@@ -341,11 +340,11 @@ void find_visual_row(struct editor_window *w, struct editor_buffer *b,
 	*logical_row = row;
 	if (b->display.word_wrap) {
 		int end_off;
-		render_span_of_segment(&b->row[row], segment, win_w, &b->display,
-		    render_offset, &end_off);
+		render_span_of_segment(&b->row[row], segment, win_w,
+		    &b->display, render_offset, &end_off);
 	} else {
-		*render_offset
-		    = render_offset_at_visual(&b->row[row], segment * win_w, win_w);
+		*render_offset = render_offset_at_visual(
+		    &b->row[row], segment * win_w, win_w);
 	}
 }
 
@@ -420,8 +419,9 @@ bool vgeom_iter_next(
 		    it->win_w, &it->b->display, out_render_offset,
 		    &it->cur_render_end);
 	} else {
-		*out_render_offset = render_offset_at_visual(
-		    &it->b->row[it->cur_row], it->segment * it->win_w, it->win_w);
+		*out_render_offset
+		    = render_offset_at_visual(&it->b->row[it->cur_row],
+			it->segment * it->win_w, it->win_w);
 		it->cur_render_end = it->b->row[it->cur_row].rsize;
 	}
 

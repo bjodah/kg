@@ -1,0 +1,7 @@
+{
+ "id": "frontier-regexp-opt-every-member-matches",
+ "setup": [],
+ "expr": "(let* ((members (list \"cat\" \"car\" \"cart\" \"c\")) (re (regexp-opt members))) (mapcar (lambda (m) (list (string-match re m) (match-end 0))) members))",
+ "note": "THE OTHER HALF OF THE CONTRACT: the returned regexp must match EVERY member, entirely, and the longest one that fits. Emacs answers ((0 3) (0 3) (0 4) (0 1)) -- \"cart\" matches all four of its characters even though \"car\" and \"c\" are also in the set and are proper prefixes of it. Four members with three levels of shared prefix is the shape Emacs' optimizer turns into a trie and a simple implementation turns into a sorted alternation; both have to answer this. kg answers `void-function' at this pin. THIS CASE FLIPPED in the frontier demand phase: a sorted bare alternation answers this shape exactly as Emacs' trie does.",
+ "expect": "agree"
+}

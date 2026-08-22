@@ -1,0 +1,6 @@
+{
+ "id": "prelude-capture-redefine",
+ "setup": [],
+ "expr": "(let ((saved (symbol-function 'mapcar))) (defalias 'mapcar (lambda (function sequence) 'replacement)) (list (funcall saved '1+ '(1 2)) (mapcar '1+ '(1 2))))",
+ "note": "A function value captured out of a symbol's function cell is the definition that was captured, and a `defalias' after the capture is what the NAME means -- so the two halves answer ((2 3) replacement) independently of each other. kg's prelude defines `mapcar' eagerly, so it satisfies this trivially, and that is the point: the case is the standing guard against reintroducing a forwarding stub in that cell. It was written as the regression for doc/reviews/2026-08-19-embedded-prelude-phase21-adversarial-review.md finding 1, when `mapcar' was a deferred name whose stub re-read the cell and answered ((2 3) (2 3)); Phase A of doc/plans/2026-08-19-fe-simplification-and-cheap-compat.md deleted the deferral, and the case stays to pin the semantics that outlive it. Emacs prints a native-compilation warning for redefining `mapcar'; it goes to stderr and the shim's one-line record on stdout is unaffected."
+}

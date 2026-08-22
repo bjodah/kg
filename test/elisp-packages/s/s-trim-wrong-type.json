@@ -1,0 +1,11 @@
+{
+  "id": "s-trim-wrong-type",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(condition-case e (s-trim 5) (error (car e)))",
+  "expect": "agree",
+  "note": "Error signaling + handler selection: s-trim on a non-string raises wrong-type-argument and a handler naming `error' catches it. Both return wrong-type-argument."
+}

@@ -599,20 +599,44 @@ static void test_lisp_arena_stats_renders(void)
 	 * has to answer exactly what the command rendered from.  This is
 	 * what makes the frames/capacity pair asserted here rather than
 	 * only in the PTY case -- capacity is a fixed property of the
-	 * arena layout, so it is stable within a session by construction. */
+	 * arena layout, so it is stable within a session by construction.
+	 * The trailing byte count is that same fixed property one level
+	 * further out -- which arena this session opened, now that
+	 * $KG_LISP_ARENA_BYTES makes that a run-time answer. */
 	snprintf(expected, sizeof(expected),
 	    "Arena: %zu slots, %zu free, peak %zu; GC %zu; roots %zu; "
-	    "frames %zu/%zu; fails %zu",
+	    "frames %zu/%zu; fails %zu; %zu bytes; "
+	    "payload %zu/%zu bytes, peak %zu; compactions %zu; "
+	    "payload fails %zu",
 	    stats.total_slots, stats.free_slots, stats.peak_live_objects,
 	    stats.collection_count, stats.peak_gc_stack_depth,
 	    stats.peak_frame_depth, stats.frame_capacity,
-	    stats.allocation_failures);
+	    stats.allocation_failures, stats.arena_bytes,
+	    stats.payload_live_bytes, stats.payload_capacity_bytes,
+	    stats.payload_peak_bytes, stats.payload_compaction_count,
+	    stats.payload_allocation_failures);
 	CHECKF(strcmp(editor.statusmsg, expected) == 0,
 	    "rendered %s, expected %s", editor.statusmsg, expected);
 	CHECK(stats.frame_capacity > 0);
 	/* A session that has only booted has never failed an allocation. */
 	CHECKF(strstr(editor.statusmsg, "; fails 0") != NULL, "rendered %s",
 	    editor.statusmsg);
+	/* And has a payload region it is ALREADY USING: since Phase 25 a
+	 * string's bytes live there and a symbol's name is a string, so a
+	 * session that has only booted has interned hundreds of them --
+	 * where before Phase 25 the same four numbers were the literal
+	 * zeros this assertion used to spell out.  What is pinned here is
+	 * therefore the shape a reader of the command's output would check
+	 * it against (live inside capacity, peak at or above live, nothing
+	 * refused); the numbers themselves are
+	 * .ci/prelude-startup-census.json's ratchet, and the whole-line
+	 * comparison above already pins the rendering. */
+	CHECK(stats.payload_capacity_bytes > 0);
+	CHECK(stats.payload_live_bytes > 0);
+	CHECK(stats.payload_live_bytes <= stats.payload_capacity_bytes);
+	CHECK(stats.payload_peak_bytes >= stats.payload_live_bytes);
+	CHECKF(strstr(editor.statusmsg, "; payload fails 0") != NULL,
+	    "rendered %s", editor.statusmsg);
 	kg_lisp_shutdown();
 }
 

@@ -1,0 +1,7 @@
+{
+ "id": "frontier-compare-strings-character-index",
+ "setup": [],
+ "expr": "(list (compare-strings \"éa\" nil nil \"éb\" nil nil) (compare-strings \"aé\" nil nil \"aé\" nil nil) (length \"éa\"))",
+ "note": "THE INDEX IS IN CHARACTERS, NOT BYTES, and this case is here because a kg implementation reaching for fe's byte buffer would get -3 where Emacs gets -2. Emacs answers (-2 t 2): é is one character, the mismatch is at index 1, and the answer is -(1+1). It is a requirement kg can meet with what it already has rather than a divergence to record: kg's `length', `elt' and `substring' are the character view already (string25-multibyte-character-view measures exactly that, on both sides), so `compare-strings' written over that view agrees here. THE DECISION: it is written over the character view, and this case is written to FLIP. kg answers `void-function' at this pin. THIS CASE FLIPPED in the frontier demand phase: the implementation walks kg's character view (lisp_decode_char over lisp_utf8_byte), so the index is characters on both sides.",
+ "expect": "agree"
+}

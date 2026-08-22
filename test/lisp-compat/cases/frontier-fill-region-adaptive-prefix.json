@@ -1,0 +1,7 @@
+{
+ "id": "frontier-fill-region-adaptive-prefix",
+ "setup": [],
+ "expr": "(with-temp-buffer (insert \"  aa bb cc dd\") (let ((fill-column 8)) (list (fill-region (point-min) (point-max)) (buffer-substring (point-min) (point-max)))))",
+ "note": "INDENTATION BECOMES A PER-LINE PREFIX, and it is also the return value. Emacs answers (\"  \" \"  aa bb\\n  cc dd\"): `adaptive-fill-mode' reads the first line's leading whitespace as the paragraph's fill prefix, re-applies it to every line it makes, and `fill-region' hands it back. kg's C fill already does the whitespace half of this (`reflow_indent_len' re-applies the first row's indent), so what the binding owes here is the RETURN VALUE rather than the layout. kg answers `void-function' at this pin.",
+ "expect": "agree"
+}

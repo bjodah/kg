@@ -1,0 +1,11 @@
+{
+  "id": "s-ends-with",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-ends-with? \"bc\" \"abc\")",
+  "expect": "agree",
+  "note": "Suffix family, exact value. Both return t."
+}

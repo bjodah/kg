@@ -18,6 +18,7 @@
  * with -DKG_PERF_COUNTERS=1, so the counters measure the real code.
  */
 
+#include "../src/cmd.h"
 #include "../src/compile.h"
 #include "../src/def.h"
 #include "../src/edit.h"
@@ -1517,16 +1518,22 @@ static const char lisp_representative_init[]
 
 /* Arena margin, not "does it fit": doc/plans/2026-08-03-elisp-subset-and-
  * fe-evaluator-subplans/00d-baselines-and-arena-observability.md asks how
- * much of the fixed 1 MiB arena remains free after the prelude, the
+ * much of the fixed arena remains free after the prelude, the
  * prelude plus lisp/auto-fill.el, and the prelude plus a representative
  * init -- before Phases 3-6 add frames, symbol cells and condition
  * objects to every allocation path.  Bounds here, not exact counts (this
  * file's convention): a durable margin claim survives an unrelated
  * prelude edit that shifts the exact object count by a few; a collapsed
  * one does not, and that is the failure this guards.  collection_count
- * staying exactly 0 is the one exact-count assertion, because "the
- * prelude and a representative init fit without ever forcing a
- * collection" is itself the property, not an approximation of it. */
+ * staying exactly 1 is the one exact-count assertion -- the post-prelude
+ * collect (doc/plans/2026-08-14-embedded-prelude.md, "Post-prelude
+ * collect -- results") is kg_lisp_init()'s own last act, so it is already
+ * counted by the time this function's first reading happens.  The
+ * property this pins is that nothing AFTER it -- loading auto-fill.el, or
+ * a representative init -- ever needs a collection of its own: "the
+ * prelude and a representative init fit without ever forcing a SECOND
+ * collection" is what survived from the original claim once the first
+ * one stopped being optional. */
 static void test_lisp_prelude_arena_margin(void)
 {
 	struct kg_lisp_arena_stats stats;
@@ -1539,20 +1546,85 @@ static void test_lisp_prelude_arena_margin(void)
 	CHECK(kg_lisp_arena_stats(&stats) == 0);
 	CHECK(stats.total_slots > 0);
 	CHECK(stats.allocation_failures == 0);
-	CHECK(stats.collection_count == 0);
+	CHECK(stats.collection_count == 1);
+	/* The post-prelude collect did something: live objects right after
+	 * kg_lisp_init() returns are strictly fewer than the high-water mark
+	 * it took to get there -- a shape assertion rather than the exact
+	 * 6819/5959 the prelude census manifest pins, so this survives an
+	 * unrelated prelude edit that shifts the exact counts. */
+	CHECK(stats.total_slots - stats.free_slots < stats.peak_live_objects);
 	/* At least half the arena free after the prelude alone -- margin,
 	 * not a tight fit. */
 	CHECK(stats.free_slots * 2 > stats.total_slots);
 	/* frame_capacity is a fixed property of the arena layout, not the
-	 * workload; asserted nonzero and stable here (measured 1087 on this
-	 * build) rather than to a specific number, per the same
+	 * workload; asserted nonzero and stable here (measured 10916 on this
+	 * build, at the 10 MiB default) rather than to a specific number,
+	 * per the same
 	 * bound-not-count convention as the slot counts above. */
 	CHECK(stats.frame_capacity > 0);
 	CHECK(stats.peak_frame_depth <= stats.frame_capacity);
+	/* Exactly 1, not merely nonzero: loading the prelude reaches one
+	 * level of native-re-entering-the-evaluator and never nests a
+	 * second inside it.  peak_native_reentry is a high-water mark of
+	 * SIMULTANEOUS re-entry, not a count of re-entries, which is what
+	 * lets a prelude full of them still read 1.
+	 *
+	 * This comment used to attribute the 1 to install_deferred_stubs()
+	 * (Prelude Phase 1, b94e795), which called FeCallWithOptions() once
+	 * per deferred name.  Phase A of doc/plans/2026-08-19-fe-
+	 * simplification-and-cheap-compat.md deleted that loop and the
+	 * number did not move -- measured 1 before and after -- so the
+	 * attribution was wrong and is not replaced with another guess:
+	 * what is pinned is the shape, so that a change which does nest
+	 * native re-entry says so loudly instead of drifting unremarked,
+	 * which is how this number reached 1 with a comment still saying
+	 * 0. */
+	CHECK(stats.peak_native_reentry == 1);
+
+	/* THE PAYLOAD REGION IS CARVED AND IN USE: capacity nonzero, live
+	 * inside it, peak at or above live, nothing refused.
+	 *
+	 * Phase 24 of doc/plans/2026-08-18-elisp-data-model.md turned the
+	 * carve on for a vector's elements, and this assertion read "the
+	 * four USE numbers are exactly zero" while a vector was the only
+	 * thing that could reach the region and the prelude built none.
+	 * Phase 25 made a string's bytes payload and a symbol's name a
+	 * string, so the region is in use before kg evaluates anything of
+	 * its own -- interning `car' publishes a block.  What is pinned
+	 * here is the SHAPE; the startup numbers themselves are
+	 * .ci/prelude-startup-census.json's ratchet, which is where a
+	 * constructor that started publishing more blocks shows up. */
+	CHECK(stats.payload_capacity_bytes > 0);
+	CHECK(stats.payload_live_bytes > 0);
+	CHECK(stats.payload_live_bytes <= stats.payload_capacity_bytes);
+	CHECK(stats.payload_peak_bytes >= stats.payload_live_bytes);
+	CHECK(stats.payload_allocation_failures == 0);
+
+	/* The same five through the counter surface a bench case reads,
+	 * which is a second seam and can drift from the first: the snapshot
+	 * is what src/main.c calls before kg_perf_dump(), so a gauge that
+	 * was never mirrored would read zero here for the wrong reason.
+	 * The capacity gauge is compared against the stats reading rather
+	 * than against a constant, which is what makes it a mirror test and
+	 * not a second copy of the partition. */
+	kg_perf_reset();
+	kg_lisp_perf_snapshot();
+	CHECK(counter(KG_PERF_LISP_ARENA_TOTAL_SLOTS) == stats.total_slots);
+	CHECK(counter(KG_PERF_LISP_PAYLOAD_CAPACITY)
+	    == (unsigned long long)stats.payload_capacity_bytes);
+	CHECK(counter(KG_PERF_LISP_PAYLOAD_LIVE)
+	    == (unsigned long long)stats.payload_live_bytes);
+	CHECK(counter(KG_PERF_LISP_PAYLOAD_PEAK)
+	    == (unsigned long long)stats.payload_peak_bytes);
+	CHECK(counter(KG_PERF_LISP_PAYLOAD_COMPACTIONS)
+	    == (unsigned long long)stats.payload_compaction_count);
+	CHECK(counter(KG_PERF_LISP_PAYLOAD_FAILURES) == 0);
 
 	CHECK(kg_lisp_load_file("lisp/auto-fill.el") == 0);
 	CHECK(kg_lisp_arena_stats(&stats) == 0);
-	CHECK(stats.collection_count == 0);
+	/* Still 1, not 2: loading a package on top of the prelude needs no
+	 * collection of its own. */
+	CHECK(stats.collection_count == 1);
 	CHECK(stats.free_slots * 2 > stats.total_slots);
 	kg_lisp_shutdown();
 
@@ -1566,13 +1638,34 @@ static void test_lisp_prelude_arena_margin(void)
 		    == 0);
 	}
 	CHECK(kg_lisp_arena_stats(&stats) == 0);
-	CHECK(stats.collection_count == 0);
+	/* Still 1, not 2: a representative init also needs no collection of
+	 * its own. */
+	CHECK(stats.collection_count == 1);
 	CHECK(stats.free_slots * 2 > stats.total_slots);
 	/* A real init evaluates real forms: peak_frame_depth has moved off
-	 * the bare prelude's own baseline (measured at the Phase 12 fix
-	 * cycle: prelude alone is peak_frame_depth 3, the representative
-	 * init above is 54 -- both well under frame_capacity). */
-	CHECK(stats.peak_frame_depth > 2);
+	 * the bare prelude's own baseline.  That baseline itself has moved
+	 * since the Phase 12 fix cycle measured it at peak_frame_depth 3;
+	 * the bare prelude alone reads 8 on this tree, with
+	 * peak_native_reentry 1.  Both numbers were previously attributed
+	 * to install_deferred_stubs() (Prelude Phase 1, b94e795), and Phase
+	 * A of doc/plans/2026-08-19-fe-simplification-and-cheap-compat.md
+	 * disproved that by deleting it: 8 and 1 both held, measured either
+	 * side of the removal, so the rise came from the prelude growing,
+	 * not from the lazy-install loop.  See utils/bench.py's baseline
+	 * comment, which carries the same correction; this file and that
+	 * one describe the same prelude.  The
+	 * representative init above reads 54, still well under
+	 * frame_capacity.  The threshold below moved from 2 to 20 for
+	 * exactly that reason: 2 is now BELOW
+	 * the bare-prelude baseline of 8, so it would have passed for a
+	 * kg_lisp_eval_string() call that silently did nothing at all --
+	 * the same "case that cannot fail" defect utils/bench.py's
+	 * lisp-arena-auto-fill and lisp-arithmetic-loop cases had at this
+	 * same pin, for the same underlying reason (see their comments).
+	 * 20 clears the current baseline of 8 with real margin, matching the
+	 * threshold utils/bench.py's own lisp-arena-representative-init and
+	 * lisp-arena-auto-fill cases use for the identical shape. */
+	CHECK(stats.peak_frame_depth > 20);
 	CHECK(stats.peak_cleanup_stack_depth == 0);
 	kg_lisp_shutdown();
 }
@@ -1733,10 +1826,11 @@ static void test_lisp_load_time_counters(void)
  *
  * Each asserts its own exact result: unlike a rebuild's incidental object
  * count, "this expression computed the right answer" is the property
- * under test, not an approximation of it.  Where a shape's cost is
- * GC-stack depth rather than result, the bound is against GcStackSize
- * (4096) with margin, not a tight number -- see the list-walk comment for
- * the measurement that picked 150. */
+ * under test, not an approximation of it.  Every shape here is also
+ * bounded against GcStackSize (4096) and, where that is the resource the
+ * shape actually spends, frame_capacity -- margin, not a tight number --
+ * see the list-walk comment for the measurement that picked 150 and for
+ * which of the two ceilings this shape actually meets. */
 static void test_lisp_evaluator_shapes(void)
 {
 	static constexpr size_t gc_stack_size = 4096;
@@ -1749,11 +1843,29 @@ static void test_lisp_evaluator_shapes(void)
 
 	/* List walk: `lw` is not tail-call optimised (Fe's recursive
 	 * evaluator does not flatten it), so every intermediate cons stays
-	 * live until the outermost call returns and GC-stack depth is
-	 * linear in recursion depth.  Measured directly: this expression's
-	 * peak_gc_stack_depth is 3914 of 4096 at n=300 and overflows by
-	 * n=400; 150 leaves roughly half the stack free while still being
-	 * a real multi-hundred-cell walk. */
+	 * live until the outermost call returns.  This comment used to claim
+	 * that made GC-stack depth linear in recursion depth and the
+	 * resource this shape spends -- "peak_gc_stack_depth is 3914 of 4096
+	 * at n=300 and overflows by n=400".  Re-measured at this fe pin
+	 * (Phase 21.2), that claim is backwards: THE GC ROOT STACK DOES NOT
+	 * GROW WITH n AT ALL.  peak_gc_stack_depth reads the same value --
+	 * kg's own prelude baseline -- at n=150, n=300, n=400 and n=600
+	 * alike (measured via utils/bench.py's counting build,
+	 * test/perfobj/kg, one run per n).  What scales is peak_frame_depth:
+	 * 305/605/805/1087 at those same four n, roughly 2 per recursion
+	 * level (`lw`'s body is one `if` wrapping the recursive call, no
+	 * extra arithmetic frame) -- exactly what fe's own Phase 21.2 commit
+	 * found for the equivalent bare-context shape, confirmed here for
+	 * kg's prelude-loaded evaluator too.  frame_capacity is the ceiling
+	 * this shape actually meets: it was 1087 when those four n were
+	 * measured, n=600 saturated it exactly, and both this function's
+	 * kg_lisp_eval_string() and test/kgbatch raised "evaluation frame
+	 * limit exceeded" somewhere between n=520 (still fits) and n=540-545
+	 * (does not; the two entry paths' own frame overhead differs by a
+	 * handful, hence the range).  Phase B's 10 MiB default moves that
+	 * ceiling to 10916, an order of magnitude clear of this walk, which
+	 * is why the assertion below is against frame_capacity and not
+	 * against any of these numbers. */
 	CHECK(kg_lisp_init() == 0);
 	static const char list_walk[]
 	    = "(defun lw (n l) (if (<= n 0) l (lw (- n 1) (cons n l)))) "
@@ -1765,6 +1877,10 @@ static void test_lisp_evaluator_shapes(void)
 	CHECK(strcmp(result, "150") == 0);
 	CHECK(kg_lisp_arena_stats(&stats) == 0);
 	CHECK(stats.peak_gc_stack_depth < gc_stack_size);
+	/* The bound this shape actually meets, per the comment above -- not
+	 * asserted before this pin, which is exactly how a stale claim about
+	 * the wrong resource went unnoticed. */
+	CHECK(stats.peak_frame_depth < stats.frame_capacity);
 	kg_lisp_shutdown();
 
 	/* Arithmetic loop: 20000 `while` iterations of scalar addition --
@@ -1797,12 +1913,13 @@ static void test_lisp_evaluator_shapes(void)
 
 	/* Deep call chain: 300 levels of non-tail self-recursion, well under
 	 * both the GC-stack ceiling and the arena's own frame_capacity
-	 * (measured peak_frame_depth 904 of frame_capacity 1087 on this
+	 * (measured peak_frame_depth 904 of frame_capacity 10916 on this
 	 * build -- about 3 frames per recursion level for this chain's
 	 * shape: the `if`, the `+`, and the recursive call each open one).
 	 * Asserted against frame_capacity rather than a hardcoded number so
 	 * this stays meaningful if KG_LISP_ARENA_SIZE, or Fe's per-frame
-	 * arena partition, ever changes; the assertion is what
+	 * arena partition, ever changes -- as KG_LISP_ARENA_SIZE just did,
+	 * taking frame_capacity 1087 -> 10916; the assertion is what
 	 * test_recursion_depth's comment (test_lisp.c) also measures. */
 	CHECK(kg_lisp_init() == 0);
 	static const char deep_call_chain[]
@@ -1818,12 +1935,209 @@ static void test_lisp_evaluator_shapes(void)
 	kg_lisp_shutdown();
 }
 
+/* Type `text' at whatever prompt `name' opens, with the frame it paints
+ * sent to /dev/null (refresh_quietly()'s reason exactly: the prompt
+ * writes to fd 1 and the suite's own output has to stay readable).
+ *
+ * The pipe's WRITE END STAYS OPEN for the whole call.  At end of input
+ * read_key_byte() (src/tty.c) sees poll(2) call the descriptor readable
+ * and read(2) return 0 and loops, so a closed write end is a spin, not a
+ * return -- which is why `text' ends in the CR that makes the minibuffer
+ * reader return before it ever asks for another byte. */
+static int type_at_prompt(const char *name, const char *text)
+{
+	int fds[2];
+	int saved, devnull, rc;
+
+	if (pipe(fds) != 0) {
+		return -1;
+	}
+	if (write(fds[1], text, strlen(text)) != (ssize_t)strlen(text)) {
+		close(fds[0]);
+		close(fds[1]);
+		return -1;
+	}
+	saved = dup(STDOUT_FILENO);
+	devnull = open("/dev/null", O_WRONLY);
+	fflush(stdout);
+	if (devnull >= 0) {
+		dup2(devnull, STDOUT_FILENO);
+	}
+	rc = cmd_execute_named(name, fds[0]);
+	fflush(stdout);
+	if (saved >= 0) {
+		dup2(saved, STDOUT_FILENO);
+		close(saved);
+	}
+	if (devnull >= 0) {
+		close(devnull);
+	}
+	close(fds[0]);
+	close(fds[1]);
+	return rc;
+}
+
+/* One `M-:' that reached a value moves lisp_minibuffer_eval by exactly
+ * one, and a session that opened no prompt leaves it at zero.
+ *
+ * The property this is the evidence for is utils/bench.py's, not the
+ * editor's: every other Lisp counter is a gauge the prelude has already
+ * filled by the time the first keystroke arrives, so none of them can
+ * tell a case that drove its key script from one that started kg and
+ * exited.  The Phase 21 adversarial review (finding 4) demonstrated
+ * exactly that -- `lisp-command-latency' asserted only
+ * lisp_arena_total_slots > 0 and passed with an exit-only key script,
+ * measuring startup under the name of a command round trip.  A counter
+ * this test pins to the M-: path is what that case now asserts instead.
+ *
+ * Exact equality rather than a bound, per this file's header rule: the
+ * number of minibuffer evaluations in a session IS the property, the way
+ * one row update per logical replacement is. */
+static void test_lisp_minibuffer_eval_counts_each_prompt(void)
+{
+	if (!kg_lisp_active()) {
+		return;
+	}
+	CHECK(kg_lisp_init() == 0);
+	kg_perf_reset();
+
+	/* Nothing typed yet: the prelude has run, the arena gauges are all
+	 * long since non-zero, and this one is still zero.  That gap is the
+	 * whole point of it. */
+	CHECK(counter(KG_PERF_LISP_MINIBUFFER_EVAL) == 0);
+	CHECK(counter(KG_PERF_LISP_ARENA_TOTAL_SLOTS) == 0);
+
+	CHECK(type_at_prompt("eval-expression", "(+ 1 2)\r") == 0);
+	CHECK(counter(KG_PERF_LISP_MINIBUFFER_EVAL) == 1);
+	CHECK(type_at_prompt("eval-expression", "(+ 2 3)\r") == 0);
+	CHECK(counter(KG_PERF_LISP_MINIBUFFER_EVAL) == 2);
+
+	/* An expression that raises is a prompt that completed and an
+	 * evaluation that did not, so it is not credited: the counter is
+	 * what a bench case reads to claim its workload ran, and a workload
+	 * that signalled did not run. */
+	CHECK(type_at_prompt("eval-expression", "(car 1)\r") == 0);
+	CHECK(counter(KG_PERF_LISP_MINIBUFFER_EVAL) == 2);
+
+	/* An empty prompt (RET alone) never reaches the evaluator at all. */
+	CHECK(type_at_prompt("eval-expression", "\r") == 0);
+	CHECK(counter(KG_PERF_LISP_MINIBUFFER_EVAL) == 2);
+
+	kg_lisp_shutdown();
+}
+
+/* The integer value fe's own FePerfWriteJson() wrote after `"key": `,
+ * found by the same kind of substring search a reader (or `utils/
+ * bench.py`) does on this file's JSON -- there is no JSON parser in this
+ * tree's C tests, and fe's flat "name": number shape does not need one.
+ * Fails the test (does not return 0) if `key` is absent, since an absent
+ * counter is a schema break this test exists to catch. */
+static unsigned long long fe_json_counter(const char *json, const char *key)
+{
+	char needle[64];
+	const char *p;
+
+	CHECK(snprintf(needle, sizeof(needle), "\"%s\": ", key)
+	    < (int)sizeof(needle));
+	p = strstr(json, needle);
+	CHECK(p != nullptr);
+	if (p == nullptr) {
+		return 0;
+	}
+	return strtoull(p + strlen(needle), nullptr, 10);
+}
+
+/* Phase 21's follow-up (doc/plans/2026-08-18-elisp-data-model-phase21-
+ * baseline.md's "LIMITATION" paragraph): this counting build's fe
+ * objects are compiled with FE_PERF_COUNTERS=1 too (Makefile's
+ * PERF_FE_CFLAGS), so kg_lisp_perf_dump_fe_json() (src/lisp_core.c)
+ * reaches fe's real FePerfWriteJson() rather than writing the disabled
+ * build's JSON `null` -- checked directly below, not assumed, since
+ * `null` would otherwise look like a passing string search on the wrong
+ * build. Asserts relationships, per this file's own header rule and
+ * fe's own Phase 21.1 commit's rule for its C API test: a cons cell
+ * moves alloc_pair, and the by-type block still sums to alloc_object
+ * from kg's side of the seam, the same invariant fe's own test_api.c
+ * pins from fe's side. */
+static void test_fe_perf_counters_reach_kg_json(void)
+{
+	FILE *fp;
+	char buf[8192];
+	size_t n;
+	unsigned long long pairs_before, pairs_after, object_total;
+	int i;
+
+	if (!kg_lisp_active()) {
+		return;
+	}
+	CHECK(kg_lisp_init() == 0);
+
+	fp = tmpfile();
+	CHECK(fp != nullptr);
+	kg_lisp_perf_dump_fe_json(fp);
+	rewind(fp);
+	n = fread(buf, 1, sizeof(buf) - 1, fp);
+	buf[n] = '\0';
+	fclose(fp);
+	CHECK(strncmp(buf, "null", 4) != 0);
+	pairs_before = fe_json_counter(buf, "alloc_pair");
+
+	{
+		char result[128] = "";
+		static const char one_cons[] = "(cons 1 2)";
+
+		CHECK(kg_lisp_eval_string(one_cons, sizeof(one_cons) - 1,
+			  result, sizeof(result))
+		    == 0);
+	}
+
+	fp = tmpfile();
+	CHECK(fp != nullptr);
+	kg_lisp_perf_dump_fe_json(fp);
+	rewind(fp);
+	n = fread(buf, 1, sizeof(buf) - 1, fp);
+	buf[n] = '\0';
+	fclose(fp);
+	pairs_after = fe_json_counter(buf, "alloc_pair");
+	CHECK(pairs_after > pairs_before);
+
+	object_total = 0;
+	static const char *const alloc_type_names[] = {
+		"alloc_pair",
+		"alloc_free",
+		"alloc_nil",
+		"alloc_double",
+		"alloc_integer",
+		"alloc_symbol",
+		"alloc_string",
+		"alloc_fn",
+		"alloc_macro",
+		"alloc_primitive",
+		"alloc_native_fn",
+		"alloc_ptr",
+		"alloc_fex0",
+		"alloc_fex1",
+		"alloc_fex2",
+		"alloc_sentinel",
+	};
+	for (i = 0;
+	    i < (int)(sizeof(alloc_type_names) / sizeof(alloc_type_names[0]));
+	    i++) {
+		object_total += fe_json_counter(buf, alloc_type_names[i]);
+	}
+	CHECK(object_total == fe_json_counter(buf, "alloc_object"));
+	CHECK(fe_json_counter(buf, "peak_live_objects") > 0);
+	kg_lisp_shutdown();
+}
+
 int main(void)
 {
 	RUN(test_post_command_hook_empty_costs_nothing);
 	RUN(test_lisp_prelude_arena_margin);
 	RUN(test_lisp_load_time_counters);
 	RUN(test_lisp_evaluator_shapes);
+	RUN(test_lisp_minibuffer_eval_counts_each_prompt);
+	RUN(test_fe_perf_counters_reach_kg_json);
 	RUN(test_load_row_array_growth);
 	RUN(test_load_highlight_is_final);
 	RUN(test_insert_row_array_growth);

@@ -1,0 +1,6 @@
+{
+ "id": "vector-copy-sequence",
+ "setup": [],
+ "expr": "(let* ((a [1 2]) (b (copy-sequence a))) (list (equal a b) (eq a b) (progn (aset b 0 9) (list a b))))",
+ "note": "`copy-sequence' of a vector returns a SHALLOW COPY: equal but not eq, and a write through the copy does not reach the original. Emacs: (t nil ([1 2] [9 2])). Under Design B the copy needs its own payload block, so this case is also the one that fails if the implementation shares one block between two headers. 24.2's list."
+}

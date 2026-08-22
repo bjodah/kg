@@ -1,0 +1,6 @@
+{
+ "id": "vector-aset-two-references",
+ "setup": [],
+ "expr": "(let* ((a (make-vector 3 0)) (b a)) (list (aset a 1 'x) (aref b 1) (eq a b) b))",
+ "note": "The master plan's required `mutation observed through two references' case: `b' is not a copy, so a write through `a' is visible through `b', the two stay `eq', and `aset' returns the VALUE it stored rather than the vector. Emacs: (x x t [0 x 0]). Under Design B this is also the test that a payload block moved by CompactPayloads keeps one identity for both references."
+}

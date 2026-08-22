@@ -1,0 +1,7 @@
+{
+ "id": "vector-elt-list-out-of-range",
+ "setup": [],
+ "expr": "(elt '(1 2) 9)",
+ "note": "MEASURED ASYMMETRY, and the reason the previous case exists as its own row: `elt' past the end of a LIST answers nil rather than raising, because it routes to `nth'. kg already agrees (nil), which is why this case carries \"expect\": \"agree\" inside a divergent feature -- the same worked-example shape native-type-of uses. It is here so that 24.1, generalising `elt', cannot make the vector case raise by making the list case raise too.",
+ "expect": "agree"
+}

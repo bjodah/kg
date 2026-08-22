@@ -1,0 +1,6 @@
+{
+ "id": "string25-string-order-multibyte",
+ "setup": [],
+ "expr": "(list (string< \"a\" \"é\") (string< \"é\" \"z\") (string< \"日\" \"本\") (string= \"日本\" \"日本\"))",
+ "note": "Ordering over multibyte text, which already agrees: (t nil t t) on both sides. fe compares strings by byte and Emacs by character code, and for UTF-8 those two orders coincide -- which is a property of the encoding, not a coincidence, and is why this row is `supported` rather than lucky. Phase 25.1 rewrites `Equal`'s word-compare arm and this is one of the cases that must not move when it does."
+}

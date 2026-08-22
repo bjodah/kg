@@ -1,0 +1,11 @@
+{
+  "id": "s-contains-case",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-contains? \"Abc\" \"b\")",
+  "expect": "agree",
+  "note": "Contains family, case-sensitive. Both return t."
+}

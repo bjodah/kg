@@ -1,0 +1,6 @@
+{
+ "id": "r2-count-matches-greedy-and-empty",
+ "setup": [],
+ "expr": "(with-temp-buffer (insert \"axxxb\") (list (count-matches \"x*\" 1 3) (count-matches \"ax*\" 1 3) (count-matches \"a.*b\\\\|x\" 1 6)))",
+ "note": "COUNTING UNDER A WINDOW, with the two shapes that make a bounded count loop or lie: a pattern that matches EMPTY (the loop's own `forward-char' is what advances it) and a greedy one that is shortened rather than refused.  Emacs answers (2 1 1); the third element is the first probe's pattern with the window opened to the whole buffer, where the preferred alternative wins and the count is 1 rather than 2."
+}

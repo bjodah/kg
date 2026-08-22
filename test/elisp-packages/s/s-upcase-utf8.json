@@ -1,0 +1,11 @@
+{
+  "id": "s-upcase-utf8",
+  "package": "s.el",
+  "domain": "utf8-codepoint",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-upcase \"café\")",
+  "expect": "diverge",
+  "note": "UTF-8 boundary probe: non-ASCII case folding diverges. kg folds ASCII only and returns \"CAFé\"; Emacs returns \"CAFÉ\". Recorded as a divergence so the gap is loud, not hidden."
+}

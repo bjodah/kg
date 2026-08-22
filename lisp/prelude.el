@@ -76,7 +76,6 @@
 (defalias 'caar (lambda (x) (car (car x))))
 (defalias 'cadr (lambda (x) (car (cdr x))))
 (defalias 'cddr (lambda (x) (cdr (cdr x))))
-(defalias 'listp (lambda (x) (if (null x) t (consp x))))
 ;; --- hygiene for the prelude's own temporaries -----------------------
 ;;
 ;; A `let' over a name the user has `defvar'd binds DYNAMICALLY (Phase
@@ -134,15 +133,26 @@
 ;; with no callback in between, so nothing can observe them.  doc/TODO.md
 ;; carries the census and the classification.
 ;; --- list library, all iterative ---
-(defalias 'reverse (lambda (lst)
-  (internal--let res nil)
-  (while lst
-    (setq res (cons (car lst) res))
-    (setq lst (cdr lst)))
-  res))
+;; Every sequence as a LIST, which is the one shape the combinators below
+;; walk.  A list is already one; a vector is copied out by index; a string
+;; becomes its CHARACTER codes, which is what Emacs flattens a string to --
+;; (append "ab" nil) is (97 98) -- and what `string-to-list' already
+;; produces.  A non-sequence never reaches the loop: `length' answers
+;; (wrong-type-argument sequencep X) for it, which is Emacs' answer too.
+(defalias 'internal--seq-to-list (lambda (sequence)
+  (if (listp sequence)
+      sequence
+    (if (stringp sequence)
+        (string-to-list sequence)
+      (internal--let n (length sequence))
+      (internal--let out nil)
+      (while (< 0 n)
+        (setq n (- n 1))
+        (setq out (cons (aref sequence n) out)))
+      out))))
 (defalias 'internal--append2 (lambda (a b)
   (internal--let res b)
-  (internal--let r (reverse a))
+  (internal--let r (reverse (internal--seq-to-list a)))
   (while r
     (setq res (cons (car r) res))
     (setq r (cdr r)))
@@ -155,22 +165,21 @@
     (setq res (internal--append2 (car r) res))
     (setq r (cdr r)))
   res))
-;; Emacs' `length' is generic over sequences and answers
-;; (wrong-type-argument sequencep X) for anything that is not one -- not
-;; `listp', which is what the bare `while' below reported for (length 5)
-;; by falling into (cdr 5).  A dotted pair still says listp, from the same
-;; walk and about the offending TAIL, which is Emacs' answer too:
-;; (length '(1 . 2)) is (wrong-type-argument listp 2) on both sides.
+;; fe's own `length' is generic over lists, strings and vectors, and kg
+;; keeps exactly one of those three arms for itself: a fe string is a chain
+;; of BYTES, so fe counts bytes where Emacs counts CHARACTERS -- (length
+;; "é") is 2 there and 1 in Emacs and here.  So a string is kg's
+;; character-counting native and everything else is fe's primitive, which
+;; already answers (wrong-type-argument sequencep X) for a non-sequence and
+;; (wrong-type-argument listp TAIL) for a dotted list, the two conditions
+;; this definition used to produce by hand.  Phase 25 of
+;; doc/plans/2026-08-18-elisp-data-model.md retires the wrapper by giving
+;; fe length-bearing strings.
+(defalias 'internal--fe-length (symbol-function 'length))
 (defalias 'length (lambda (x)
   (if (stringp x)
       (string-length x)
-    (if (not (listp x))
-        (signal 'wrong-type-argument (list 'sequencep x)))
-    (internal--let n 0)
-    (while x
-      (setq n (+ n 1))
-      (setq x (cdr x)))
-    n)))
+    (internal--fe-length x))))
 (defalias 'nthcdr (lambda (n lst)
   (while (and (< 0 n) lst)
     (setq n (- n 1))
@@ -180,8 +189,20 @@
 (defalias 'last (lambda (lst)
   (while (cdr lst) (setq lst (cdr lst)))
   lst))
-;; Structural on lists, then Emacs' atom rule: strings compare by
-;; content, numbers by eql, everything else by identity.  Only the car
+;; Two vectors compare element by element, from the end, so an unequal
+;; length answers before a single element is read.  Only two vectors ever
+;; reach here: `equal' has already ruled out every pair where one side is
+;; a cons, which is how Emacs' rule that a vector is never `equal' to a
+;; list with the same elements comes out right in both argument orders.
+(defalias 'internal--equal-vectors (lambda (a b)
+  (internal--let n (length a))
+  (internal--let same (= n (length b)))
+  (while (and same (< 0 n))
+    (setq n (- n 1))
+    (if (equal (aref a n) (aref b n)) nil (setq same nil)))
+  same))
+;; Structural on lists and vectors, then Emacs' atom rule: strings compare
+;; by content, numbers by eql, everything else by identity.  Only the car
 ;; descends, so the spine cost is a loop, not a frame.
 (defalias 'equal (lambda (a b)
   (internal--let same t)
@@ -194,15 +215,17 @@
         (string= a b)
       (if (and (numberp a) (numberp b))
           (eql a b)
-        (eq a b))))))
+        (if (and (vectorp a) (vectorp b))
+            (internal--equal-vectors a b)
+          (eq a b)))))))
 (defalias 'zerop (lambda (n) (= n 0)))
-(defalias 'mapcar (lambda (f lst)
-  ((lambda (res)
+(defalias 'mapcar (lambda (f sequence)
+  ((lambda (res lst)
      (while lst
        (setq res (cons (funcall f (car lst)) res))
        (setq lst (cdr lst)))
      (reverse res))
-   nil)))
+   nil (internal--seq-to-list sequence))))
 (defalias 'member (lambda (elt lst)
   (while (and lst (not (equal elt (car lst))))
     (setq lst (cdr lst)))
@@ -223,17 +246,44 @@
     (if (eq key (car (car alist))) (setq hit (car alist)))
     (setq alist (cdr alist)))
   hit))
-(defalias 'mapc (lambda (f lst)
-  ((lambda (original)
+;; Emacs' string designator: a string is itself, a SYMBOL is its name
+;; (`nil' included, so a nil key is "nil"), anything else is nil meaning
+;; `not comparable as a string'.  What the two callers do with that nil
+;; is `assoc-string''s DELIBERATE ASYMMETRY, measured: a non-string KEY
+;; raises, a non-string ELEMENT is SKIPPED and the scan continues, so an
+;; alist of numbers answers nil rather than signalling.
+(defalias 'internal--string-designator (lambda (object)
+  (if (stringp object) object
+    (if (symbolp object) (symbol-name object)))))
+;; The ELEMENT comes back, not the key and not the cdr -- s--aget takes
+;; the `cdr' of this.  FOLD is `compare-strings'' own ASCII-only fold,
+;; one answer for both names.  `found' is separate from `hit' because a
+;; matched element may itself be nil.
+(defalias 'assoc-string (lambda (key alist &optional case-fold)
+  (internal--let name (internal--string-designator key))
+  (internal--let hit nil)
+  (internal--let found nil)
+  (if (null name) (signal 'wrong-type-argument (list 'stringp key)))
+  (while (and alist (null found))
+    (internal--let element (car alist))
+    (internal--let text (internal--string-designator
+                          (if (consp element) (car element) element)))
+    (if (and text
+             (eq t (compare-strings name nil nil text nil nil case-fold)))
+        (progn (setq found t) (setq hit element)))
+    (setq alist (cdr alist)))
+  hit))
+(defalias 'mapc (lambda (f sequence)
+  ((lambda (lst)
      (while lst
        (funcall f (car lst))
        (setq lst (cdr lst)))
-     original)
-   lst)))
+     sequence)
+   (internal--seq-to-list sequence))))
 ;; SEPARATOR has been optional since Emacs 29, defaulting to "".
-(defalias 'mapconcat (lambda (f lst &optional separator)
+(defalias 'mapconcat (lambda (f sequence &optional separator)
   (if (null separator) (setq separator ""))
-  ((lambda (result first)
+  ((lambda (result first lst)
      (while lst
        (if first
            (setq first nil)
@@ -241,7 +291,7 @@
        (setq result (concat result (funcall f (car lst))))
        (setq lst (cdr lst)))
      result)
-   "" t)))
+   "" t (internal--seq-to-list sequence))))
 (defalias 'nreverse (lambda (lst)
   (internal--let result nil)
   (while lst
@@ -357,13 +407,6 @@
 ;; rather than the only one -- it stays because `let*' expands to the
 ;; two-argument `internal--let' spelling, one binding at a time, and
 ;; because one rule with one message is worth more than the line it costs.
-(defalias 'internal--bind-name (lambda (b)
-  (internal--let name (if (atom b) b (car b)))
-  (if (or (eq name t) (eq name nil) (keywordp name))
-      (signal 'setting-constant (list name))
-    name)))
-(defalias 'internal--bind-value (lambda (b)
-  (if (atom b) nil (car (cdr b)))))
 ;; `let' normalises its binding list and hands it to fe's core
 ;; bindings-list `let' (reachable here as `internal--let', captured above
 ;; before this macro shadowed the name).  Until Phase 11 this expanded to
@@ -517,9 +560,11 @@
 ;; unhighlighted `push-mark' to use instead.  Recorded as a divergence
 ;; (the manifest's beginning-of-buffer/end-of-buffer rows) rather than
 ;; approximated.  The Emacs manual's own advice for Lisp code is
-;; `(goto-char (point-min))', which is what these are.
-(defalias 'beginning-of-buffer (lambda () (goto-char (point-min))))
-(defalias 'end-of-buffer (lambda () (goto-char (point-max))))
+;; `(goto-char (point-min))', which is what these are.  The trailing nil
+;; is Emacs' answer (phase17-buffer-ends) and stopped being free when
+;; `goto-char' learned to return POSITION.
+(defalias 'beginning-of-buffer (lambda () (goto-char (point-min)) nil))
+(defalias 'end-of-buffer (lambda () (goto-char (point-max)) nil))
 ;; --- quasiquote: `x , ,@ read as (quasiquote x) etc. ---
 (defalias 'internal--qq (lambda (form &optional depth)
   (if (null depth) (setq depth 1))
@@ -588,9 +633,6 @@
 ;; not much better than one that does not exist.  The cost of that is two
 ;; conses per definition.
 (setq internal--docs nil)
-(defalias 'internal--doc-put (lambda (name doc)
-  (setq internal--docs (cons (cons name doc) internal--docs))
-  doc))
 ;; Emacs puts a variable's docstring on the symbol's plist, under
 ;; `variable-documentation', where `documentation-property' reads it back
 ;; -- so `(get 'fill-column 'variable-documentation)' answers there and
@@ -600,9 +642,6 @@
 ;; both hold the same string object -- and nothing is stored at all for
 ;; an undocumented `defvar', which is why this is a call and not a bare
 ;; `put'.
-(defalias 'internal--variable-doc-put (lambda (name doc)
-  (if doc (put name 'variable-documentation doc))
-  doc))
 ;; (documentation-property SYMBOL PROPERTY &optional RAW): the property,
 ;; when it is a string.  Emacs stores a built-in variable's documentation
 ;; as an offset into its DOC file and resolves it here, which is why the
@@ -615,15 +654,25 @@
 (defalias 'documentation-property (lambda (symbol property &optional raw)
   (internal--let text (get symbol property))
   (if (stringp text) text nil)))
-;; The registry first, then the command table: a BUILT-IN command has no
-;; Lisp definition to have recorded a docstring, and the one-line summary
+;; The symbol's own `function-documentation' property first, then the
+;; registry, then the command table: a BUILT-IN command has no Lisp
+;; definition to have recorded a docstring, and the one-line summary
 ;; cmd.c carries -- the same text M-x and the help screen show -- is the
-;; honest answer for it.
+;; honest answer for it.  The property comes FIRST because Emacs answers
+;; it first, measured: with (defun ff () "own doc" 1) and a
+;; `function-documentation' of "prop doc" on the same symbol, Emacs
+;; answers "prop doc".  It is read through `documentation-property'
+;; rather than `get' for the other half of that measurement -- a
+;; NON-STRING property answers nil, which is what Emacs answers for the
+;; 42 `defalias' happily stored.
 (defalias 'documentation (lambda (name)
+  (internal--let stored (documentation-property name 'function-documentation))
   (internal--let entry (assq name internal--docs))
-  (if (and entry (cdr entry))
-      (cdr entry)
-    (internal--command-documentation name))))
+  (if stored
+      stored
+    (if (and entry (cdr entry))
+        (cdr entry)
+      (internal--command-documentation name)))))
 ;; Every name the registry knows, newest first and with duplicates, which
 ;; is the shape the alist has; `apropos' filters and de-duplicates.
 (defalias 'internal--defined-names (lambda ()
@@ -794,6 +843,16 @@
   (cons 'progn (reverse forms))))
 ;; Inert outside defun: a stray top-level (interactive) is harmless.
 (defalias 'interactive (macro args nil))
+;; Emacs' `autoload' arms lazy loading: it puts an autoload object in the
+;; function cell, and the first call loads the file and re-dispatches.
+;; kg's records nothing and loads nothing, so a function that only an
+;; autoload would have provided stays `void-function' at its first CALL,
+;; and `fboundp' says nil where Emacs says t.  That is the correct kg
+;; answer until kg has package loading at all; what the form buys is that
+;; a package's own header no longer stops the load before its first
+;; definition -- s.el:34 is the measured first blocker, `void-function
+;; autoload'.  The divergence is the `prelude-autoload' manifest row.
+(defalias 'autoload (macro args nil))
 (defalias 'internal--declare-p (lambda (form)
   (and (consp form) (eq (car form) 'declare))))
 (defalias 'ignore-errors (macro body
@@ -875,19 +934,53 @@
 ;; than a false "cyclic require".  The did-not-provide verdict
 ;; (internal--require-check) runs only on the success path, before the
 ;; pop so the C side still sees this chain's depth.
-(defalias 'require (lambda (feature &optional filename)
-  ((lambda (path)
-     (if path
-         ((lambda (pushed)
-            (unwind-protect
-                (progn
-                  (setq pushed (internal--require-push feature))
-                  (internal--load-loop path)
-                  (internal--require-check feature))
-              (if pushed (internal--require-pop))))
-          nil)))
-   (internal--require-resolve feature filename))
-  feature))
+;;
+;; NOERROR is the third slot, and it covers ONE failure: the feature's
+;; file not being found.  Emacs 31.0.91, measured: (require 'absent nil t)
+;; answers nil and provides nothing, (require 'absent nil nil) raises
+;; (file-missing "Cannot open load file" "No such file or directory"
+;; "absent"), and all three arities answer the feature symbol for a
+;; feature already provided.  So the condition-case wraps the RESOLVE and
+;; nothing else -- a cyclic require, a nesting-depth refusal and any error
+;; raised by the file WHILE LOADING all still propagate, which is Emacs'
+;; rule (its `require' passes NOERROR down to `load', whose own NOERROR
+;; covers the missing file alone).  This is the guarded-require idiom
+;; `(require 'foo nil t)' every package writes, and `cython-mode's first
+;; blocker in the census.
+;;
+;; ONE CASE NOERROR DOES NOT COVER HERE, recorded rather than papered
+;; over: a FILENAME containing `/' is a literal path that
+;; internal--require-resolve returns without opening (`load's own rule
+;; for such a name), so the missing-file error comes from the LOAD and
+;; not from the resolve, and this condition-case is deliberately not
+;; around the load.  Emacs answers nil there; kg raises `file-missing'.
+;; Widening the catch is the wrong fix -- it would swallow a `file-
+;; missing' raised by the required file's OWN nested require, which
+;; Emacs propagates.  Measured demand for the combination across the
+;; whole ELPA tree: 92 `require' calls take a second argument, 19 of
+;; them a non-nil FILENAME, 17 of those a slashed one, and NONE of the
+;; 17 also passes NOERROR.
+(defalias 'require (lambda (feature &optional filename noerror)
+  ((lambda (path missing)
+     (if noerror
+         (condition-case nil
+             (setq path (internal--require-resolve feature filename))
+           (file-missing (setq missing t)))
+       (setq path (internal--require-resolve feature filename)))
+     (if missing
+         nil
+       (progn
+         (if path
+             ((lambda (pushed)
+                (unwind-protect
+                    (progn
+                      (setq pushed (internal--require-push feature))
+                      (internal--load-loop path)
+                      (internal--require-check feature))
+                  (if pushed (internal--require-pop))))
+              nil))
+         feature)))
+   nil nil)))
 
 ;; --- startup ---
 ;; The startup screen switch, declared here so it is `boundp' and
@@ -908,9 +1001,38 @@
   "Emacs' other name for `inhibit-startup-screen'; either one suppresses it.")
 (defvar tab-width 8
   "Distance between tab stops (for display of tab characters), in columns.")
+;; Here rather than in `lisp/auto-fill.el' because kg's OWN fill reads
+;; it, and a package the editor has not loaded cannot own the editor's
+;; fill column.  70 is Emacs' default, measured; src/word.c's fallback,
+;; for a build with no evaluator, is the 72 it hard-coded before this.
+;; SPECIAL is the load-bearing half: `s-word-wrap' is
+;; `(let ((fill-column len)) (fill-region ...))', and a `let' over a name
+;; no `defvar' has marked binds lexically, where no fill would see it.
+(defvar fill-column 70
+  "Column beyond which automatic line-wrapping should happen.
+`fill-region', M-q and `auto-fill-mode' all wrap here.  (setq-local
+fill-column N) gives one buffer a margin of its own: each fill reads the
+name inside the buffer it is filling.")
 
 ;; --- editor helpers ---
 (defalias 'string-empty-p (lambda (s) (string= s "")))
+;; `multibyte-string-p' answers nil for EVERY string, always, and that is
+;; a decision rather than a default.  Phase 25 fixed kg's string as fe's
+;; unibyte byte string, so nil is the honest answer -- Emacs' flag is a
+;; property of the string OBJECT, not of the characters a caller can read
+;; out of it -- and answering `t' would be strictly worse in a way that
+;; is measurable: `s-reverse' branches on this predicate and its multibyte
+;; branch calls `(require 'ucs-normalize)', a library kg does not have.
+;; kg takes the else branch instead, `(concat (nreverse (string-to-list
+;; s)))', which is a CHARACTER reversal here because `string-to-list'
+;; decodes UTF-8 and `concat' re-encodes it -- so (s-reverse "héllo") is
+;; right and a base character plus a combining accent is not, which is
+;; the divergence frontier-s-reverse-grapheme-cluster records.
+;; It still refuses a non-string, because a predicate that answered nil
+;; for 5 would be answering a different question.
+(defalias 'multibyte-string-p (lambda (object)
+  (if (stringp object) nil
+    (signal 'wrong-type-argument (list 'stringp object)))))
 (defalias 'thing-at-point (lambda (thing)
   (internal--let bounds (bounds-of-thing-at-point thing))
   (if bounds (buffer-substring (car bounds) (cdr bounds)))))
@@ -974,8 +1096,79 @@
       (if string
           (substring string from (match-end n))
         (buffer-substring from (match-end n)))))))
+;; There is ONE match register, so any code that searches clobbers what
+;; its caller matched.  `save-match-data' is Emacs' own expansion of the
+;; fix -- a `let' over `(match-data)' and an `unwind-protect' that puts it
+;; back -- which means a body that raises, or that C-g interrupts, still
+;; restores.  The temporary is a `gensym' for the reason `save-excursion'
+;; uses one: a fixed name would be captured by a body that binds it.
+(defalias 'save-match-data (macro body
+  (internal--let sym (gensym "internal--match-data-"))
+  (list 'internal--let
+    (list (list sym (list 'match-data)))
+    (list 'unwind-protect (cons 'progn body)
+      (list 'set-match-data sym t)))))
+;; And `string-match-p' is that macro over `string-match', which is
+;; Emacs' definition of it too.  NOT perturbing the match data is the
+;; whole of what the `-p' spelling promises here -- it is not a
+;; predicate, it answers the same index `string-match' does -- so an
+;; implementation that forgot the wrapper would pass every test of its
+;; VALUE and none of its contract.
+(defalias 'string-match-p (lambda (regexp string &optional start)
+  (save-match-data (string-match regexp string start))))
+;; `count-matches' is Emacs' `how-many' under its other name, and it is a
+;; BUFFER function: s.el reaches it through `with-temp-buffer'
+;; (s-count-matches, s.el:718).  It is prelude Lisp because the loop is
+;; -- a `while' over `re-search-forward' -- and five of its properties
+;; were frozen against the pinned Emacs first (phase26-count-matches-*),
+;; because a naive loop gets two of them wrong:
+;;
+;;   * with no START and END it counts from POINT to the end of the
+;;     accessible buffer, and POINT IS UNCHANGED when it returns, which
+;;     is what `save-excursion' here is for;
+;;   * reversed bounds are ORDERED rather than refused, so
+;;     (count-matches "a" 4 2) is the count over 2..4;
+;;   * a zero-width match COUNTS and then advances one character, so
+;;     "a*" and "" both answer 6 over a six-character buffer -- not 3,
+;;     and not 7;
+;;   * the search resumes at the END of the previous match, so "ana" over
+;;     "banana" is 1;
+;;   * it CLOBBERS the match register on its last match, which is why
+;;     s.el wraps the call in `save-match-data'.
+;;
+;; The loop's NOERROR `t' is load-bearing: without it a failed search
+;; RAISES `search-failed' and the `while' never ends normally.
+;;
+;; Emacs' INTERACTIVE argument decides only whether the count is also
+;; MESSAGED; called from Lisp it is nil and the value is the whole
+;; answer.  kg honours it, in Emacs' own two spellings, because a
+;; function that reported through the echo area and returned nil would be
+;; a different function (phase26-count-matches-value-shape asks exactly
+;; that).
+(defalias 'count-matches (lambda (regexp &optional start end interactive)
+  (save-excursion
+    (let ((from (if start (if end (min start end) start) (point)))
+          (to (if (and start end) (max start end) (point-max)))
+          (count 0))
+      (goto-char from)
+      (while (and (< (point) to) (re-search-forward regexp to t))
+        (if (and (= (match-beginning 0) (match-end 0))
+                 (< (point) (point-max)))
+            (forward-char 1))
+        (setq count (+ count 1)))
+      (if interactive
+          (message (if (= count 1) "%d occurrence" "%d occurrences") count))
+      count))))
 
 ;; --- strings ---
+;; Emacs' long spellings of the three comparisons, which is all that was
+;; missing: kg has had `string=', `string<' and `string>' since Phase 15,
+;; and Phase 24's frontier probe stopped s.el at `string-equal'.  Aliases
+;; through `symbol-function', not definitions, so there is one
+;; implementation of each and one place a divergence from Emacs can live.
+(defalias 'string-equal (symbol-function 'string=))
+(defalias 'string-lessp (symbol-function 'string<))
+(defalias 'string-greaterp (symbol-function 'string>))
 ;; Emacs' default SEPARATORS is the regexp "[ \f\t\n\r\v]+", and with it
 ;; OMIT-NULLS defaults to t; with an explicit SEPARATORS it defaults to
 ;; nil.  Measured on 31.0.90: (split-string "") is nil and
@@ -1062,7 +1255,10 @@
 ;; string.  An escape Emacs rejects outright ("\\q") yields the escaped
 ;; character here; that is the one shape of replacement string the two
 ;; disagree about.
-(defalias 'internal--replace-expand (lambda (rep string)
+;; SUBEXP is which group \\& stands for.  It is 0 -- the whole match --
+;; for every caller but `replace-match' with an explicit SUBEXP, where
+;; Emacs' \\& is the SUBEXPRESSION being replaced and not group 0.
+(defalias 'internal--replace-expand (lambda (rep string &optional subexp)
   (let ((chars (string-to-list rep)) (out ""))
     (while chars
       (let ((c (car chars)))
@@ -1070,7 +1266,8 @@
             (let ((d (car (cdr chars))))
               (setq chars (cdr chars))
               (cond ((= d 38)
-                     (setq out (concat out (match-string 0 string))))
+                     (setq out (concat out
+                                 (match-string (if subexp subexp 0) string))))
                     ((= d 92) (setq out (concat out "\\")))
                     ((and (<= 48 d) (<= d 57))
                      (let ((m (match-string (- d 48) string)))
@@ -1079,6 +1276,51 @@
           (setq out (concat out (char-to-string c)))))
       (setq chars (cdr chars)))
     out)))
+;; Emacs' `replace-match', STRING form only -- which is the form s.el
+;; reaches, `(replace-match "" t t s)' from `s-trim-left' and
+;; `s-trim-right'.  It answers a NEW string and mutates nothing.  The
+;; buffer form is a different operation on a different object; kg does
+;; not have it, and says so rather than doing something else.
+;; FIXEDCASE is ACCEPTED AND IGNORED, which is what
+;; `replace-regexp-in-string' beside it already does with the same
+;; argument: kg never case-adjusts a replacement because it never
+;; case-folds a match, and two names taking one argument must not
+;; disagree about it.  Emacs' rule -- upcase the replacement after an
+;; all-upper match, `upcase-initials' it after a capitalised one -- can
+;; only fire where the pattern matched upper-case text WITHOUT folding
+;; to do it, which no frozen case can even ask (every one of them needs
+;; `case-fold-search' to match at all).  Declined here rather than
+;; approximated: see phase26-replace-match-case-conversion.
+;; Three properties are frozen against Emacs (phase26-replace-match-*)
+;; and none of them is guessable:
+;;
+;;   * SUBEXP selects the span to replace and defaults to the whole
+;;     match.  Naming a group that did not participate is `error' with
+;;     Emacs' own message -- and so is an EMPTY register, where group 0
+;;     is a subexpression like any other, so the two share a condition
+;;     AND a message and are told apart only by the SUBEXP AS WRITTEN in
+;;     the data: nil against 2.
+;;   * match data that does not fit STRING is `args-out-of-range'
+;;     carrying the offending span.
+;;   * THE MATCH DATA IS NOT ADJUSTED afterwards.  It still reads the
+;;     ORIGINAL subject's span over a returned string of another length.
+;;     The buffer form does adjust; one code path serving both would have
+;;     to choose, and Emacs' answer for the string form is "leave it".
+(defalias 'replace-match (lambda
+  (newtext &optional fixedcase literal string subexp)
+  (if (null string)
+      (error "replace-match: kg has the STRING form only")
+    (let* ((n (if subexp subexp 0)) (from (match-beginning n)))
+      (if (null from)
+          (signal 'error
+            (list "replace-match subexpression does not exist" subexp))
+        (let ((to (match-end n)))
+          (if (< (length string) to)
+              (signal 'args-out-of-range (list from to))
+            (concat (substring string 0 from)
+                    (if literal newtext
+                      (internal--replace-expand newtext string n))
+                    (substring string to)))))))))
 ;; REP is a replacement string or a function of the matched text.  Emacs'
 ;; FIXEDCASE is accepted and ignored -- kg never case-adjusts a
 ;; replacement, because it never case-folds a match either -- and its
@@ -1089,6 +1331,13 @@
 ;; "-a-b-c-".
 ;; All five temporaries are live across the `funcall' of a function REP,
 ;; so all five are lambda parameters rather than `let' bindings.
+;; A FUNCTION REP IS CALLED WITH THE MATCH DATA OF THE MATCHED TEXT, not
+;; of the subject: a replacer reads its groups with `(match-string N
+;; MATCHED-TEXT)', so subject offsets index the wrong string for every
+;; match that does not start at 0.  s-format is the measured case -- it
+;; answered the first ${...} and nothing for the rest.  Emacs re-matches
+;; the extracted text for the same reason.  Only a NON-EMPTY match:
+;; kg's one-character advance already agrees with Emacs on empty ones.
 (defalias 'replace-regexp-in-string (lambda
   (regexp rep string &optional fixedcase literal)
   ((lambda (start out limit)
@@ -1099,7 +1348,12 @@
                       (if (stringp rep)
                           (if literal rep
                             (internal--replace-expand rep string))
-                        (funcall rep (match-string 0 string)))))
+                        (if (= me mb)
+                            (funcall rep (match-string 0 string))
+                          ((lambda (str)
+                             (string-match regexp str)
+                             (funcall rep (match-string 0 str)))
+                           (substring string mb me))))))
           (if (= me mb)
               (progn
                 (if (< mb limit)
@@ -1115,13 +1369,33 @@
 (defalias 'caddr (lambda (x) (car (cdr (cdr x)))))
 (defalias 'cdddr (lambda (x) (cdr (cdr (cdr x)))))
 (defalias 'cadddr (lambda (x) (car (cdr (cdr (cdr x))))))
+;; The other name fe generalised, wrapped for the same one reason
+;; `length' is: a fe string indexes by BYTE and Emacs by CHARACTER.  Every
+;; other sequence is fe's primitive, which routes a list to its own walk
+;; (past the end is nil) and a vector to `aref' (past the end raises
+;; args-out-of-range) -- the asymmetry Phase 24.0 froze against Emacs.
+(defalias 'internal--fe-elt (symbol-function 'elt))
 (defalias 'elt (lambda (sequence n)
   (if (stringp sequence)
       (progn
         (if (or (< n 0) (<= (length sequence) n))
             (signal 'args-out-of-range (list sequence n)))
         (string-to-char (substring sequence n (+ n 1))))
-    (nth n sequence))))
+    (internal--fe-elt sequence n))))
+;; The THIRD name that needed the same wrapper, and the one this file
+;; forgot until Phase 25.0 measured it: `aref' and `elt' are the same
+;; operation on a string in Emacs, and they were not here -- (aref
+;; "h\303\251llo" 1) answered 195, the first BYTE of the character,
+;; where (elt "h\303\251llo" 1) answered 233.  A surface that counts
+;; characters everywhere else cannot have one name that counts bytes:
+;; s.el:200 alone writes (aref s1 (- l1 i 1)) with l1 from `length', so
+;; a character length and a byte index meet in one expression.  Every
+;; other sequence is fe's primitive, unchanged.
+(defalias 'internal--fe-aref (symbol-function 'aref))
+(defalias 'aref (lambda (array n)
+  (if (stringp array)
+      (elt array n)
+    (internal--fe-aref array n))))
 (defalias 'butlast (lambda (list &optional n)
   (let ((keep (- (length list) (if n n 1))) (out nil))
     (while (and (< 0 keep) list)
@@ -1129,14 +1403,20 @@
       (setq list (cdr list))
       (setq keep (- keep 1)))
     (reverse out))))
+;; A SHALLOW copy of the same type: a fresh string, a fresh vector whose
+;; elements are the originals, a fresh list spine.  `vconcat' of one
+;; vector is that fresh vector -- it always publishes a new payload block,
+;; which is what makes a write through the copy invisible to the original.
 (defalias 'copy-sequence (lambda (sequence)
   (if (stringp sequence)
       (substring sequence 0)
-    (let ((out nil))
-      (while sequence
-        (setq out (cons (car sequence) out))
-        (setq sequence (cdr sequence)))
-      (reverse out)))))
+    (if (vectorp sequence)
+        (vconcat sequence)
+      (let ((out nil))
+        (while sequence
+          (setq out (cons (car sequence) out))
+          (setq sequence (cdr sequence)))
+        (reverse out))))))
 (defalias 'number-sequence (lambda (from &optional to inc)
   (if (null to)
       (list from)
@@ -1152,19 +1432,6 @@
       (reverse out)))))
 ;; Destructive, as Emacs': every argument but the last has to be a list,
 ;; and the result is the first non-nil one with the rest spliced onto it.
-(defalias 'nconc (lambda lists
-  (let ((result nil) (tail nil))
-    (while lists
-      (let ((piece (car lists)))
-        (if (and (cdr lists) (not (listp piece)))
-            (signal 'wrong-type-argument (list 'listp piece)))
-        (when piece
-          (if (null tail) (setq result piece) (setcdr tail piece))
-          (when (consp piece)
-            (setq tail piece)
-            (while (consp (cdr tail)) (setq tail (cdr tail))))))
-      (setq lists (cdr lists)))
-    result)))
 (defalias 'mapcan (lambda (function sequence)
   (apply 'nconc (mapcar function sequence))))
 (defalias 'assq-delete-all (lambda (key alist)
@@ -1250,42 +1517,144 @@
      sequence)
    (mapcar 'list sequence))))
 
+;; `regexp-opt' answers a regexp matching exactly the given strings.
+;; Emacs answers an optimized trie -- (regexp-opt '("a" "ab")) is
+;; "\\(?:ab?\\)" there -- so what is frozen is the CONTRACT
+;; (frontier-regexp-opt-*) and never the spelling: the returned regexp,
+;; compiled by kg's own engine, matches every member entirely, prefers
+;; the longest, and is ONE ATOM a caller can prefix, suffix, quantify or
+;; nest.  Four decisions, each measured rather than chosen:
+;;
+;;   * LONGEST FIRST.  Alternation order IS semantics in a backtracking
+;;     engine and kg's takes the leftmost alternative that can match, so
+;;     the name needs an ORDERING and not a new matcher.  Without it
+;;     s-replace-all silently replaces the shorter of two overlapping
+;;     keys.
+;;   * ONE SHY GROUP AROUND IT, `\\(?:...\\)', which is Emacs' own
+;;     wrapper.  F.1 emitted a BARE alternation because kg's engine had
+;;     no shy group and MISREAD the spelling as ordinary characters; the
+;;     R2 pin gave it one, and the bare join was the defect the
+;;     adversarial review named -- (concat (regexp-opt '("a" "b")) "c")
+;;     is "a\\|bc", which still matches "a", so the answer was not a
+;;     regexp CONSTRUCTOR's.  Shy and not capturing: a capturing wrapper
+;;     would renumber the caller's own groups instead.
+;;   * NO MEMBERS is UNMATCHABLE, not empty (which matches everywhere),
+;;     and with the wrapper kg's answer is now Emacs' text exactly:
+;;     `\\(?:\\`a\\`\\)', an `a' required at both ends of the subject at
+;;     once.
+;;   * PAREN, THE SECOND ARGUMENT, is Emacs' and is now kg's.  F.0 froze
+;;     the opposite -- refused by name from the arity itself, on the
+;;     Phase 14 `intern'-OBARRAY precedent, because measured demand was
+;;     zero (s.el calls this once, at s.el:420, with one argument).  The
+;;     Phase 28 census then NAMED a consumer (`yaml-mode's first blocker
+;;     behind the shim is `Wrong number of arguments: regexp-opt, 2'),
+;;     which is how this campaign says a closed question reopens, and
+;;     Phase 29's U.0 froze every value Emacs accepts.  Over the whole
+;;     ELPA tree there are 140 `regexp-opt' call sites: 31 pass `t' (8
+;;     packages), 6 a STRING (1), 5 `symbols' (3), 3 `words' (1), and
+;;     one nil.
+;;
+;; PAREN decides the WRAPPER and nothing else, which is why it costs a
+;; `cond' and not a rewrite.  Emacs 31.0.91's own text, measured for
+;; each value over the members ("a" "ab"):
+;;
+;;     nil        "\\(?:ab?\\)"        shy, the wrapper kg already had
+;;     t          "\\(ab?\\)"          CAPTURING -- so the whole match is
+;;                                    also group 1, and every group
+;;                                    number in the caller's own regexp
+;;                                    shifts by one
+;;     'words     "\\<\\(ab\\)\\>"      capturing, inside word boundaries
+;;     'symbols   "\\_<\\(ab\\)\\_>"    capturing, inside symbol boundaries
+;;     "\\(?2:"    "\\(?2:ab?\\)"       the STRING is the literal group
+;;                                    OPENER and regexp-opt closes it --
+;;                                    the escape hatch from that shift
+;;     anything   "\\(ab?\\)"          measured for `zzz', `WORDS', 5 and
+;;     else                           (1): every other non-nil value is
+;;                                    `t', so no table of accepted
+;;                                    symbols is needed
+;;
+;; The empty member list keeps its unmatchable body inside whichever
+;; wrapper PAREN asks for, which is Emacs' answer too.
+;;
+;; TWO OF THE SIX VALUES ARE REFUSED, AND THE REFUSAL IS THE REVIEW'S
+;; FINDING ACTED ON: kg's regexp engine has no `\\<', `\\>', `\\_<' or
+;; `\\_>' and reads each as the ORDINARY CHARACTER after the backslash,
+;; so U.1a's `(regexp-opt '("ab") 'words)' produced Emacs' exact text and
+;; that text matched "x <ab> y" here and not "x ab y" -- silently, with
+;; no error.  A plausible-but-wrong match is worse than a loud one, so
+;; `words' and `symbols' now raise at the call, naming the engine gap
+;; that is Phase 29's U.2.  The day the engine gains the four boundaries
+;; these two arms become wrappers again, exactly as written in Emacs.
+;;
+;; The STRING opener stays accepted for every spelling: a shy opener
+;; passed as a string works today, and an explicitly numbered one --
+;; "\\(?2:" -- is refused by the ENGINE at match time, loudly, as
+;; invalid-regexp.  Neither is ever silently misread.
+;;
+;; The list is COPIED because kg's `sort' rewrites what it is given.
+(defalias 'regexp-opt (lambda (strings &optional paren)
+  (concat
+    (cond ((null paren) "\\(?:")
+          ((stringp paren) paren)
+          ((eq paren 'words)
+           (error "regexp-opt: PAREN words needs word boundaries kg's engine lacks (Phase 29 U.2)"))
+          ((eq paren 'symbols)
+           (error "regexp-opt: PAREN symbols needs symbol boundaries kg's engine lacks (Phase 29 U.2)"))          (t "\\("))
+    (if (null strings)
+        "\\`a\\`"
+      (mapconcat 'regexp-quote
+        (sort (copy-sequence strings)
+              (lambda (a b) (< (length b) (length a))))
+        "\\|"))
+    "\\)")))
+
 ;; --- the seq- shim ---
-;; Lists only: Emacs' seq- functions are generic over every sequence type
-;; through cl-generic, and kg has lists and strings and no dispatch.
+;; Generic over kg's three sequence types, and generic the cheap way:
+;; Emacs dispatches on cl-generic, kg converts once with
+;; `internal--seq-to-list' and walks a list.  The five below answer a LIST
+;; whatever they were given, as Emacs' do; `seq-take' is the one that
+;; answers the sequence's own type.
 (defalias 'seq-map (lambda (function sequence) (mapcar function sequence)))
 (defalias 'seq-filter (lambda (predicate sequence)
-  ((lambda (out)
-     (while sequence
-       (if (funcall predicate (car sequence))
-           (setq out (cons (car sequence) out)))
-       (setq sequence (cdr sequence)))
+  ((lambda (out lst)
+     (while lst
+       (if (funcall predicate (car lst))
+           (setq out (cons (car lst) out)))
+       (setq lst (cdr lst)))
      (reverse out))
-   nil)))
+   nil (internal--seq-to-list sequence))))
 (defalias 'seq-remove (lambda (predicate sequence)
   (seq-filter (lambda (x) (not (funcall predicate x))) sequence)))
 (defalias 'seq-find (lambda (predicate sequence &optional default)
-  ((lambda (hit found)
-     (while (and sequence (not found))
-       (if (funcall predicate (car sequence))
-           (progn (setq hit (car sequence)) (setq found t)))
-       (setq sequence (cdr sequence)))
+  ((lambda (hit found lst)
+     (while (and lst (not found))
+       (if (funcall predicate (car lst))
+           (progn (setq hit (car lst)) (setq found t)))
+       (setq lst (cdr lst)))
      (if found hit default))
-   nil nil)))
+   nil nil (internal--seq-to-list sequence))))
 (defalias 'seq-some (lambda (predicate sequence)
-  ((lambda (hit)
-     (while (and sequence (null hit))
-       (setq hit (funcall predicate (car sequence)))
-       (setq sequence (cdr sequence)))
+  ((lambda (hit lst)
+     (while (and lst (null hit))
+       (setq hit (funcall predicate (car lst)))
+       (setq lst (cdr lst)))
      hit)
-   nil)))
+   nil (internal--seq-to-list sequence))))
+;; Emacs' `seq-take' answers the sequence's OWN type -- (seq-take [1 2 3] 2)
+;; is [1 2] and (seq-take "abc" 2) is "ab" -- so this one rebuilds instead
+;; of answering the list it walked.
 (defalias 'seq-take (lambda (sequence n)
-  (let ((out nil))
-    (while (and sequence (< 0 n))
-      (setq out (cons (car sequence) out))
-      (setq sequence (cdr sequence))
+  (let ((out nil) (rest (internal--seq-to-list sequence)))
+    (while (and rest (< 0 n))
+      (setq out (cons (car rest) out))
+      (setq rest (cdr rest))
       (setq n (- n 1)))
-    (reverse out))))
+    (setq out (reverse out))
+    (if (vectorp sequence)
+        (vconcat out)
+      (if (stringp sequence)
+          (mapconcat 'char-to-string out "")
+        out)))))
 
 ;; --- arithmetic ---
 ;; (+ number 0) rather than `number' on the non-negative arm so that
@@ -1316,11 +1685,267 @@
       (floor value (expt 2 (- count)))
     (* value (expt 2 count)))))
 
+;; --- subr-x, a module kg NO LONGER PROVIDES --------------------------
+;;
+;; M0.1 retraction: the feature bit is gone, so `(require 'subr-x)'
+;; raises `file-missing'.  The string/threading names below stay defined
+;; and callable (Emacs 31 answers them before any require) but are
+;; UNADVERTISED: a provided feature is a capability promise `require' and
+;; `featurep' can see, and `named-let' / `hash-table-*-*' -- real
+;; consumers behind `subr-x' requires -- would make it a false one.
+;; Completing the selected-version `subr-x' surface is a later, separately
+;; sized package vertical.
+;;
+;; `string-blank-p' answers a MATCH POSITION, not `t': it is
+;; `string-match' over a whitespace-only regexp (0 for "  " and "",
+;; nil for " a " and "a").
+(defalias 'string-blank-p (lambda (string)
+  (string-match "\\`[ \t\n\r]*\\'" string)))
+(defalias 'string-remove-prefix (lambda (prefix string)
+  (if (string-prefix-p prefix string)
+      (substring string (length prefix))
+    string)))
+(defalias 'string-remove-suffix (lambda (suffix string)
+  (if (string-suffix-p suffix string)
+      (substring string 0 (- (length string) (length suffix)))
+    string)))
+;; (string-pad STRING LENGTH &optional PADDING START): pad on the right,
+;; or on the left when START is non-nil, with PADDING or a space.  It
+;; never truncates -- (string-pad "abcd" 3) is "abcd", measured.
+(defalias 'string-pad (lambda (string length &optional padding start)
+  (internal--let pad (if (< (length string) length)
+                         (make-string (- length (length string))
+                                      (if padding padding 32))
+                       ""))
+  (if start (concat pad string) (concat string pad))))
+(defalias 'string-clean-whitespace (lambda (string)
+  (string-trim (replace-regexp-in-string "[ \t\n\r]+" " " string))))
+;; The threading macros.  They differ in WHERE the value goes: first
+;; argument for `thread-first', last for `thread-last', which is why
+;; U.0's case measures them on a non-commutative step and gets 8 and -8
+;; for the same text.  A step that is a bare symbol becomes a one-
+;; argument call either way, measured: (thread-first 5 - (* 2)) is -10.
+(defalias 'internal--thread (lambda (value steps last)
+  (while steps
+    (setq value
+      (if (atom (car steps))
+          (list (car steps) value)
+        (if last
+            (append (car steps) (list value))
+          (cons (car (car steps)) (cons value (cdr (car steps)))))))
+    (setq steps (cdr steps)))
+  value))
+(defalias 'thread-first (macro (form . steps)
+  (internal--thread form steps nil)))
+(defalias 'thread-last (macro (form . steps)
+  (internal--thread form steps t)))
+
+;; --- the names a package file reaches on its way past the top --------
+;;
+;; Not a module: six names with nothing in common except that U.0's
+;; demand probe found real package files stopping on them before any of
+;; their own code ran.  `dash.el' reaches five of the six, and the chain
+;; it walks is why they are here rather than in a package.
+;;
+;; `lexical-binding' IS T, AND THAT IS A MEASUREMENT ABOUT KG, not a
+;; convenience.  fe's binder is lexical -- a lambda captures the bindings
+;; that enclose it, which the closure probe in test_lisp.c asserts -- so
+;; t is the truthful value, and a package that passes this variable to
+;; `eval' selects the dialect it would select in Emacs.  What kg does not
+;; have is a first-class lexical ENVIRONMENT: `eval' refuses a non-nil
+;; LEXICAL argument by name, so `(eval FORM lexical-binding)' --
+;; dash.el:52's shape -- raises here where Emacs evaluates FORM lexically.
+;; nil was tried first and was a lie the other way: it told every probe
+;; that closures close over nothing while they went on closing.
+(defvar lexical-binding t
+  "Non-nil means bind variables lexically; t in kg, whose evaluator is
+lexical.  `eval' itself refuses a non-nil LEXICAL argument, having no
+first-class lexical environments to evaluate in.")
+;; `emacs-major-version' WAS BOUND TO 31 AND IS NOW GONE, on the external
+;; review's finding: a version claim is a capability promise, and packages
+;; read 31 as "modern code paths are safe" -- font-lock keyword lists,
+;; `static-if' branches, `define-minor-mode' generations -- for
+;; capabilities kg does not have.  A package that needs the name now gets
+;; `void-variable', which names the gap, where a number papered over it.
+;; Nothing in tree reads it; the census chain step it closed
+;; (dash.el:3966) reopens, and that is the honest cost.
+;; `make-obsolete-variable' is STORAGE and a no-op, which is all of it
+;; that is observable outside a byte-compiler: Emacs stores
+;; (CURRENT-NAME ACCESS-TYPE WHEN) on `byte-obsolete-variable' and
+;; returns OBSOLETE-NAME, measured -- (u0-new nil "1.0") for three
+;; arguments and (u0-new set "1.0") with ACCESS-TYPE `set'.  kg has no
+;; byte-compiler to warn from, so the warning half is absent by
+;; construction rather than by choice.
+(defalias 'make-obsolete-variable (lambda (obsolete current when &optional access)
+  (put obsolete 'byte-obsolete-variable (list current access when))
+  obsolete))
+;; `static-if' is Emacs 30's, and DEFINING IT IS WHAT KEEPS A DORMANT
+;; BRANCH DORMANT.  dash.el polyfills it under (unless (fboundp
+;; 'static-if) ...), and the polyfill's body is (eval condition
+;; lexical-binding) -- the first-class-lexical-environment branch Phase
+;; 28 adjudicated dormant.  A kg that HAS the name never expands the
+;; polyfill, which U.0 measured (correction 4.2).  The condition is
+;; evaluated at EXPANSION time and the branch not taken is not expanded
+;; at all: measured, (macroexpand '(static-if t 1 2)) is 1 and
+;; (macroexpand '(static-if nil 1 2 3)) is (progn 2 3).
+(defalias 'static-if (macro (condition then . else)
+  (if (eval condition) then (cons 'progn else))))
+;; `eval-when-compile' and `eval-and-compile' EVALUATE their bodies and
+;; answer the value QUOTED -- both of them, identically, measured:
+;; (macroexpand '(eval-when-compile (list 1 2))) and the same for
+;; `eval-and-compile' are both '(1 2), and (eval-when-compile 1 2 3) is
+;; 3.  Modern Emacs defines the pair the same way; they differ only for
+;; a byte-compiler, which kg does not have.  Inert versions were tried
+;; first and are WRONG: U.0's reproduction of the Phase 28 census
+;; (correction 4.7) found that inert ones carry four packages past a
+;; `require' they should have stopped at, and that evaluating bodies is
+;; what reproduces the published column class for class.
+(defalias 'eval-when-compile (macro body
+  (list 'quote (eval (cons 'progn body)))))
+(defalias 'eval-and-compile (macro body
+  (list 'quote (eval (cons 'progn body)))))
+
+;; --- cl-lib names, UNADVERTISED ---------------------------------------
+;;
+;; THE EXTERNAL REVIEW'S FINDING, ACTED ON: U.1a answered `(require
+;; 'cl-lib)' with the feature plus a named subset, and that was a claim
+;; the surface did not back -- inheritenv loaded past the require and
+;; died at `cl-letf*' with void-function, and `featurep' 'cl-lib''
+;; answering t told packages kg cannot run to take modern code paths.
+;; THE FEATURE CLAIM IS RETRACTED until every operation needed by one
+;; complete target-package scenario works unmodified; `(require
+;; 'cl-lib)' raises `file-missing' again -- the honest diagnostic --
+;; instead of moving the failure past a require that said otherwise.
+;;
+;; The three implemented names stay, unadvertised: they are
+;; Emacs-comparable where they stand, and removing working definitions
+;; would only narrow what an init file can do without making any package
+;; truer.  What is NOT here is unchanged, with U.0's measurements behind
+;; each absence:
+;;
+;;     cl-loop     15 / 105  an iteration sub-language
+;;     cl-defun    13 / 66   of 533 `cl-defun' sites across ELPA, 462 use
+;;                           &key.  A `cl-defun' that is `defun' would
+;;                           mis-bind 87% of its callers SILENTLY, which
+;;                           is worse than not having the name.
+;;     cl-defstruct 8 / 47   records, a dormant branch
+;;     cl-letf*    inheritenv's stop, and the case that decided the
+;;                 retraction: no generalised-variable machinery
+;;
+;; `cl-incf' takes a SYMBOL place.  Emacs takes any generalised
+;; variable; kg has no `gv', so a non-symbol is refused at expansion
+;; with a message naming the limit rather than expanding into a `setq'
+;; nobody can read.  Measured demand: of 212 `cl-incf' sites across
+;; ELPA, 188 pass a bare symbol.  The value is the NEW one, the default
+;; increment is 1, and a THIRD argument is wrong-number-of-arguments --
+;; measured on Emacs 31.0.91 -- which the expansion checks rather than
+;; silently ignoring as U.1a's did.
+(defalias 'cl-incf (macro (place . rest)
+  (if (symbolp place)
+      (if (cdr rest)
+          (signal 'wrong-number-of-arguments
+            (cons 'cl-incf (+ 1 (length rest))))
+        (list 'setq place (list '+ place (if rest (car rest) 1))))
+    (error "cl-incf: PLACE must be a variable name"))))
+;; `cl-case' compares with `eql', takes an atom or a LIST of keys, and
+;; treats `t' and `otherwise' as the default clause; no clause matching
+;; is nil, and a clause with NO BODY is nil too rather than the test's
+;; own value, which is what `cond' would otherwise answer (all
+;; measured; the empty-body arm is why the expansion supplies a nil
+;; body).  The
+;; key expression is evaluated ONCE, into a `gensym'-named lambda
+;; parameter -- an uninterned name no `defvar' of the user's can reach,
+;; the hygiene shape `save-excursion' uses.  A list of keys becomes an
+;; `or' of `eql' tests rather than a `memql', which kg does not have.
+(defalias 'internal--cl-case-test (lambda (sym keys)
+  (if (if (eq keys t) t (eq keys 'otherwise))
+      t
+    (if (atom keys)
+        (list 'eql sym (list 'quote keys))
+      ((lambda (tests)
+         (while keys
+           (setq tests (cons (list 'eql sym (list 'quote (car keys))) tests))
+           (setq keys (cdr keys)))
+         (cons 'or (reverse tests)))
+       nil)))))
+(defalias 'cl-case (macro (expr . clauses)
+  (internal--let sym (gensym "internal--cl-case-"))
+  ((lambda (arms)
+     (while clauses
+       (setq arms (cons (cons (internal--cl-case-test sym (car (car clauses)))
+                          (if (cdr (car clauses)) (cdr (car clauses))
+                            (list nil)))
+                    arms))
+       (setq clauses (cdr clauses)))
+     (list (list 'lambda (list sym) (cons 'cond (reverse arms))) expr))
+   nil)))
+;; `cl-find-if' is the two-argument form and nothing else.  Emacs' takes
+;; :key, :start, :end and :from-end; measured across ELPA, all 34
+;; `cl-find-if' call sites pass exactly two arguments, so the keywords
+;; are absent by measurement rather than by hope, and a caller that
+;; passes one gets `wrong-number-of-arguments' from this parameter list.
+(defalias 'cl-find-if (lambda (predicate sequence)
+  (seq-find predicate sequence)))
+;; NO `provide' here.  See the section header above: the feature claim is
+;; retracted until a complete package scenario runs against it.
+
+;; --- defalias with a docstring ---------------------------------------
+;; LAST, deliberately.  Everything above this line is defined with fe's
+;; own two-argument `defalias' primitive, and this shadow is what USER
+;; code gets.  Placed earlier it would put every definition below it
+;; through a Lisp call apiece, and kg's arena collects nothing during
+;; startup, so each of those frames would be permanent peak.
+;;
+;; (defalias SYMBOL DEFINITION &optional DOCSTRING).  Emacs 31.0.91,
+;; measured: the third argument is STORAGE and not decoration -- it lands
+;; on SYMBOL's `function-documentation' property, where `documentation'
+;; reads it back, and it is NOT type-checked, so a 42 is stored verbatim
+;; (and `documentation' then answers nil for it, because a non-string
+;; property indexes nothing).  A nil DOCSTRING stores nothing rather than
+;; clearing what is there: (put 'zz 'function-documentation "old") then
+;; (defalias 'zz f nil) still answers "old", and so does the
+;; two-argument form.  The fence is the arity -- a FOURTH argument is
+;; (wrong-number-of-arguments (defalias 4)), which this lambda's own
+;; parameter list gives for free.
+;;
+;; `fset' rather than the name being shadowed: it writes the same
+;; function cell through the same validation (a non-symbol target is
+;; (wrong-type-argument symbolp ...)), and it is a primitive nothing
+;; here shadows.  The return value is the SYMBOL, which is `defalias''s
+;; answer and not `fset''s.
+;;
+;; The registry entry goes with the definition, which is the external
+;; review's finding: `internal--doc-put' conses a NEW entry per defun and
+;; `documentation' reads the newest one, so a documented defun redefined
+;; through THIS form kept answering its old docs -- Emacs answers nil,
+;; because there the docstring lives in the replaced closure and dies
+;; with it.  Invalidating rewrites every entry for NAME to "present but
+;; undocumented" rather than deleting it: apropos lists names from this
+;; same registry, and a name that is still fboundp must stay findable.
+;; The `function-documentation' PROPERTY is deliberately untouched -- a
+;; nil DOCSTRING storing nothing rather than clearing what is there is
+;; Emacs' own measured behaviour, and a property a program put by hand
+;; is not this form's to remove.  A DOCSTRING given here lands after the
+;; invalidation, so re-documenting works.
+(defalias 'internal--doc-invalidate (lambda (name)
+  (internal--let tail internal--docs)
+  (while tail
+    (if (eq (car (car tail)) name)
+        (setcdr (car tail) nil))
+    (setq tail (cdr tail)))))
+(defalias 'defalias (lambda (symbol definition &optional docstring)
+  (fset symbol definition)
+  (internal--doc-invalidate symbol)
+  (if docstring (put symbol 'function-documentation docstring))
+  symbol))
+
 ;; --- documentation for the definitions above -------------------------
 ;;
 ;; One table rather than a docstring on each `defalias' above, for a
-;; mechanical reason: the definitions ARE `defalias' calls, which take no
-;; documentation -- only `defun', `defmacro', `defvar' and `defconst' feed
+;; mechanical reason: the definitions ARE `defalias' calls, and they run
+;; on fe's own two-argument primitive -- the docstring-taking `defalias'
+;; is defined below all of them, on purpose.  Only `defun', `defmacro',
+;; `defvar' and `defconst' feed
 ;; `internal--doc-put', and the prelude cannot use `defun' before it
 ;; defines it.  Rewriting the file around that would reorder the
 ;; bootstrap; a table at the end does not, and it keeps the cost visible
@@ -1362,8 +1987,10 @@
   (append . "Return the concatenation of the argument lists; the last may be any object.")
   (ash . "Return VALUE arithmetically shifted left by COUNT, or right when it is negative.")
   (assoc . "Return the first pair of ALIST whose car `equal's KEY.")
+  (assoc-string . "Return ALIST's first element whose string form matches KEY.")
   (assq . "Return the first pair of ALIST whose car is `eq' to KEY.")
   (assq-delete-all . "Return ALIST without the pairs whose car is `eq' to KEY.")
+  (autoload . "Accept an autoload declaration; kg loads nothing and records nothing.")
   (beginning-of-buffer . "Move point to the start of the buffer.")
   (butlast . "Return LIST without its last element, or without its last N.")
   (caar . "Return the car of the car of X.")
@@ -1375,7 +2002,9 @@
   (cddr . "Return X without its first two elements.")
   (cond . "Evaluate the body of the first clause whose test is non-nil.")
   (copy-sequence . "Return a fresh copy of the list SEQUENCE.")
+  (count-matches . "Return how many matches for REGEXP lie between START and END.")
   (custom-set-variables . "Set each quoted (SYMBOL VALUE) pair, as a Custom file does.")
+  (defalias . "Install DEFINITION in SYMBOL's function cell, with an optional DOCSTRING.")
   (defconst . "Define NAME as a constant with VALUE, and mark it special.")
   (defcustom . "Define NAME as a user option with STANDARD value; a declaration over `defvar'.")
   (defmacro . "Define NAME as a macro taking PARAMS.")
@@ -1409,6 +2038,7 @@
   (memq . "Return the tail of LIST starting at the first element `eq' to ELEMENT.")
   (min . "Return the smallest of the arguments.")
   (mod . "Return the modulus of X by Y, with Y's sign.")
+  (multibyte-string-p . "Return nil: every kg string is a unibyte byte string.")
   (move-beginning-of-line . "Move point to the beginning of the current line.")
   (move-end-of-line . "Move point to the end of the current line.")
   (nconc . "Join the argument lists by rewriting their tails, and return the result.")
@@ -1426,8 +2056,9 @@
   (progn . "Run the body and return the value of its last form.")
   (push . "Add ELEMENT to the front of the list in PLACE.")
   (quasiquote . "The backquote reader macro: build FORM, evaluating its unquoted parts.")
+  (regexp-opt . "Return a regexp matching exactly STRINGS, longest first, wrapped per PAREN.")
   (replace-regexp-in-string . "Return TEXT with each match of REGEXP replaced by REPLACEMENT.")
-  (require . "Load the feature FEATURE unless it has already been provided.")
+  (require . "Load FEATURE unless already provided; NOERROR answers nil when absent.")
   (reverse . "Return a fresh list with the elements of LIST in the opposite order.")
   (save-excursion . "Run the body and restore the buffer and point afterwards.")
   (seq-filter . "Return the elements of SEQUENCE for which PREDICATE is non-nil.")

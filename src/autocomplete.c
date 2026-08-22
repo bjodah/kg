@@ -12,7 +12,7 @@ struct autopair {
 };
 
 /* Array of autocomplete pairs. Can be extended with more character pairs. */
-struct autopair autopairs[] = {
+static struct autopair autopairs[] = {
 	{ '{', '}' },
 	{ '[', ']' },
 	{ '(', ')' },

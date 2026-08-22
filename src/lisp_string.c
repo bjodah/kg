@@ -11,7 +11,15 @@
 
 /* ---- Strings ---------------------------------------------------------
  * Fe has no string operations of its own.  These natives index by
- * codepoint, like the position API, so no result can be cut mid-glyph. */
+ * codepoint, like the position API, so no result can be cut mid-glyph.
+ *
+ * Every one of them BUILDS its result with `FeMakeStringBytes' and the
+ * length it already has, never with `FeMakeString' over the copy: since
+ * FE_API_VERSION 15 a fe string is bytes plus a length rather than bytes
+ * up to a terminator, so a NUL in the middle of one is data.  Reading
+ * back through `strlen' is how that data gets silently cut, and
+ * doc/lisp-string-nul-policy.md is the per-site record of which kg sites
+ * carry the length and which truncate on purpose. */
 
 /* Copy a string argument and park it in state.scratch, so a later Fe error
  * frees it.  Only one such copy is live at a time. */
@@ -32,7 +40,7 @@ static char *lisp_string_argument(
 		free(text);
 		FeHandleError(context, "string is too large");
 	}
-	state.scratch = text;
+	park_scratch(text);
 	*length = (int)bytes;
 	return text;
 }
@@ -134,13 +142,58 @@ FeObject *native_substring(FeContext *context, FeObject *arguments)
 	}
 	from = lisp_utf8_byte(text, length, from);
 	to = lisp_utf8_byte(text, length, to);
-	text[to] = '\0';
-	result = FeMakeString(context, text + from);
+	result = FeMakeStringBytes(context, text + from, (size_t)(to - from));
 	release_scratch();
 	return result;
 }
 
-/* Total byte length of a list of string arguments. */
+/* Defined below, beside `char-to-string' which is its other caller. */
+static int lisp_encode_char(long codepoint, char *out);
+
+/* How many bytes ONE `concat' argument contributes, and the type check
+ * for it.  A STRING contributes its own bytes.  A LIST contributes the
+ * UTF-8 encoding of each of its elements, which must be character codes:
+ * that arm exists because `s-reverse' is `(concat (nreverse
+ * (string-to-list s)))' and kg answered `(wrong-type-argument stringp
+ * (99 98 97))' to it -- the demand behind `multibyte-string-p' is two
+ * names deep.  kg's `string-to-list' already decodes UTF-8 into
+ * codepoints, so re-encoding them here makes the round trip a CHARACTER
+ * reversal rather than a byte one.  A NON-INTEGER element is
+ * `(wrong-type-argument characterp X)', Emacs' own predicate for it. */
+static size_t lisp_concat_argument_bytes(FeContext *context, FeObject *object)
+{
+	size_t total = 0;
+	char encoded[4];
+
+	if (FeGetType(object) == FeTString) {
+		return FeStringByteLength(context, object);
+	}
+	/* Emacs' `concat' takes any sequence; kg takes the two shapes its
+	 * demand names, so anything else is still `stringp' -- the
+	 * predicate kg has always refused with, and the one
+	 * frontier-s-reverse-concat-blocker measured. */
+	if (!FeIsNil(object) && FeGetType(object) != FeTPair) {
+		lisp_raise_wrong_type(context, "stringp", object);
+	}
+	while (!FeIsNil(object)) {
+		FeObject *element = FeGetNextArgument(context, &object);
+		FeDouble value;
+
+		if (FeGetType(element) != FeTInteger) {
+			lisp_raise_wrong_type(context, "characterp", element);
+		}
+		value = lisp_finite(context, element, "characterp");
+		if (value < 0 || value > 0x10FFFF) {
+			lisp_raise_wrong_type(context, "characterp", element);
+		}
+		total += (size_t)lisp_encode_char((long)value, encoded);
+	}
+	return total;
+}
+
+/* Total byte length of `concat''s arguments, checking each one's type on
+ * the way: the count and the check are one pass so a refusal happens
+ * before anything is allocated. */
 static size_t lisp_concat_bytes(FeContext *context, FeObject *arguments)
 {
 	size_t total = 0;
@@ -148,16 +201,38 @@ static size_t lisp_concat_bytes(FeContext *context, FeObject *arguments)
 	while (!FeIsNil(arguments)) {
 		FeObject *object = FeGetNextArgument(context, &arguments);
 
-		lisp_check_string(context, object);
-		if (ckd_add(
-			&total, total, FeStringByteLength(context, object))) {
+		if (ckd_add(&total, total,
+			lisp_concat_argument_bytes(context, object))) {
 			FeHandleError(context, "string is too large");
 		}
 	}
 	return total;
 }
 
-/* (concat A B ...): variadic; (concat) is the empty string. */
+/* Copy ONE argument's bytes into `text', answering how many it wrote --
+ * the same two shapes, in the same order, as the counting pass. */
+static size_t lisp_concat_copy(FeContext *context, FeObject *object, char *text)
+{
+	size_t position = 0;
+
+	if (FeGetType(object) == FeTString) {
+		size_t bytes = FeStringByteLength(context, object);
+
+		(void)FeCopyStringBytes(context, object, text, bytes);
+		return bytes;
+	}
+	while (!FeIsNil(object)) {
+		FeObject *element = FeGetNextArgument(context, &object);
+		long value = (long)FeToDouble(context, element);
+
+		position += (size_t)lisp_encode_char(value, text + position);
+	}
+	return position;
+}
+
+/* (concat A B ...): variadic; (concat) is the empty string.  Each
+ * argument is a string or a LIST OF CHARACTER CODES; see
+ * lisp_concat_argument_bytes() for why the second shape exists. */
 FeObject *native_concat(FeContext *context, FeObject *arguments)
 {
 	FeObject *rest = arguments;
@@ -173,19 +248,35 @@ FeObject *native_concat(FeContext *context, FeObject *arguments)
 	if (!text) {
 		FeHandleError(context, "out of memory");
 	}
-	state.scratch = text;
+	park_scratch(text);
 	while (!FeIsNil(rest)) {
 		FeObject *object = FeGetNextArgument(context, &rest);
-		size_t bytes = FeStringByteLength(context, object);
 
-		(void)FeCopyStringBytes(
-		    context, object, text + position, bytes);
-		position += bytes;
+		position += lisp_concat_copy(context, object, text + position);
 	}
-	text[total] = '\0';
-	result = FeMakeString(context, text);
+	result = FeMakeStringBytes(context, text, total);
 	release_scratch();
 	return result;
+}
+
+/* What `string=' compares an operand BY: a string's own bytes, a symbol's
+ * name, or the three characters of `nil'.  That is Emacs' rule for the
+ * whole comparison family, and already fe's for `string<'/`string>' --
+ * kg's equality was the one member that refused a symbol, measured
+ * against Emacs at Phase 25.0 and closed here.  The predicate the
+ * refusal names stays `stringp', also measured: (string= "abc" 3) is
+ * (wrong-type-argument stringp 3) on both sides. */
+static FeObject *lisp_string_operand(FeContext *context, FeObject *object)
+{
+	FeType type = FeGetType(object);
+
+	if (FeIsNil(object)) {
+		return FeMakeString(context, "nil");
+	}
+	if (type != FeTString && type != FeTSymbol) {
+		lisp_raise_wrong_type(context, "stringp", object);
+	}
+	return object;
 }
 
 /* (string= A B): byte equality, so it is also codepoint equality for the
@@ -199,8 +290,10 @@ FeObject *native_string_equal(FeContext *context, FeObject *arguments)
 	bool equal;
 
 	FeRequireNoArguments(context, arguments);
-	lisp_check_string(context, a);
-	lisp_check_string(context, b);
+	/* `b' is reachable from the argument list the evaluator holds, so
+	 * it survives the allocation the nil coercion above may make. */
+	a = lisp_string_operand(context, a);
+	b = lisp_string_operand(context, b);
 	length = FeStringByteLength(context, a);
 	if (length != FeStringByteLength(context, b)) {
 		return FeMakeBool(context, false);
@@ -214,7 +307,7 @@ FeObject *native_string_equal(FeContext *context, FeObject *arguments)
 	if (!text) {
 		FeHandleError(context, "out of memory");
 	}
-	state.scratch = text;
+	park_scratch(text);
 	(void)FeCopyStringBytes(context, a, text, length);
 	(void)FeCopyStringBytes(context, b, text + length, length);
 	equal = memcmp(text, text + length, length) == 0;
@@ -246,34 +339,35 @@ static int lisp_encode_char(long codepoint, char *out)
 	return 4;
 }
 
-/* (char-to-string N): the inverse of (char-after).  NUL and surrogates are
- * rejected so the result is always a well-formed one-character string. */
+/* (char-to-string N): the inverse of (char-after).  Surrogates are
+ * rejected so the result is always well-formed UTF-8; 0 is not, and
+ * answers the one-byte string Emacs answers. */
 FeObject *native_char_to_string(FeContext *context, FeObject *arguments)
 {
 	FeObject *object = FeGetNextArgument(context, &arguments);
 	FeDouble value;
-	char text[5];
+	char text[4];
 	long codepoint;
+	size_t length;
 
 	FeRequireNoArguments(context, arguments);
 	value = lisp_finite(context, object, "characterp");
 	/* Emacs' own answer for a code point outside Unicode, measured:
 	 * (char-to-string 4194304) is (wrong-type-argument characterp
-	 * 4194304), not a range error.  0 is on this side of the line
-	 * too, and that part is kg's own policy rather than Emacs' --
-	 * Emacs answers a one-NUL string there -- because nothing kg
-	 * stores in a string may contain a NUL, the same rule fe's reader
-	 * applies to the escape "\0".  Saying so as `characterp' keeps it
-	 * one predicate rather than two verdicts for one argument. */
-	if (value < 1 || value > 0x10FFFF) {
+	 * 4194304), not a range error.  0 used to be on this side of the
+	 * line as kg's own policy, because nothing kg stored in a string
+	 * could contain a NUL -- the same rule fe's reader applied to the
+	 * escape "\0".  Both ended at FE_LANGUAGE_VERSION 17, so this is
+	 * Emacs' range now and nothing else. */
+	if (value < 0 || value > 0x10FFFF) {
 		lisp_raise_wrong_type(context, "characterp", object);
 	}
 	codepoint = (long)value;
 	if (codepoint >= 0xD800 && codepoint <= 0xDFFF) {
 		FeHandleError(context, "character code is a surrogate");
 	}
-	text[lisp_encode_char(codepoint, text)] = '\0';
-	return FeMakeString(context, text);
+	length = (size_t)lisp_encode_char(codepoint, text);
+	return FeMakeStringBytes(context, text, length);
 }
 
 /* ---- case conversion -------------------------------------------------
@@ -371,7 +465,7 @@ static FeObject *lisp_case(
 	}
 	text = lisp_string_argument(context, object, &length);
 	lisp_case_convert(text, length, kind);
-	result = FeMakeString(context, text);
+	result = FeMakeStringBytes(context, text, (size_t)length);
 	release_scratch();
 	return result;
 }
@@ -389,6 +483,171 @@ FeObject *native_downcase(FeContext *context, FeObject *arguments)
 FeObject *native_capitalize(FeContext *context, FeObject *arguments)
 {
 	return lisp_case(context, arguments, LISP_CASE_CAPITALIZE);
+}
+
+/* ---- compare-strings -------------------------------------------------
+ * Emacs' `(compare-strings S1 START1 END1 S2 START2 END2 &optional
+ * IGNORE-CASE)', the want behind three of s.el's entry points
+ * (s-shared-start, s-shared-end, s-ends-with?).  Every rule below was
+ * measured on 31.0.91 and frozen as an oracle case before any of this
+ * existed (frontier-compare-strings-*), because three of them are not
+ * what the name suggests. */
+
+/* Emacs' IGNORE-CASE fold, and it is an UPCASE rather than a downcase --
+ * which only shows up in the SIGN of a mismatch, so it is measured
+ * rather than assumed: `(compare-strings "a" nil nil "_" nil nil t)' is
+ * -1 on 31.0.91, so the folded `a' sorts BEFORE `_' (0x5F), and only a
+ * fold to `A' (0x41) does that.  ASCII ONLY, which is the freeze's
+ * decision and not an omission: kg's whole case surface is ASCII
+ * (native-upcase's own row measures `(upcase "héllo")' as "HéLLO"), and
+ * s.el passes no fold at all -- so a fold that knew É/é would be a
+ * Unicode case table arriving through a flag rather than through a
+ * decision.  `assoc-string' folds with this same function, so the two
+ * names cannot drift apart one line from each other. */
+long lisp_fold_case_ascii(long codepoint)
+{
+	return codepoint < 0x80 ? lisp_ascii_upper((int)codepoint) : codepoint;
+}
+
+/* One resolved span, in CHARACTERS of the string it came from. */
+struct lisp_compare_span {
+	long from;
+	long to;
+};
+
+/* THE BOUNDS RULE, and it is not "out of range raises".  Measured:
+ *
+ *   * an END past the string is CLIPPED SILENTLY --
+ *     `(compare-strings "abc" 0 10 "abc" 0 3)' is `t';
+ *   * a START past it IS `args-out-of-range', and the data echoes the
+ *     CLIPPED end rather than the argument: `("abc" 5 3)', not 6;
+ *   * a NEGATIVE index counts from the END, so -1 over "abc" is 2 and
+ *     legal, while -5 is the range error -- whose data echoes the raw
+ *     -5, because the clip is a `min' against the size and -5 is already
+ *     under it;
+ *   * a nil END reports as nil: `(compare-strings "abc" 0 nil "abc" 9
+ *     nil)' is `(args-out-of-range "abc" 9 nil)'.
+ *
+ * So the data is (STRING, START AS PASSED, min(END, size) or nil), which
+ * is what this builds.  Clip before converting a negative, or the -5 row
+ * reports -2. */
+static struct lisp_compare_span lisp_compare_bounds(FeContext *context,
+    FeObject *string, FeObject *start_object, FeObject *end_object, long chars)
+{
+	struct lisp_compare_span span = { 0, chars };
+	FeObject *reported_end = end_object;
+
+	if (!FeIsNil(start_object)) {
+		span.from
+		    = (long)lisp_finite(context, start_object, "integerp");
+		if (span.from < 0) {
+			span.from += chars;
+		}
+	}
+	if (!FeIsNil(end_object)) {
+		span.to = (long)lisp_finite(context, end_object, "integerp");
+		if (span.to > chars) {
+			span.to = chars;
+			reported_end = FeMakeInteger(context, (int64_t)chars);
+		}
+		if (span.to < 0) {
+			span.to += chars;
+		}
+	}
+	if (span.from < 0 || span.from > span.to) {
+		lisp_raise_args_out_of_range3(
+		    context, string, start_object, reported_end);
+	}
+	return span;
+}
+
+/* THE RETURN CONTRACT: `t' when the two spans are equal, otherwise
+ * +/-(1 + the number of characters that compared EQUAL), signed by which
+ * side sorts first.  A span that runs out is a mismatch too, which is
+ * what s-shared-start's `(substring s1 0 (1- (abs cmp)))' recovers its
+ * shared prefix from.  The count is in CHARACTERS -- `(compare-strings
+ * "éa" nil nil "éb" nil nil)' is -2, not -3 -- so this walks kg's
+ * character view, the one `length'/`elt'/`substring' already agree with
+ * Emacs on, and never fe's bytes. */
+static FeObject *lisp_compare_spans(FeContext *context, const char *a,
+    int a_bytes, struct lisp_compare_span sa, const char *b, int b_bytes,
+    struct lisp_compare_span sb, bool fold)
+{
+	int a_byte = lisp_utf8_byte(a, a_bytes, (int)sa.from);
+	int b_byte = lisp_utf8_byte(b, b_bytes, (int)sb.from);
+	long n = sa.to - sa.from, m = sb.to - sb.from, i;
+
+	for (i = 0; i < n && i < m; i++) {
+		long ca = lisp_decode_char(a, a_bytes, a_byte);
+		long cb = lisp_decode_char(b, b_bytes, b_byte);
+
+		if (fold) {
+			ca = lisp_fold_case_ascii(ca);
+			cb = lisp_fold_case_ascii(cb);
+		}
+		if (ca != cb) {
+			return FeMakeInteger(
+			    context, (int64_t)(ca < cb ? -(i + 1) : i + 1));
+		}
+		a_byte += utf8_glyph_span_at(a, a_bytes, a_byte);
+		b_byte += utf8_glyph_span_at(b, b_bytes, b_byte);
+	}
+	if (n == m) {
+		return FeMakeBool(context, true);
+	}
+	/* The shorter span sorts first, and the index is still the number
+	 * of characters that matched: ("ab" vs "abc") is -3. */
+	return FeMakeInteger(context, (int64_t)(n < m ? -(i + 1) : i + 1));
+}
+
+FeObject *native_compare_strings(FeContext *context, FeObject *arguments)
+{
+	FeObject *a = FeGetNextArgument(context, &arguments);
+	FeObject *start1 = FeGetNextArgument(context, &arguments);
+	FeObject *end1 = FeGetNextArgument(context, &arguments);
+	FeObject *b = FeGetNextArgument(context, &arguments);
+	FeObject *start2 = FeGetNextArgument(context, &arguments);
+	FeObject *end2 = FeGetNextArgument(context, &arguments);
+	FeObject *fold_object = FeNil(context);
+	struct lisp_compare_span sa, sb;
+	size_t a_bytes, b_bytes, allocation;
+	FeObject *result;
+	char *text;
+
+	if (!FeIsNil(arguments)) {
+		fold_object = FeGetNextArgument(context, &arguments);
+	}
+	FeRequireNoArguments(context, arguments);
+	/* A non-string is `(wrong-type-argument stringp X)', and a SYMBOL
+	 * is NOT coerced the way `assoc-string' coerces one -- measured on
+	 * both sides, and worth the asymmetry being deliberate, since the
+	 * two names sit one line apart in s.el. */
+	lisp_check_string(context, a);
+	lisp_check_string(context, b);
+	a_bytes = FeStringByteLength(context, a);
+	b_bytes = FeStringByteLength(context, b);
+	/* One allocation holding both copies keeps a single pointer live,
+	 * which is `string=''s pattern and the reason only one scratch
+	 * parking is needed: a raise below longjmps past every free(). */
+	if (ckd_add(&allocation, a_bytes, b_bytes)
+	    || ckd_add(&allocation, allocation, 2)) {
+		FeHandleError(context, "string is too large");
+	}
+	text = malloc(allocation);
+	if (!text) {
+		FeHandleError(context, "out of memory");
+	}
+	park_scratch(text);
+	(void)FeCopyStringBytes(context, a, text, a_bytes);
+	(void)FeCopyStringBytes(context, b, text + a_bytes, b_bytes);
+	sa = lisp_compare_bounds(
+	    context, a, start1, end1, lisp_utf8_length(text, (int)a_bytes));
+	sb = lisp_compare_bounds(context, b, start2, end2,
+	    lisp_utf8_length(text + a_bytes, (int)b_bytes));
+	result = lisp_compare_spans(context, text, (int)a_bytes, sa,
+	    text + a_bytes, (int)b_bytes, sb, !FeIsNil(fold_object));
+	release_scratch();
+	return result;
 }
 
 /* ---- string-to-number ------------------------------------------------ */
@@ -522,8 +781,11 @@ FeObject *native_make_string(FeContext *context, FeObject *arguments)
 	if (count > INT_MAX) {
 		FeHandleError(context, "string is too large");
 	}
+	/* Emacs' range, 0 included -- (make-string 1 0) is a one-NUL string
+	 * there and here.  See native_char_to_string() for the policy that
+	 * used to exclude it and for what ended it. */
 	codepoint = lisp_finite(context, char_object, "characterp");
-	if (codepoint < 1 || codepoint > 0x10FFFF
+	if (codepoint < 0 || codepoint > 0x10FFFF
 	    || (codepoint >= 0xD800 && codepoint <= 0xDFFF)) {
 		lisp_raise_wrong_type(context, "characterp", char_object);
 	}
@@ -537,12 +799,11 @@ FeObject *native_make_string(FeContext *context, FeObject *arguments)
 	if (!text) {
 		FeHandleError(context, "out of memory");
 	}
-	state.scratch = text;
+	park_scratch(text);
 	for (i = 0; i < total; i += (size_t)width) {
 		memcpy(text + i, encoded, (size_t)width);
 	}
-	text[total] = '\0';
-	result = FeMakeString(context, text);
+	result = FeMakeStringBytes(context, text, total);
 	release_scratch();
 	return result;
 }

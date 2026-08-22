@@ -1,0 +1,6 @@
+{
+ "id": "internal-string-designator",
+ "setup": [],
+ "expr": "(list (internal--string-designator \"a\") (internal--string-designator 'a) (internal--string-designator nil) (internal--string-designator 1) (internal--string-designator (list 1)))",
+ "note": "kg's own name, so comparison is kg-policy and no Emacs snapshot exists: Emacs has the rule inside the C of `assoc_string' rather than as a function. kg answers (\"a\" \"a\" \"nil\" nil nil). The two nils are the point -- `internal--string-designator' says only WHETHER an object can be compared as a string, and its two callers inside `assoc-string' disagree about what that means: a KEY that cannot raises `(wrong-type-argument stringp KEY)', an ELEMENT that cannot is skipped and the scan continues. `nil' answering \"nil\" rather than nil is measured behaviour and not an accident: (assoc-string nil '((\"nil\" . 1))) finds the element in Emacs 31.0.91."
+}

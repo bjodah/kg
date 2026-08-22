@@ -1,0 +1,11 @@
+{
+  "id": "s-replace",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-replace \"a\" \"X\" \"banana\")",
+  "expect": "agree",
+  "note": "Literal replacement family, exact value. Both return \"bXnXnX\"."
+}

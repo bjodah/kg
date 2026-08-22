@@ -8,6 +8,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* lisp.h, not fe.h: kg_lisp_perf_dump_fe_json() is the one sanctioned
+ * read site for fe's own counters (src/lisp_core.c), which keeps this
+ * file free of any fe.h reference, per the rule `make lisp-include-check`
+ * enforces for every source file outside the lisp_ adapter modules. */
+#include "lisp.h"
+
 unsigned long long kg_perf_counter[KG_PERF_COUNTER_COUNT];
 
 /* Designated initialisers so a name can never drift away from the counter
@@ -60,9 +66,16 @@ const char *const kg_perf_counter_name[KG_PERF_COUNTER_COUNT] = {
 	[KG_PERF_LISP_PEAK_CLEANUP_STACK] = "lisp_peak_cleanup_stack",
 	[KG_PERF_LISP_PEAK_NATIVE_REENTRY] = "lisp_peak_native_reentry",
 	[KG_PERF_LISP_ALLOC_FAILURES] = "lisp_alloc_failures",
+	[KG_PERF_LISP_PAYLOAD_CAPACITY] = "lisp_payload_capacity",
+	[KG_PERF_LISP_PAYLOAD_LIVE] = "lisp_payload_live",
+	[KG_PERF_LISP_PAYLOAD_PEAK] = "lisp_payload_peak",
+	[KG_PERF_LISP_PAYLOAD_COMPACTIONS] = "lisp_payload_compactions",
+	[KG_PERF_LISP_PAYLOAD_FAILURES] = "lisp_payload_failures",
 	[KG_PERF_LISP_PRELUDE_NS] = "lisp_prelude_ns",
+	[KG_PERF_LISP_POSTPRELUDE_COLLECT_NS] = "lisp_postprelude_collect_ns",
 	[KG_PERF_LISP_USER_INIT_NS] = "lisp_user_init_ns",
 	[KG_PERF_LISP_PACKAGE_LOAD_NS] = "lisp_package_load_ns",
+	[KG_PERF_LISP_MINIBUFFER_EVAL] = "lisp_minibuffer_eval",
 	[KG_PERF_POST_COMMAND_HOOK_CALLS] = "post_command_hook_calls",
 	[KG_PERF_POST_COMMAND_HOOK_RUNS] = "post_command_hook_runs",
 	[KG_PERF_LSP_INBOX_READ] = "lsp_inbox_read",
@@ -84,7 +97,16 @@ unsigned long long kg_perf_read(enum kg_perf_counter c)
 
 /* Write the counters to $KG_PERF_OUT as one JSON object.  Unset, or
  * unwritable, means "not measuring": a counting build still has to be a
- * usable editor, so nothing here can fail loudly. */
+ * usable editor, so nothing here can fail loudly.
+ *
+ * The trailing "fe" key is fe's own performance counters (fe/fe_perf.h),
+ * alongside kg's rather than folded into kg's vocabulary -- kg_lisp_
+ * perf_dump_fe_json() (src/lisp_core.c) writes fe's FePerfWriteJson()
+ * output verbatim, under fe's own counter names, or the JSON literal
+ * null when this build's fe objects were not compiled with
+ * FE_PERF_COUNTERS=1 or Lisp is inactive. Every kg counter above now
+ * gets an unconditional trailing comma instead of the last-entry special
+ * case, since "fe" is always the object's final key. */
 void kg_perf_dump(void)
 {
 	const char *path = getenv("KG_PERF_OUT");
@@ -102,10 +124,11 @@ void kg_perf_dump(void)
 	for (i = 0; i < KG_PERF_COUNTER_COUNT; i++) {
 		const char *name = kg_perf_counter_name[i];
 
-		fprintf(fp, "  \"%s\": %llu%s\n", name ? name : "unnamed",
-		    kg_perf_counter[i],
-		    i + 1 < KG_PERF_COUNTER_COUNT ? "," : "");
+		fprintf(fp, "  \"%s\": %llu,\n", name ? name : "unnamed",
+		    kg_perf_counter[i]);
 	}
+	fputs("  \"fe\": ", fp);
+	kg_lisp_perf_dump_fe_json(fp);
 	fputs("}\n", fp);
 	fclose(fp);
 }

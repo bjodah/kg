@@ -1,0 +1,15 @@
+# The other half of reflow-fill-column-default-70: a build with no
+# evaluator has no `fill-column' to read, and M-q wraps at the same 70
+# through the fallback in src/word.c -- the owner's decision that kg's
+# reflow matches Emacs' fill-column default in every build, WITH_LISP=0
+# included.  Same paragraph, same break as the +lisp twin: what this
+# case pins is the fallback PATH, not a different column.  Runs in
+# .ci/ci-08 and nowhere else.
+name: reflow-fill-column-no-lisp-70
+filename: reflow-column-no-lisp.txt
+requires_feature: -lisp
+dimensions: [24, 100]
+initial: "aa ab ac ad ae af ag ah ai aj ak al am an ao ap aq ar as at au av aw ax ay az\n"
+keys:
+  - M-q
+expected_saved: "aa ab ac ad ae af ag ah ai aj ak al am an ao ap aq ar as at au av aw\nax ay az\n"

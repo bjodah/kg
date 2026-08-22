@@ -26,5 +26,6 @@ expected_screen_contains:
   # Short rows still fit whole at this width.
   - "C-f         forward-char (global)"
   # A row that does not fit folds rather than being cut off.
-  - "C-a         move-beginning-of-line (glob"
+  - "C-a         move-beginning-of-line"
+  - "(global)"
   - "VLine"

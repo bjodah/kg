@@ -17,6 +17,10 @@ static const struct native_binding native_bindings[] = {
 	{ "delete-char", native_delete_char },
 	{ "erase-buffer", native_erase_buffer },
 	{ "replace-region", native_replace_region },
+	/* Emacs' own name for filling a span of the buffer, and the whole
+	   of the C fill Lisp can reach: the paragraph at point is M-q's,
+	   which is a command rather than a function. */
+	{ "fill-region", native_fill_region },
 	{ "buffer-name", native_buffer_name },
 	{ "buffer-file-name", native_buffer_file_name },
 	{ "buffer-modified-p", native_buffer_modified_p },
@@ -78,6 +82,10 @@ static const struct native_binding native_bindings[] = {
 	{ "concat", native_concat },
 	{ "format", native_format },
 	{ "string=", native_string_equal },
+	/* Emacs' indexed comparison: the return contract, the bounds rule
+	 * and the ASCII-only IGNORE-CASE are all in src/lisp_string.c's
+	 * comments, each measured before it was written. */
+	{ "compare-strings", native_compare_strings },
 	{ "char-to-string", native_char_to_string },
 	{ "string-to-char", native_string_to_char },
 	{ "string-to-number", native_string_to_number },
@@ -137,6 +145,11 @@ static const struct native_binding native_bindings[] = {
 	{ "re-search-backward", native_re_search_backward },
 	{ "match-beginning", native_match_beginning },
 	{ "match-end", native_match_end },
+	/* The whole register as one value, and back.  Both are C because
+	 * the register is: there is no Lisp-visible object holding it.
+	 * `save-match-data' is prelude Lisp over this pair. */
+	{ "match-data", native_match_data },
+	{ "set-match-data", native_set_match_data },
 	/* The regex-from-Lisp seam: the engine is src/regex.h's, already
 	 * behind C-s and re-search-forward.  What string-match adds is a
 	 * string subject and Emacs' character-indexed match data. */
@@ -172,6 +185,20 @@ static const struct native_binding native_bindings[] = {
 	{ "set-process-filter", native_set_process_filter },
 	{ "set-process-sentinel", native_set_process_sentinel },
 	{ "process-status", native_process_status },
+	/* Phase 2 of doc/plans/2026-08-14-embedded-prelude.md: seven of the
+	 * ten names Phase 0.2 found eager on every startup path, moved from
+	 * lisp/prelude.el lambdas to natives (src/lisp_cmd.c).  The other
+	 * three -- internal--let, progn, null -- are already zero-cost
+	 * `(defalias NAME (symbol-function PRIM))` captures of an fe
+	 * primitive and stay Lisp; see src/lisp_cmd.c's own comment on why a
+	 * native cannot stand in for the first two. */
+	{ "listp", native_listp },
+	{ "reverse", native_reverse },
+	{ "nconc", native_nconc },
+	{ "internal--bind-name", native_internal_bind_name },
+	{ "internal--bind-value", native_internal_bind_value },
+	{ "internal--doc-put", native_internal_doc_put },
+	{ "internal--variable-doc-put", native_internal_variable_doc_put },
 };
 
 void register_natives(FeContext *context)
@@ -189,11 +216,12 @@ void register_natives(FeContext *context)
  * written in Fe and evaluated at startup so it is available before any
  * init file runs.
  *
- * lisp/prelude.el is the canonical source; the array below is a generated,
- * byte-for-byte copy of it (utils/embed_lisp.py, `make lisp-prelude-check`
- * proves the two agree).  The rules the prelude's definitions must follow
- * -- ordering, recursion, macro-expansion semantics -- are documented once,
- * in that file's own header comment, next to the code they constrain. */
+ * lisp/prelude.el is the canonical source; the array below is a
+ * generated, byte-for-byte copy of it (utils/embed_lisp.py; `make
+ * lisp-prelude-check` proves that copy is still exact).  The rules the
+ * prelude's definitions must follow -- ordering, recursion,
+ * macro-expansion semantics -- are documented once, in that file's own
+ * header comment, next to the code they constrain. */
 #include "lisp_prelude_generated.inc"
 
 /* The prelude gets its own evaluation, so it neither consumes nor shares

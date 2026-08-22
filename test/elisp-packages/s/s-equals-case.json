@@ -1,0 +1,11 @@
+{
+  "id": "s-equals-case",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-equals? \"Abc\" \"abc\")",
+  "expect": "agree",
+  "note": "Case-sensitive comparison. Both return nil."
+}

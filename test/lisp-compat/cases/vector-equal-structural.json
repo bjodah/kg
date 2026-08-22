@@ -1,0 +1,6 @@
+{
+ "id": "vector-equal-structural",
+ "setup": [],
+ "expr": "(list (equal [1 2 3] [1 2 3]) (equal [] []) (equal [1 2] [1 2 3]) (equal [1 2] '(1 2)) (equal '(1 2) [1 2]))",
+ "note": "`equal' IS structural over vectors -- equal contents compare equal even though `eq' says no -- but it does not cross type: a vector and a list with the same elements are not equal, in either argument order. Emacs: (t t nil nil nil). Unequal lengths compare nil without comparing elements, which is the shape an implementation gets wrong by comparing min(len) elements and stopping."
+}

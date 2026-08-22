@@ -1,0 +1,6 @@
+{
+ "id": "phase26-anchor-whole-subject",
+ "setup": [],
+ "expr": "(list (string-match \"\\\\`a\\\\'\" \"a\") (string-match \"\\\\`a\\\\'\" \"ab\") (string-match \"\\\\`\\\\`a\" \"a\"))",
+ "note": "THE IDIOM THE SPELLINGS EXIST FOR -- match the WHOLE subject and nothing less -- plus a doubled anchor. Emacs answers (0 nil 0): `\\\\`a\\\\''' matches the one-character subject and refuses the two-character one, and writing the anchor twice is harmless rather than an error. kg answered (nil nil nil) before 26.2 and answers (0 nil 0) now. The doubled element is not decoration: an implementation that compiles `\\\\`' into a consuming instruction rather than a zero-width assertion passes the first two elements and fails this one."
+}

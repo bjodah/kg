@@ -1,0 +1,6 @@
+{
+ "id": "vector-elt-out-of-range",
+ "setup": [],
+ "expr": "(elt [1 2] 9)",
+ "note": "`elt' past the end of a VECTOR raises `args-out-of-range' with data ([1 2] 9) -- it routes to `aref' and inherits its bounds contract."
+}

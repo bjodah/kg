@@ -77,6 +77,17 @@ FeObject *native_consp(FeContext *context, FeObject *arguments)
 	return lisp_type_is(context, arguments, FeTPair);
 }
 
+/* Emacs' listp: nil or a cons, the two cases `car'/`cdr' accept. */
+FeObject *native_listp(FeContext *context, FeObject *arguments)
+{
+	FeObject *object = FeGetNextArgument(context, &arguments);
+	FeType type;
+
+	FeRequireNoArguments(context, arguments);
+	type = FeGetType(object);
+	return FeMakeBool(context, type == FeTNil || type == FeTPair);
+}
+
 /* nil is its own type in Fe, but Emacs calls it a symbol and so does this. */
 FeObject *native_symbolp(FeContext *context, FeObject *arguments)
 {
@@ -808,4 +819,259 @@ FeObject *native_current_local_map(FeContext *context, FeObject *arguments)
 	}
 	name = keymap_name(map);
 	return name ? FeMakeSymbol(context, name) : FeNil(context);
+}
+
+/* ---- Phase 2 prelude natives ------------------------------------------
+ *
+ * doc/plans/2026-08-14-embedded-prelude.md Phase 0.2 found these ten
+ * names -- `internal--let', `progn', `internal--doc-put',
+ * `internal--variable-doc-put', `nconc', `internal--bind-name',
+ * `internal--bind-value', `reverse', `listp' and `null' -- called on
+ * every startup path, so lisp/prelude.el could never defer them.  The
+ * first three are already `(defalias NAME (symbol-function PRIM))`
+ * captures of an fe primitive rather than allocated lambdas and stay
+ * that way (`internal--let'/`progn' capture the raw special forms
+ * `let'/`do', which a native -- an ordinary evaluated-argument function
+ * -- cannot stand in for without breaking them, the same trap
+ * `utils/prelude_first_call_census.py' hit wrapping them for the
+ * Phase 0.2 census; `null' is already a zero-cost alias to `not').
+ * `listp' moved above, next to the other type predicates it belongs
+ * with; these six are the rest, moved together because they are what
+ * `lisp/prelude.el's own `let'/`let*' bootstrap through, and are one
+ * more reason nothing here may assume a Lisp environment: they run
+ * before evaluate_prelude() has defined `let' itself for anything later
+ * to shadow. */
+
+/* `FeCall'/`FeCallWithOptions' only accept a resolved `FeTFn' or
+ * `FeTNativeFn' as `callable' (fe/fe_run.c's `FeCall' rejects anything
+ * else with "tried to call non-callable value"), so a raw fe PRIMITIVE
+ * such as `setcdr' or `put' cannot be invoked through them directly.
+ * The evaluator has no such restriction -- it runs a form through
+ * primitive dispatch, exactly as evaluating `(put NAME
+ * 'variable-documentation DOC)' at prelude load already does -- so this
+ * builds `(PRIM 'ARG...)' (each argument quoted, since it is already an
+ * evaluated object rather than source to re-evaluate), shared by
+ * `native_nconc' (`setcdr') and `native_internal_variable_doc_put'
+ * (`put') below.
+ *
+ * WHY THE NULLARY CLOSURE AND THE PROTECTED CALL, and not a plain
+ * `FeEvaluateWithOptions' of that form.  A native that re-enters the
+ * evaluator with `FeCall'/`FeEvaluate*' starts a nested run whose
+ * abnormal completion transfers to the OUTERMOST barrier -- kg's own
+ * error_jump -- past every `condition-case' lexically between the native
+ * and the raise.  `raise_signal_form' (src/lisp_core.c) documents that
+ * trap and avoids it; this helper had the plain shape until finding 2 of
+ * doc/reviews/2026-08-19-embedded-prelude-phase21-adversarial-review.md,
+ * so `(condition-case e (internal--variable-doc-put 1 "x") (error ...))'
+ * killed the evaluation instead of running its handler.  Wrapping the
+ * form as `(lambda () FORM)' is what makes it callable: evaluating the
+ * lambda form only builds a closure and cannot raise, and the closure is
+ * an ordinary `FeTFn' that `FeTryCallWithOptions' accepts and contains.
+ * `FeResignal' then puts the completion back in flight in the enclosing
+ * run with its kind, condition object and message intact, which is what
+ * an enclosing handler matches on. */
+static FeObject *lisp_call_primitive(FeContext *context, const char *name,
+    FeObject *const *arguments, size_t count)
+{
+	const size_t gc = FeSaveGC(context);
+	FeObject *quote = FeMakeSymbol(context, "quote");
+	FeObject *form = FeNil(context);
+	FeObject *parts[3];
+	FeObject *result;
+	size_t i;
+
+	for (i = count; i > 0; i--) {
+		FeObject *quoted = FeCons(context, quote,
+		    FeCons(context, arguments[i - 1], FeNil(context)));
+		form = FeCons(context, quoted, form);
+		FePushGC(context, form);
+	}
+	form = FeCons(context, FeMakeSymbol(context, name), form);
+	FePushGC(context, form);
+	parts[0] = FeMakeSymbol(context, "lambda");
+	parts[1] = FeNil(context);
+	parts[2] = form;
+	form = FeMakeList(context, parts, 3);
+	FePushGC(context, form);
+	form = FeEvaluateWithOptions(context, form, &eval_options);
+	FePushGC(context, form);
+	if (!FeTryCallWithOptions(
+		context, form, nullptr, 0, &eval_options, &result)) {
+		/* No checkpoint restore on this path: `FeResignal' does not
+		 * return, and the enclosing run restores its own. */
+		FeResignal(context);
+	}
+	FeRestoreGC(context, gc);
+	return result;
+}
+
+/* Emacs' reverse: a fresh list, not a permutation of the original spine,
+ * as (nreverse below) is.  Iterative on the spine per lisp/prelude.el's
+ * own recursion rule, which this native keeps even though nothing forces
+ * it to. */
+FeObject *native_reverse(FeContext *context, FeObject *arguments)
+{
+	FeObject *list = FeGetNextArgument(context, &arguments);
+	FeObject *result = FeNil(context);
+	const size_t gc = FeSaveGC(context);
+
+	FeRequireNoArguments(context, arguments);
+	while (!FeIsNil(list)) {
+		result = FeCons(context, FeCar(context, list), result);
+		/* One slot, not one per element: every allocation pushes its
+		 * own result (MakeObject()'s own FePushGC), so the checkpoint
+		 * is restored each pass and the chain's head re-pushed -- it
+		 * roots everything built so far.  The same idiom
+		 * native_command_names above uses.  `list' itself needs no
+		 * push of its own: it is a suffix of the caller's own
+		 * argument, rooted below `gc' by whatever rooted the call. */
+		FeRestoreGC(context, gc);
+		FePushGC(context, result);
+		list = FeCdr(context, list);
+	}
+	return result;
+}
+
+/* Emacs' nconc: destructive, and every argument but the last has to be a
+ * list.  fe.h exposes no C-level `setcdr' (only `FeCar'/`FeCdr' read a
+ * pair), so the splice goes through `lisp_call_primitive' above. */
+FeObject *native_nconc(FeContext *context, FeObject *arguments)
+{
+	FeObject *result = FeNil(context);
+	FeObject *tail = FeNil(context);
+
+	while (!FeIsNil(arguments)) {
+		FeObject *piece = FeCar(context, arguments);
+		FeObject *more = FeCdr(context, arguments);
+		FeType piece_type = FeGetType(piece);
+
+		if (!FeIsNil(more) && piece_type != FeTPair
+		    && piece_type != FeTNil) {
+			lisp_raise_wrong_type(context, "listp", piece);
+		}
+		if (!FeIsNil(piece)) {
+			if (FeIsNil(tail)) {
+				result = piece;
+			} else {
+				FeObject *setcdr_args[2] = { tail, piece };
+				(void)lisp_call_primitive(
+				    context, "setcdr", setcdr_args, 2);
+			}
+			if (piece_type == FeTPair) {
+				tail = piece;
+				while (FeGetType(FeCdr(context, tail))
+				    == FeTPair) {
+					tail = FeCdr(context, tail);
+				}
+			}
+		}
+		arguments = more;
+	}
+	return result;
+}
+
+/* Whether a would-be `let'/`let*' binding name is one of Emacs' three
+ * constants: `t', `nil' or a keyword.  A keyword is a symbol whose own
+ * name starts with `:' (fe/fe.c's IsKeywordName, which fe.h does not
+ * expose -- fe_internal.h is private to fe/, so this reads the name back
+ * the same way copy_fe_string's other callers already do rather than
+ * reaching for it). */
+static bool lisp_is_constant_binding_name(FeContext *context, FeObject *name)
+{
+	char *text;
+	size_t length;
+	bool is_keyword;
+
+	if (FeIsNil(name)) {
+		return true;
+	}
+	if (FeGetType(name) != FeTSymbol) {
+		return false;
+	}
+	if (name == FeMakeSymbol(context, "t")) {
+		return true;
+	}
+	text = copy_fe_string(context, name, &length);
+	is_keyword = length > 0 && text[0] == ':';
+	free(text);
+	return is_keyword;
+}
+
+/* `let'/`let*' normalise a binding list before handing it to fe's raw
+ * `let' primitive; this is the NAME half of a binding element, `B' or
+ * `(car B)', with Emacs' constant check. */
+FeObject *native_internal_bind_name(FeContext *context, FeObject *arguments)
+{
+	FeObject *binding = FeGetNextArgument(context, &arguments);
+	FeObject *name;
+
+	FeRequireNoArguments(context, arguments);
+	name
+	    = FeGetType(binding) == FeTPair ? FeCar(context, binding) : binding;
+	if (lisp_is_constant_binding_name(context, name)) {
+		lisp_raise_setting_constant(context, name);
+	}
+	return name;
+}
+
+/* The VALUE half of a binding element: nil for a bare name, `(cadr B)'
+ * for `(NAME VALUE ...)' -- extra elements, same as Emacs, are ignored. */
+FeObject *native_internal_bind_value(FeContext *context, FeObject *arguments)
+{
+	FeObject *binding = FeGetNextArgument(context, &arguments);
+
+	FeRequireNoArguments(context, arguments);
+	if (FeGetType(binding) != FeTPair) {
+		return FeNil(context);
+	}
+	return FeCar(context, FeCdr(context, binding));
+}
+
+/* `defun'/`defmacro's docstring registry: `(NAME . DOC)' consed onto the
+ * global `internal--docs' alist `documentation' (lisp/prelude.el, still
+ * Lisp) reads back.  `FeGetValue' returns `nullptr' -- not nil -- for an
+ * UNBOUND symbol, which `internal--docs' never is by the time this can be
+ * called: `(setq internal--docs nil)' (lisp/prelude.el line 576) is
+ * eager and runs during `evaluate_prelude()', strictly before `defun'
+ * and `defmacro' (lines 621, 678) are even defined, and this native's
+ * only callers are those two macros' own expansions or a direct call
+ * from Lisp evaluated after `kg_lisp_init()' has returned successfully
+ * -- both postdate line 576 unconditionally.  The `nullptr' guard below
+ * is therefore not reachable, kept only because `FeSet' cannot be handed
+ * a null second argument and nothing here should assume a private
+ * ordering fact about a global variable's own file without saying so. */
+FeObject *native_internal_doc_put(FeContext *context, FeObject *arguments)
+{
+	FeObject *name = FeGetNextArgument(context, &arguments);
+	FeObject *doc = FeGetNextArgument(context, &arguments);
+	FeObject *docs_symbol = FeMakeSymbol(context, "internal--docs");
+	FeObject *current = FeGetValue(context, docs_symbol);
+
+	FeRequireNoArguments(context, arguments);
+	FeSet(context, docs_symbol,
+	    FeCons(context, FeCons(context, name, doc),
+		current ? current : FeNil(context)));
+	return doc;
+}
+
+/* `defvar'/`defconst's docstring: Emacs stores it under the
+ * `variable-documentation' property, which `documentation-property'
+ * (lisp/prelude.el, still Lisp) reads back.  fe.h exposes no C-level
+ * property-list writer (only the `put'/`get' primitives have one), so
+ * this goes through `lisp_call_primitive' above, the same indirection
+ * `native_nconc' uses for `setcdr'. */
+FeObject *native_internal_variable_doc_put(
+    FeContext *context, FeObject *arguments)
+{
+	FeObject *name = FeGetNextArgument(context, &arguments);
+	FeObject *doc = FeGetNextArgument(context, &arguments);
+
+	FeRequireNoArguments(context, arguments);
+	if (!FeIsNil(doc)) {
+		FeObject *put_args[3] = { name,
+			FeMakeSymbol(context, "variable-documentation"), doc };
+
+		(void)lisp_call_primitive(context, "put", put_args, 3);
+	}
+	return doc;
 }

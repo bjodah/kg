@@ -25,6 +25,8 @@ pattern-matching prose:
   * exit 0, `Q:`      -> {"kind": "quit"}
   * exit non-zero     -> a reader error or uncatchable budget, recorded from
                           the message because the Lisp wrapper cannot catch it
+                          -- and read from a second, UNWRAPPED run, since a
+                          reader error is about text the wrapper is part of
   * no exit in time   -> {"kind": "timeout"}
   * feature status "unsupported" -> decided from the manifest, kg is
     never run (the manifest already says kg cannot do this; running it
@@ -122,6 +124,24 @@ def run_kg_case(kgbatch: Path, case: dict, timeout: float):
 				capture_output=True, timeout=timeout)
 		except subprocess.TimeoutExpired:
 			return {"kind": "timeout", "seconds": timeout}, None
+		# A NONZERO `-r` RUN IS THE READER'S, and the reader read the
+		# WRAPPER too: `-r` puts the case inside a `condition-case`, so
+		# an unterminated form in the case swallows the wrapper's own
+		# closing text and kgbatch reports what that collision produced
+		# rather than what the case is about.  Measured: `[1 2` answers
+		# "end-of-file: unclosed vector" on its own and "stray ')'"
+		# inside the wrapper.  So the diagnostic for a failing run is
+		# taken from a second, UNWRAPPED evaluation of the same file --
+		# safe because the first one evaluated nothing.
+		if proc.returncode > 0:
+			try:
+				plain = subprocess.run(
+					[str(kgbatch), "-b", str(tmp_path)],
+					capture_output=True, timeout=timeout)
+			except subprocess.TimeoutExpired:
+				plain = None
+			if plain is not None and plain.returncode > 0:
+				proc = plain
 	finally:
 		tmp_path.unlink(missing_ok=True)
 

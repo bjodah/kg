@@ -1,0 +1,7 @@
+{
+ "id": "u1a-subr-x-thread-bare-symbol-step",
+ "expect": "agree",
+ "setup": [],
+ "expr": "(list (thread-first 5 - (* 2)) (thread-last 5 - (* 2)) (thread-first 5) (thread-first (list 1 2) (append (list 3))) (thread-last (list 1 2) (append (list 3))))",
+ "note": "THE STEP SHAPES u0-subr-x-thread-macros does not reach. Emacs answers (-10 -10 5 (1 2 3) (3 1 2)): a step that is a BARE SYMBOL becomes a one-argument call, which is the same for both macros and is why the first two elements agree; a threading form with NO steps is its own value; and the last two are the sign difference again on a list step, where `thread-first' appends and `thread-last' prepends."
+}

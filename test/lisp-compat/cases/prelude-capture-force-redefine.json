@@ -1,0 +1,6 @@
+{
+ "id": "prelude-capture-force-redefine",
+ "setup": [],
+ "expr": "(let ((saved (symbol-function 'mapcar))) (list (funcall saved '1+ '(1 2)) (progn (defalias 'mapcar (lambda (function sequence) 'replacement)) (funcall saved '1+ '(1 2))) (mapcar '1+ '(1 2))))",
+ "note": "The same rule as prelude-capture-redefine with the capture CALLED before the redefinition: calling a captured function value does not make it track the name afterwards, so the answer is ((2 3) (2 3) replacement). The two orders are separate cases because the defect they were written for -- a forwarding stub in `mapcar''s function cell, doc/reviews/2026-08-19-embedded-prelude-phase21-adversarial-review.md finding 1 -- had a different wrong answer for each. kg's prelude is eager since Phase A of doc/plans/2026-08-19-fe-simplification-and-cheap-compat.md, so both pass trivially and both stay as the guard."
+}

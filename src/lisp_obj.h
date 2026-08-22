@@ -64,12 +64,12 @@ struct kg_lisp_object {
  *
  * "At once" is load-bearing, and the pool has no back-pressure to hold it
  * up: `find_free_record()` raises when every record is taken, and nothing
- * here can ask fe to collect (fe publishes no collect-now entry point), so
- * a workload that allocates no arena never provokes the sweep that would
- * free the wrappers it has dropped.  An adapter object minted for the
- * adapter's own private use therefore has to be released when its owner
- * knows it is dead rather than when the collector gets to it -- see
- * lisp_marker_release() and src/lisp_buffer.c's excursion restore.
+ * here asks fe to collect, so a workload that allocates no arena never
+ * provokes the sweep that would free the wrappers it has dropped.  An
+ * adapter object minted for the adapter's own private use therefore has to
+ * be released when its owner knows it is dead rather than when the
+ * collector gets to it -- see lisp_marker_release() and
+ * src/lisp_buffer.c's excursion restore.
  *
  * 64 -> 256 in sub-plan 12D Part 3 (12A Decision 5).  At 64 the pool was
  * the binding constraint on `save-excursion' nesting -- the 65th nested
@@ -85,8 +85,12 @@ struct kg_lisp_object {
  * nesting threshold every record is LIVE: the audit forced a full
  * collection with a 40000-cons burst inside the 64th nested excursion and
  * the 65th allocation still failed.  It rescues the dropped-garbage case
- * only, which is a different bug from the one that bounded nesting, and
- * it would cost an fe entry point and a pin move.  A `realloc'ing pool is
+ * only, which is a different bug from the one that bounded nesting.  fe
+ * now does publish a collect-now entry point (`FeCollectGarbage`, kg's
+ * embedded-prelude program's post-prelude collect) -- calling it here
+ * would cost nothing further on that axis -- but the verdict above did not
+ * rest on that cost and does not move: at the threshold nothing is
+ * reclaimable, collect-now entry point or not.  A `realloc'ing pool is
  * ruled out by construction: records are addressed BY POINTER inside
  * FeTFex0 wrappers and kg registers no mark_fn, so there is nowhere to
  * fix pointers up after a move.

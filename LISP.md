@@ -7,14 +7,24 @@ s-expression before point (in `*scratch*` and Lisp Interaction/Lisp buffers
 labelled errors are shown in the status area. A build made with `WITH_LISP=0`
 keeps all commands available and reports that Lisp was not compiled in.
 
-Lisp runs in a fixed 1 MiB arena that never grows, so a program can exhaust
+Lisp runs in a fixed arena that never grows, so a program can exhaust
 it — `out of memory` in the status area is that, not the host running out.
 Exhaustion is survivable and catchable: `(condition-case e BIG (error
 'caught))` catches it, and so does a handler naming `arena-exhaustion`
 (`evaluation-stack-exhaustion` for a full GC root stack). `M-x
 lisp-arena-stats` reports what is left — slots total/free/peak,
-collections, peak GC roots, peak frames against capacity, and failed
-allocations — and allocates nothing itself. An exhaustion whose data is
+collections, peak GC roots, peak frames against capacity, failed
+allocations, and the arena's own size in bytes — and allocates nothing
+itself.
+
+The arena is 10 MiB unless `$KG_LISP_ARENA_BYTES` says otherwise. It takes
+plain bytes or a `K`/`M` suffix (`2M`, `2048K` and `2097152` are one
+arena), is read once at startup, and is ignored — silently, leaving the
+10 MiB — when it is unset, empty or not a size. A size kg understands but
+will not run in, anything under 786432 bytes, is refused instead: kg says
+so, naming the variable and the floor, and comes up with Lisp switched off
+rather than on a smaller arena than was asked for. That floor is three
+times what the prelude leaves resident. An exhaustion whose data is
 reachable from a *global* keeps the arena pinned: the session stays alive
 and keeps reporting truthfully, but the space does not come back until kg
 is restarted.
@@ -115,9 +125,10 @@ already mid-load is a "cyclic require" error naming it, independent of
 using all three: `(require 'auto-fill)` then `(auto-fill-mode)` breaks lines
 at `fill-column` as they are typed past it, using `after-change-functions`
 and one `replace-region` call per break (one undo step). `fill-column` is
-its default and `(setq-local fill-column N)` gives one buffer a margin of
-its own, which is what makes two buffers wrap at two different columns
-from the one variable. It also shows how a
+the prelude's own variable (70), shared with `fill-region` and M-q, and
+`(setq-local fill-column N)` gives one buffer a margin of its own, which
+is what makes two buffers wrap at two different columns from the one
+variable. It also shows how a
 package handles its own errors: the hook entry point is a `condition-case`
 that stores the condition in `auto-fill--error`, removes itself from the hook
 and reports once, so a `fill-column` set to something that is not a number
@@ -220,6 +231,7 @@ call below is one undo step:
 | ---- | ------ |
 | `(delete-region START END)` | Delete the region; positions in either order |
 | `(replace-region START END TEXT)` | The region becomes `TEXT`, as one edit |
+| `(fill-region START END)` | Reflow every paragraph in the region at `fill-column`, one undo step each; answers the fill prefix (`nil` for a region with no paragraph in it) and leaves point at the region's end |
 | `(search-forward STRING &optional BOUND)` | Literal search to `BOUND` (default `point-max`); moves point past the match, or `nil` |
 | `(search-backward STRING &optional BOUND)` | Literal search to `BOUND` (default `point-min`); moves point to the match's start, or `nil` |
 | `(re-search-forward PATTERN &optional BOUND)` | Regexp search forward; an error on a bad or too-complex pattern |

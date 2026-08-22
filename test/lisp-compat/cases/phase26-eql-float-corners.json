@@ -1,0 +1,7 @@
+{
+ "id": "phase26-eql-float-corners",
+ "setup": [],
+ "expr": "(list (eql 0.0 -0.0) (eql (/ 0.0 0.0) (/ 0.0 0.0)) (eql 3 3.0) (eql 1.5 1.5))",
+ "note": "THE LISP-VISIBLE EDGE OF THE HASH CONTRACTS 26.1 WRITES DOWN, and it ALREADY AGREES -- (nil t nil t) on both sides -- so it is recorded as an agreement rather than as a gap, which is what measuring first is for. `eql' on floats is BIT equality, not numeric equality: 0.0 and -0.0 are `=' but differ in the sign bit and so are not `eql', and two separately computed NaNs are not `=' (nothing is `=' to a NaN) and ARE `eql'. It is those two facts a hash function has to respect, in both directions: eql-equal values must hash equal, so a hash that folds -0.0 onto 0.0 is wrong here and a hash that reads the raw bits of a NaN payload is wrong for the second element. fe's own corpus carries the signed-zero half (num-eql-signed-zero); the NaN half had no case in either corpus before this one.",
+ "expect": "agree"
+}

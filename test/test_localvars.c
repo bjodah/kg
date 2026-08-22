@@ -1123,7 +1123,7 @@ static void test_init_config_booleans(void)
 {
 	struct init_settings s;
 	const char *src = "(setq inhibit-startup-screen t)\n"
-	                  "(setq inhibit-startup-message nil)\n";
+			  "(setq inhibit-startup-message nil)\n";
 
 	CHECK(init_config_parse(src, strlen(src), &s) == 0);
 	CHECK(s.inhibit_startup_screen == true);
@@ -1136,11 +1136,11 @@ static void test_init_config_mixed_forms(void)
 {
 	struct init_settings s;
 	const char *src = ";;; My custom init.el\n"
-	                  ";; Turn off splash screen\n"
-	                  "(setq inhibit-startup-screen t)\n"
-	                  "(global-set-key (kbd \"C-x C-b\") 'list-buffers)\n"
-	                  "(defun my-fun () (interactive))\n"
-	                  "(setq tab-width 4)\n";
+			  ";; Turn off splash screen\n"
+			  "(setq inhibit-startup-screen t)\n"
+			  "(global-set-key (kbd \"C-x C-b\") 'list-buffers)\n"
+			  "(defun my-fun () (interactive))\n"
+			  "(setq tab-width 4)\n";
 
 	CHECK(init_config_parse(src, strlen(src), &s) == 0);
 	CHECK(s.tab_width == 4);

@@ -1,0 +1,6 @@
+{
+ "id": "r2-count-matches-window",
+ "setup": [],
+ "expr": "(with-temp-buffer (insert \"axxxb\") (goto-char (point-min)) (list (count-matches \"a.*b\\\\|x\" 1 4) (point)))",
+ "note": "THE ADVERSARIAL REVIEW'S SECOND PROBE (Finding 2), permanent.  Emacs answers (2 1); kg answered (0 1) until R2b.  `count-matches' is prelude Lisp over `re-search-forward' with END as BOUND, so it inherited the defect exactly: the first search returned nil and the loop ended before counting anything.  Nothing in the counting loop changed for this repair -- the operation underneath it became true."
+}

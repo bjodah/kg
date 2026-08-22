@@ -20,11 +20,24 @@
 name: lisp-exhaustion-mid-command-recovers
 filename: lisp-exhaustion-recover.txt
 requires_feature: lisp
+# The arena is pinned to 1 MiB rather than inherited, and that is a
+# property of the arena and the STEP BUDGET together, not a preference:
+# a fill loop costs about 10.7 steps per cons, so KG_LISP_STEP_LIMIT's
+# 2^20 steps buy roughly 97000 of them and any arena with more slots than
+# that raises the uncatchable step-limit wall before it ever raises
+# arena-exhaustion.  Measured at the compiled 10 MiB default (440129
+# slots): `evaluation step limit exceeded', peak-live 97449.  So this case
+# holds the conditions it was written against -- 41998 slots -- the way
+# utils/check_lisp_gc_stress.py holds its own; Phase B of
+# doc/plans/2026-08-19-fe-simplification-and-cheap-compat.md is the knob
+# that makes that possible.
+env:
+  KG_LISP_ARENA_BYTES: "1M"
 backend: tmux
 dimensions: [24, 120]
 # key_delay is 4x the default and case-local, for a measured reason: the
 # harness ends a tmux run by capturing the pane once it has been *quiet*
-# for 50 ms, and a kg that is busy filling 56147 object slots is quiet.
+# for 50 ms, and a kg that is busy filling 41998 object slots is quiet.
 # At the default 0.05 the capture can land mid-fill -- which is how this
 # case failed in the MSan lane of a six-lane parallel run while passing
 # on its own.
@@ -69,7 +82,7 @@ expected_screen_contains:
   # Exactly one allocation failed, and it was counted.
   - "; fails 1"
   # The arena is the same arena it was before the failure.
-  - "Arena: 56147 slots,"
+  - "Arena: 41998 slots,"
 expected_screen_not_contains:
   # The failure did not leave the arena pinned -- that rendering is what
   # lisp-exhaustion-mid-init-visible asserts instead.

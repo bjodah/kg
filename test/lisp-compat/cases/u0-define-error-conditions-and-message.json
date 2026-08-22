@@ -1,0 +1,6 @@
+{
+ "id": "u0-define-error-conditions-and-message",
+ "setup": [],
+ "expr": "(progn (define-error 'u0-e1 \"My error\") (list (get 'u0-e1 'error-conditions) (get 'u0-e1 'error-message)))",
+ "note": "THE NAME, AND WHAT IT WRITES. Emacs answers ((u0-e1 error) \"My error\"): `define-error' is two `put's -- an `error-conditions' list whose CAR is the symbol itself and whose tail is the parent's conditions (nothing but `error' by default), and an `error-message' string. Nothing opaque is created, which is what makes the plist half of this item (u0-signal-consults-the-error-conditions-plist) the same feature and not a second one. 12 ELPA packages call `define-error', 66 times. kg answers `void-function' at this pin."
+}

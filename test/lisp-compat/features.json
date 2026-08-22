@@ -1,6 +1,6 @@
 {
  "schema": "fe-compat-features/1",
- "note": "kg's half of the Phase 0 manifest (00c-feature-inventory.md, grown since): kg's 94 native_bindings[] (src/lisp_prelude.c) and 122 prelude definitions (lisp/prelude.el's top-level (defalias 'NAME ...) forms), plus a handful of kg-owned cross-cutting divergences and the planned defcustom entry. fe/compat/features.json owns Fe's 70 primitives/aliases at this pin, and fe-owned divergences; the two id spaces must not collide, checked by fe/utils/check_compat_manifest.py --other-manifest and by utils/check_lisp_compat.py's source-coverage check. Schema reused byte-for-byte from fe/compat/features.json (see fe/compat/README.md) plus one additive field, source_name: the literal name this entry's construct has in src/lisp_prelude.c or fe/fe.c, or null for an entry that does not map 1:1 to a single source symbol. utils/check_lisp_compat.py uses it to verify every fe primitive, kg native, and kg prelude definition appears in exactly one manifest.",
+ "note": "kg's half of the Phase 0 manifest (00c-feature-inventory.md, grown since): kg's 134 native_bindings[] (src/lisp_prelude.c) and 126 prelude definitions (lisp/prelude.el's top-level (defalias 'NAME ...) forms), plus a handful of kg-owned cross-cutting divergences and the planned defcustom entry. fe/compat/features.json owns Fe's 81 primitives/aliases at this pin, and fe-owned divergences; the two id spaces must not collide, checked by fe/utils/check_compat_manifest.py --other-manifest and by utils/check_lisp_compat.py's source-coverage check. Schema reused byte-for-byte from fe/compat/features.json (see fe/compat/README.md) plus one additive field, source_name: the literal name this entry's construct has in src/lisp_prelude.c or fe/fe.c, or null for an entry that does not map 1:1 to a single source symbol. utils/check_lisp_compat.py uses it to verify every fe primitive, kg native, and kg prelude definition appears in exactly one manifest.",
  "features": [
   {
    "id": "arena-exhaustion-catchable-by-name",
@@ -12,7 +12,7 @@
     "arena-exhaustion-catchable-by-name"
    ],
    "kg_test": "test/test_lisp.c:test_arena_exhaustion_conditions",
-   "rationale": "Phase 9 (fe sub-plan 09B) made exhaustion of kg's fixed 1 MiB arena raise the pre-built condition (arena-exhaustion), which sits under `error` in fe's hierarchy, so `(t ...)`, `(error ...)` and the name itself all catch it; before the Phase 9 pin only `(t ...)` did, because the raise path degraded the condition object to nil. A full GC root stack is (evaluation-stack-exhaustion) on the same terms. comparison is kg-policy and no oracle snapshot exists on purpose: Emacs has no arena to exhaust, so this is kg's measured behaviour pinned against itself, per the 09 set's compatibility direction. The cited kg_test drives all three handler shapes through kg's own evaluator entry point (kg_lisp_eval_string), asserts the arena is usable again afterwards and that allocation_failures counted the failure, and pins the two things that must NOT change: a budget exhaustion is still caught by nothing, and a chain rooted in a global still pins the arena (09A Decision 3 -- recorded, not rescued). test/pty/lisp-exhaustion-caught-by-name.yaml is the same contract from inside the editor.",
+   "rationale": "Phase 9 (fe sub-plan 09B) made exhaustion of kg's fixed arena raise the pre-built condition (arena-exhaustion), which sits under `error` in fe's hierarchy, so `(t ...)`, `(error ...)` and the name itself all catch it; before the Phase 9 pin only `(t ...)` did, because the raise path degraded the condition object to nil. A full GC root stack is (evaluation-stack-exhaustion) on the same terms. comparison is kg-policy and no oracle snapshot exists on purpose: Emacs has no arena to exhaust, so this is kg's measured behaviour pinned against itself, per the 09 set's compatibility direction. The cited kg_test drives all three handler shapes through kg's own evaluator entry point (kg_lisp_eval_string), asserts the arena is usable again afterwards and that allocation_failures counted the failure, and pins the two things that must NOT change: a budget exhaustion is still caught by nothing, and a chain rooted in a global still pins the arena (09A Decision 3 -- recorded, not rescued). test/pty/lisp-exhaustion-caught-by-name.yaml is the same contract from inside the editor.",
    "source_name": null
   },
   {
@@ -45,6 +45,7 @@
    "id": "cleanup-raise-residuals",
    "category": "errors-and-non-local-exits",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -65,7 +66,7 @@
     "command-lisp-arena-stats"
    ],
    "kg_test": "test/test_cmd.c:test_lisp_arena_stats_renders",
-   "rationale": "Sub-plan 09D's arena-diagnostics command, and the second entry in this manifest that is a cmdtable row rather than a native. comparison is kg-policy because there is nothing to compare against: Emacs has no fixed arena, no slot count, and no collector of fe's shape, so agreement with the pinned oracle is undefined for every field it prints. The cited kg_test asserts the *whole* rendered echo-area line in-process against a live arena: every field, the free/peak and frames/capacity pairs included, rebuilt from FeGetArenaStats' own counters and compared exactly rather than by prefix and substring, plus the `; fails 0` that must hold for a session which has only booted. Reading the counters allocates nothing and mutates no Fe state, which is what makes an exact second read legitimate. test/pty/lisp-arena-stats-command.yaml asserts the same line reaching a real terminal, including the measured 56225 slots and 1095-frame capacity of kg's 1 MiB arena at the Phase 12 pin (56226/1095 at the Phase 11 pin, 56224/1096 at the Phase 10 pin; Phase 11's frame record cost one frame slot and returned two object slots, and Phase 12's fe additions cost one object slot and no frame slot). The command is CMD_LISP_CALLABLE and not CMD_EDITS_BUFFER: kg_lisp_arena_stats() allocates nothing and mutates no Fe state, so a handler that has just caught an arena-exhaustion may call it to see how much of the arena came back -- with the caveat that allocating nothing is also what stops it provoking the collection that returns the slots, so asked immediately after an exhaustion it reports 0 free even where the data is already unreachable, which is why the PTY case evaluates (+ 1 2) in between.",
+   "rationale": "Sub-plan 09D's arena-diagnostics command, and the second entry in this manifest that is a cmdtable row rather than a native. comparison is kg-policy because there is nothing to compare against: Emacs has no fixed arena, no slot count, and no collector of fe's shape, so agreement with the pinned oracle is undefined for every field it prints. The cited kg_test asserts the *whole* rendered echo-area line in-process against a live arena: every field, the free/peak and frames/capacity pairs included, rebuilt from FeGetArenaStats' own counters and compared exactly rather than by prefix and substring, plus the `; fails 0` that must hold for a session which has only booted. Reading the counters allocates nothing and mutates no Fe state, which is what makes an exact second read legitimate. test/pty/lisp-arena-stats-command.yaml asserts the same line reaching a real terminal, including the measured slot count and frame capacity of the compiled default arena -- 586986/10917 since Phase B of doc/plans/2026-08-19-fe-simplification-and-cheap-compat.md made that default 10 MiB, and 56225/1095 for the 1 MiB arena it replaced at the Phase 12 pin (56226/1095 at the Phase 11 pin, 56224/1096 at the Phase 10 pin; Phase 11's frame record cost one frame slot and returned two object slots, and Phase 12's fe additions cost one object slot and no frame slot). The command is CMD_LISP_CALLABLE and not CMD_EDITS_BUFFER: kg_lisp_arena_stats() allocates nothing and mutates no Fe state, so a handler that has just caught an arena-exhaustion may call it to see how much of the arena came back -- with the caveat that allocating nothing is also what stops it provoking the collection that returns the slots, so asked immediately after an exhaustion it reports 0 free even where the data is already unreachable, which is why the PTY case evaluates (+ 1 2) in between. Phase B of doc/plans/2026-08-19-fe-simplification-and-cheap-compat.md added the arena's own size in bytes as the line's last field, because $KG_LISP_ARENA_BYTES makes \"which arena is this\" a run-time question; test/pty/lisp-arena-bytes-knob.yaml pins the reported size and slot count moving together, and test/pty/lisp-arena-bytes-refused.yaml pins the refusal a below-floor size gets instead.",
    "source_name": null
   },
   {
@@ -177,6 +178,7 @@
    "id": "format-exceptional-float",
    "category": "sequences",
    "status": "divergent",
+   "failure_mode": "loud-unsupported",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -200,9 +202,149 @@
    "source_name": null
   },
   {
+   "id": "frontier-assoc-string",
+   "category": "sequences",
+   "status": "divergent",
+   "failure_mode": "silent-wrong",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "frontier-assoc-string-element-shapes",
+    "frontier-assoc-string-skips-non-strings",
+    "frontier-assoc-string-fold",
+    "frontier-assoc-string-key-type-error",
+    "frontier-assoc-baseline",
+    "frontier-s-el-format-aget-route"
+   ],
+   "kg_test": "test/test_lisp.c:test_s_el_vendored_load, test/test_lisp.c:test_assoc_string_and_designator",
+   "rationale": "The frontier demand phase's F.0 freeze for the want behind `s-format' and `s--aget', which are one demand: s--aget is `(cdr (assoc-string key alist))' and s-format's `aget' replacer is its only caller inside s.el. What the rows pin is the COERCION and the FOLD, since frontier-assoc-baseline shows kg's alist walk (`assoc', `assq') already agreeing and carries `expect: agree' to say so. The coercion: an element may be a cons compared by its car, or a bare string or symbol compared as itself, and the ELEMENT comes back either way; a symbol on either side is coerced with `symbol-name'. THE FINDING, which is not what `what does a non-string element do' invites you to assume: a non-string element is SKIPPED SILENTLY and the scan CONTINUES past it -- an alist of numbers is nil, not an error -- while a non-string KEY raises `wrong-type-argument'. An implementation that treated the two ends alike gets one of them wrong whichever way it chooses. THE FOLD DECISION, MADE: ASCII ONLY, the same answer frontier-compare-strings gives its IGNORE-CASE, and for the same reason plus one more -- 26.2's FIXEDCASE precedent, where `replace-match' and `replace-regexp-in-string' were made to agree about one argument rather than disagree one line apart. frontier-assoc-string-fold's non-ASCII element is therefore a recorded divergence that survives the phase; s.el reaches the name with no fold argument at all. F.1 BOUND IT AS PRELUDE LISP over `compare-strings', and four of these six cases flipped -- the s.el route among them, so s-format and s--aget answer Emacs' own values. The row stays `divergent' for the ONE element written to survive the phase: frontier-assoc-string-fold's E-acute pair, where kg answers nil and Emacs finds the element. THE ROUTE COST ONE FIX MORE THAN THE NAME, which no case here predicted: s-format's template replacer reads its groups with (match-string N MD) where MD is the MATCHED TEXT, and kg's `replace-regexp-in-string' called a function replacer with the match data of the whole SUBJECT. The first ${...} worked because its match starts at 0 and the two coordinate systems coincide there; every later one read subject offsets out of a three-character string and resolved to nothing, so s-format signalled its own `s-format-resolve'. kg re-matches the extracted text before calling a function replacer now, which is Emacs' own rule and its own comment (\"Set up match data for the substring for replacement\"); an EMPTY match keeps the old path, where kg already agreed with Emacs. source_name is `assoc-string'.",
+   "source_name": "assoc-string"
+  },
+  {
+   "id": "frontier-compare-strings",
+   "category": "strings",
+   "status": "divergent",
+   "failure_mode": "silent-wrong",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "frontier-compare-strings-return-contract",
+    "frontier-compare-strings-nil-and-offset-bounds",
+    "frontier-compare-strings-bounds-clip-and-error",
+    "frontier-compare-strings-type-and-order-errors",
+    "frontier-compare-strings-ignore-case",
+    "frontier-compare-strings-character-index",
+    "frontier-string-comparison-baseline",
+    "frontier-s-el-compare-strings-route"
+   ],
+   "kg_test": "test/test_lisp.c:test_s_el_vendored_load, test/test_lisp.c:test_string_length_and_substring, test/test_lisp.c:test_compare_strings",
+   "rationale": "The frontier demand phase's F.0 freeze, recorded BEFORE the name exists: `compare-strings' is the want behind three of unmodified s.el's entry points (`s-shared-start', `s-shared-end', `s-ends-with?'), and kg answers `void-function' to seven of these eight cases at this pin. The rows pin the FULL return contract -- `t' for equal spans, otherwise +/-(1+ the number of characters that compared equal), which is the arithmetic s-shared-start recovers its shared prefix from -- and TWO THINGS THIS PHASE'S PLAN PREDICTED WRONGLY. First, `out-of-range bounds (the error, exactly)' is not the rule: an END past the string is CLIPPED and is not an error, a START past it IS `args-out-of-range' whose data echoes the CLIPPED end rather than the argument, and a NEGATIVE index counts from the end, so -1 is legal where -5 over a three-character string is the range error. Second, the mismatch index is counted in CHARACTERS, so the implementation is written over kg's character view -- `length', `elt' and `substring', which string25-multibyte-character-view already measures as agreeing -- and not over fe's bytes. THE DECISION ON IGNORE-CASE, MADE: kg FOLDS ASCII ONLY, and frontier-compare-strings-ignore-case's non-ASCII element is a recorded divergence that survives this phase. kg's case surface is ASCII-only and measured (native-upcase: (upcase \"h\u00e9llo\") is \"H\u00e9LLO\" here), so an IGNORE-CASE that folded \u00c9 onto \u00e9 would make `compare-strings' the only name in kg holding a Unicode case table, arriving through a flag rather than through a decision; s.el's own demand passes no fold. frontier-string-comparison-baseline carries `expect: agree' inside this divergent row, the native-type-of shape: comparison itself already agrees on both sides, so what the name adds is the INDEX, the BOUNDS and the FLAG. F.1 BOUND IT AS A NATIVE (src/lisp_string.c) and six of these eight cases flipped, the s.el route among them: s-shared-start, s-shared-end and s-ends-with? answer Emacs' own values now. The row stays `divergent' for the ONE element written to survive the phase -- frontier-compare-strings-ignore-case's E-acute pair, where kg answers -1 and Emacs answers t, the other three elements of that case agreeing. One measurement decided the fold's DIRECTION, which no case here asked and which only shows up in the sign of a mismatch: Emacs UPCASES, measured, since (compare-strings \"a\" nil nil \"_\" nil nil t) is -1 and only a fold to \"A\" (0x41) sorts before \"_\" (0x5F). source_name is `compare-strings'.",
+   "source_name": "compare-strings"
+  },
+  {
+   "id": "frontier-fill-region",
+   "category": "editor-primitives",
+   "status": "divergent",
+   "failure_mode": "silent-wrong",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "frontier-fill-region-single-paragraph",
+    "frontier-fill-region-multi-paragraph",
+    "frontier-fill-region-refill-and-squeeze",
+    "frontier-fill-region-long-word",
+    "frontier-fill-region-sentence-nobreak",
+    "frontier-fill-region-adaptive-prefix",
+    "frontier-fill-region-empty-region",
+    "frontier-fill-column-variable",
+    "frontier-temp-buffer-baseline",
+    "frontier-s-el-word-wrap-route"
+   ],
+   "kg_test": "test/test_lisp.c:test_s_el_vendored_load, test/test_lisp.c:test_fill_column_variable, test/test_lisp.c:test_fill_region",
+   "rationale": "The frontier demand phase's F.0 freeze for the one want `s-word-wrap' has. THE PLAN IS WRONG ABOUT WHAT KG ALREADY HAS, and this row is where that is written down: it says kg has `the C fill (cmd_fill_paragraph, M-q) and a buffer-local-aware fill-column', and measurement says neither half is usable as stated. `fill-column' is a `defvar' in lisp/auto-fill.el, a LOADABLE PACKAGE, so in a plain Lisp session reading it is `void-variable' (frontier-fill-column-variable) -- and s-word-wrap's body is `(let ((fill-column len)) (fill-region ...))', a `let' over a name no `defvar' has made special, which in kg binds LEXICALLY and would be invisible to any fill. Meanwhile the C fill does not read that variable at all: src/word.c carries `#define FILL_COLUMN 72', clamped to the window width, and `editor_reflow_paragraph' fills THE PARAGRAPH AT POINT rather than a region. THE DECISIONS, MADE. (1) SCOPE: the binding fills paragraph by paragraph across the whole region, because frontier-fill-region-multi-paragraph measures Emacs doing exactly that and s-word-wrap hands it an arbitrary caller string -- a single-paragraph binding is a wrong function, not a smaller one. (2) `fill-column' becomes a prelude `defvar' (special, default 70, Emacs' own measured default) that kg's fill reads, and lisp/auto-fill.el's own `defvar' is reconciled in the same commit. (3) DECLINED: the `sentence-end-double-space' nobreak rule (frontier-fill-region-sentence-nobreak), which makes Emacs break EARLIER than the column allows after `. ' -- kg has no sentence machinery to hang it on and s-word-wrap's demand is a column, not a typographic convention; that case is a recorded divergence chosen here rather than discovered later. What the rows also pin, because a from-scratch wrapper gets them wrong: filling JOINS existing newlines and squeezes runs of spaces, the return value is the fill PREFIX (\"\" normally, the indent under adaptive fill, nil for an empty region), and point ends at the end of the region. frontier-temp-buffer-baseline carries `expect: agree': everything in s-word-wrap's body except the fill already works. source_name is null: no kg name is `fill-region' yet.",
+   "source_name": "fill-region"
+  },
+  {
+   "id": "frontier-multibyte-string-p",
+   "category": "strings",
+   "status": "divergent",
+   "failure_mode": "silent-wrong",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "frontier-multibyte-string-p-ascii",
+    "frontier-multibyte-string-p-non-ascii",
+    "frontier-s-reverse-concat-blocker",
+    "frontier-s-reverse-grapheme-cluster",
+    "frontier-s-el-reverse-route",
+    "frontier-s-el-reverse-grapheme-route"
+   ],
+   "kg_test": "test/test_lisp.c:test_s_el_vendored_load",
+   "rationale": "The frontier demand phase's F.0 freeze for `s-reverse''s want, and THE DIVERGENCE IS CHOSEN HERE RATHER THAN DISCOVERED LATER. Phase 25 fixed kg's string as fe's unibyte byte string, so the honest answer is nil for EVERY kg string; Emacs answers `t' for any literal holding a non-ASCII character, because the flag is a property of the string OBJECT and not of the characters a caller can read out of it. THE DECISION, MADE: `multibyte-string-p' answers nil, always. Answering `t' would be strictly worse than answering nil, and that is measurable rather than aesthetic: `s-reverse' branches on this predicate and its multibyte branch calls `(require 'ucs-normalize)', a library kg does not have. So the ASCII cases are written to FLIP to agreement and frontier-multibyte-string-p-non-ascii is written to STAY divergent. TWO FINDINGS THE PLAN DID NOT HAVE. First, the demand is TWO NAMES DEEP: with the predicate answering nil, s-reverse runs `(concat (nreverse (string-to-list s)))' and lands on kg's `concat', which takes strings only and raises `(wrong-type-argument stringp (99 98 97))' -- the frontier probe could not see it because it stops at the first raise, and F.1 has to bind the list-of-characters arm of `concat' too or the want is not answered. Second, the plan's `kg will reverse bytes' is WRONG: `string-to-list' decodes UTF-8 into codepoints in kg already, so once `concat' accepts them kg reverses BY CHARACTER and frontier-s-el-reverse-route's \"h\u00e9llo\" element is expected to AGREE. What actually stays divergent is grapheme clusters -- frontier-s-reverse-grapheme-cluster measures a base character and a combining accent coming back in the wrong order, which is the mojibake s.el's multibyte branch exists to prevent. F.1 BOUND BOTH NAMES -- the predicate as prelude Lisp and `concat''s list-of-characters arm as C (src/lisp_string.c) -- and FOUR of these five cases flipped. The row stays `divergent' for the one written to: frontier-multibyte-string-p-non-ascii, where Emacs answers t for a literal holding a non-ASCII character and kg answers nil for every string, always. frontier-s-reverse-grapheme-cluster flipping is not a surprise but its own note's prediction: it asks the NAIVE reversal, which both sides now perform identically. The divergence that case DOCUMENTS is one level up in `s-reverse' itself, and no case in this corpus asks it -- measured after F.1, (s-reverse \"e\u0301\") is the sequence UNCHANGED in Emacs, which reaches it through the multibyte branch and `ucs-normalize', and the inverted \"\u0301e\" here. That is what answering nil costs, stated where a reader can see it. source_name is `multibyte-string-p'; `concat' is claimed by its own row.  F.1b ADDED THE ROW THE PROSE WAS STANDING IN FOR: frontier-s-el-reverse-grapheme-route asks `s-reverse' itself on a DECOMPOSED input (`e' plus U+0301), where Emacs answers the sequence UNCHANGED through the multibyte branch and `ucs-normalize' and kg answers it accent-first through the else branch.  Until then the only case naming that input, frontier-s-reverse-grapheme-cluster, asked the NAIVE reversal -- which both sides perform identically, so it flipped and left the real divergence recorded in a note rather than measured by a case.  The new row is written to STAY divergent, and its third element is the control: both sides read the input as the same two codepoints, so what diverges is the branch and not the decoding.",
+   "source_name": "multibyte-string-p"
+  },
+  {
+   "id": "frontier-regexp-opt",
+   "category": "sequences",
+   "status": "divergent",
+   "failure_mode": "intentional-policy",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "frontier-regexp-opt-longest-preference",
+    "frontier-regexp-opt-quotes-members",
+    "frontier-regexp-opt-every-member-matches",
+    "frontier-regexp-opt-degenerate-inputs",
+    "frontier-regexp-opt-paren-shapes",
+    "frontier-regexp-alternation-leftmost",
+    "frontier-s-el-replace-all-route",
+    "r2-regexp-opt-composition",
+    "r2-regexp-opt-outer-alternation",
+    "r2-regexp-opt-capture-numbering",
+    "r2-regexp-opt-quantified"
+   ],
+   "kg_test": "test/test_lisp.c:test_s_el_vendored_load, test/test_lisp.c:test_regexp_opt",
+   "rationale": "The frontier demand phase's F.0 freeze for `s-replace-all''s want, and the row where TEXT EQUALITY IS THE WRONG GATE: Emacs returns an optimized trie (`(regexp-opt '(\"a\" \"ab\"))' is \"\\\\(?:ab?\\\\)\") and matching its spelling would encode Emacs' optimizer in kg. So every case here is a CONTRACT case -- the returned regexp, compiled by kg's own engine, must match exactly the members, entirely, preferring the longest -- and not one of them compares the regexp itself. THE DECISION, MADE: kg's `regexp-opt' sorts its members LONGEST FIRST, `regexp-quote's each, and joins them with a bare `\\\\|'. Longest-first is required because alternation order is semantics in a backtracking engine and frontier-regexp-alternation-leftmost measures kg's engine taking the LEFTMOST alternative that can match, exactly as Emacs' does -- so the name needs an ORDERING, not a new matcher, and that case carries `expect: agree' as the licence. BARE, with no group around it AT F.1, because frontier-regexp-shy-group-unsupported beside this row measured that kg's engine had no shy groups at all and MISREAD `\\\\(?:' as ordinary characters: emitting Emacs' own wrapper would then have inverted the very preference this row exists to guarantee.  That engine limit is GONE as of the R2 pin (tiny-regex-c `29fc9fb'), and the shy-group row next door is `supported'; what this row's `regexp-opt' emits is the R2b seam's own commit, not this one's. The empty-member-list answer is spellable in kg for free -- Emacs' unmatchable regexp is `\\\\`a\\\\`' inside that wrapper, and both anchors have been kg's since 26.2. THE PAREN DECISION F.0 MADE, AND PHASE 29 REVERSED: measured demand was zero (s.el calls `regexp-opt' once, at s.el:420, with ONE argument), so F.0 had kg's take STRINGS only, with a second argument `wrong-number-of-arguments' -- refused by name, the Phase 14 `intern'-OBARRAY precedent, never accepted and ignored. The Phase 28 census then named a consumer (`yaml-mode'), and Phase 29's U.1a implemented PAREN in full; u0-regexp-opt-paren owns the argument's own rows and frontier-regexp-opt-paren-shapes carries the reversal. F.1 BOUND IT AS PRELUDE LISP over `regexp-quote', `sort' and `mapconcat', and five of these seven cases flipped -- the s.el route among them, so s-replace-all replaces the LONGER of two overlapping keys. Two stay `divergent' and both were written to: frontier-regexp-opt-paren-shapes, where kg's answer is now the NAMED arity error (`wrong-number-of-arguments') rather than `void-function' -- refused by name, never accepted and ignored; and frontier-regexp-shy-group-unsupported next door, which was the engine limit underneath and which no name could close -- the R2 pin closed it in the engine. The empty-member answer is Emacs' own text MINUS its wrapper: kg emits \"\\\\\\\\`a\\\\\\\\`\", the inside of Emacs' shy-grouped form, and the degenerate-inputs case proves it unmatchable rather than the implementation asserting it. The list is COPIED before sorting, since kg's `sort' rewrites what it is given. source_name is `regexp-opt'.  R2b MADE IT COMPOSABLE, which is what adversarial-review Finding 3 asked for and what the F.1 decision above deferred to the engine: the alternation is now wrapped in ONE SHY GROUP, `\\\\(?:...\\\\)', so the result is an atom a caller can prefix, suffix, quantify or nest.  The bare join was not a spelling difference -- (concat (regexp-opt '(\"a\" \"b\")) \"c\") was \"a\\\\|bc\", which still matched \"a\" where Emacs' grouped answer does not, so the CONTRACT this row freezes was itself false under ordinary composition.  Four cases added, all `expect: agree': prefix/suffix composition (the review's probe), nesting in an outer alternation, capture numbers surviving the wrapper (why it is SHY and not capturing), and the result under a quantifier inside another shy group.  The five F.1 cases are unchanged and are now the CONTROLS: longest-first, quoting, every-member, degenerate inputs and the alternation-order licence still agree, so the wrapper bought composition without moving what the name already promised.  The empty-member answer took Emacs' EXACT text with it -- kg emits \"\\\\(?:\\\\`a\\\\`\\\\)\" now, wrapper included, where it used to emit the inside only.  This row stays `divergent' for frontier-regexp-opt-paren-shapes alone, and after Phase 29's U.1a for a NARROWER reason than the one it was written with: that case's PAREN `t' half now agrees, and only its `words' half diverges, because kg's engine reads \\\\< and \\\\> as ordinary characters. The engine work is Phase 29's U.2.",
+   "source_name": "regexp-opt"
+  },
+  {
+   "id": "frontier-regexp-shy-group",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "frontier-regexp-shy-group-unsupported"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_regex_seam",
+   "rationale": "The frontier demand phase's F.0 freeze, recorded as THE ROW THAT PHASE DID NOT CLOSE and closed by the R2 repair tranche instead -- from the engine, which is where F.0 said the answer would have to come from.  What F.0 measured: kg had NO shy groups, so `\\\\(?:a\\\\)' did not match \"a\" and DID match the literal text \"?:a\" -- the `?' and the `:' read as ordinary characters inside an ordinary group, a MISREADING rather than a rejection, exactly the shape 26.0 found for `\\\\`'/`\\\\'' before 26.2 taught them.  What the pin now carries (tiny-regex-c `29fc9fb`, through fe `e1d4fbd`): `\\\\(?:' is a real shy group -- it bounds an alternation, takes a quantifier and nests, and it consumes NO capture register, so `\\\\(?:a\\\\)\\\\(b\\\\)' has `b' as capture 1.  `\\\\(?' became a RESERVED opening at the same time, as in Emacs, so every other `\\\\(?' spelling is an invalid regexp instead of the literal characters it is spelled with.  All four elements of the case now answer Emacs' own `(0 2 0 2)'.  Two engine refusals Emacs does not have ride along and are recorded in doc/fe-upstream.md rather than here: an explicitly numbered group `\\\\(?1:...\\\\)', which this compiler cannot express, and more than RE_MAX_SPANS groups open at once, shy ones included.  The consequence for `regexp-opt' is that row's own: with the wrapper spellable, its result can be one grouped atom.  source_name is null: `string-match' is claimed by native-string-match.",
+   "source_name": null
+  },
+  {
+   "id": "frontier-search-noerror",
+   "category": "editor-primitives",
+   "status": "divergent",
+   "failure_mode": "loud-unsupported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "frontier-search-noerror-nil-raises",
+    "frontier-search-noerror-t-returns-nil",
+    "frontier-search-noerror-other-moves-point",
+    "frontier-search-count-argument",
+    "frontier-search-failed-condition-symbol",
+    "frontier-search-two-argument-baseline",
+    "frontier-s-el-split-up-to-route"
+   ],
+   "kg_test": "test/test_lisp.c:test_s_el_vendored_load, test/test_lisp.c:test_search_forward_backward",
+   "rationale": "The frontier demand phase's F.0 freeze for the one want that is an ARITY rather than a name: `s-split-up-to' passes Emacs' third argument, NOERROR, to a kg `re-search-forward' that takes REGEXP and BOUND. The demand names one function and this row measures FOUR -- `search-forward', `search-backward', `re-search-forward', `re-search-backward' -- on 26.2's FIXEDCASE precedent that one argument means one thing across a family; a NOERROR that raised from three names and not the fourth is the divergence that costs the most to find. THE CONTRACT IS THREE-WAY, and a two-valued reading of it misses the third: nil RAISES `search-failed' carrying the pattern and leaves point alone, `t' returns nil and leaves point alone, and ANY OTHER value returns nil AND MOVES POINT to BOUND -- to point-max forward and point-min backward when BOUND is nil. THE DECISION, MADE: all three answers, all four names; the third is not optional, since `t' and `'move' differ only in where point ends up and a caller has no other way to ask. kg today answers nil for every failed search whatever it is asked, which is the `t' behaviour applied unconditionally, so kg is silently the wrong one of the three answers before this lands. F.1 LANDED ALL THREE ANSWERS FOR ALL FOUR NAMES, so four of these seven cases flipped, and the row keeps its `divergent' status for the two written not to: frontier-search-count-argument (COUNT is still `wrong-number-of-arguments' by name) and frontier-search-failed-condition-symbol (kg has no `error-conditions' property surface -- fe seeds `error-message' and the parent chain, so kg's second element is Emacs' text now where it was nil, and the first stays nil). THE FLIP COST ONE NAME MORE THAN THE ARITY, which no case here predicted: with NOERROR bound, `s-split-up-to' reached (setq op (goto-char (point-min))) and kg's `goto-char' answered nil where Emacs answers POSITION, so `buffer-substring' raised (wrong-type-argument integer-or-marker-p nil) one line further along -- the same shape frontier-s-reverse-concat-blocker records for `concat'. `goto-char' returns its argument verbatim now, measured on 31.0.91: in a three-character buffer (goto-char 99) is 99 with point at 4, and a marker argument comes back as the marker. kg's own prelude paid for both changes in the same commit -- `count-matches' passes NOERROR `t' where its `while' relied on the old unconditional nil, and `beginning-of-buffer'/`end-of-buffer' end in an explicit nil where they used to inherit `goto-char''s. THE FINDING F.1 NEEDED BEFORE IT STARTED: `search-failed' is not a `src/lisp_search.c' change. fe's condition hierarchy is a TABLE (`condition_parents[]', fe/fe_unwind.c) and `IsConditionSymbol' gates `signal' on it, so `(signal 'search-failed ...)' is `Invalid error symbol' in kg today, measured; a `search-failed' anything can catch by name is an FE change with a pin move behind it, and frontier-search-failed-condition-symbol carries Emacs' own row for it -- parent `error', message \"Search failed\". COUNT, the fourth argument, STAYS A NAMED ERROR: no s.el call passes one, frontier-search-count-argument proves the condition kg raises is `wrong-number-of-arguments', and that case is written not to flip. frontier-search-two-argument-baseline carries `expect: agree': a successful two-argument search already agrees on both sides, so everything divergent here is the third argument and failure. source_name is null: the four names are claimed by native-search-forward, native-search-backward, native-re-search-forward and native-re-search-backward.",
+   "source_name": null
+  },
+  {
    "id": "hook-error-does-not-disarm",
    "category": "errors-and-non-local-exits",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
@@ -229,6 +371,7 @@
    "id": "hook-post-command",
    "category": "editor-primitives",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
@@ -237,6 +380,19 @@
    "kg_test": "test/test_perf.c:test_post_command_hook_empty_costs_nothing",
    "source_name": null,
    "rationale": "`post-command-hook', Phase 18, landed on a measurement and divergent on its trigger. THE MEASUREMENT the plan demanded, from the counting build (test/perfobj/kg, $KG_PERF_OUT) over a 20-keystroke session: with an empty hook list post_command_hook_calls 24, post_command_hook_runs 0, arena free slots 46457, collections 0; with one small hook installed, calls 24, runs 24, free slots 46271 (186 slots for 24 invocations), collections 0. An unused hook therefore reaches fe zero times and allocates nothing -- what it costs a keystroke is one find_hook() string compare over a table that is empty -- which is the 'effectively zero' the plan made the condition for landing it. test_post_command_hook_empty_costs_nothing is the same shape as an assertion. THE DIVERGENCE is when it fires: Emacs runs it after each COMMAND, and kg runs it after each keystroke the main loop has finished processing. kg has no `self-insert-command' -- an ordinary character is inserted without going through cmd_invoke() -- so 'after each command' would leave typing out, and typing is the case a post-command hook is most often written for. The visible consequence is that a prefix keystroke that runs no command fires it too."
+  },
+  {
+   "id": "internal-string-designator",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "internal-string-designator"
+   ],
+   "kg_test": "test/test_lisp.c:test_assoc_string_and_designator",
+   "rationale": "The frontier demand phase's one new internal name: Emacs' string DESIGNATOR rule as a function, since `assoc-string' needs it twice and needs the two answers to differ. A string is itself, a symbol is its `symbol-name' (`nil' included, so a nil key is the string \"nil\" and finds an element whose car is \"nil\" -- measured on 31.0.91), and anything else is nil, meaning `this cannot be compared as a string'. What the callers do with that nil is the asymmetry the frozen cases pin: on the KEY side it becomes `(wrong-type-argument stringp KEY)', and on the ELEMENT side it means SKIP and keep scanning. comparison is kg-policy because the name is kg's own -- Emacs has no `internal--string-designator', it has the rule spread across the C of `assoc_string' -- so there is nothing to compare it against; the BEHAVIOUR it implements is compared, through frontier-assoc-string-*.",
+   "source_name": "internal--string-designator"
   },
   {
    "id": "lettag-let-binding-buffer-tag",
@@ -300,6 +456,7 @@
    "id": "load-path-search",
    "category": "loading",
    "status": "divergent",
+   "failure_mode": "intentional-policy",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
@@ -430,6 +587,7 @@
    "id": "macro-expand-every-invocation",
    "category": "functions-and-macros",
    "status": "divergent",
+   "failure_mode": "resource-bound",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
@@ -522,6 +680,7 @@
    "id": "native-buffer-file-name",
    "category": "editor-primitives",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
@@ -614,6 +773,7 @@
    "id": "native-capitalize",
    "category": "sequences",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -667,6 +827,7 @@
    "id": "native-commandp",
    "category": "interactive-commands",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -865,6 +1026,7 @@
    "id": "native-downcase",
    "category": "sequences",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -1193,6 +1355,7 @@
    "id": "native-looking-at",
    "category": "sequences",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -1306,6 +1469,19 @@
    "kg_test": "test/test_lisp.c:test_re_search_and_match_data",
    "rationale": null,
    "source_name": "match-beginning"
+  },
+  {
+   "id": "native-match-data",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-match-data-list"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase25_match_data",
+   "rationale": "Phase 25.2. The whole match register as one value: a flat list of BEGIN END pairs, group 0 first, (nil nil) for a group that did not participate, and nil when no search has run. C rather than prelude Lisp because the register is C. kg always answers INTEGERS, where Emacs answers markers for a buffer match unless its INTEGERS argument says otherwise -- Emacs' own `(match-data t)' -- because kg has no marker in the register to hand out and one would promise that saved spans follow a later edit. INTEGERS is accepted and ignored.",
+   "source_name": "match-data"
   },
   {
    "id": "native-match-end",
@@ -1737,6 +1913,19 @@
    "source_name": "set-marker"
   },
   {
+   "id": "native-set-match-data",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-set-match-data-round-trip"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase25_match_data",
+   "rationale": "Phase 25.2, and `match-data''s inverse: the property `save-match-data' is built on. It records what it is given as a STRING match whatever produced it, which is not a shortcut -- the numbers in the list are already in the units `match-beginning' answers, so replaying them unconverted is exactly what makes (set-match-data (match-data)) the identity it has to be over either kind of search. Emacs' RESEAT argument is accepted and ignored, for native-match-data's reason.",
+   "source_name": "set-match-data"
+  },
+  {
    "id": "native-set-process-filter",
    "category": "editor-primitives",
    "status": "supported",
@@ -1766,6 +1955,7 @@
    "id": "native-skip-chars-backward",
    "category": "sequences",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -1780,6 +1970,7 @@
    "id": "native-skip-chars-forward",
    "category": "sequences",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -1833,6 +2024,7 @@
    "id": "native-string-length",
    "category": "sequences",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -1846,6 +2038,7 @@
    "id": "native-string-match",
    "category": "sequences",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -1860,6 +2053,7 @@
    "id": "native-string-to-char",
    "category": "sequences",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -1873,6 +2067,7 @@
    "id": "native-string-to-number",
    "category": "sequences",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -1913,6 +2108,7 @@
    "id": "native-switch-to-buffer",
    "category": "editor-primitives",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
@@ -1939,6 +2135,7 @@
    "id": "native-type-of",
    "category": "values-and-equality",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -1953,6 +2150,7 @@
    "id": "native-upcase",
    "category": "sequences",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -2058,6 +2256,7 @@
    "id": "phase11-one-arg-defvar-file-scope",
    "category": "bindings",
    "status": "divergent",
+   "failure_mode": "intentional-policy",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -2192,25 +2391,6 @@
    "source_name": null
   },
   {
-   "id": "prelude-temporary-hygiene",
-   "category": "functions-and-macros",
-   "status": "supported",
-   "owner": "kg",
-   "comparison": "emacs",
-   "cases": [
-    "prelude-hygiene-mapcar-accumulator",
-    "prelude-hygiene-dotimes-counter",
-    "prelude-hygiene-mapconcat-separator",
-    "prelude-hygiene-add-to-list-variable",
-    "prelude-hygiene-sort-predicate",
-    "prelude-hygiene-replace-regexp-function",
-    "prelude-hygiene-seq-filter-predicate"
-   ],
-   "kg_test": "test/test_lisp.c:test_prelude_temporary_hygiene",
-   "rationale": "The sweep doc/TODO.md's capturable-temporaries row asked for, finishing what phase14-gensym-hygiene-in-prelude started on one name. Since Phase 11 a `let' over a `defvar'd name binds DYNAMICALLY, so any lisp/prelude.el temporary that is still bound while USER code runs is a two-way capture: the callback's assignment lands on the prelude's accumulator and the prelude's accumulator is what the user's variable reads back. Sixty distinct names are `let'-bound in the prelude (counted with utils/forecast_audit.py's reader); twenty-two binding sites across fourteen definitions are live across user code and were swept, and the rest bind and unbind with no callback in between, so nothing can observe them. Three classes were found rather than the two the exposure was recorded as: higher-order functions (mapcar, mapc, mapconcat, replace-regexp-in-string with a function REP, sort/internal--merge/internal--merge-pairs, seq-filter, seq-find, seq-some), the loader (internal--load-loop and require, which hold temporaries across the `eval' of a loaded file's forms), and one that is neither -- add-to-list, whose VARIABLE argument is a name the caller chose, so asking it to push onto a variable named `current' bound a shadow, read the shadow and `set' the shadow. Every case above raised or answered wrongly before and agrees with the pinned Emacs after; the kg_test carries the loader half, which needs a file on disk. THE FIX IS NOT GENSYM AND THE MEASUREMENT IS WHY. A macro substituting a fresh gensym through each body at load time was implemented first and works, but kg's arena is fixed and collects nothing during startup, so the substitution walk's own cost is permanent high-water mark: peak live after the prelude went 11281 -> 40153 objects of 56259 with a copying walk (20.0% -> 71.4%) and 11281 -> 20906 (37.2%) with a destructive one that allocates nothing itself, both measured at kgbatch -g's post-prelude probe. Carried into test_lisp.c's Phase 8 census, whose margin assertion is peak_live * 3 < total_slots and whose measured figure is 14579, that +9625 alone puts the census past a third of the arena. The cost is fe's call overhead -- about nine object slots per call, one call per cons -- not the copy. The temporaries are LAMBDA PARAMETERS instead, bound by an immediately-applied lambda, which fe binds lexically unconditionally (the special flag is consulted at fe's binding-list paths and nowhere else, 11A Decision 2 -- it is the pre-Phase-11 lowering of `let', used deliberately where hygiene is the requirement). Measured cost of that: peak live 11281 -> 11285, +4 objects, and prelude load 2.811 -> 2.810 ms, median of nine runs of the counting build each way.",
-   "source_name": null
-  },
-  {
    "id": "phase14-intern-soft",
    "category": "values-and-equality",
    "status": "supported",
@@ -2285,6 +2465,7 @@
    "id": "phase16-completing-read-collection",
    "category": "interactive-commands",
    "status": "divergent",
+   "failure_mode": "loud-unsupported",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
@@ -2298,6 +2479,7 @@
    "id": "phase16-read-buffer-default",
    "category": "interactive-commands",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
@@ -2311,6 +2493,7 @@
    "id": "phase16-read-history",
    "category": "interactive-commands",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
@@ -2324,6 +2507,7 @@
    "id": "phase16-unsupported-predicates",
    "category": "interactive-commands",
    "status": "divergent",
+   "failure_mode": "loud-unsupported",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
@@ -2337,6 +2521,7 @@
    "id": "phase16-y-or-n-p-single-key",
    "category": "interactive-commands",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
@@ -2350,6 +2535,7 @@
    "id": "phase18-automatically-buffer-local",
    "category": "bindings",
    "status": "divergent",
+   "failure_mode": "loud-unsupported",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
@@ -2539,6 +2725,7 @@
    "id": "phase19-interactive-form-builtin",
    "category": "interactive-commands",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
@@ -2559,6 +2746,131 @@
    ],
    "kg_test": "test/test_lisp.c:test_error_message_rendering",
    "rationale": "Phase 19 took the writer row doc/TODO.md recorded at Phase 14 and gave the home `whichever phase next moves the fe pin for the writer`. `prin1` escapes the backslash as well as the quote, so `(format \"%S\" \"x\\\\y\")` is `\"x\\\\y\"` where it was `\"x\\y\"`. It was measurable from kg all along and the case says how: `regexp-quote` returns strings full of backslashes, and printing one did not read back.",
+   "source_name": null
+  },
+  {
+   "id": "phase26-anchor-line-vs-subject",
+   "category": "sequences",
+   "status": "divergent",
+   "failure_mode": "silent-wrong",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase26-anchor-caret-is-not-backtick"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_regex_seam",
+   "rationale": "Phase 26.0, and THE ROW PHASE 26.2 DOES NOT CLOSE. It is separate from phase26-anchor-spellings on purpose: the spellings are a vocabulary gap kg can close by aliasing what its engine already does, and this is the semantics gap underneath them, which aliasing cannot touch. In Emacs `^' matches at the start of the subject AND after every newline in it, and `$' before every newline, while `\\\\`' and `\\\\'' are the subject's two ends and nothing else; the case measures (2 nil 0 nil) over a two-line subject, which is the two spellings disagreeing. kg answers (nil nil nil nil), so it is right about the anchors it lacks and wrong about the ones it has -- its `^'/`$' anchor the whole subject, the engine divergence doc/lisp-api.md records and phase15-string-match-anchors-and-case pins on its own. After 26.2 this case still diverges on elements one and three, and that is the honest form of `kg's `^' already means what `\\\\`' means': it will mean it, correctly, under the new name and incorrectly under the old one, from the same code. source_name is null: `string-match' is claimed by native-string-match.",
+   "source_name": null
+  },
+  {
+   "id": "phase26-anchor-spellings",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase26-anchor-s-trim-patterns",
+    "phase26-anchor-string-match-p",
+    "phase26-anchor-ends-coincide",
+    "phase26-anchor-empty-subject",
+    "phase26-anchor-whole-subject",
+    "phase26-anchor-literal-backtick-today",
+    "phase26-anchor-never-matches"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_regex_seam",
+   "rationale": "SUPPORTED SINCE 26.2, and all seven cases agree. Phase 26.0 froze Emacs' answers for `\\\\`' and `\\\\'' through `string-match' and `string-match-p' before kg's engine knew either spelling; 26.2 taught them to fe/tiny-regex-c, where they compile to the BEGIN and END nodes `^' and `$' already produce -- an alias, not a second semantics, which is exactly the licence phase26-anchor-ends-coincide measured. Two of the seven cases are the controls that make the other five attributable. Two of the seven cases are the controls that make the other five attributable. phase26-anchor-ends-coincide shows that on a subject with no newline Emacs' `^'/`$' and `\\\\`'/`\\\\'' select the SAME offsets, which is what licenses 26.2 to implement the new spellings as the anchors kg's engine already has rather than as new semantics -- and phase26-anchor-line-vs-subject beside this row is where that licence stops. phase26-anchor-never-matches AGREED BEFORE THE WORK TOO ((nil nil) both sides) and keeps its `expect: agree' now that the row is supported, because it agreed for the WRONG REASON first -- kg matched nothing because it read `\\\\`' as a literal backtick the subject did not hold -- and agrees for the right one now. The finding this row was written to record is phase26-anchor-literal-backtick-today: kg did not REJECT either spelling, it dropped the backslash and matched the punctuation, so `(string-match \"\\\\`abc\" \"x`abc\")' answered 1 here and nil in Emacs. A pattern containing either spelling could therefore match the WRONG THING, silently, which is a sharper statement of the gap that was than `s-trim returns its argument'; it answers nil on both sides now. source_name is null: `string-match' and `string-match-p' have their own rows.",
+   "source_name": null
+  },
+  {
+   "id": "phase26-count-matches",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase26-count-matches-plain",
+    "phase26-count-matches-region",
+    "phase26-count-matches-value-shape",
+    "phase26-count-matches-empty-regexp",
+    "phase26-count-matches-clobbers-match-data",
+    "phase26-s-count-matches-route",
+    "r2-count-matches-window",
+    "r2-count-matches-greedy-and-empty"
+   ],
+   "kg_test": "test/test_lisp.c:test_s_el_vendored_load",
+   "rationale": "SUPPORTED SINCE 26.2, and all six cases agree. Phase 26.0 froze `count-matches' before kg bound it -- one of the two things Phase 25's honest-frontier probe measured unmodified s.el still stopping at, the other being the anchor spellings; kg answered `void-function' to all six cases then. It is prelude Lisp, not C, because the counting loop is a `while' over `re-search-forward' and the campaign binds a name in Lisp wherever the loop can be Lisp. What is frozen is more than the count: that a Lisp caller gets a VALUE and not a message (the INTERACTIVE argument is what makes it message, and s.el does not pass it), that point is where it was afterwards, that a zero-width match counts and the scan then advances one character, that reversed START and END are ORDERED rather than refused, and that the call CLOBBERS the match register on its last match -- which is why s.el wraps it in `save-match-data' and why a kg implementation is required to clobber it the same way rather than to preserve it. The sixth case calls `s-count-matches' itself, and unmodified s.el answers (3 2 2) now where it answered the missing NAME before. Two of the five were the ones a naive `while' gets wrong and both are in the implementation for that reason: the zero-width advance, and `save-excursion' around the whole thing. Emacs' INTERACTIVE argument is honoured rather than ignored, in Emacs' own two message spellings, because a function that reported through the echo area and returned nil would be a different function -- which is what phase26-count-matches-value-shape asks. Emacs' PRIMARY spelling is `how-many' and `count-matches' is the alias; kg binds only the name the demand asked for, so (how-many ...) is `void-function' here.  R2b ADDED TWO CASES AND CHANGED NO LISP: r2-count-matches-window is the adversarial review's own probe -- (count-matches \"a.*b\\\\|x\" 1 4) over \"axxxb\" answered (0 1) here and (2 1) in Emacs, because this counting loop sits on `re-search-forward' with END as BOUND and BOUND was a post-match filter (Finding 2).  The loop was never wrong; the operation under it was.  r2-count-matches-greedy-and-empty adds the two shapes that make a bounded count loop or lie -- a pattern that matches empty, and a greedy one the window shortens -- which the Phase 26 rows did not have.",
+   "source_name": "count-matches"
+  },
+  {
+   "id": "phase26-eql-float-corners",
+   "category": "values-and-equality",
+   "status": "supported",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "phase26-eql-float-corners",
+    "phase26-equal-float-corners"
+   ],
+   "kg_test": null,
+   "rationale": "Phase 26.0, and MEASURED RATHER THAN ASSUMED: the master plan lists `eql''s float corners among the things to freeze `if the corpus does not already carry them', and kg's corpus carried neither. Both cases AGREE at the entry pin, so they are recorded as agreements, not as gaps. They are here because they are the Lisp-visible edge of the hash and equality contracts 26.1 has to write down before Phase 27 builds tables on them: `eql' on floats is BIT equality, so 0.0 and -0.0 are `=' but not `eql' and two separately computed NaNs are `eql' but not `=', and any hash that claims to agree with `eql' has to reproduce both -- it may not fold -0.0 onto 0.0, and it may not read a NaN's payload bits. The second case runs the same two pairs through `equal' and `=' so the first case's answers are attributable to `eql' rather than to floats, and adds `(equal 1 1.0)' -- nil -- which is the integer-versus-double rule the same contract has to state. fe's own corpus has the signed-zero half (num-eql-signed-zero); the NaN half had no case in either corpus before this one. owner is fe-core and kg_test is null because `eql' and `equal' are fe primitives and no kg test asserts either float corner; 26.1's contract section is where the citation lands.",
+   "source_name": null
+  },
+  {
+   "id": "phase26-replace-match-case-conversion",
+   "category": "sequences",
+   "status": "divergent",
+   "failure_mode": "silent-wrong",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase26-replace-match-case-upcase-initials"
+   ],
+   "kg_test": "test/test_lisp.c:test_s_el_vendored_load",
+   "rationale": "Phase 26.0 measured what FIXEDCASE nil ACTUALLY does, because two of the four elements are not what the docstring's `converted to a different case depending upon the capitalization of the text' suggests, and a plan that implemented from the prose would get them wrong. Emacs answers (\"Baz Qux bar\" \"BAZ QUX bar\" \"BAz bar\" \"XY\"): a capitalised match capitalises EVERY WORD of the replacement; the rule is `upcase-initials' and not `capitalize', so an interior capital in the replacement SURVIVES (`bAz' -> `BAz'); and a ONE-CHARACTER uppercase match counts as UPCASED, not capitalised, so a two-character replacement comes back fully upcased. It is a separate row from phase26-replace-match-string-form because it is the one part of `replace-match' kg may reasonably decline: kg folds no case anywhere and its `replace-regexp-in-string' already accepts FIXEDCASE and ignores it. Declining it is a decision 26.2 states against this case, rather than an approximation nobody wrote down. THE DECISION, MADE: DECLINED, and the family stays consistent -- `replace-match' and `replace-regexp-in-string' both accept FIXEDCASE and both ignore it, which is the shape Phase 25.2 resolved for `string=' against `string<'. Two things decided it, and neither is taste. First, kg folds no case, so the rule can only ever fire where a pattern matched upper-case text WITHOUT folding to do it. Second, and this is what makes the argument measurable: NO FROZEN CASE CAN ASK THE QUESTION. Every element of this case and of phase26-replace-match-fixedcase matches \"foo\"/\"f\" against \"Foo bar\"/\"FOO bar\"/\"F\", which needs `case-fold-search' to match at all -- so 26.0's own note that the subjects were chosen to avoid folding is wrong, and an implementation of the case rule would have been surface no oracle row in this corpus could check. kg answered `void-function' before 26.2 and raises the `replace-match subexpression does not exist' error of phase26-replace-match-errors now, because the register is empty after the failed match.",
+   "source_name": null
+  },
+  {
+   "id": "phase26-replace-match-errors",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase26-replace-match-errors"
+   ],
+   "kg_test": "test/test_lisp.c:test_s_el_vendored_load",
+   "rationale": "Phase 26.0 froze the three ways `replace-match' is an error, as VALUES rather than as conditions, because the runner compares condition symbols and two of the three share one. THE FINDING: with NO prior match at all -- an emptied register -- Emacs does not report missing match data, it reports `replace-match subexpression does not exist', the same `error' condition and the same message as an explicit SUBEXP naming a group that did not participate; the two are told apart only by the SUBEXP argument echoed in the data, nil against 2. So the no-match case and the absent-group case are ONE error in Emacs, and a kg implementation that invents a distinct `no match data' condition for the first would diverge here. The third element is a different condition entirely: match data that does not fit the STRING argument is `args-out-of-range' carrying the span. kg answered `void-function' three times before 26.2 and reproduces all three answers exactly now, data included -- which is the half of `replace-match' the frozen rows could check without `case-fold-search'.",
+   "source_name": null
+  },
+  {
+   "id": "phase26-replace-match-string-form",
+   "category": "sequences",
+   "status": "divergent",
+   "failure_mode": "silent-wrong",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase26-replace-match-basic",
+    "phase26-replace-match-fixedcase",
+    "phase26-replace-match-literal-nil",
+    "phase26-replace-match-literal-t",
+    "phase26-replace-match-subexp"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase26_replace_match",
+   "rationale": "Phase 26.0 froze the STRING form of `replace-match' -- the one s.el reaches, and the only one it reaches: the two calls in the vendored package are s-trim-left's and s-trim-right's `(replace-match \"\" t t s)' (s.el:41, s.el:49), both with a STRING argument, so the buffer form has no demand behind it at this phase and the execution plan records it as out of scope rather than freezing it unasked. What the five cases pin: the basic replacement returns a NEW string and mutates nothing; FIXEDCASE t inserts verbatim and FIXEDCASE nil case-converts (phase26-replace-match-case-conversion is what that means in detail); LITERAL nil expands `\\\\N', `\\\\&' and `\\\\\\\\', the same three kg's `replace-regexp-in-string' already implements and agrees with Emacs on, which is where 26.2 should take the expansion from; LITERAL t inserts a replacement that WOULD have been an escape verbatim; and SUBEXP replaces one group's span. The subtlety worth having in writing is in the last case: after a STRING replacement THE MATCH DATA IS NOT ADJUSTED -- Emacs leaves 1..4 standing over a string that is now a different length -- where the buffer form does adjust, so one code path serving both has to choose. kg answered `void-function' to all five before 26.2. FOUR OF THE FIVE AGREE NOW and carry `expect: agree' inside this still-divergent row, the native-type-of shape. The fifth, phase26-replace-match-fixedcase, CANNOT be made to agree by any `replace-match', and 26.0's note that its subjects were chosen so the match itself is already in the string is WRONG: all three of its elements match \"foo\" against \"Foo bar\" or \"FOO bar\", which needs `case-fold-search' to match AT ALL. kg has no case folding, so `string-match' answers nil, the register is empty, and `replace-match' raises the subexpression error phase26-replace-match-errors pins. That is kg's oldest recorded regex divergence showing through a Phase 26 row, not a property of this name; phase26-replace-match-case-conversion carries the decision about FIXEDCASE itself.",
+   "source_name": "replace-match"
+  },
+  {
+   "id": "phase26-s-el-trim-silent-gap",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "phase26-s-trim-untrimmed"
+   ],
+   "kg_test": "test/test_lisp.c:test_s_el_vendored_load",
+   "rationale": "Phase 26.0's capability witness, at package level: `s-trim-left', `s-trim-right' and `s-trim' over the real vendored s.el. Emacs answers (\"hi  \" \"  hi\" \"hi\"); kg answers all three arguments UNCHANGED and raises nothing. That silence is the whole point of the row -- the failure is not a missing name a caller can catch, it is a `string-match' that answers nil for a pattern kg's engine misreads, after which s.el's own `if' takes the else branch. BOTH halves of the kg-side track have to land before this case flips: the anchor spellings (phase26-anchor-spellings) and then `replace-match' (phase26-replace-match-string-form), which s.el never even reaches today because the match fails first. It is the counterpart of phase26-count-matches's sixth case, and together the two are what `unmodified s.el got what it asked for' means at 26.2. BOTH LANDED and this row is supported: the spellings in the transition commit, `replace-match' in the one after, and the package answers (\"hi  \" \"  hi\" \"hi\") without a line of it being touched. source_name is null: no kg name is this row's to claim.",
    "source_name": null
   },
   {
@@ -2820,6 +3132,7 @@
    "id": "phase8-format-strictness",
    "category": "formatting",
    "status": "divergent",
+   "failure_mode": "loud-unsupported",
    "owner": "kg",
    "comparison": "kg-policy",
    "cases": [
@@ -3116,6 +3429,7 @@
    "id": "phase8-reader-backquote-symbol-names",
    "category": "reader-and-literals",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "fe-core",
    "comparison": "emacs",
    "cases": [
@@ -3160,6 +3474,7 @@
    "id": "phase8-reader-unsupported-syntax",
    "category": "reader-and-literals",
    "status": "divergent",
+   "failure_mode": "loud-unsupported",
    "owner": "fe-core",
    "comparison": "emacs",
    "cases": [
@@ -3167,7 +3482,7 @@
     "phase8-reader-uninterned-symbol"
    ],
    "kg_test": "test/test_lisp.c:test_phase8_reader_literals",
-   "rationale": "Emacs reads both spellings; fe raises a named read error instead, because a vector needs an object type the core does not have and #: needs uninterned symbols. The snapshots are the measured Emacs answers these rows diverge from -- [1 2 3] and (t \"sym\" t sym) -- not what kg does.",
+   "rationale": "Emacs reads both spellings. The VECTOR half CLOSED in Phase 24, when fe's reader learned `[...]' and kg moved onto it: phase8-reader-vector therefore carries \"expect\": \"agree\" inside a row that is still divergent, and vector-reader-syntax is the row that owns the behaviour. What is left diverging is `#:', which needs uninterned symbols the core does not have and which fe still answers with a named read error. The snapshots are the measured Emacs answers -- [1 2 3] and (t \"sym\" t sym) -- and only the second is one kg diverges from.",
    "source_name": null
   },
   {
@@ -3236,6 +3551,20 @@
    "source_name": "append"
   },
   {
+   "id": "prelude-aref",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-multibyte-aref-vs-elt",
+    "string25-aref-string-bounds"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase25_match_data",
+   "rationale": "Phase 25.2. The third fe sequence primitive kg's prelude wraps, and the one this file had forgotten: a fe string indexes by BYTE and Emacs by CHARACTER, so a string argument routes to `elt' -- literally, so the two names cannot answer differently again -- and every other sequence is fe's primitive unwrapped. The bounds behaviour is unchanged by the wrapper, because `elt''s string arm raises `args-out-of-range' with the offending STRING first, which is what `aref' already did and what Emacs does.",
+   "source_name": "aref"
+  },
+  {
    "id": "prelude-ash",
    "category": "values-and-equality",
    "status": "supported",
@@ -3275,9 +3604,26 @@
    "source_name": "assq-delete-all"
   },
   {
+   "id": "prelude-autoload",
+   "category": "loading",
+   "status": "divergent",
+   "failure_mode": "intentional-policy",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-autoload-inert",
+    "prelude-autoload-first-call",
+    "prelude-autoload-fboundp"
+   ],
+   "kg_test": "test/test_lisp.c:test_autoload_no_op",
+   "rationale": "Phase C1 of doc/plans/2026-08-19-fe-simplification-and-cheap-compat.md: `autoload' is a no-op macro in lisp/prelude.el, beside the `interactive' precedent, and the divergence is stated rather than smoothed over. Emacs' `autoload' ARMS LAZY LOADING -- it puts an autoload object in the function cell, `fboundp' answers t immediately, and the first call loads the named library and re-dispatches. kg's records nothing and loads nothing, so the function cell stays empty (prelude-autoload-fboundp: t there, nil here) and a function that only an autoload would have provided is `void-function' at its first CALL (prelude-autoload-first-call: `file-missing' there, `void-function' here). That is the correct kg answer until kg has package loading at all: the alternative to a no-op is not lazy loading, it is raising on the declaration itself, which stops a package at its header instead of at the name it actually needs. What the macro buys is exactly that -- s.el:34 is the measured first blocker of a real package, `void-function autoload' -- and prelude-autoload-inert pins the inert shape both dialects agree on. A real definition later in the same file wins on both sides, since kg's macro wrote nothing for it to fight with.",
+   "source_name": "autoload"
+  },
+  {
    "id": "prelude-beginning-of-buffer",
    "category": "editor-primitives",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -3391,6 +3737,46 @@
    "kg_test": "test/test_lisp.c:test_list_library",
    "rationale": null,
    "source_name": "cddr"
+  },
+  {
+   "id": "prelude-cl-case",
+   "category": "control-flow",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u1a-cl-case-shapes",
+    "u1a-cl-case-evaluates-its-key-once"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_cl_lib",
+   "rationale": "Phase 29 U.1a, 10 of the 35 packages. Keys compare with `eql' (so a STRING key does not match an equal string and a float key does), the key list may be an atom or a list, `t' and `otherwise' are both the default clause, no match is nil, and a clause with NO BODY is nil rather than the test's own value -- which is what a naive `cond' expansion answers and is why the expansion supplies a nil body. The key form is evaluated ONCE, into a `gensym'-named lambda parameter: an uninterned name no `defvar' of the user's can reach, the hygiene shape `save-excursion' uses.",
+   "source_name": "cl-case"
+  },
+  {
+   "id": "prelude-cl-find-if",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u1a-cl-find-if"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_cl_lib",
+   "rationale": "Phase 29 U.1a, 9 of the 35 packages. The FIRST element satisfying the predicate, nil when none does, over any sequence kg's `seq-find' walks. Two arguments and nothing else: Emacs' takes :key, :start, :end and :from-end, and measured across ELPA all 34 `cl-find-if' call sites pass exactly two, so the keywords are absent by measurement rather than by hope and a caller that passes one gets `wrong-number-of-arguments'.",
+   "source_name": "cl-find-if"
+  },
+  {
+   "id": "prelude-cl-incf",
+   "category": "bindings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u1a-cl-incf-symbol-place"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_cl_lib",
+   "rationale": "Phase 29 U.1a, 12 of the 35 cl-lib packages and the most-reached `cl-' name kg can implement honestly. The form's value is the NEW value and the default increment is 1. PLACE is a SYMBOL and nothing else: Emacs takes any generalised variable and kg has no `gv', so a non-symbol is refused AT EXPANSION with a message naming the limit rather than expanded into a `setq' nobody can read. Measured demand: of 212 `cl-incf' sites across ELPA, 188 pass a bare symbol. The external-review correctness tranche added the arity half: a THIRD argument is wrong-number-of-arguments -- measured on Emacs 31.0.91 -- which the expansion checks, where it first destructured (place . rest) and silently ignored everything past the increment.",
+   "source_name": "cl-incf"
   },
   {
    "id": "prelude-cond",
@@ -3531,9 +3917,24 @@
    "source_name": "elt"
   },
   {
+   "id": "prelude-emacs-major-version",
+   "category": "bindings",
+   "status": "divergent",
+   "failure_mode": "intentional-policy",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u1a-emacs-major-version-absent"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_package_preamble_names",
+   "rationale": "Phase 29 U.1a bound emacs-major-version to 31; the external review's finding removed it. A version claim is a capability promise -- packages read 31 as \"modern code paths are safe\" (font-lock keyword lists, static-if branches, define-minor-mode generations) for capabilities kg does not have, which is the same hazard class as the cl-lib retraction beside it. A package that needs the name now gets void-variable, which names the gap, where a number papered over it. Nothing in tree reads it; dash.el:3980's (< emacs-major-version 25), U.1a's measured consumer, reopens as honest cost. source_name is null: there is no definition to claim.",
+   "source_name": null
+  },
+  {
    "id": "prelude-end-of-buffer",
    "category": "editor-primitives",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -3556,6 +3957,33 @@
    "kg_test": "test/test_lisp.c:test_list_library",
    "rationale": null,
    "source_name": "equal"
+  },
+  {
+   "id": "prelude-eval-and-compile",
+   "category": "control-flow",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u1a-eval-when-compile-and-eval-and-compile"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_package_preamble_names",
+   "rationale": "Phase 29 U.1a, and the measurement that surprised U.1a: in an interpreter it is INDISTINGUISHABLE from `eval-when-compile' -- modern Emacs defines both as quote-of-eval, measured, and they part company only inside a byte-compiler kg does not have. Recorded as its own row anyway, because the two names are separate source declarations and a future kg that compiles would split them here.",
+   "source_name": "eval-and-compile"
+  },
+  {
+   "id": "prelude-eval-when-compile",
+   "category": "control-flow",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u1a-eval-when-compile-and-eval-and-compile",
+    "u1a-eval-when-compile-runs-its-body"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_package_preamble_names",
+   "rationale": "Phase 29 U.1a. It EVALUATES its body at macroexpansion time and expands to the value QUOTED. Inert was tried first and is wrong: U.0's reproduction of the Phase 28 census (correction 4.7) found that inert `eval-when-compile'/`eval-and-compile' carry four packages past a `require' they should have stopped at, and that evaluating bodies is what reproduces the published column class for class. dash.el's whole preamble is one such form.",
+   "source_name": "eval-when-compile"
   },
   {
    "id": "prelude-ignore-errors",
@@ -3623,6 +4051,19 @@
    "source_name": "internal--bind-value"
   },
   {
+   "id": "prelude-internal-cl-case-test",
+   "category": "control-flow",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "u1a-cl-case-shapes"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_cl_lib",
+   "rationale": "Phase 29 U.1a: the clause-test builder `cl-case' expands through. It turns a key list into an `or' of `eql' tests rather than a `memql', which kg does not have. Internal, so the cases are `cl-case''s.",
+   "source_name": "internal--cl-case-test"
+  },
+  {
    "id": "prelude-internal-docstring-p",
    "category": "functions-and-macros",
    "status": "supported",
@@ -3660,6 +4101,58 @@
    "kg_test": "test/test_lisp.c:test_binding_forms",
    "rationale": "Tested-via-wrapper: dotimes' own tests exercise this on every iteration.",
    "source_name": "internal--dotimes"
+  },
+  {
+   "id": "prelude-internal-equal-vectors",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "phase24-internal-equal-vectors"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase24_vectors",
+   "rationale": "Phase 24.2: `equal''s vector arm, split out of the lambda so the atom rule beside it stays one readable chain. Lengths first, then elements from the end through `aref', recursing through `equal' itself. comparison is kg-policy for prelude-internal-seq-to-list's reason -- the behaviour it implements is oracle-compared under vector-identity-and-equality, which is where the frozen Emacs answers live.",
+   "source_name": "internal--equal-vectors"
+  },
+  {
+   "id": "prelude-internal-fe-aref",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "string25-multibyte-aref-vs-elt"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase25_match_data",
+   "rationale": "Phase 25.2. fe's generic `aref', captured before the prelude shadows the name -- prelude-internal-fe-length's idiom and its reason. Everything that is not a string reaches it unchanged: a vector's element is a field read there, and a non-array is fe's own `arrayp' refusal, which Phase 24.0 froze against Emacs.",
+   "source_name": "internal--fe-aref"
+  },
+  {
+   "id": "prelude-internal-fe-elt",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "phase24-internal-fe-length-and-elt"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase24_vectors",
+   "rationale": "fe's generic `elt', captured the same way and for the same one reason as prelude-internal-fe-length: a fe string indexes by BYTE and Emacs by CHARACTER. Everything else routes into fe, which sends a list to its own walk (past the end is nil) and a vector to `aref' (past the end raises args-out-of-range) -- the asymmetry vector-generalised-length-and-elt froze against Emacs before there was an implementation to get it wrong.",
+   "source_name": "internal--fe-elt"
+  },
+  {
+   "id": "prelude-internal-fe-length",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "phase24-internal-fe-length-and-elt"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase24_vectors",
+   "rationale": "fe's generic `length', captured before kg's prelude shadows the name -- the idiom `internal--let' has used since Phase 8, and for the same reason: `defalias' stores the captured primitive itself, so the redefinition cannot reach it. kg keeps only the STRING arm for itself, because a fe string is a chain of BYTES and fe counts them where Emacs counts characters ((length \"\u00e9\") is 2 there, 1 in Emacs and here); everything else -- lists, vectors, the (wrong-type-argument sequencep X) and (wrong-type-argument listp TAIL) conditions -- is fe's answer, unwrapped. Phase 25 retires this by giving fe length-bearing strings.",
+   "source_name": "internal--fe-length"
   },
   {
    "id": "prelude-internal-first",
@@ -3780,6 +4273,33 @@
    "source_name": "internal--replace-expand"
   },
   {
+   "id": "prelude-internal-seq-to-list",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "phase24-internal-seq-to-list"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase24_vectors",
+   "rationale": "Phase 24.2's one generalisation point: every sequence as a list, which is the one shape the prelude's combinators walk. A list is itself, a vector is copied out by index, a string becomes its CHARACTER codes through `string-to-list'. comparison is kg-policy because the name is kg's own internal and Emacs has nothing to compare it to -- what IS oracle-compared is every combinator built on it (vector-prelude-sequence-combinators, vector-append-string-sequence). Emacs dispatches these on cl-generic; kg converts once and walks a list, which is why `mapcar' over a vector answers a list on both sides for the same reason rather than by coincidence.",
+   "source_name": "internal--seq-to-list"
+  },
+  {
+   "id": "prelude-internal-thread",
+   "category": "control-flow",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "u0-subr-x-thread-macros",
+    "u1a-subr-x-thread-bare-symbol-step"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_subr_x",
+   "rationale": "Phase 29 U.1a: the one loop both threading macros expand through, differing only in a flag. Internal, so it has no Emacs counterpart and no surface of its own; the cases are the two macros'.",
+   "source_name": "internal--thread"
+  },
+  {
    "id": "prelude-internal-trim-char-p",
    "category": "sequences",
    "status": "supported",
@@ -3867,6 +4387,21 @@
    "source_name": "let*"
   },
   {
+   "id": "prelude-lexical-binding",
+   "category": "bindings",
+   "status": "divergent",
+   "failure_mode": "intentional-policy",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u1a-lexical-binding-default-value",
+    "u1a-lexical-binding-eval-refusal"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_package_preamble_names",
+   "rationale": "Phase 29 U.1a declared lexical-binding nil; the external review's finding corrected it to t, and the correction is semantic, not cosmetic: fe's evaluator IS lexical-by-default (fe/LISP.md), so nil was a silent lie -- it told every probe that closures close over nothing while they went on closing, and packages such as Embark pass this value into eval, selecting the wrong environment. t is the truthful value, measured by the closure probe in test_lisp.c's preamble-names unit beside the claim so the advertised dialect and the observed one cannot drift apart again. What kg does not have is a first-class lexical ENVIRONMENT: eval refuses a non-nil LEXICAL argument by name, so (eval FORM lexical-binding) -- dash.el:52's shape -- raises here where Emacs evaluates FORM lexically (u1a-lexical-binding-eval-refusal). The default-value case flipped from agreement to divergence with the same edit: Emacs' GLOBAL stays nil because there the t a file sees is a per-file binding over it, and kg has no per-file evaluation mode to represent -- which is also why the variable is bound globally rather than left unsupported. source_name is null: a defvar is not in the prelude's defalias pool.",
+   "source_name": null
+  },
+  {
    "id": "prelude-listp",
    "category": "values-and-equality",
    "status": "supported",
@@ -3893,6 +4428,19 @@
    "source_name": "internal--load-loop"
   },
   {
+   "id": "prelude-make-obsolete-variable",
+   "category": "bindings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u1a-make-obsolete-variable-storage"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_package_preamble_names",
+   "rationale": "Phase 29 U.1a, reached by dash.el:4137. Outside a byte-compiler the whole of this name is STORAGE: it puts (CURRENT-NAME ACCESS-TYPE WHEN) -- which is not the argument order -- on the symbol's `byte-obsolete-variable' property and answers OBSOLETE-NAME. kg has no byte-compiler, so the warning half is absent by construction rather than by choice.",
+   "source_name": "make-obsolete-variable"
+  },
+  {
    "id": "prelude-mapcan",
    "category": "sequences",
    "status": "supported",
@@ -3912,10 +4460,12 @@
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
-    "prelude-mapcar"
+    "prelude-mapcar",
+    "prelude-capture-redefine",
+    "prelude-capture-force-redefine"
    ],
-   "kg_test": "test/test_lisp.c:test_list_library",
-   "rationale": null,
+   "kg_test": "test/test_lisp.c:test_list_library test/test_lisp.c:test_captured_function_value",
+   "rationale": "The mapping itself (prelude-mapcar), plus the two cases that ask what a value CAPTURED out of this name's function cell means: a captured function value is the definition captured, and the name is whatever was last defined. They live on this row because that rule is a language-level one Emacs decides, and `mapcar' is only the name they happen to ask it about. They were written as the regression for doc/reviews/2026-08-19-embedded-prelude-phase21-adversarial-review.md finding 1, when `mapcar' was a deferred name whose stub got both halves wrong; Phase A of doc/plans/2026-08-19-fe-simplification-and-cheap-compat.md deleted the deferral and kept the cases, which an eager definition satisfies trivially -- they now stand as the guard against putting a forwarding stub back in a function cell.",
    "source_name": "mapcar"
   },
   {
@@ -4005,8 +4555,8 @@
    "cases": [
     "phase15-nconc"
    ],
-   "kg_test": "test/test_lisp.c:test_phase15_list_library",
-   "rationale": "Phase 15. Destructive, as Emacs': the result is the first non-nil argument with the rest spliced onto its tail, so the caller's own variable sees the join. It exists mostly because `mapcan' is defined over it and would otherwise have had to be a copying divergence.",
+   "kg_test": "test/test_lisp.c:test_phase15_list_library test/test_lisp.c:test_native_primitive_call_is_contained",
+   "rationale": "Phase 15. Destructive, as Emacs': the result is the first non-nil argument with the rest spliced onto its tail, so the caller's own variable sees the join. It exists mostly because `mapcan' is defined over it and would otherwise have had to be a copying divergence. Since Phase 2 it is a native that reaches `setcdr' by re-entering the evaluator (lisp_call_primitive, src/lisp_cmd.c); the second test is that an error raised down there reaches an enclosing condition-case rather than kg's host barrier (finding 2 of doc/reviews/2026-08-19-embedded-prelude-phase21-adversarial-review.md).",
    "source_name": "nconc"
   },
   {
@@ -4169,6 +4719,7 @@
    "id": "prelude-replace-regexp-in-string",
    "category": "sequences",
    "status": "divergent",
+   "failure_mode": "silent-wrong",
    "owner": "kg",
    "comparison": "emacs",
    "cases": [
@@ -4204,6 +4755,19 @@
    "kg_test": "test/test_lisp.c:test_save_excursion, test/pty/lisp-save-excursion-edit-across.yaml",
    "rationale": "A prelude macro over Lisp `unwind-protect' since sub-plan 11D Part 4, where it was a wrapper around the internal--save-excursion native before. The change of shape is what made a `throw' out of the body reach a `catch' outside the form (the catch-throw-reachability row); the state preserved is unchanged -- the current buffer and point in it, held by a right-gravity marker, so text inserted before the saved point carries it along. kg-policy because the state kg has to preserve is kg's; what is Emacs-comparable is the control flow through it, which the catch-throw-reachability and condition-case rows own. Two consequences of the macro shape are recorded rather than fixed, both found by the Phase 11 acceptance review. (1) The saved state is bound to the prelude temporary internal--excursion, so a body that ASSIGNS that name makes the cleanup raise -- and a raising cleanup replaces the completion it is unwinding (fe 06A Decision 4, which is Emacs' rule too), so the body's own error is lost: (condition-case e (save-excursion (setq internal--excursion nil) (error \"MY-ERROR\")) (error e)) answers the restore's type error, not MY-ERROR. It was the 11A Decision 3 capturable-temporaries exposure with a sharper consequence than the other names, and Phase 14's gensym closed it; the prelude-temporary-hygiene row is the rest of that sweep. (2) The saved marker is an adapter pool object, so the restore RELEASES its record rather than waiting for the collector; without that the 65th save-excursion between two collections raised the pool's exhaustion error, which is what the review's blocker was. test_save_excursion_pool_bound and two PTY cases pin it. THE POOL IS NO LONGER WHAT BOUNDS NESTING. Sub-plan 12D Part 3 raised LISP_MAX_OBJECTS 64 -> 256 (12A Decision 5), which costs 88 bytes a record -- +16.5 KB of .bss, 332392 -> 349288 -- and zero scc, and the binding constraint on nested save-excursion became fe's evaluation frame limit instead: re-measured on the finished tree, 218 nested forms answer and the 219th raises `evaluation frame limit exceeded', which is the same 1095-frame arena partition `with-current-buffer' has always lived under (155 deep, 156 raising, unchanged). At 64 the 65th nested form raised. Emacs has no pool bound at all -- 200000 live markers and a million sequential excursions run, and its first ceiling is the C stack at about 50000 nested -- so this is kg narrower by design, three orders of magnitude closer than it was. COLLECTOR BACK-PRESSURE WAS MEASURED AND REJECTED rather than left unbuilt: at the nesting threshold every record is LIVE, so a forced full collection frees exactly zero and the next allocation still fails -- the audit proved it by bursting 40000 conses inside the 64th nested excursion -- and it would have cost a new fe entry point and a second pin move to fix a different bug (dropped garbage). A realloc'ing pool is ruled out by construction: records are addressed by pointer inside their FeTFex0 wrappers and kg registers no mark_fn, so nothing could fix the pointers up after a move. The marker mint's exhaustion message said \"too many buffer objects\" until the same slice; it says \"too many marker objects\" now, which is what every measurement of this bound actually prints.",
    "source_name": "save-excursion"
+  },
+  {
+   "id": "prelude-save-match-data",
+   "category": "control-flow",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-save-match-data-restores"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase25_match_data",
+   "rationale": "Phase 25.2. A macro: a `let' over `(match-data)' and an `unwind-protect' that calls `(set-match-data SAVED t)', which is Emacs' own expansion. The `unwind-protect' is the load-bearing half -- it is what makes a body that raises, or that C-g interrupts, still restore the caller's match -- and the temporary is a `gensym' so a body that binds the same name cannot capture it, the same hygiene `save-excursion' has had since Phase 14.",
+   "source_name": "save-match-data"
   },
   {
    "id": "prelude-seq-filter",
@@ -4323,6 +4887,46 @@
    "source_name": "split-string"
   },
   {
+   "id": "prelude-static-if",
+   "category": "control-flow",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u1a-static-if-expands-one-branch"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_package_preamble_names",
+   "rationale": "Phase 29 U.1a, Emacs 30's name, and DEFINING IT IS WHAT KEEPS A DORMANT BRANCH DORMANT. dash.el polyfills `static-if' under (unless (fboundp 'static-if) ...) and the polyfill's body is (eval condition lexical-binding) -- Phase 28's first-class-lexical-environment branch, which U.0 found six packages reaching two steps into the dash chain. A kg that HAS the name never expands the polyfill at all (U.0 correction 4.2), so the cheap answer was a name and not a branch. The condition is evaluated at EXPANSION time and the branch not taken is never expanded, which is what makes an (error ...) in either arm harmless.",
+   "source_name": "static-if"
+  },
+  {
+   "id": "prelude-string-blank-p",
+   "category": "strings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u0-subr-x-string-helpers",
+    "u1a-subr-x-string-blank-p-and-remove-misses"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_subr_x",
+   "rationale": "Phase 29 U.1a, subr-x's second-most-reached name (5 of the 13 packages). It answers a MATCH POSITION and not `t' -- it is `string-match' over a whitespace-only regexp -- which is the shape the frozen case exists to pin, and the empty string is blank.",
+   "source_name": "string-blank-p"
+  },
+  {
+   "id": "prelude-string-clean-whitespace",
+   "category": "strings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u1a-subr-x-string-clean-whitespace"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_subr_x",
+   "rationale": "Phase 29 U.1a, 2 of the 13 packages. A run of ANY whitespace -- newlines included -- becomes one space, and the ends are trimmed.",
+   "source_name": "string-clean-whitespace"
+  },
+  {
    "id": "prelude-string-empty-p",
    "category": "sequences",
    "status": "supported",
@@ -4334,6 +4938,33 @@
    "kg_test": "test/test_lisp.c:test_prelude_forms",
    "rationale": null,
    "source_name": "string-empty-p"
+  },
+  {
+   "id": "prelude-string-equal",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-string-equal-name",
+    "string25-string-comparison-aliases"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase25_match_data",
+   "rationale": "Phase 25.2. Emacs' long spelling of `string=', bound to the very same object through `symbol-function' rather than defined again: one implementation, so the symbol-argument rule and the `stringp' refusal cannot differ between the two names. It is the first of the three names Phase 24's frontier probe stopped unmodified s.el at, and s.el's `s-equals?' is a one-line wrapper over it.",
+   "source_name": "string-equal"
+  },
+  {
+   "id": "prelude-string-greaterp",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-string-comparison-aliases"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase25_match_data",
+   "rationale": "Phase 25.2. Emacs' long spelling of `string>', aliased for prelude-string-equal's reason. The `fboundp' census case is what fails if a later change adds two of the three long spellings and forgets this one.",
+   "source_name": "string-greaterp"
   },
   {
    "id": "prelude-string-join",
@@ -4349,6 +4980,46 @@
    "source_name": "string-join"
   },
   {
+   "id": "prelude-string-lessp",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-string-comparison-aliases"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase25_match_data",
+   "rationale": "Phase 25.2. Emacs' long spelling of `string<', aliased to the fe primitive itself for prelude-string-equal's reason. The ordering it inherits already matched Emacs over multibyte text (string25-string-order-multibyte), because fe compares by byte and UTF-8's byte order is its code-point order.",
+   "source_name": "string-lessp"
+  },
+  {
+   "id": "prelude-string-match-p",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-string-match-p-non-perturbing"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase25_match_data",
+   "rationale": "Phase 25.2, and Emacs' own definition: `(save-match-data (string-match REGEXP STRING START))'. The `-p' spelling does not make it a predicate -- it answers the same index `string-match' does -- it promises that the match data is not perturbed, which is the whole contract and the whole reason it is written over the macro rather than over an `if'.",
+   "source_name": "string-match-p"
+  },
+  {
+   "id": "prelude-string-pad",
+   "category": "strings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u0-subr-x-string-helpers",
+    "u1a-subr-x-string-pad-arguments"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_subr_x",
+   "rationale": "Phase 29 U.1a. Named by a frozen case rather than by the demand ranking. It pads on the right, or on the left under a non-nil START, with PADDING or a space, and it NEVER TRUNCATES -- a string already longer than LENGTH comes back untouched.",
+   "source_name": "string-pad"
+  },
+  {
    "id": "prelude-string-prefix-p",
    "category": "sequences",
    "status": "supported",
@@ -4360,6 +5031,34 @@
    "kg_test": "test/test_lisp.c:test_phase15_string_library",
    "rationale": null,
    "source_name": "string-prefix-p"
+  },
+  {
+   "id": "prelude-string-remove-prefix",
+   "category": "strings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u0-subr-x-string-helpers",
+    "u1a-subr-x-string-blank-p-and-remove-misses"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_subr_x",
+   "rationale": "Phase 29 U.1a, 3 of the 13 packages. A prefix that does not match answers the STRING ITSELF rather than nil, which is the half a hits-only test would miss.",
+   "source_name": "string-remove-prefix"
+  },
+  {
+   "id": "prelude-string-remove-suffix",
+   "category": "strings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u0-subr-x-string-helpers",
+    "u1a-subr-x-string-blank-p-and-remove-misses"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_subr_x",
+   "rationale": "Phase 29 U.1a, 3 of the 13 packages, and the mirror of `string-remove-prefix' in every respect including the miss.",
+   "source_name": "string-remove-suffix"
   },
   {
    "id": "prelude-string-suffix-p",
@@ -4414,6 +5113,25 @@
    "source_name": "string-trim-right"
   },
   {
+   "id": "prelude-temporary-hygiene",
+   "category": "functions-and-macros",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "prelude-hygiene-mapcar-accumulator",
+    "prelude-hygiene-dotimes-counter",
+    "prelude-hygiene-mapconcat-separator",
+    "prelude-hygiene-add-to-list-variable",
+    "prelude-hygiene-sort-predicate",
+    "prelude-hygiene-replace-regexp-function",
+    "prelude-hygiene-seq-filter-predicate"
+   ],
+   "kg_test": "test/test_lisp.c:test_prelude_temporary_hygiene",
+   "rationale": "The sweep doc/TODO.md's capturable-temporaries row asked for, finishing what phase14-gensym-hygiene-in-prelude started on one name. Since Phase 11 a `let' over a `defvar'd name binds DYNAMICALLY, so any lisp/prelude.el temporary that is still bound while USER code runs is a two-way capture: the callback's assignment lands on the prelude's accumulator and the prelude's accumulator is what the user's variable reads back. Sixty distinct names are `let'-bound in the prelude (counted with utils/forecast_audit.py's reader); twenty-two binding sites across fourteen definitions are live across user code and were swept, and the rest bind and unbind with no callback in between, so nothing can observe them. Three classes were found rather than the two the exposure was recorded as: higher-order functions (mapcar, mapc, mapconcat, replace-regexp-in-string with a function REP, sort/internal--merge/internal--merge-pairs, seq-filter, seq-find, seq-some), the loader (internal--load-loop and require, which hold temporaries across the `eval' of a loaded file's forms), and one that is neither -- add-to-list, whose VARIABLE argument is a name the caller chose, so asking it to push onto a variable named `current' bound a shadow, read the shadow and `set' the shadow. Every case above raised or answered wrongly before and agrees with the pinned Emacs after; the kg_test carries the loader half, which needs a file on disk. THE FIX IS NOT GENSYM AND THE MEASUREMENT IS WHY. A macro substituting a fresh gensym through each body at load time was implemented first and works, but kg's arena is fixed and collects nothing during startup, so the substitution walk's own cost is permanent high-water mark: peak live after the prelude went 11281 -> 40153 objects of 56259 with a copying walk (20.0% -> 71.4%) and 11281 -> 20906 (37.2%) with a destructive one that allocates nothing itself, both measured at kgbatch -g's post-prelude probe. Carried into test_lisp.c's Phase 8 census, whose margin assertion is peak_live * 3 < total_slots and whose measured figure is 14579, that +9625 alone puts the census past a third of the arena. The cost is fe's call overhead -- about nine object slots per call, one call per cons -- not the copy. The temporaries are LAMBDA PARAMETERS instead, bound by an immediately-applied lambda, which fe binds lexically unconditionally (the special flag is consulted at fe's binding-list paths and nowhere else, 11A Decision 2 -- it is the pre-Phase-11 lowering of `let', used deliberately where hygiene is the requirement). Measured cost of that: peak live 11281 -> 11285, +4 objects, and prelude load 2.811 -> 2.810 ms, median of nine runs of the counting build each way.",
+   "source_name": null
+  },
+  {
    "id": "prelude-thing-at-point",
    "category": "editor-primitives",
    "status": "supported",
@@ -4425,6 +5143,34 @@
    "kg_test": "test/test_lisp.c:test_thing_at_point",
    "rationale": null,
    "source_name": "thing-at-point"
+  },
+  {
+   "id": "prelude-thread-first",
+   "category": "control-flow",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u0-subr-x-thread-macros",
+    "u1a-subr-x-thread-bare-symbol-step"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_subr_x",
+   "rationale": "Phase 29 U.1a. The value is inserted as the FIRST argument of each step, which is why the frozen case measures the pair on a non-commutative step and gets 8 against `thread-last''s -8. A step that is a bare symbol becomes a one-argument call.",
+   "source_name": "thread-first"
+  },
+  {
+   "id": "prelude-thread-last",
+   "category": "control-flow",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u0-subr-x-thread-macros",
+    "u1a-subr-x-thread-bare-symbol-step"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_subr_x",
+   "rationale": "Phase 29 U.1a, 3 of the 13 packages -- the more-reached of the pair. The value is inserted as the LAST argument of each step.",
+   "source_name": "thread-last"
   },
   {
    "id": "prelude-unless",
@@ -4448,8 +5194,8 @@
    "cases": [
     "phase20-variable-documentation"
    ],
-   "kg_test": "test/test_lisp.c:test_phase20_variable_documentation",
-   "rationale": "Phase 20. A `defvar' or `defconst' with a docstring now also puts it on the symbol's `variable-documentation' property, which is where Emacs keeps one -- so `(get 'v 'variable-documentation)' answers, a program can `put' its own over it, and `describe-variable' reads it through `documentation-property' rather than through kg's own registry. Emacs' re-`defvar' rule comes with it and is measured: the value is not reassigned and the docstring IS replaced. `defcustom' inherits it by expanding to `defvar'. kg's registry (`internal--docs') still records the same string, because `apropos' asks `documentation' for a line about any name and the property is the only half Emacs has.",
+   "kg_test": "test/test_lisp.c:test_phase20_variable_documentation test/test_lisp.c:test_native_primitive_call_is_contained",
+   "rationale": "Phase 20. A `defvar' or `defconst' with a docstring now also puts it on the symbol's `variable-documentation' property, which is where Emacs keeps one -- so `(get 'v 'variable-documentation)' answers, a program can `put' its own over it, and `describe-variable' reads it through `documentation-property' rather than through kg's own registry. Emacs' re-`defvar' rule comes with it and is measured: the value is not reassigned and the docstring IS replaced. `defcustom' inherits it by expanding to `defvar'. kg's registry (`internal--docs') still records the same string, because `apropos' asks `documentation' for a line about any name and the property is the only half Emacs has. The native reaches `put' by re-entering the evaluator (lisp_call_primitive, src/lisp_cmd.c), so the second test is the containment that seam needs: an error from down there -- including one from a replaced `put' -- reaches an enclosing condition-case (finding 2 of doc/reviews/2026-08-19-embedded-prelude-phase21-adversarial-review.md).",
    "source_name": "internal--variable-doc-put"
   },
   {
@@ -4522,7 +5268,7 @@
     "pipeline-macro-use"
    ],
    "kg_test": "lisp/pipeline.el, lisp/pipeline-text.el, test/pty/lisp-proof3-pipeline-init.yaml, test/pty/lisp-proof3-pipeline-commands.yaml, test/pty/lisp-proof3-pipeline-errors.yaml",
-   "rationale": "The parent plan's §14 Proof 3: a small higher-order package whose pure-language portions also run unchanged under Emacs 31. lisp/pipeline.el is that pure portion -- no buffer, window, key or process -- and lisp/pipeline-text.el is the editor-facing half that (require ...)s it, which is also §14's 'multiple files' bullet. The nine cases here are the measurement, not the claim: each one's setup loads the tracked lisp/pipeline.el on BOTH sides and the snapshot is the pinned Emacs 31.0.90's own answer, so `make lisp-oracle-check' fails the moment the two stop agreeing. Between them they cover every §14 bullet: Lisp-2 cells, closures, funcall, apply, catch/throw, condition-case, one-step and fixpoint macro expansion used reflectively (10B's primitives, 10A Decision 2), macro expansion used as a predicate, and the macros evaluated normally. Two of kg's then-recorded silent divergences were deliberately NOT made load-bearing in the pure file, which is what makes the agreement a property rather than a coincidence: nothing rebinds a defvar'd variable around a call (prelude-defvar), and no returned value contains a (quote X) form (writer-quote-abbreviation). Both of those closed in Phase 11 and are `supported' now, so nothing here depends on them either way; the file is left as written because what it took to make the agreement a property is the record worth keeping. Two measured constraints shaped it: a throw could not cross a native re-entry boundary (catch-throw-reachability, also closed in Phase 11 for exactly the two forms this package avoids, though every other native re-entry is still a wall), so every catch and its throws are inside one function with no wrapping native between them; and `load' resolves a bare name only in the config directory (load-path-search), which is the one of the four that still diverges, so the two files reach each other with `require'.",
+   "rationale": "The parent plan's \u00a714 Proof 3: a small higher-order package whose pure-language portions also run unchanged under Emacs 31. lisp/pipeline.el is that pure portion -- no buffer, window, key or process -- and lisp/pipeline-text.el is the editor-facing half that (require ...)s it, which is also \u00a714's 'multiple files' bullet. The nine cases here are the measurement, not the claim: each one's setup loads the tracked lisp/pipeline.el on BOTH sides and the snapshot is the pinned Emacs 31.0.90's own answer, so `make lisp-oracle-check' fails the moment the two stop agreeing. Between them they cover every \u00a714 bullet: Lisp-2 cells, closures, funcall, apply, catch/throw, condition-case, one-step and fixpoint macro expansion used reflectively (10B's primitives, 10A Decision 2), macro expansion used as a predicate, and the macros evaluated normally. Two of kg's then-recorded silent divergences were deliberately NOT made load-bearing in the pure file, which is what makes the agreement a property rather than a coincidence: nothing rebinds a defvar'd variable around a call (prelude-defvar), and no returned value contains a (quote X) form (writer-quote-abbreviation). Both of those closed in Phase 11 and are `supported' now, so nothing here depends on them either way; the file is left as written because what it took to make the agreement a property is the record worth keeping. Two measured constraints shaped it: a throw could not cross a native re-entry boundary (catch-throw-reachability, also closed in Phase 11 for exactly the two forms this package avoids, though every other native re-entry is still a wall), so every catch and its throws are inside one function with no wrapping native between them; and `load' resolves a bare name only in the config directory (load-path-search), which is the one of the four that still diverges, so the two files reach each other with `require'.",
    "source_name": null
   },
   {
@@ -4539,6 +5285,84 @@
    "source_name": null
   },
   {
+   "id": "r2-backward-empty-match-at-point",
+   "category": "sequences",
+   "status": "divergent",
+   "failure_mode": "silent-wrong",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "r2-bound-backward-empty-at-point"
+   ],
+   "kg_test": "test/test_regex.c:test_match_window_backward",
+   "rationale": "THE ONE BACKWARD DIFFERENCE R2 DID NOT CLOSE, recorded beside the row that closed the others so the two are not confused.  Measured: searching backward for a pattern that can match empty, Emacs reports the EMPTY match at point -- (re-search-backward \"x*\" nil t) from position 3 of \"axxxb\" is (3 3 3) there -- while kg answers (2 2 3), the consuming match that ENDS there.  This is kg's backward SELECTION rule, not its window: kg_regex_match_backward_bounded() keeps the last match ending at or before the limit and deliberately excludes an empty match exactly AT it (an empty match at point is not a match BEFORE point), which is stated in src/regex.h and pinned by test_match_window_backward.  Finding 2's repair changed which matches EXIST under the window and left which of them the sweep prefers alone, so this row is unmoved by it and is expected to stay.  It is the same boundary make check-regex-differential draws: the backward direction is uncompared there because an oracle for it would have to encode kg's policy rather than read Emacs'.",
+   "source_name": null
+  },
+  {
+   "id": "r2-bounded-search",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "r2-bound-forward-alternation",
+    "r2-bound-forward-greedy",
+    "r2-bound-forward-exact-end",
+    "r2-bound-forward-empty-alternative",
+    "r2-bound-forward-later-match",
+    "r2-bound-subject-anchors",
+    "r2-bound-literal-control",
+    "r2-bound-backward-alternation",
+    "r2-bound-backward-greedy",
+    "r2-bound-backward-lower-bound",
+    "r2-bound-backward-anchors"
+   ],
+   "kg_test": "test/test_regex.c:test_match_window_forward, test/test_regex.c:test_match_window_backward",
+   "rationale": "ADVERSARIAL-REVIEW FINDING 2, closed, and the row that pins it closed.  What was measured: BOUND reached no matcher.  All four search names ran the pattern against the whole row and then tested the answer's end against BOUND, so a preferred branch that crossed it killed the row instead of being shortened, losing to another alternative at the same start, or giving way to a later start -- (re-search-forward \"a.*b\\\\|x\" 4 t) over \"axxxb\" was nil here and 3 in Emacs.  What closed it: a real match limit in the engine (tiny-regex-c 1bcd57b, through the R2 pin), published to kg as kg_regex_match_forward_bounded() and kg_regex_match_backward_bounded(), and handed BOUND by src/lisp_search.c for all four names.  `count-matches' needed NO Lisp change and is filed under its own name (phase26-count-matches) rather than here, because what was false was the operation and not the loop.  THE SET IS ADVERSARIAL BY CONSTRUCTION, one property per case: alternation forcing a later start, greedy repetition handing characters back, a match ending exactly at BOUND against one needing a byte more, an empty alternative, a later valid match with the alternation reversed, and BOTH ENDS of the backward window -- point above and BOUND below.  Two of them are CONTROLS and are what make the rest attributable: r2-bound-subject-anchors shows `\\\\''` and `$' still asking about the real end of the buffer under a BOUND, which is what makes a limit PARAMETER necessary and a truncated subject wrong; r2-bound-literal-control shows the literal path unchanged, where the post-test it kept is exact rather than a simplification.  source_name is null: the four search names are claimed by native-re-search-forward and its siblings.",
+   "source_name": null
+  },
+  {
+   "id": "reader-form-feed-page-break",
+   "category": "reader-and-literals",
+   "status": "supported",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "reader-form-feed-page-break"
+   ],
+   "kg_test": "test/test_lisp.c:test_reader_form_feed_page_break",
+   "rationale": "kg's half of fe's reader-form-feed-whitespace row, pinned at the editor's own seam. The form feed (0x0C) is reader whitespace at every site fe's reader asks the question -- the skip loop, the atom delimiter, the `?' literal's delimiter and the radix digits' -- which it was not before the pin that carries fe cbcea0e: Emacs' `read1' retries on space, form feed, newline, tab and carriage return, and fe had the other four. A page separator is the conventional Elisp section break (s.el:770, f.el:39), so a file that used one handed the reader a symbol constituent instead of a token boundary; measured through test/kgbatch before the pin move, this case's expression answered E:void-variable, the editor's own diagnostic reading `void-variable \\' because the unbound symbol IS the page break and the printer escapes that byte. It answers nil after. The kg-side case is the page-break arm alone -- fe's six cases cover the arms either side of it, including the two that deliberately did not move (an escaped form feed is still a symbol constituent, as an escaped space is, and a string body was never reader syntax) -- and the cited kg_test walks all of them through kg_lisp_eval_string. The snapshot is stamped 31.0.91, the version this box's Emacs pin reports now; the corpus's 417 older snapshots keep the 31.0.90 that produced them, a snapshot carrying the Emacs that made it.",
+   "source_name": null
+  },
+  {
+   "id": "s-el-vendored-load",
+   "category": "loading",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "s-el-vendored-load",
+    "s-el-vendored-call-frontier"
+   ],
+   "kg_test": "test/test_lisp.c:test_s_el_vendored_load",
+   "rationale": "THE REAL PACKAGE, not a fixture shaped like one. sel-frontier-vector-literal pinned kg's blocker with a SYNTHETIC file because vendoring a GPLv3+ elpa package was a licensing decision the maintainer had not made; the maintainer made it on 2026-08-20 (GPL for pure testing does not contaminate, the file lives under external/ with its provenance in external/provenance-ledger.toml, and utils/check_external_quarantine.py guarantees nothing under external/ reaches a shipped artifact), so this row asks the question of the file itself. THE ROW IS DELIBERATELY SPLIT ACROSS THE LINE. s-el-vendored-load carries \"expect\": \"agree\": the file LOADS, unmodified, both sides answering (t t t t) -- Phase 24's whole claim, since one `declare' debug spec at s.el:455 carries a vector literal and every top-level form has to be read before `load' can finish. s-el-vendored-call-frontier is the divergence, and it is what makes this row a FRONTIER rather than a victory lap. IT HAS MOVED TWICE NOW. At Phase 24 it was the reader; the case then recorded four calls answering exactly what Emacs answers and four stopping at three named missing functions (`save-match-data', `string-match-p', `string-equal'). Phase 25.2 landed all three, so seven of the eight calls agree and what is left is ONE call and TWO kinds of gap: `s-count-matches' reaches `count-matches', a name kg does not bind; and `s-trim' answers its argument UNCHANGED rather than raising, because s.el asks for \"\\\\`[ \\t\\n\\r]+\" and kg's regex engine does not know the \\\\` spelling (nor \\\\'), so `string-match' answers nil and s.el's own `if' takes the else branch. That second one is the more interesting demand signal: kg's `^' and `$' already MEAN what \\\\` and \\\\' mean, anchoring the whole subject, so the gap is two spellings rather than a semantics -- and it is silent, which is why the cited kg_test asserts the untrimmed string as a VALUE. `replace-match', which `s-trim' would reach next, is missing too and is masked by it. That was Phase 26's demand signal, and 26.2 answered all of it: THE ROW IS SUPPORTED, all eight calls agree, and the frontier case is no longer split across the line. What unmodified s.el needs NEXT is measured by re-running the probe rather than predicted here; the answer is in the phase's own results.",
+   "source_name": null
+  },
+  {
+   "id": "sel-frontier-vector-literal",
+   "category": "loading",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "sel-frontier-vector-literal",
+    "sel-frontier-load-progress"
+   ],
+   "kg_test": "test/test_lisp.c:test_sel_frontier_vector_literal",
+   "rationale": "Phase C3 of doc/plans/2026-08-19-fe-simplification-and-cheap-compat.md pinned the frontier a package-shaped file stopped kg at, so that moving it would be a diff and not a memory. PHASE 24 MOVED IT: the fixture (test/lisp-compat/fixtures/sel-frontier.el) reproduces s.el's blocker sequence in the order a load meets it -- autoload declaration at the header (s.el:34), page separator between sections (s.el:770), a `declare' debug spec carrying a vector literal -- and all three are now past, so the file loads clean. Both cases flipped in the same commit as the behaviour: sel-frontier-vector-literal answers t (the handler never runs) and sel-frontier-load-progress answers (t t t t) where it answered (t t nil nil), which is the half that says the macro was defined and the trailing form ran rather than merely that nothing signalled. The fixture stays synthetic and stays in the suite: it is the regression guard for all three blockers at once, and it is cheap.",
+   "source_name": null
+  },
+  {
    "id": "signal-from-kg",
    "category": "errors-and-non-local-exits",
    "status": "supported",
@@ -4549,6 +5373,525 @@
    ],
    "kg_test": "test/test_lisp.c:test_signal",
    "rationale": null,
+   "source_name": null
+  },
+  {
+   "id": "string25-embedded-nul-construction",
+   "category": "strings",
+   "status": "divergent",
+   "failure_mode": "loud-unsupported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-nul-constructed",
+    "string25-nul-format-char"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase25_strings, test/test_lisp.c:test_char_string_round_trip, test/test_lisp.c:test_format_natives",
+   "rationale": "Phase 25.0 froze the three ways to build a string containing a NUL that do NOT go through the reader -- `char-to-string', `make-string' and `concat' of them -- plus `format''s `%c'. Emacs treats 0 as an ordinary character in all four; kg refused all four, in TWO ways from TWO places (a `characterp' gate raising `wrong-type-argument', and `format''s plain \"character is out of range\"), because nothing kg stored in a string could contain a NUL. Phase 25.2 retracted both refusals: a fe string carries a length now, so 0 is inside Emacs' character range here as it is there, and string25-nul-constructed AGREES exactly ((1 1 3), `expect: agree' inside this still-divergent row). What is left is string25-nul-format-char, and it is not about `%c' at all -- kg BUILDS the one-NUL string the case asks for, and prints it `\"\\000\"' where Emacs prints the raw byte. That is fe's writer, the same one printed character that keeps string25-embedded-nul-reader divergent, and the case stays here rather than moving because the route it names is `format''s. source_name is null: `char-to-string', `make-string', `concat' and `format' are each already claimed by their own row.",
+   "source_name": null
+  },
+  {
+   "id": "string25-embedded-nul-reader",
+   "category": "strings",
+   "status": "divergent",
+   "failure_mode": "loud-unsupported",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "string25-nul-read-and-length",
+    "string25-nul-print-round-trip"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase25_strings",
+   "rationale": "Phase 25.0 froze the master plan's first Phase 25 gate -- \"embedded NUL round-trips through read/write and the C API\" -- as the two questions a corpus case can ask: what `\"a\\0b\"' READS as, and whether what `%S' writes READS BACK. kg answered neither at 25.0: fe's reader raised `unsupported read syntax: NUL character in string' by name, because `BuildString' wrote at `strlen'. Phase 25.1 ended that, and the READING half now agrees exactly -- `(length \"a\\0b\")' is 3 on both sides, and the cited test asserts the NUL is indexable, comparable and printable. The row stays divergent on the two things that are NOT the reader. string25-nul-read-and-length differs in ONE printed character: fe escapes a NUL as `\\000', so its output reads back, where Emacs emits the raw byte -- fe's decision, taken for re-readability, recorded in doc/fe-upstream.md. string25-nul-print-round-trip needs `read-from-string', which kg does not bind; the round trip it asks about is real (kg's `%S' output does read back as the same string) but no kg name can ask the question, so the case measures a missing accessor rather than a missing round trip. source_name is null: no name here is this row's to claim.",
+   "source_name": null
+  },
+  {
+   "id": "string25-match-data-accessors",
+   "category": "strings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-match-data-list",
+    "string25-set-match-data-round-trip"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase25_match_data",
+   "rationale": "Phase 25.0 froze `match-data' and `set-match-data' -- the pair `save-match-data' is built out of -- as a SHAPE and a round trip: a flat list of BEGIN END pairs, group 0 first, integers for a string match, and feeding that value back through `set-match-data' restores what the accessors read. Phase 25.2 implements both in C, because the register is C: there is no Lisp-visible object it could be read out of. ONE DIVERGENCE IS DELIBERATE and outside what these two cases can see: Emacs answers MARKERS for a BUFFER match unless its INTEGERS argument says otherwise, and kg always answers integers, which is Emacs' own `(match-data t)'. kg has no marker in the register to hand out -- `match-beginning' resolves a row and a byte column into a position at the READ -- and a marker would promise that saved spans follow a later edit, which kg cannot keep. INTEGERS, and `set-match-data''s RESEAT, are accepted and ignored for the same reason. source_name is null: each name has its own native-* row.",
+   "source_name": null
+  },
+  {
+   "id": "string25-match-data-current",
+   "category": "strings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-match-data-baseline",
+    "string25-match-data-clobbered"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_regex_seam",
+   "rationale": "Phase 25.0: the two controls that make the rest of this group attributable. kg's existing match surface -- `string-match` setting the data, `match-beginning`/`match-end`/`match-string` reading it, and a second `string-match` replacing it -- answers exactly what Emacs answers. So every match-data divergence beside this row is a missing NAME and not a broken matcher, and the second case in particular is what gives string25-string-match-p-non-perturbing its meaning: a probe that cannot see the match data move cannot testify that something did not move it.",
+   "source_name": null
+  },
+  {
+   "id": "string25-multibyte-aref-bytes",
+   "category": "strings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-multibyte-aref-vs-elt"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase25_match_data",
+   "rationale": "Phase 25.0's measurement, closed in 25.2 on the kg side. `aref' on a multibyte string answered the first BYTE of the character (195 for \u00e9, 230 for \u65e5) where Emacs answers the character, while `elt' -- asked the same question in the same case -- answered 233 on both sides: kg's prelude wrapped `length', `elt' and `substring' for the character view and had simply not wrapped `aref'. It does now, and the wrapper IS `elt''s, so the two cannot drift apart again. Closed on the kg side rather than in fe because fe's contract is deliberate -- `length'/`aref'/`elt' answer BYTES there, frozen at FE_LANGUAGE_VERSION 17 -- and the inconsistency was never fe's: it was one unwrapped name inside a surface that counts characters everywhere else. s.el:200 is the measured reason it matters, `(aref s1 (- l1 i 1))' with l1 from `length', where a character count and a byte index meet in one expression. source_name is null: `aref' has its own prelude-aref row.",
+   "source_name": null
+  },
+  {
+   "id": "string25-multibyte-character-view",
+   "category": "strings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-multibyte-character-view"
+   ],
+   "kg_test": "test/test_lisp.c:test_string_length_and_substring",
+   "rationale": "Phase 25.0: the control for the non-ASCII group. `length`, `substring`, `string-to-char` and `%S` over multibyte text already answer exactly what Emacs answers, because lisp/prelude.el wraps the byte-indexed fe primitives for the character view. Recorded as a supported row rather than left implicit so that Phase 25.1's representation change, which moves what those primitives do underneath, fails HERE if it breaks the character view -- and so that the `aref` divergence beside it is attributable to one unwrapped name.",
+   "source_name": null
+  },
+  {
+   "id": "string25-raw-byte-round-trip",
+   "category": "strings",
+   "status": "divergent",
+   "failure_mode": "silent-wrong",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "string25-raw-byte-length-and-aref",
+    "string25-raw-byte-print"
+   ],
+   "kg_test": null,
+   "rationale": "Phase 25.0: what a byte that is not valid UTF-8 does, which the master plan lists beside NUL and non-ASCII. A lone 0xE2 written as `\\342` is read, counted and indexed identically by both sides (one unit, 226) -- the `expect: agree` case -- and then printed differently: Emacs escapes it back to `\\342`, so its output reads again, while kg emits the raw byte, so its own `%S` output is not valid UTF-8 and does not read back. A FORMAT LIMIT is recorded in the first case's note rather than worked around: a case's `expr` is a JSON string and JSON must be valid UTF-8, so a case file cannot carry a raw 0xE2 byte at all; the octal escape is the nearest expressible form, and a raw-byte case would have to be a PTY case. kg_test is null: no kg test asserts the writer's treatment of an invalid byte.",
+   "source_name": null
+  },
+  {
+   "id": "string25-save-match-data",
+   "category": "strings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-save-match-data-restores"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase25_match_data",
+   "rationale": "Phase 25.0 froze the behaviour and left the spelling open, in a single expression whose value tells three implementations apart: ((3 5) 1 2) correct, ((1 2) 1 2) restoring too early, ((3 5) 3 5) not restoring. Phase 25.2's macro answers the first. It is Emacs' own expansion -- a `let' over `(match-data)' and an `unwind-protect' calling `(set-match-data SAVED t)' -- not because kg is held to Emacs' macro body, but because the `unwind-protect' is what makes a body that RAISES, or that C-g interrupts, restore as well; no case in this corpus can ask that, and the cited kg_test does. The temporary is a `gensym', so a body that binds the same name cannot capture it. source_name is null: the name has its own prelude-save-match-data row.",
+   "source_name": null
+  },
+  {
+   "id": "string25-string-comparison-agreement",
+   "category": "strings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-string-order-multibyte",
+    "string25-string-equal-vs-eq-and-equal",
+    "string25-string-equal-non-string"
+   ],
+   "kg_test": "test/test_lisp.c:test_string_concat_and_equal",
+   "rationale": "Phase 25.0: the half of string comparison that already agrees, recorded before Phase 25.1 rewrites `Equal`'s word-compare arm. Ordering over multibyte text agrees because fe compares by byte, Emacs by character code, and UTF-8's byte order is its code-point order -- a property of the encoding, so the row is supported rather than lucky. The `eq` / `equal` / `string=` three-way distinction and the `wrong-type-argument` for a non-string argument agree exactly. These are the controls that make string25-string-equal-symbol-argument attributable to the symbol argument alone. source_name is null: `string=` is claimed by native-string-equal and `string<`/`string>` by fe's own rows.",
+   "source_name": null
+  },
+  {
+   "id": "string25-string-comparison-aliases",
+   "category": "strings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-string-equal-name",
+    "string25-string-comparison-aliases"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase25_match_data",
+   "rationale": "Phase 25.0 measured the gap and Phase 25.2 closed it: `string-equal', `string-lessp' and `string-greaterp' are all bound now, as `defalias' of the very objects `string=', `string<' and `string>' already were. It was vocabulary rather than behaviour throughout -- an alias through `symbol-function' keeps one implementation, so a later divergence has one place to live -- and `string-equal' is the first of the three names Phase 24's frontier probe stopped unmodified s.el at. Two cases rather than one because they failed differently and now agree differently: calling the name, and the `fboundp' census that is what still fails if a later change drops one of the three. source_name is null on this ROW: each long spelling has its own prelude-* row claiming it.",
+   "source_name": null
+  },
+  {
+   "id": "string25-string-equal-symbol-argument",
+   "category": "strings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-string-equal-symbol-argument"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase25_match_data",
+   "rationale": "Phase 25.0 FOUND this divergence rather than planning it -- Emacs' string comparison accepts a SYMBOL on either side and compares its name, kg's `string=' raised `wrong-type-argument' for one, and kg's `string<'/`string>' accepted them perfectly well, so the family disagreed with itself and the equality half was the odd one out. Phase 25.2 closed it in `native_string_equal': an operand is a string's bytes, a symbol's name, or the three characters of `nil' -- fe's own `StringOperand' rule for the ordering pair -- and (string= 'foo \"foo\") is t both ways round. What did NOT move is the refusal for anything else: (string= \"abc\" 3) is still (wrong-type-argument stringp 3), which string25-string-equal-non-string pins beside this. source_name is null: `string=' is claimed by native-string-equal.",
+   "source_name": null
+  },
+  {
+   "id": "string25-string-index-and-mutation",
+   "category": "strings",
+   "status": "divergent",
+   "failure_mode": "silent-wrong",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "string25-aref-string-bounds",
+    "string25-aset-ascii-in-place",
+    "string25-aset-byte-into-unibyte",
+    "string25-aset-width-change-errors"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase25_strings",
+   "rationale": "Phase 25.0 froze `aref'/`aset' on a STRING against Emacs; Phase 25.2's fe pin answered half of it. Bounds always agreed -- `args-out-of-range' with data (STRING INDEX), the offending string first, exactly the shape Phase 24.0 froze for vectors, and a negative index takes the same route. MUTATION now works: a fe string is a header carrying a byte length over payload bytes, so `aset' writes one byte in place and string25-aset-ascii-in-place AGREES (`expect: agree' inside this divergent row, the native-type-of shape). What is left diverging is the part kg has no representation for. A fe string is a BYTE string, which is Emacs' UNIBYTE string: (aset s 1 233) stores the byte and (aref s 1) reads 233 back on both sides, and the two answers differ only in how the WRITER spells a byte that is not a character -- Emacs escapes it \\351, fe emits it raw, which is the same one-character divergence string25-raw-byte-round-trip records. And Emacs' second refusal, \"Attempt to replace non-ASCII char in multibyte string\", has no kg counterpart: kg has one string type, so a write over a multibyte character is an ordinary byte write here rather than a refusal. Emacs' FIRST refusal is now kg's own sentence for a value above 255. source_name is null: both names are claimed by fe's own rows.",
+   "source_name": null
+  },
+  {
+   "id": "string25-string-match-p",
+   "category": "strings",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-string-match-p-non-perturbing"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase25_match_data",
+   "rationale": "Phase 25.0 froze `string-match-p''s contract as a VALUE -- it must not perturb the match data -- and Phase 25.2 implemented it the only way that satisfies the case: `(save-match-data (string-match ...))', which is Emacs' own definition too. The case is what makes that non-optional. An implementation spelled `(if (string-match ...) ...)' answers the same INDEX and fails here, because its two calls would leave the match data at (2 3) where the earlier `string-match' left (1 4); string25-match-data-clobbered is the control that gives that its meaning. source_name is null: the name has its own prelude-string-match-p row.",
+   "source_name": null
+  },
+  {
+   "id": "string25-substring-bounds",
+   "category": "strings",
+   "status": "divergent",
+   "failure_mode": "silent-wrong",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "string25-substring-in-range",
+    "string25-substring-out-of-range-conditions"
+   ],
+   "kg_test": "test/test_lisp.c:test_string_length_and_substring",
+   "rationale": "Phase 25.0: `substring`'s bounds and conditions. Every in-range shape agrees, negative indices and an empty result included, which is the `expect: agree` case. Out of range, kg CLAMPS where Emacs RAISES: a start past the end and a reversed pair both give the empty string, an end past the end gives the whole string, and Emacs gives `args-out-of-range` with data (STRING START END) in all three. The case catches the condition so the DATA is its value -- kg raises nothing, so a case comparing condition symbols would only record that kg did not raise, not what it returned instead. source_name is null: `substring` is claimed by native-substring.",
+   "source_name": null
+  },
+  {
+   "id": "u0-defalias-docstring",
+   "category": "functions-and-macros",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u0-defalias-docstring-argument",
+    "u0-defalias-docstring-plist-and-arity",
+    "u0-defalias-docstring-on-a-symbol-target",
+    "u0-defalias-docstring-not-a-string",
+    "u0-defalias-two-argument-baseline"
+   ],
+   "kg_test": "test/test_lisp.c:test_strict_arity, test/test_lisp.c:test_definition_forms",
+   "rationale": "Phase 29's U.0 freeze, implemented in U.1a: `defalias' with a DOCSTRING was the first blocker for 7 of the 110 census packages, all of them through `dash.el:603'. What the rows pin is that the third argument is STORAGE and not decoration -- it lands on the symbol's `function-documentation' property, `documentation' reads it back, a symbol DEFINITION carries the alias's own docstring rather than the target's, a non-string is accepted verbatim, and a FOURTH argument is `wrong-number-of-arguments (defalias 4)'. u0-defalias-two-argument-baseline carries `expect: agree' and is the control: the two-argument form already agreed, so the divergence was attributable to one argument. THE DEMAND, MEASURED IN U.0 AND NOT REMEMBERED: with a stand-in that accepts and drops the third argument, all 7 packages advance to `dash.el:822' -- the `\\(fn ...)' reader escape, i.e. backlog item 2 -- so items 1 and 2 are in SERIES on one file and neither alone moves the count. U.1a implements it as a prelude SHADOW of fe's two-argument primitive, defined below every definition in the file so the prelude's own 139 forms stay on the primitive; source_name is `defalias' in the kg-prelude pool, beside fe's own claim on the primitive (lisp2-defalias-symbol), exactly as `let' is claimed in both pools.",
+   "source_name": "defalias"
+  },
+  {
+   "id": "u0-define-error",
+   "category": "errors-and-non-local-exits",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u0-define-error-conditions-and-message",
+    "u0-define-error-parent-chain",
+     "u0-define-error-multiple-parents",
+     "u0-define-error-unknown-parent",
+     "u0-error-conditions-mutation",
+     "u0-error-conditions-cleanup",
+     "u0-define-error-message-format",
+     "u0-error-conditions-controls",
+     "u0-error-message-string-shapes"
+   ],
+   "kg_test": "test/test_lisp.c:test_signal, test/test_lisp.c:test_error_message_rendering",
+   "rationale": "Phase 29's U.0 freeze for `define-error', the NAME half of backlog item 4 (the plist half is u0-signal-error-conditions-plist, and the two are one feature: `define-error' is nothing but two `put's). The rows pin the whole shape a caller can observe -- conditions as symbol-consed-onto-parent, read at DEFINE time; multiple parents APPENDED in order, duplicates and all; and the edge that shows it does not validate, where an unknown parent yields a condition that `error' does NOT catch and `t' does. `error-message-string''s four renderings are here because they are the other thing packages read out of these plists and kg already has the name. DEMAND: 12 ELPA packages call `define-error', 66 times; none of them is a first blocker, so this item is measured in call sites rather than in unblocked loads -- U.0 says so plainly rather than inventing a load probe for it.",
+    "source_name": null
+  },
+  {
+   "id": "u0-reader-unknown-escape",
+   "category": "reader-and-literals",
+   "status": "supported",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "u0-reader-unknown-escape-is-the-character",
+    "u0-reader-fn-docstring-convention",
+    "u0-reader-unknown-escapes-several",
+    "u0-reader-known-escapes-baseline",
+    "u0-reader-backslash-space-is-nothing",
+    "u0-reader-hex-escape-is-greedy"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_reader_literals",
+   "rationale": "Phase 29's U.0 freeze for the reader rule behind the census's `unsupported read syntax: unknown escape': Emacs reads an UNKNOWN string escape as the character itself, so `\"a\\\\(b)\"' is \"a(b)\". It is on an unconditional load path because `\\\\(fn ARG)' is the standard Emacs Lisp calling-convention docstring convention -- `cond-let.el:319' and `dash.el:822' are both exactly that -- and a reader refusal cannot be caught by any `condition-case' in the file. The rows pin the rule over six escapes, its FENCE (u0-reader-known-escapes-baseline, `expect: agree': the escapes kg already knows keep their meanings, so a blanket rule that broke `\\\\n' or the octal form fails here) and its COUNTEREXAMPLE (backslash-SPACE reads as nothing at all, the string-continuation escape, so `an unknown escape is its own character' is not the whole rule). u0-reader-hex-escape-is-greedy carries `expect: diverge' deliberately: both readers already agree that `\\\\x' eats hex digits greedily, and kg's refusal there is the unibyte-string divergence the `frontier-multibyte-string-p' row owns -- this item must NOT be read as closing it. owner is fe-core because the change is fe's reader and arrives as a pin move; kg_test cites the reader-literal battery that pins what kg reads today.",
+   "source_name": null
+  },
+  {
+   "id": "u0-regexp-contextual-anchors",
+   "category": "sequences",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u0-anchor-dollar-is-literal-mid-pattern",
+    "u0-anchor-dollar-anchors-at-the-end-and-before-alternation",
+    "u0-anchor-caret-is-literal-mid-pattern",
+    "u0-anchor-caret-anchors-at-the-start-and-after-alternation",
+    "u0-anchor-s-lex-format-pattern",
+    "u0-anchor-escaped-dollar-baseline"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_regex_seam",
+   "rationale": "Phase 29's U.0 freeze for Emacs' CONTEXTUAL anchor rule: `$' anchors only at the end of the regexp or before `\\\\|' or `\\\\)', `^' only at the start or after `\\\\(', `\\\\(?:' or `\\\\|', and anywhere else each is an ORDINARY CHARACTER. kg's engine anchors everywhere, so a pattern with a literal dollar in it never matches. Three of the six cases carry `expect: agree' and are the fence: the anchoring contexts already work in kg, so an implementation must make `$'/`^' literal in the OTHER positions without disturbing these. WHAT THIS ROW DOES NOT CLOSE, said here because the code is the same code: kg's anchors are SUBJECT anchors and Emacs' are LINE anchors, which is the separate recorded divergence `phase26-anchor-caret-is-not-backtick' -- after this item lands, `^' will be right about position and still wrong about newlines. DEMAND, MEASURED: the named consumer is `s-lex-format', whose expander matches `\"${\\\\([^}]+\\\\)}\"' -- U.0 pinned that exact pattern (u0-anchor-s-lex-format-pattern) and measured the far end too: with the one pattern rewritten to a character class kg's engine reads, `(let ((a 5)) (s-lex-format \"${a}\"))' answers \"5\", Emacs' own answer, so this item CLOSES that want rather than advancing it to a next blocker.",
+   "source_name": null
+  },
+  {
+   "id": "u0-regexp-opt-paren",
+   "category": "sequences",
+   "status": "divergent",
+   "failure_mode": "loud-unsupported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u0-regexp-opt-paren-t-captures-the-whole-match",
+    "u0-regexp-opt-paren-nil-is-shy",
+    "u0-regexp-opt-paren-words-are-boundaries",
+    "u0-regexp-opt-paren-symbols-are-boundaries",
+    "u0-regexp-opt-paren-string-is-the-group-opener",
+    "u0-regexp-opt-paren-any-other-value-captures",
+    "u0-regexp-opt-paren-empty-members-never-match"
+   ],
+   "kg_test": "test/test_lisp.c:test_regexp_opt",
+   "rationale": "Phase 29's U.0 freeze for `regexp-opt''s PAREN argument, implemented in U.1a, and THE ROW THAT REOPENS A DECISION rather than recording a new want. The frontier phase's F.0 froze the opposite: `frontier-regexp-opt-paren-shapes' said in its own note that kg's `regexp-opt' takes STRINGS and nothing else and that a second argument is a named arity error, on the Phase 14 `intern' precedent, because the vendored s.el calls it once with one argument. The census then named a consumer (`yaml-mode''s first blocker behind the shim is `Wrong number of arguments: regexp-opt, 2'), which is how this campaign says a dormant thing reopens; that case's note carries the reversal. These seven cases measure every PAREN VALUE Emacs accepts -- nil (shy), t (capturing, and the group NUMBERING SHIFT it forces on the caller), `words' (\\\\< \\\\>), `symbols' (\\\\_< \\\\_>), a STRING used as the literal group opener, any other symbol behaving as t, and the empty member list still wrapped and still unmatchable. Every one is a CONTRACT case: it compiles the returned regexp with the running engine and asks what it matched, because Emacs' text is its optimizer's output -- the rule `frontier-regexp-opt' set. The single exception is u0-regexp-opt-paren-any-other-value-captures, which compares two answers of the SAME dialect to each other and never a spelling one side has to produce. WHAT U.1a IMPLEMENTED AND WHAT IT COULD NOT: PAREN decides the WRAPPER, so all six values now produce Emacs' exact wrapper text, and four cases agree -- nil-is-shy (the F.0 control), t-captures, any-other-value-captures and empty-members-never-match. THREE STAY DIVERGENT: the external-review correctness tranche made `words' and `symbols' REFUSE AT THE CALL -- kg's engine has no \\\\< \\\\> \\\\_< or \\\\_>, U.1a's producing Emacs' exact text gave callers a plausible-but-wrong match (it matched \"x <ab> y\" and not \"x ab y\", silently), and a plausible-but-wrong match is worse than a loud error, so the two arms raise naming the engine gap that is Phase 29's U.2 instead of producing text. The day the engine gains the four boundaries they become wrappers again, exactly as written. The third divergence keeps its shape: a STRING opener of `\"\\\\(?2:\"' produces a regexp kg's engine rejects outright at match time, loudly, because it has no EXPLICITLY NUMBERED group beside the shy one it does read. Demand, counted over the whole ELPA tree: 140 `regexp-opt' call sites, 31 passing `t' (8 packages), 6 a STRING (1), 5 `symbols' (3), 3 `words' (1), one nil, the rest one-argument.",
+   "source_name": null
+  },
+  {
+   "id": "u0-require-arity",
+   "category": "loading",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u0-require-noerror-absent-is-nil",
+    "u0-require-noerror-nil-raises",
+    "u0-require-three-arguments-on-a-provided-feature",
+    "u0-require-two-argument-baseline"
+   ],
+   "kg_test": "test/test_lisp.c:test_require_provide",
+   "rationale": "Phase 29's U.0 freeze, implemented in U.1a: `require''s third argument, NOERROR -- the guarded-require idiom `(require 'foo nil t)'. It was one package's first blocker in the census (`cython-mode'), and the rows pin both halves of the argument: non-nil returns nil for a missing feature and provides nothing, nil raises `file-missing' with the same data shape kg's own one-argument `require' already raises. u0-require-two-argument-baseline carries `expect: agree' and is what makes this an ARITY row and not a `require' row: kg's `require' ALREADY took FILENAME, so the implementation had one slot to add. THE DEMAND, MEASURED IN U.0: with a stand-in that honours NOERROR, cython-mode advances to `(require 'python)' -- an absent library, i.e. the census's largest class -- so this item unblocks a signature, not a package. WHAT THE ARGUMENT DOES NOT COVER, measured in U.1a and recorded beside the code: the condition-case is around the RESOLVE alone, so a cyclic require, a nesting refusal and any error the required file itself raises still propagate (Emacs' rule), and one case stays divergent from Emacs -- a FILENAME containing `/' is a literal path kg resolves without opening, so its missing-file error comes from the load and escapes NOERROR. Across the whole ELPA tree 92 `require' calls take a second argument, 19 a non-nil FILENAME, 17 of those a slashed one, and none of the 17 also passes NOERROR.",
+   "source_name": null
+  },
+  {
+   "id": "u0-signal-error-conditions-plist",
+   "category": "errors-and-non-local-exits",
+   "status": "supported",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+     "u0-signal-consults-the-error-conditions-plist",
+     "u0-signal-undeclared-symbol-baseline",
+     "u0-builtin-error-conditions-are-plists",
+     "u0-condition-hierarchy-baseline",
+     "u0-error-conditions-mutation",
+     "u0-error-conditions-controls"
+   ],
+   "kg_test": "test/test_lisp.c:test_signal, test/test_lisp.c:test_condition_case_kg_native_conditions",
+   "rationale": "Phase 29's U.0 freeze for the half of backlog item 4 that no bound name closes: Emacs' `signal' READS the signalled symbol's `error-conditions' property, and its own built-in conditions are the same readable plists. kg has a fixed condition table in fe, so `(get \\'wrong-type-argument \\'error-conditions)' is nil and a symbol declared by `put' alone is `Invalid error symbol'. THIS ROW ALSO CORRECTS THE CENSUS. Phase 28's remeasurement (section 6.2) prints kg's `(error (\"Invalid error symbol\" my-err))' against an Emacs of `(my-err nil)'; U.0 measured the same expression WITHOUT the `put' and Emacs answers exactly what kg answers -- u0-signal-undeclared-symbol-baseline, `expect: agree'. So the divergence is entirely the plist consultation, and u0-condition-hierarchy-baseline (also `expect: agree') shows kg's built-in hierarchy already BEHAVES correctly while being unreadable. DEMAND: 5 ELPA packages declare conditions through the plist directly (s, f, websocket, emacsql) or read one back (ellama.el:3607), and `s.el:627' is the measured one -- kg's `s-format' error path answers the wrong condition today. owner is fe-core: the change is fe's condition machinery and arrives as a pin move.",
+   "source_name": null
+  },
+   {
+   "id": "u0-subr-x",
+   "category": "loading",
+   "status": "divergent",
+   "failure_mode": "intentional-policy",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u0-subr-x-require-returns-the-feature",
+    "u0-subr-x-string-helpers",
+    "u0-subr-x-thread-macros",
+    "u0-subr-x-names-kg-already-has",
+    "u1a-subr-x-string-pad-arguments",
+    "u1a-subr-x-string-blank-p-and-remove-misses",
+    "u1a-subr-x-string-clean-whitespace",
+    "u1a-subr-x-thread-bare-symbol-step"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_subr_x",
+   "rationale": "Phase 29's U.0 freeze for `(require 'subr-x)', implemented in U.1a, then RETRACTED in Phase M0.1. It was the census's third-largest absent-library class (4 packages) -- and U.0 RE-RANKED IT: with `cl-lib' and `compat' provided as bare features, NINE more packages reach this same require (consult, rmsbolt, cape, corfu, eat, embark, jinx, marginalia, vertico), so the item's demand is 13 and not 4. THE MEASUREMENT THAT SIZED IT: standing in for the item with a file that does nothing but `(provide 'subr-x)' advances all four of the blocked packages, and NOT ONE of them then stops on a subr-x NAME -- they go to xml-query, cl-lib, cl-lib and seq. So the feature was the blocker and the names are the tail behind it. M0.1 RETRACTION: a provided feature is a capability promise `require' and `featurep' can see, and `named-let', `hash-table-keys'/`-values'/`-empty-p' are real consumers behind a successful `subr-x' require -- the same false-capability shape that caused `cl-lib' to be retracted. So the `(provide 'subr-x)' is GONE: `(require 'subr-x)' now raises `file-missing' (u0-subr-x-require-is-retracted) and `(featurep 'subr-x)' is nil, while the string/threading names remain DEFINED AND CALLABLE but UNADVERTISED. They are Emacs-comparable where they stand -- u0-subr-x-string-helpers, u0-subr-x-thread-macros, u0-subr-x-names-kg-already-has and the four u1a-subr-x-* cases carry `expect: agree' -- and removing working definitions would only narrow what an init file can do without making any package truer. Completing the selected-version `subr-x' surface is a later, separately sized package vertical; growing M0 to include hash tables just to retain the feature bit was explicitly declined. The tail, ranked by U.0's source census over those 13: `string-join' 11 packages (kg had it), `string-blank-p' 5, `string-remove-prefix' 3, `thread-last' 3, `string-remove-suffix' 3, `string-clean-whitespace' 2, then singletons. `string-join'/`string-trim'/`string-empty-p'/`string-prefix-p' are already kg's and need no subr-x (u0-subr-x-names-kg-already-has is the control that shrank the item).",
+   "source_name": null
+  },
+  {
+   "id": "u1a-cl-lib",
+   "category": "loading",
+   "status": "divergent",
+   "failure_mode": "intentional-policy",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "u1a-cl-lib-require-is-retracted",
+    "u1a-cl-lib-name-outside-the-subset"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase29_cl_lib",
+   "rationale": "Phase 29 U.1a provided `(require 'cl-lib)' with a named subset, and the external review's finding retracted it: a provided feature is a capability promise, and inheritenv proved it false -- it loaded because require succeeded and died at `cl-letf*' with void-function, while (featurep 'cl-lib) answering t told packages kg cannot run to take modern code paths. THE FEATURE CLAIM IS RETRACTED until every operation needed by one complete target-package scenario works unmodified; u1a-cl-lib-require-is-retracted records kg's file-missing beside Emacs' (cl-lib t). The three implemented names STAY, unadvertised -- Emacs-comparable where they stand, pinned by prelude-cl-incf/prelude-cl-case/prelude-cl-find-if whose cases no longer begin with the require -- and removing working definitions would only narrow what an init file can do without making any package truer. What is NOT here is unchanged, with U.0's measurements behind each absence: cl-loop 15/105 an iteration sub-language; cl-defun 13/66, and of 533 cl-defun sites across ELPA 462 use &key, so a cl-defun that was defun would mis-bind 87% of its callers SILENTLY; cl-defstruct 8/47 needs records, a dormant branch; cl-letf* needs generalised-variable machinery. Success criterion for any future re-advertisement: unmodified load plus representative public operations with Emacs-comparable results.",
+   "source_name": null
+  },
+  {
+   "id": "vector-append-string-sequence",
+   "category": "vectors",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "vector-append-string"
+   ],
+   "kg_test": "test/test_lisp.c:test_list_library, test/test_lisp.c:test_phase24_vectors",
+   "rationale": "A divergence Phase 24.0 FOUND rather than planned -- kg's `append' rejected a STRING with `wrong-type-argument' where Emacs flattens it to its character codes, (append \"ab\" nil) -> (97 98) -- and one 24.2 closed WITHOUT aiming at it, which is why it kept its own row instead of being a sixth case of vector-prelude-sequence-combinators. The generalisation `append' needed for vectors is `internal--seq-to-list', and a helper that answers `what are this sequence's elements' has to answer it for strings too; kg already had `string-to-list' for the character half, so the string arm is one line and Emacs-correct rather than byte-correct. Had it not fallen out, the row would have stayed open with that stated: an `append' taught to accept a vector and nothing else would still fail this case.",
+   "source_name": null
+  },
+  {
+   "id": "vector-construction",
+   "category": "vectors",
+   "status": "supported",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "vector-make-vector",
+    "vector-make-vector-shared-init",
+    "vector-vector-function",
+    "vector-vconcat",
+    "vector-large-payload"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase24_vectors",
+   "rationale": "Phase 24.0: `make-vector', `vector' and `vconcat', with the two contracts an implementation can satisfy by accident and then lose, both held. First, `make-vector''s INIT argument is stored rather than copied, so every slot is `eq' to every other. Second, `vconcat' flattens a string to its CHARACTER CODES -- (vconcat \"ab\") is [97 98] -- which is a different rule from vector+vector and vector+list, and all four combinations are in one case. vector-large-payload is the master plan's required `more than 4032 elements' case stated as a language contract: 5000 elements past the point Design B's payload block stops being one small allocation, answering (5000 7 t).",
+   "source_name": null
+  },
+  {
+   "id": "vector-element-access",
+   "category": "vectors",
+   "status": "supported",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "vector-aref-in-bounds",
+    "vector-aref-out-of-bounds",
+    "vector-aref-wrong-type",
+    "vector-aset-two-references",
+    "vector-aset-out-of-bounds"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase24_vectors",
+   "rationale": "Phase 24.0: `aref'/`aset' bounds and wrong-type condition data, plus the master plan's required `mutation observed through two references' case. MEASURED CONDITION DATA, which is the part this row exists to freeze and the part a native implementation gets wrong silently: out of range on either side is `args-out-of-range' with data (VECTOR INDEX) -- the offending vector FIRST, then the index -- and a non-array argument is `wrong-type-argument' with data (arrayp OBJ), naming `arrayp' rather than `vectorp' because `aref' is an array operation. A negative index is args-out-of-range too (measured (aref [10 20] -1) -> ([10 20] -1)); it is recorded in vector-aref-out-of-bounds's note rather than as a second case, because the runner compares the condition SYMBOL for structured records and a second case would have an identical comparison key. The cited kg_test asserts the DATA as well, which the runner cannot.",
+   "source_name": null
+  },
+  {
+   "id": "vector-generalised-length-and-elt",
+   "category": "vectors",
+   "status": "supported",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "vector-length-sequences",
+    "vector-elt-sequences",
+    "vector-elt-out-of-range",
+    "vector-elt-list-out-of-range"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase15_list_library, test/test_lisp.c:test_phase24_vectors",
+   "rationale": "Phase 24.0's `list/string/vector oracle cases for every generalised sequence name', for the two names 24.1 generalised at fe's own layer. kg does NOT take fe's string arm: a fe string is a chain of BYTES and fe counts and indexes them, where Emacs counts and indexes CHARACTERS, so lisp/prelude.el captures fe's primitives as internal--fe-length and internal--fe-elt and keeps its own `stringp' arm in front of each. MEASURED ASYMMETRY worth the fourth case: `elt' past the end of a VECTOR raises args-out-of-range (it routes to `aref') while `elt' past the end of a LIST answers nil (it routes to `nth'), and both halves hold -- vector-elt-list-out-of-range carries \"expect\": \"agree\" and did so before the generalisation too, which is what makes it the guard against generalising `elt' by making it raise everywhere.",
+   "source_name": null
+  },
+  {
+   "id": "vector-identity-and-equality",
+   "category": "vectors",
+   "status": "supported",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "vector-eq-eql-identity",
+    "vector-equal-structural",
+    "vector-equal-nested"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase24_vectors",
+   "rationale": "Phase 24.0: `eq'/`eql' identity and structural `equal', frozen before code because they are the pair an implementation is most likely to get backwards, and matched: two reads of [1] are not eq, a vector is eq and eql to itself, `equal' compares contents recursively, unequal lengths are not equal, and a vector is never `equal' to a list with the same elements in either argument order. `eq' and `eql' needed nothing -- they are fe's, and a vector is an ordinary object to them. `equal' is kg's prelude lambda and gained one arm (internal--equal-vectors), which compares lengths first and then elements through `aref'; the cross-type half comes out right for free, because `equal' has already ruled out every pair where one side is a cons by the time that arm is reached.",
+   "source_name": null
+  },
+  {
+   "id": "vector-prelude-sequence-combinators",
+   "category": "vectors",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "emacs",
+   "cases": [
+    "vector-mapcar",
+    "vector-mapc",
+    "vector-mapconcat",
+    "vector-append",
+    "vector-copy-sequence",
+    "vector-sequence-list-baseline"
+   ],
+   "kg_test": "test/test_lisp.c:test_list_library, test/test_lisp.c:test_phase15_list_library, test/test_lisp.c:test_phase8_library, test/test_lisp.c:test_phase24_vectors",
+   "rationale": "The master plan's publication rule, discharged: `do not publish vectors while these still fail three frames down in a list-only helper'. kg-owned because the combinators are kg's prelude (lisp/prelude.el), not fe's core. One helper does it, `internal--seq-to-list': a list is itself, a vector is copied out by index, a string becomes its character codes, and each combinator converts once and walks a list. That keeps the RESULT types Emacs' -- `mapcar' over a vector returns a LIST and `append' with a vector flattens it -- with two exceptions written out where they live: `copy-sequence' answers a fresh VECTOR (`vconcat' of the one operand), and `seq-take' answers the sequence's own type. vector-sequence-list-baseline is the control that makes the flip evidence rather than coincidence: every one of these names, asked over a LIST, answered exactly what Emacs answers before the change and still does.",
+   "source_name": null
+  },
+  {
+   "id": "vector-printing",
+   "category": "vectors",
+   "status": "divergent",
+   "failure_mode": "intentional-policy",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "vector-print-format-spec",
+    "vector-print-self-referential",
+    "vector-print-self-referential-print-circle"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase24_vectors",
+   "rationale": "Phase 24.0's `printing (including nested and, decided explicitly, self-referential vectors)'. The ORDINARY half landed and agrees: vector-print-format-spec carries \"expect\": \"agree\" and pins that %S prints the reader's own syntax, each element as %S prints it. THE DECISION IS THE OTHER TWO, and it is fe's, recorded in fe's commit 9218d1a and in fe/compat/features.json's writer-bounded-output: Emacs prints a self-referential vector as the lossy back-reference \"[0 #0]\" at `print-circle''s nil default and the re-readable \"#1=[0 #1#]\" with it bound to t, and fe keeps its own bounded writer, which ends in `#<deep>'. The reasons are fe's: `#N' numbering costs 256 FeObject* in every Writer, including the one RenderErrorMessage runs where there may be no arena left, plus an O(depth) scan per node; the spelling it buys is LOSSY and still does not read back; the re-readable form needs a `print-circle' variable this phase does not add; and fe already prints the analogous self-referential LIST as bounded nesting, so a vector inherits a policy instead of acquiring a second one. Both cases therefore stay divergent, deliberately.",
+   "source_name": null
+  },
+  {
+   "id": "vector-reader-missing-bracket",
+   "category": "vectors",
+   "status": "supported",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "vector-read-missing-bracket"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_reader_literals, test/test_lisp.c:test_phase24_vectors",
+   "rationale": "24.1's `reader error recovery for a missing bracket (a named error)', with the name measured rather than assumed and now matched: `[1 2' raises `end-of-file', Emacs' GENERIC incomplete-input condition and not a vector-specific invention, and fe's message keeps a substring of its own (\"end-of-file: unclosed vector\"). Its own row rather than a case of vector-reader-syntax because it is the only case in this phase whose target is an ERROR that had to survive the reader landing: the other reader cases stopped diverging when kg read brackets, this one only stopped when kg read brackets AND raised the right condition at end of input. Compared through the message-source fallback, since a reader error never enters kgbatch's Lisp wrapper -- which is also why utils/check_lisp_oracle.py reads a failing run's diagnostic from a second, UNWRAPPED evaluation: the wrapper's own closing text is part of what an unterminated form swallows.",
+   "source_name": null
+  },
+  {
+   "id": "vector-reader-syntax",
+   "category": "vectors",
+   "status": "supported",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "vector-read-literal",
+    "vector-read-empty",
+    "vector-read-nested",
+    "vector-read-inside-quoted-list"
+   ],
+   "kg_test": "test/test_lisp.c:test_phase8_reader_literals, test/test_lisp.c:test_phase24_vectors",
+   "rationale": "Phase 24.0 froze this contract against the pinned Emacs before any code existed and Phase 24.1 implemented it in fe's reader; 24.2's pin move is where it became kg's. All four cases agree: `[1 2 3]', `[]', `[[1] [2]]' and a vector reached through a quoted list read as vectors and print back in the same syntax. They stayed four cases because they could have succeeded separately -- a reader that handles [1 2 3] but not [] or not a bracket nested inside a form is a real intermediate state -- and they did not: the reader recurses. The Phase 8 row phase8-reader-unsupported-syntax deliberately overlaps on the expression [1 2 3]; it survives this phase because it also owns `#:', which Phase 24 does not close.",
+   "source_name": null
+  },
+  {
+   "id": "vector-type-and-predicate",
+   "category": "vectors",
+   "status": "supported",
+   "owner": "fe-core",
+   "comparison": "emacs",
+   "cases": [
+    "vector-type-of",
+    "vector-vectorp-vector",
+    "vector-vectorp-non-vectors"
+   ],
+   "kg_test": "test/test_lisp.c:test_type_predicates, test/test_lisp.c:test_phase24_vectors",
+   "rationale": "Phase 24.0: `type-of' answers the symbol `vector' -- one of the two names in this area where kg and Emacs agree exactly, the neighbouring native-type-of divergences (kg `pair' for Emacs' `cons', `double' for `float') being unaffected -- and `vectorp' answers t for vectors only. vector-vectorp-non-vectors is the case that keeps working after the reader landed: it contains no vector syntax, so it was a value-versus-condition divergence before (kg answered `void-function') and is now the row that catches a `vectorp' saying t for a string or a list.",
    "source_name": null
   },
   {
@@ -4563,6 +5906,19 @@
    "kg_test": "test/test_lisp.c:test_writer_quote_abbreviation, test/pty/lisp-eval-colon-quote-echo.yaml",
    "rationale": "Closed by Phase 11 (11A Decision 4, implemented in fe sub-plan 11C and inherited at 11D's pin); recorded as a divergence by 10C before that. Emacs' printer abbreviates a two-element (quote X) list back to 'X -- prin1, %S, the echo area, error renderings, all of them -- and fe's writer now does the same, recursively, so (format \"%S\" (list 'quote 'x)) is \"'x\" and (format \"%S\" (list 'a ''b 'c)) is \"(a 'b c)\" on both sides. The implementation is the symmetric copy of the (function f) -> #'f block that has been in WriteObject since Phase 4, with the same discrimination measured against the pinned Emacs: exactly one element after the head and the form proper, so (quote x y), (quote) and (quote . x) all keep printing as the pairs they are. Reading 'x produces that same two-element list on both sides, which is what made this the printer's gap and not the reader's. The sibling row phase8-reader-backquote-symbol-names records the neighbouring gap for backquote, which stays open and is different in kind: fe reads ` as `quasiquote' where Emacs reads it as a distinct symbol, so closing it means changing the reader's expansion symbols and breaking any Lisp that pattern-matches on quasiquote (11A Decision 4 rejects it by scope).",
    "source_name": null
+  },
+  {
+   "id": "prelude-internal-doc-invalidate",
+   "category": "functions-and-macros",
+   "status": "supported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "u0-defalias-docstring-argument"
+   ],
+   "kg_test": "test/test_lisp.c:test_help_fns_surface",
+   "rationale": "The external-review correctness tranche: the registry half of `defalias''s redefinition duty. `internal--doc-put' conses a NEW entry per definition and `documentation' reads the newest one, so a documented defun redefined through `defalias' with a docless lambda kept answering its old docs where Emacs answers nil -- the docstring there lives in the replaced closure and dies with it. `internal--doc-invalidate' rewrites every registry entry for NAME to present-but-undocumented rather than deleting it, so `apropos''s walk (which lists names from this same registry) still finds a name that is fboundp; the `function-documentation' PROPERTY is deliberately untouched, since a nil DOCSTRING storing nothing is Emacs' own measured behaviour and a property a program put by hand is not this form's to remove. A DOCSTRING given to `defalias' lands after the invalidation, so re-documenting works. Internal; the case is `defalias''s own.",
+   "source_name": "internal--doc-invalidate"
   }
  ]
 }

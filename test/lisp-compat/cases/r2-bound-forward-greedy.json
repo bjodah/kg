@@ -1,0 +1,6 @@
+{
+ "id": "r2-bound-forward-greedy",
+ "setup": [],
+ "expr": "(with-temp-buffer (insert \"axxxb\") (list (progn (goto-char (point-min)) (list (re-search-forward \"ax*\" 3 t) (match-end 0))) (progn (goto-char (point-min)) (list (re-search-forward \"ax*\" 6 t) (match-end 0)))))",
+ "note": "GREEDY REPETITION UNDER A BOUND.  Emacs answers ((3 3) (5 5)): the same pattern at the same start hands characters back at BOUND rather than failing, so the match is SHORTER and not absent.  The second element is the unbounded control on the same subject."
+}

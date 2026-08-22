@@ -1,0 +1,6 @@
+{
+ "id": "string25-set-match-data-round-trip",
+ "setup": [],
+ "expr": "(progn (string-match \"b\" \"abc\") (let ((d (match-data))) (string-match \"c\" \"xc\") (set-match-data d) (list (match-beginning 0) (match-end 0))))",
+ "note": "`set-match-data` as the inverse of `match-data`, which is the property `save-match-data` is built on: save, clobber, restore, and the accessors read the saved match again. Emacs answers (1 2). kg answers `void-function`; `match-beginning`/`match-end` exist and only the two list-valued accessors do not."
+}

@@ -1,0 +1,11 @@
+{
+  "id": "s-canonical-normalization",
+  "package": "s.el",
+  "domain": "utf8-codepoint",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-upcase \"ß\")",
+  "expect": "diverge",
+  "note": "Exposes the canonical-normalization domain exclusion: Emacs expands ß to \"SS\", kg leaves it unchanged (\"ß\"). Recorded divergence outside s-core/ascii."
+}

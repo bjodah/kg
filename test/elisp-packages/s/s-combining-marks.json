@@ -1,0 +1,11 @@
+{
+  "id": "s-combining-marks",
+  "package": "s.el",
+  "domain": "utf8-codepoint",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-downcase \"ÉÀ\")",
+  "expect": "diverge",
+  "note": "Exposes the combining-marks domain exclusion: Emacs folds the precomposed Latin chars to \"éà\", kg leaves non-ASCII bytes unchanged (\"ÉÀ\"). Recorded divergence outside s-core/ascii."
+}

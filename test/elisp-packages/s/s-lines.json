@@ -1,0 +1,11 @@
+{
+  "id": "s-lines",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-lines \"a\\nb\\nc\")",
+  "expect": "agree",
+  "note": "Lines family, exact value. Both return (\"a\" \"b\" \"c\")."
+}

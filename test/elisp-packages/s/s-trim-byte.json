@@ -1,0 +1,11 @@
+{
+  "id": "s-trim-byte",
+  "package": "s.el",
+  "domain": "byte",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-trim (concat \" \" (char-to-string 128) \" \"))",
+  "expect": "agree",
+  "note": "Invalid-byte boundary probe: a raw byte (code 128) inside a string. Both oracles preserve the byte through s-trim, returning the single raw byte -- the documented s-core/ascii byte-preserving behaviour. No normalization is applied on either side here."
+}

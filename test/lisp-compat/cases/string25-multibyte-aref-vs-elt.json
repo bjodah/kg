@@ -1,0 +1,6 @@
+{
+ "id": "string25-multibyte-aref-vs-elt",
+ "setup": [],
+ "expr": "(list (aref \"héllo\" 1) (elt \"héllo\" 1) (aref \"日本語\" 0))",
+ "note": "THE MEASURED GAP, and the case that says exactly where it is. Emacs answers (233 233 26085): `aref` and `elt` are the same operation on a string. kg answers (195 233 230) -- `elt` is the character view its prelude wrapper gives, `aref` is fe's primitive reaching Lisp unwrapped and returning the first BYTE of the character (0xC3 of é, 0xE6 of 日). So kg's string indexing is internally inconsistent today, and the fix is either a prelude wrapper beside `elt`'s or fe's own representation. fe's own `sequence-length-string-bytes` row records the fe-side half."
+}

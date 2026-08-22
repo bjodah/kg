@@ -1,0 +1,7 @@
+{
+ "id": "frontier-fill-region-single-paragraph",
+ "setup": [],
+ "expr": "(with-temp-buffer (insert \"aa bb cc dd\") (let ((fill-column 5)) (list (fill-region (point-min) (point-max)) (buffer-substring (point-min) (point-max)) (point))))",
+ "note": "THE SHAPE s-word-wrap PRODUCES: a temp buffer, a let-bound `fill-column', fill the whole buffer, read it back. Emacs answers (\"\" \"aa bb\\ncc dd\" 12) and all three elements are contract. The RETURN VALUE is the fill prefix that was used -- the empty string here, `\"  \"' in frontier-fill-region-adaptive-prefix -- and not nil and not the buffer text. POINT ENDS AT POINT-MAX rather than where it started, so a caller that cares has to save its own excursion; s-word-wrap does not care, because it reads the whole buffer afterwards. kg answers `void-function' at this pin.",
+ "expect": "agree"
+}

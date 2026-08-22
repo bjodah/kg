@@ -1,0 +1,11 @@
+{
+  "id": "s-replace-regexp",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(replace-regexp-in-string \"a\" \"b\" \"axa\")",
+  "expect": "agree",
+  "note": "Regexp replacement, exact value. Both return \"bxb\"."
+}

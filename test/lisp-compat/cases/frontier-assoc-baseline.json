@@ -1,0 +1,7 @@
+{
+ "id": "frontier-assoc-baseline",
+ "setup": [],
+ "expr": "(list (assoc \"b\" (list (cons \"a\" 1) (cons \"b\" 2))) (assoc \"z\" (list (cons \"a\" 1))) (assq (quote b) (list (cons (quote a) 1) (cons (quote b) 2))))",
+ "note": "THE CONTROL for the assoc-string row: alist search itself is already kg's and already agrees, both sides answering ((\"b\" . 2) nil (b . 2)). So what `assoc-string' adds is the COERCION and the FOLD -- the two things the cases beside this one measure -- and not the walk. It is also the shape a prelude implementation will be written over.",
+ "expect": "agree"
+}

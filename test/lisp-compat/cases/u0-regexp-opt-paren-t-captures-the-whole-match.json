@@ -1,0 +1,7 @@
+{
+ "id": "u0-regexp-opt-paren-t-captures-the-whole-match",
+ "setup": [],
+ "expr": "(let ((re (regexp-opt (list \"a\" \"ab\") t))) (list (string-match re \"ab\") (match-string 0 \"ab\") (match-string 1 \"ab\")))",
+ "note": "PAREN `t', AND THE COST IT CARRIES. Emacs answers (0 \"ab\" \"ab\"): the alternation is wrapped in a CAPTURING group, so the whole match is also group 1 -- which shifts every group number in a caller's surrounding regexp by one. This is a CONTRACT case: it compiles what `regexp-opt' returned with the running engine and asks what it matched, because Emacs' own text (\"\\\\(ab?\\\\)\", measured) is its optimizer's output and matching that spelling would encode the optimizer here -- the rule `frontier-regexp-opt' set and this group keeps. U.1a implemented the argument and kg answers this: its `\\(ab\\|a\\)' is a different spelling of the same contract.",
+ "expect": "agree"
+}

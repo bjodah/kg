@@ -1,0 +1,7 @@
+{
+ "id": "frontier-regexp-opt-degenerate-inputs",
+ "setup": [],
+ "expr": "(list (let ((re (regexp-opt nil))) (list (string-match re \"\") (string-match re \"x\"))) (let ((re (regexp-opt (list \"x\")))) (list (string-match re \"axb\") (match-end 0))))",
+ "note": "THE TWO DEGENERATE INPUTS, and one of them is a gift. Emacs answers ((nil nil) (1 2)). For NO members it returns a regexp that matches NOTHING AT ALL -- its text is \"\\\\(?:\\\\`a\\\\`\\\\)\", an anchored `a' between the two ends of the subject, which no subject can satisfy -- rather than the empty regexp, which would match everywhere. kg can spell that inner form exactly: `\\\\`' and `\\\\'' have been kg's since 26.2 and frontier-regexp-shy-group-unsupported next door is the only part of Emacs' text kg cannot compile. For ONE member it returns the quoted member BARE, with no group around it, so a caller that concatenates gets what it deserves and s.el, which does not concatenate, gets the cheapest possible regexp. kg answers `void-function' at this pin. THIS CASE FLIPPED in the frontier demand phase, and the empty-member answer is Emacs' text MINUS its wrapper: kg emits `\\\\`a\\\\`', the inside of Emacs' `\\\\(?:\\\\`a\\\\`\\\\)', which no subject can satisfy -- proved against this case rather than argued, including against a subject that is the regexp's own text. A single member comes back bare, which is what mapconcat over one element gives for free.",
+ "expect": "agree"
+}

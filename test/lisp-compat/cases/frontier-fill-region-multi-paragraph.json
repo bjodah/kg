@@ -1,0 +1,7 @@
+{
+ "id": "frontier-fill-region-multi-paragraph",
+ "setup": [],
+ "expr": "(with-temp-buffer (insert \"aaa bbb\\n\\nccc ddd\") (let ((fill-column 5)) (fill-region (point-min) (point-max)) (buffer-substring (point-min) (point-max))))",
+ "note": "THE ROW THAT DECIDES THE SCOPE, which is what this phase's plan says a measured multi-paragraph case is for. Emacs answers \"aaa\\nbbb\\n\\nccc\\nddd\": `fill-region' fills EVERY paragraph in the region, one at a time, and the blank line that separates them survives -- it is not one long paragraph and it is not just the paragraph at point. THE DECISION, MADE: kg's binding fills paragraph by paragraph across the whole region. `s-word-wrap' takes an arbitrary string from its caller and hands the entire buffer to `fill-region', so a single-paragraph binding is not a smaller version of this function, it is a wrong one the moment a caller passes text with a blank line in it. That is a real gap and not a rename: kg's C fill (`editor_reflow_paragraph', src/word.c) reflows THE PARAGRAPH AT POINT and nothing else. kg answers `void-function' at this pin.",
+ "expect": "agree"
+}

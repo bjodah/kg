@@ -1,0 +1,7 @@
+{
+ "id": "r2-regexp-opt-capture-numbering",
+ "setup": [],
+ "expr": "(let ((re (regexp-opt (list \"a\" \"b\")))) (list (string-match (concat \"\\\\(x\\\\)\" re \"\\\\(y\\\\)\") \"xay\") (match-string 1 \"xay\") (match-string 2 \"xay\")))",
+ "note": "CAPTURE NUMBERS SURVIVE THE WRAPPER, which is why it is a SHY group and not an ordinary one.  Emacs answers (0 \"x\" \"y\"): the caller's two groups are 1 and 2 with the constructed atom between them.  A capturing wrapper would make the caller's second group 3 and its first still 1, silently, which is the reason the review ruled one out.",
+ "expect": "agree"
+}

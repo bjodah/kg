@@ -1,0 +1,6 @@
+{
+ "id": "u1a-eval-when-compile-runs-its-body",
+ "setup": [],
+ "expr": "(progn (eval-when-compile (setq u1a-ewc-ran 'yes)) (list (boundp 'u1a-ewc-ran) u1a-ewc-ran))",
+ "note": "The same rule stated as an EFFECT rather than a value, because that is the half a package depends on: dash.el's whole preamble is one `eval-when-compile' whose body defines things. Emacs answers (t yes) -- the body really ran. A macro that only returned nil would pass the case beside this one on its first two elements and fail here."
+}

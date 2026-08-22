@@ -274,7 +274,7 @@ static void test_env_overrides_search_path(void)
 {
 	const char *dir = "test/.ts-grammar-env";
 	char dflt[1024];
-	char orig[1024] = {0};
+	char orig[1024] = { 0 };
 	const char *env_orig = getenv("KG_TS_GRAMMAR_PATH");
 	int had_orig = (env_orig != NULL);
 	char err[160];

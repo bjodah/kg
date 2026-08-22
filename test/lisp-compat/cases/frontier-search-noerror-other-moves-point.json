@@ -1,0 +1,7 @@
+{
+ "id": "frontier-search-noerror-other-moves-point",
+ "setup": [],
+ "expr": "(list (with-temp-buffer (insert \"abcdef\") (goto-char (point-min)) (list (re-search-forward \"z\" nil (quote move)) (point))) (with-temp-buffer (insert \"abcdef\") (goto-char (point-min)) (list (search-forward \"z\" 3 (quote move)) (point))) (with-temp-buffer (insert \"abcdef\") (goto-char (point-max)) (list (re-search-backward \"z\" nil (quote move)) (point))) (with-temp-buffer (insert \"abcdef\") (goto-char (point-max)) (list (search-backward \"z\" 3 (quote move)) (point))))",
+ "note": "THE THIRD ANSWER, the one a two-valued reading of NOERROR misses entirely. Emacs answers ((nil 7) (nil 3) (nil 1) (nil 3)): any non-nil, non-t NOERROR returns nil AND MOVES POINT TO THE LIMIT -- to BOUND when one was given, and to point-max (forward) or point-min (backward) when BOUND is nil. All four combinations are here because the limit differs by direction and a binding that moved to point-max in both would pass the two forward cases. kg answers `wrong-number-of-arguments'. THE DECISION, MADE: kg implements all three answers for all four names; the third is not optional, because `t' and `'move' differ only in where point ends up and a caller that wanted the move has no other way to ask. THIS CASE FLIPPED in the frontier demand phase: the third answer is implemented too, so a NOERROR that is neither nil nor `t' answers nil AND moves point to the limit -- BOUND when one was given, point-max or point-min by direction when it was not.",
+ "expect": "agree"
+}

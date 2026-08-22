@@ -1,0 +1,11 @@
+{
+  "id": "s-empty-upcase",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-upcase \"\")",
+  "expect": "agree",
+  "note": "Empty string case fold. Both return \"\"."
+}

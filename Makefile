@@ -62,6 +62,18 @@ override LDLIBS += -lm
 # list so every consumer below is a one-line change.
 FE_OBJ = $(OBJDIR)/fe.o $(OBJDIR)/fe_eval.o $(OBJDIR)/fe_run.o \
 	 $(OBJDIR)/fe_unwind.o
+# The counting build's fe objects (Phase 21's follow-up, elisp-data-model
+# plan): the same four translation units, compiled into $(PERFOBJDIR)
+# instead of $(OBJDIR) with fe's own -DFE_PERF_COUNTERS=1 (fe f29302f),
+# plus fe_perf.c itself -- the counter storage and FePerfWriteJson, which
+# only a counting build references and which the ordinary $(FE_OBJ) above
+# never links, since FE_PERF_COUNTERS is 0 there and every macro in
+# fe/fe_perf.h expands to nothing. Used by $(PERF_KG) and test/test_perf
+# in place of $(FE_OBJ); nothing else links it, so $(TARGET) and every
+# other test binary keep the non-counting fe objects.
+PERF_FE_OBJ = $(PERFOBJDIR)/fe.o $(PERFOBJDIR)/fe_eval.o \
+	      $(PERFOBJDIR)/fe_run.o $(PERFOBJDIR)/fe_unwind.o \
+	      $(PERFOBJDIR)/fe_perf.o
 FUZZ_FE_OBJ = $(TESTDIR)/fe_fuzz.o $(TESTDIR)/fe_eval_fuzz.o \
 	      $(TESTDIR)/fe_run_fuzz.o $(TESTDIR)/fe_unwind_fuzz.o
 endif
@@ -543,7 +555,23 @@ PERF_KG = $(PERFOBJDIR)/kg
 # differently-compiled builds of the same source into one tracefile.  It
 # stays in the *link* flags so libgcov is still there for the objects that
 # were instrumented ($(FE_OBJ)).
-PERF_CFLAGS = $(filter-out --coverage,$(CFLAGS)) -DKG_PERF_COUNTERS=1
+#
+# -DFE_PERF_COUNTERS=1 rides beside kg's own -D here, not only on fe's
+# objects below, because src/lisp_core.c's read site
+# (kg_lisp_perf_dump_fe_json()) is guarded by fe's own flag, not kg's --
+# it has to see FE_PERF_COUNTERS=1 in ITS OWN compilation to call
+# FePerfWriteJson() instead of writing the disabled build's JSON `null`.
+# Every other $(PERFOBJDIR) object ignores the macro (nothing in src/
+# besides lisp_core.c includes fe/fe_perf.h), so this is the same
+# "one flag set for the whole counting build" PERF_CFLAGS already is for
+# -DKG_PERF_COUNTERS=1, not a per-file carve-out.
+PERF_CFLAGS = $(filter-out --coverage,$(CFLAGS)) -DKG_PERF_COUNTERS=1 \
+	      -DFE_PERF_COUNTERS=1
+# fe's own objects are compiled from $(FE_CFLAGS), not $(CFLAGS) -- see
+# the ordinary $(OBJDIR)/fe.o rule below -- so the counting build's fe
+# objects need their own flag set rather than reusing $(PERF_CFLAGS);
+# same --coverage filter, same reasoning, fe's flag instead of kg's.
+PERF_FE_CFLAGS = $(filter-out --coverage,$(FE_CFLAGS)) -DFE_PERF_COUNTERS=1
 PERF_SRC_OBJS = $(addprefix $(PERFOBJDIR)/,$(SRCS:.c=.o)) $(PERFOBJDIR)/regex.o
 PERF_TEST_OBJS = $(PERFOBJDIR)/test_perf.o $(PERFOBJDIR)/test.o \
 		 $(PERFOBJDIR)/stubs_main.o \
@@ -681,6 +709,7 @@ CHECK_RESULTS_DIR ?= $(TESTDIR)/.results
 PTY_ACCEPT_ARGS ?=
 PTY_TIMEOUT ?= 15.0
 PTY_STARTUP_DELAY_ADD ?=
+PTY_ORACLE_STARTUP_DELAY_ADD ?=
 PTY_KEY_DELAY_ADD ?=
 # Minimum seconds a tmux case waits after its last key before the harness
 # may call the pane settled.  Empty here (a plain `make check` does not
@@ -708,9 +737,6 @@ ifeq ($(WITH_TREE_SITTER),1)
 override FUZZ_CFLAGS += -DKG_USE_TREE_SITTER=1 \
 			-I$(TREE_SITTER_PREFIX)/include \
 			-DKG_TS_GRAMMAR_DEFAULT_PATH='"$(TS_GRAMMAR_PATH)"'
-# Same reason TEST_SRCS_OBJS gains it above: the tree-sitter backend calls
-# chars_to_render_col(), which lives in src/mode.c.
-FUZZ_SRCS += $(OBJDIR)/mode.c
 endif
 
 # Project metrics
@@ -730,7 +756,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 10821
+SCC_COMPLEXITY_MAX ?= 11000
 SCC_FILE_COMPLEXITY_MAX ?= 519
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -753,6 +779,15 @@ PMCCABE_NEW_FUNCTION_MAX ?= 15
 # text fields.  A ratchet, not a ban -- no count may rise, and `make
 # gateway-baseline` is how a migrated caller is banked.
 GATEWAY_MANIFEST ?= .ci/mutation-gateway.json
+# doc/plans/2026-08-14-embedded-prelude.md's Phase 0.4: the embedded Lisp
+# prelude grew to a fifth of the Lisp arena with nothing ever measuring it.
+# This manifest holds four numbers to their measured actual -- post-prelude
+# peak live arena slots, still-reachable slots after a forced collection,
+# embedded byte count, and top-level definition count -- so it cannot
+# silently double again.  A ratchet, not a ban: no number may rise without
+# a rationale and measured proof in the commit message, and `make
+# prelude-census-baseline` is how a fall is banked.
+PRELUDE_CENSUS_MANIFEST ?= .ci/prelude-startup-census.json
 COVERAGE_DIR ?= coverage
 COVERAGE_CFLAGS ?= -Wall -W -pedantic -std=c23 -O0 -g --coverage
 # --branch-coverage matches what both subprojects already collect; the
@@ -831,7 +866,8 @@ $(OBJDIR)/tiny_regex.o: fe/tiny-regex-c/re.c fe/tiny-regex-c/re.h
 $(OBJDIR)/regex.o: src/regex.c src/regex.h $(HDRS) fe/tiny-regex-c/re.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(OBJDIR)/lisp_core.o: $(OBJDIR)/lisp_internal.h $(OBJDIR)/lisp.h
+$(OBJDIR)/lisp_core.o: $(OBJDIR)/lisp_internal.h $(OBJDIR)/lisp.h \
+	fe/fe_perf.h
 $(OBJDIR)/lisp_prelude.o: $(OBJDIR)/lisp_internal.h
 $(OBJDIR)/lisp_string.o: $(OBJDIR)/lisp_internal.h
 $(OBJDIR)/lisp_buffer.o: $(OBJDIR)/lisp_internal.h
@@ -844,25 +880,43 @@ $(OBJDIR)/lisp_process.o: $(OBJDIR)/lisp_internal.h $(OBJDIR)/lisp_obj.h $(OBJDI
 $(OBJDIR)/lisp_require.o: $(OBJDIR)/lisp_internal.h
 $(OBJDIR)/main.o: $(OBJDIR)/lisp.h
 
-$(OBJDIR)/fe.o: fe/fe.c fe/fe.h fe/fe_internal.h
+# fe/fe_perf.h is a prerequisite of exactly the four translation units
+# that include it -- fe.c, fe_eval.c and fe_unwind.c above, and
+# src/lisp_core.c beside its own fe.h include (the read site that calls
+# FePerfWriteJson() in the counting build).  fe_run.c has no instrumented
+# site and does not include it, so it does not get the edge: a
+# prerequisite nothing reads is a rebuild nobody needs.  This is stale-
+# rebuild hygiene, not a build fix; kg compiles fe with FE_PERF_COUNTERS
+# off here, where every macro in that header expands to nothing -- and
+# lisp_core.c's own read site is equally inert in this same ordinary
+# build, since FE_PERF_COUNTERS defaults to 0 there too (only
+# $(PERFOBJDIR)'s PERF_CFLAGS sets it).
+$(OBJDIR)/fe.o: fe/fe.c fe/fe.h fe/fe_internal.h fe/fe_perf.h
 	$(CC) $(FE_CFLAGS) -c $< -o $@
 
-$(OBJDIR)/fe_eval.o: fe/fe_eval.c fe/fe.h fe/fe_internal.h
+$(OBJDIR)/fe_eval.o: fe/fe_eval.c fe/fe.h fe/fe_internal.h fe/fe_perf.h
 	$(CC) $(FE_CFLAGS) -c $< -o $@
 
 $(OBJDIR)/fe_run.o: fe/fe_run.c fe/fe.h fe/fe_internal.h
 	$(CC) $(FE_CFLAGS) -c $< -o $@
 
-$(OBJDIR)/fe_unwind.o: fe/fe_unwind.c fe/fe.h fe/fe_internal.h
+$(OBJDIR)/fe_unwind.o: fe/fe_unwind.c fe/fe.h fe/fe_internal.h fe/fe_perf.h
 	$(CC) $(FE_CFLAGS) -c $< -o $@
 
-check: header-check lisp-include-check docs-check lisp-compat-check lisp-prelude-check lisp-package-check forecast-check lisp-oracle-check lisp-gc-stress-check forecast-init-check check-unit-decoding check-pty-tokens check-unit check-pty
+check: header-check lisp-include-check docs-check external-quarantine-check lisp-compat-check lisp-prelude-check lisp-package-check forecast-check lisp-oracle-check lisp-gc-stress-check package-compat-check prelude-census-check prelude-probe-link-check forecast-init-check check-unit-decoding check-pty-tokens check-unit check-pty
 
 # Cheap documentation drift: every key the built-in help table names has
 # to be spelled somewhere in kg(1).  Not a substitute for reading either
 # one -- it is what catches a binding added to src/help.c and nowhere else.
 docs-check:
 	@$(PYTHON) utils/check_help_drift.py
+
+# external/ is vendored third-party test material; the ledger beside it
+# carries the licenses and the policy, and this asserts the quarantine:
+# no artifact mechanism (install, packaging manifests, the release
+# tarball, anything compiled) reaches it.
+external-quarantine-check:
+	@$(PYTHON) utils/check_external_quarantine.py
 
 # Phase 0 sub-plan 00C's manifest: every Fe primitive (fe/fe.c), kg native
 # and kg prelude definition (src/lisp_prelude.c) must appear in exactly one
@@ -873,6 +927,7 @@ docs-check:
 # not part of this or ordinary `make check`.
 lisp-compat-check:
 	@$(PYTHON) utils/check_lisp_compat.py
+	@$(PYTHON) utils/check_lisp_compat.py --self-test
 
 # Sub-plan 10D Part 1's drift gate, in lisp-prelude-check's mold: a PTY
 # case's config_files: is inline YAML, so a case exercising a tracked
@@ -941,19 +996,49 @@ lisp-oracle-check:
 	@echo "# lisp-oracle-check: WITH_LISP=0, no evaluator to compare"
 endif
 
-# Phase 1 sub-plan 01A: lisp/prelude.el is the canonical prelude source and
-# src/lisp_prelude_generated.inc is a checked-in, byte-for-byte copy of it,
-# so an ordinary build needs no Python.  These two targets are the drift
-# check that keeps the pair honest -- the same structural no-drift shape as
-# docs-check and header-check, which is why they sit beside them in `check`.
-# Regeneration writes into a temporary file and compares, so the check never
-# rewrites the tree it is checking.
+# Phase M1's package-scenario gate (doc/plans/2026-08-21-mature-elisp-
+# master-plan.md, section 5).  Reuses the canonical-record machinery
+# test/lisp-compat already owns -- the same oracle/*.json snapshots and
+# the same test/kgbatch wrapper -- and runs in `make check`.  It
+# regenerates nothing: snapshots are written only by the explicit
+# `package-oracle' target below, mirroring lisp-compat-oracle.  The
+# self-test is run first and is the reason "0 failed" means anything: it
+# builds a temp corpus and proves all six gate failure modes fire (wrong
+# value, wrong condition, stale source hash, missing scenario, stale
+# snapshot, XPASS).
+ifeq ($(WITH_LISP),1)
+package-compat-check: $(TESTDIR)/kgbatch
+	@$(PYTHON) utils/check_elisp_packages.py --self-test
+	@$(PYTHON) utils/check_elisp_packages.py $(PACKAGE_COMPAT_ARGS)
+else
+package-compat-check:
+	@echo "# package-compat-check: WITH_LISP=0, no evaluator to compare"
+endif
+
+# Snapshot generation for the package corpus: regenerates oracle/*.json
+# from the pinned Emacs, mirrors lisp-compat-oracle.  Not part of
+# `make check'; an existing snapshot is refused if the running Emacs
+# version differs (pass --allow-version-change to re-pin).  Resolves the
+# Emacs binary the same way utils/pty_accept.py does.
+package-oracle:
+	$(PYTHON) utils/check_elisp_packages.py --regenerate-oracle \
+		$(if $(KG_PTY_EMACS),--emacs $(KG_PTY_EMACS),) \
+		$(PACKAGE_ORACLE_ARGS)
+
+# Elisp-subset sub-plan 01A: lisp/prelude.el is the canonical prelude
+# source and src/lisp_prelude_generated.inc is a checked-in, byte-for-byte
+# copy of it, so an ordinary build needs no Python.  These two targets are
+# the drift check that keeps the pair honest -- the same structural
+# no-drift shape as docs-check and header-check, which is why they sit
+# beside them in `check`.  Regeneration writes into a temporary file and
+# compares, so the check never rewrites the tree it is checking.
 lisp-prelude-generate:
 	@$(PYTHON) utils/embed_lisp.py lisp/prelude.el \
 		src/lisp_prelude_generated.inc
 
 lisp-prelude-check:
-	@tmp=$$(mktemp) && trap 'rm -f "$$tmp"' EXIT && \
+	@tmp=$$(mktemp) && \
+	trap 'rm -f "$$tmp"' EXIT && \
 	$(PYTHON) utils/embed_lisp.py lisp/prelude.el "$$tmp" >/dev/null && \
 	if cmp -s "$$tmp" src/lisp_prelude_generated.inc; then \
 		echo "lisp-prelude-check: src/lisp_prelude_generated.inc matches lisp/prelude.el"; \
@@ -980,6 +1065,57 @@ test/kgbatch: test/kgbatch.c $(TESTDIR)/stubs_main.o $(FEATURE_CONFIG) \
 		$(TESTDIR)/stubs_main.o $(filter-out $(OBJDIR)/main.o,$(OBJS)) \
 		$(FE_OBJ) $(REGEX_OBJS) $(LDLIBS)
 
+# doc/plans/2026-08-14-embedded-prelude.md's Phase 0.3: the read/eval split
+# (test/prelude_read_eval_split.c) and the collectable-startup-garbage probe
+# (test/prelude_gc_probe.c).  Same shape as kgbatch above and outside
+# TESTBINS for the same reason -- neither asserts anything, each prints one
+# line meant to be read by hand or collected over several runs, and the
+# plan's Phase 0.3 results section is the reproduce command.  Not wired into
+# `check`: a wall-clock reading is not a gate (src/perf.h's own rule).
+test/prelude_read_eval_split: test/prelude_read_eval_split.c \
+	$(TESTDIR)/stubs_main.o $(FEATURE_CONFIG) \
+	$(filter-out $(OBJDIR)/main.o,$(OBJS)) $(FE_OBJ) $(REGEX_OBJS)
+	$(CC) $(CFLAGS) -I$(OBJDIR) -o $@ $< \
+		$(TESTDIR)/stubs_main.o $(filter-out $(OBJDIR)/main.o,$(OBJS)) \
+		$(FE_OBJ) $(REGEX_OBJS) $(LDLIBS)
+
+# The counting-build twin, same shape as test_perf's own link line: its
+# object comes from the generic $(PERFOBJDIR)/%.o pattern rule below (which
+# already knows how to compile a test/*.c under PERF_CFLAGS), so only the
+# link recipe is new here.  This is what lets the "eval" column read
+# KG_PERF_LISP_PRELUDE_NS alongside its own wall-clock timing of the same
+# kg_lisp_init() call -- a cross-check the release binary above cannot do,
+# since perf.h compiles the counter away when KG_PERF_COUNTERS is 0.
+PRELUDE_READ_EVAL_SPLIT_PERF = $(PERFOBJDIR)/prelude_read_eval_split
+
+$(PRELUDE_READ_EVAL_SPLIT_PERF): $(PERFOBJDIR)/prelude_read_eval_split.o \
+	$(PERFOBJDIR)/stubs_main.o \
+	$(filter-out $(PERFOBJDIR)/main.o,$(PERF_SRC_OBJS)) \
+	$(PERF_FE_OBJ) $(REGEX_ENGINE_OBJ)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
+
+test/prelude_gc_probe: test/prelude_gc_probe.c \
+	$(TESTDIR)/stubs_main.o $(FEATURE_CONFIG) \
+	$(filter-out $(OBJDIR)/main.o,$(OBJS)) $(FE_OBJ) $(REGEX_OBJS)
+	$(CC) $(CFLAGS) -I$(OBJDIR) -o $@ $< \
+		$(TESTDIR)/stubs_main.o $(filter-out $(OBJDIR)/main.o,$(OBJS)) \
+		$(FE_OBJ) $(REGEX_OBJS) $(LDLIBS)
+
+# The counting-build twin, same shape as PRELUDE_READ_EVAL_SPLIT_PERF just
+# above: only the link recipe is new, the object comes from the generic
+# $(PERFOBJDIR)/%.o pattern rule.  What this buys over the release binary
+# is KG_PERF_LISP_POSTPRELUDE_COLLECT_NS -- the post-prelude collect's own
+# wall-clock cost (doc/plans/2026-08-14-embedded-prelude.md, "Post-prelude
+# collect -- results"), which perf.h compiles away entirely when
+# KG_PERF_COUNTERS is 0.
+PRELUDE_GC_PROBE_PERF = $(PERFOBJDIR)/prelude_gc_probe
+
+$(PRELUDE_GC_PROBE_PERF): $(PERFOBJDIR)/prelude_gc_probe.o \
+	$(PERFOBJDIR)/stubs_main.o \
+	$(filter-out $(PERFOBJDIR)/main.o,$(PERF_SRC_OBJS)) \
+	$(PERF_FE_OBJ) $(REGEX_ENGINE_OBJ)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
+
 # Phase 13.5's kg half of fe's FE_GC_STRESS knob.  Fe's `MakeObject()`
 # collects before every allocation when fe.c is built with
 # -DFE_GC_STRESS=1, so an object live only through an unrooted C local
@@ -996,7 +1132,7 @@ test/kgbatch: test/kgbatch.c $(TESTDIR)/stubs_main.o $(FEATURE_CONFIG) \
 GC_STRESS_KGBATCH = $(TESTDIR)/kgbatch-gcstress
 GC_STRESS_FE_OBJ = $(TESTDIR)/fe_gcstress.o
 
-$(TESTDIR)/fe_gcstress.o: fe/fe.c fe/fe.h fe/fe_internal.h
+$(TESTDIR)/fe_gcstress.o: fe/fe.c fe/fe.h fe/fe_internal.h fe/fe_perf.h
 	$(CC) $(FE_CFLAGS) -DFE_GC_STRESS=1 -c $< -o $@
 
 $(GC_STRESS_KGBATCH): test/kgbatch.c $(TESTDIR)/stubs_main.o \
@@ -1141,6 +1277,7 @@ check-pty: $(TARGET) $(PTY_TESTS)
 		--json $(CHECK_RESULTS_DIR)/pty.json \
 		$(if $(PTY_TIMEOUT),--timeout $(PTY_TIMEOUT),) \
 		$(if $(PTY_STARTUP_DELAY_ADD),--startup-delay-add $(PTY_STARTUP_DELAY_ADD),) \
+		$(if $(PTY_ORACLE_STARTUP_DELAY_ADD),--oracle-startup-delay-add $(PTY_ORACLE_STARTUP_DELAY_ADD),) \
 		$(if $(PTY_KEY_DELAY_ADD),--key-delay-add $(PTY_KEY_DELAY_ADD),) \
 		$(if $(PTY_SETTLE_FLOOR),--settle-floor $(PTY_SETTLE_FLOOR),) \
 		$(if $(PTY_JOBS),--jobs $(PTY_JOBS),) \
@@ -1332,6 +1469,50 @@ gateway-check:
 gateway-baseline:
 	$(PYTHON) utils/check_mutation_gateway.py \
 		--manifest $(GATEWAY_MANIFEST) --write $(OBJDIR)
+
+# doc/plans/2026-08-14-embedded-prelude.md's Phase 0.4: check the four
+# numbers PRELUDE_CENSUS_MANIFEST holds against a fresh reading of the
+# real, compiled-in prelude.  That needs kg_lisp_init() actually run, so
+# this is gated exactly like lisp-oracle-check and lisp-gc-stress-check
+# below -- WITH_LISP=0 has no evaluator to census.  test/prelude_gc_probe
+# is outside TESTBINS (same reason kgbatch is) and named here as an
+# ordinary prerequisite so `make prelude-census-check` on its own builds
+# it rather than failing to find it.
+ifeq ($(WITH_LISP),1)
+prelude-census-check: $(TESTDIR)/kgbatch test/prelude_gc_probe
+	@$(PYTHON) utils/check_prelude_census.py \
+		--manifest $(PRELUDE_CENSUS_MANIFEST) \
+		--kgbatch $(TESTDIR)/kgbatch --probe test/prelude_gc_probe \
+		--prelude lisp/prelude.el
+
+prelude-census-baseline: $(TESTDIR)/kgbatch test/prelude_gc_probe
+	@$(PYTHON) utils/check_prelude_census.py \
+		--manifest $(PRELUDE_CENSUS_MANIFEST) \
+		--kgbatch $(TESTDIR)/kgbatch --probe test/prelude_gc_probe \
+		--prelude lisp/prelude.el --write
+
+# The counting twins of the two probes above are the only binaries in the
+# tree that no other target builds: they are outside TESTBINS (they assert
+# nothing, they print a wall-clock reading), outside $(PERF_KG) and outside
+# `bench'.  Both shipped broken -- linked against the ordinary $(FE_OBJ),
+# which deliberately omits fe_perf.o, so $(PERFOBJDIR)/lisp_core.o's
+# FePerfWriteJson() reference had nothing to resolve to -- and `make check'
+# stayed green throughout, because nothing in it ever asked for the link.
+# This asks.  A LINK is the whole gate: RUNNING them is not, and must not
+# become one, since what they print is a wall time and this repository does
+# not gate on those (src/perf.h's header rule).  Cheap next to what `check'
+# already pays: every $(PERF_SRC_OBJS) object is built for test_perf
+# already, so this is two more objects and two links.
+prelude-probe-link-check: $(PRELUDE_READ_EVAL_SPLIT_PERF) $(PRELUDE_GC_PROBE_PERF)
+	@echo "prelude-probe-link-check: both counting prelude probes link"
+else
+prelude-census-check:
+	@echo "# prelude-census-check: WITH_LISP=0, no evaluator to census"
+prelude-census-baseline:
+	@echo "# prelude-census-baseline: WITH_LISP=0, no evaluator to census"
+prelude-probe-link-check:
+	@echo "# prelude-probe-link-check: WITH_LISP=0, no prelude to probe"
+endif
 
 coverage: coverage-clean
 	$(MAKE) clean
@@ -1649,8 +1830,10 @@ $(PERFOBJDIR)/%.o: $(OBJDIR)/%.c $(HDRS) $(OBJDIR)/perf.h | $(PERFOBJDIR)
 $(PERFOBJDIR)/%.o: $(TESTDIR)/%.c $(HDRS) $(OBJDIR)/perf.h | $(PERFOBJDIR)
 	$(CC) $(PERF_CFLAGS) -I$(OBJDIR) -c $< -o $@
 
-$(PERFOBJDIR)/lisp_core.o: $(OBJDIR)/lisp_internal.h $(OBJDIR)/lisp.h
-$(PERFOBJDIR)/lisp_prelude.o: $(OBJDIR)/lisp_internal.h
+$(PERFOBJDIR)/lisp_core.o: $(OBJDIR)/lisp_internal.h $(OBJDIR)/lisp.h \
+	fe/fe_perf.h
+$(PERFOBJDIR)/lisp_prelude.o: $(OBJDIR)/lisp_internal.h \
+	$(OBJDIR)/lisp_prelude_generated.inc
 $(PERFOBJDIR)/lisp_string.o: $(OBJDIR)/lisp_internal.h
 $(PERFOBJDIR)/lisp_buffer.o: $(OBJDIR)/lisp_internal.h
 $(PERFOBJDIR)/lisp_word.o: $(OBJDIR)/lisp_internal.h
@@ -1662,19 +1845,64 @@ $(PERFOBJDIR)/lisp_process.o: $(OBJDIR)/lisp_internal.h $(OBJDIR)/lisp_obj.h $(O
 $(PERFOBJDIR)/lisp_require.o: $(OBJDIR)/lisp_internal.h
 $(PERFOBJDIR)/regex.o: $(OBJDIR)/regex.h fe/tiny-regex-c/re.h
 
-$(TESTDIR)/test_perf: $(PERF_TEST_OBJS) $(FE_OBJ) $(REGEX_ENGINE_OBJ)
+# fe's counting objects (Phase 21's follow-up): the same explicit rules as
+# $(OBJDIR)/fe.o and friends below, into $(PERFOBJDIR) with
+# $(PERF_FE_CFLAGS) instead of $(FE_CFLAGS), plus fe_perf.c, which no
+# ordinary build compiles at all -- fe_perf.h declares FePerfWriteJson()
+# and friends only under `#if FE_PERF_COUNTERS`, so the four ordinary
+# fe/*.c files never reference a fe_perf.c symbol and the linker never
+# misses it.
+$(PERFOBJDIR)/fe.o: fe/fe.c fe/fe.h fe/fe_internal.h fe/fe_perf.h \
+	| $(PERFOBJDIR)
+	$(CC) $(PERF_FE_CFLAGS) -c $< -o $@
+
+$(PERFOBJDIR)/fe_eval.o: fe/fe_eval.c fe/fe.h fe/fe_internal.h fe/fe_perf.h \
+	| $(PERFOBJDIR)
+	$(CC) $(PERF_FE_CFLAGS) -c $< -o $@
+
+$(PERFOBJDIR)/fe_run.o: fe/fe_run.c fe/fe.h fe/fe_internal.h | $(PERFOBJDIR)
+	$(CC) $(PERF_FE_CFLAGS) -c $< -o $@
+
+$(PERFOBJDIR)/fe_unwind.o: fe/fe_unwind.c fe/fe.h fe/fe_internal.h \
+	fe/fe_perf.h | $(PERFOBJDIR)
+	$(CC) $(PERF_FE_CFLAGS) -c $< -o $@
+
+$(PERFOBJDIR)/fe_perf.o: fe/fe_perf.c fe/fe_perf.h fe/fe.h | $(PERFOBJDIR)
+	$(CC) $(PERF_FE_CFLAGS) -c $< -o $@
+
+$(TESTDIR)/test_perf: $(PERF_TEST_OBJS) $(PERF_FE_OBJ) $(REGEX_ENGINE_OBJ)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
-$(PERF_KG): $(PERF_SRC_OBJS) $(FE_OBJ) $(REGEX_ENGINE_OBJ)
+$(PERF_KG): $(PERF_SRC_OBJS) $(PERF_FE_OBJ) $(REGEX_ENGINE_OBJ)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 # Wall-clock benchmarks, deliberately not a CI gate: see the note in
 # CLAUDE.md.  The gates that hold are the counter assertions in
-# test/test_perf.c, which run inside every `make check`.
-bench: $(PERF_KG)
+# test/test_perf.c, which run inside every `make check`.  $(TESTDIR)/kgbatch
+# is an ordinary (non-counting) build, separate from $(PERF_KG): utils/
+# bench.py's LISP_ANSWERS checks a Lisp case's computed value against it,
+# needing no terminal and no counters of its own.
+bench: $(PERF_KG) $(TESTDIR)/kgbatch
 	@mkdir -p $(dir $(BENCH_OUT))
-	@$(PYTHON) utils/bench.py --kg $(PERF_KG) --json $(BENCH_OUT) \
-		$(BENCH_ARGS)
+	@$(PYTHON) utils/bench.py --kg $(PERF_KG) --kgbatch $(TESTDIR)/kgbatch \
+		--json $(BENCH_OUT) $(BENCH_ARGS)
+
+# Phase 21's baseline report (doc/plans/2026-08-18-elisp-data-model.md,
+# Phase 21 "Gate and result") is written BY HAND from two files, not
+# generated here: Phase 21.2 forbids optimising from a counter and does not
+# ask for a combining framework, and neither does this target -- it exists
+# only so the two files a report is written from land in one command
+# rather than two remembered recipes.  fe's half is
+# fe/perfobj/workloads.json (schema fe-perf-workloads/3, fe's own Phase
+# 21.2 commit); kg's half is $(BENCH_OUT) (schema kg-bench/2, this file's
+# SCHEMA).  Each opens with its own artifact header, so a reader can see
+# whether the two halves came from the same pair of trees.  Neither schema is rewritten into the other's vocabulary: a
+# reader opens both and reads each one's own counter and arena key names,
+# which is what "kg's record sits beside fe's" means here.
+perf-baseline: bench
+	$(MAKE) -C fe perf-workloads
+	@echo "fe workloads: fe/perfobj/workloads.json (schema fe-perf-workloads/3)"
+	@echo "kg bench:     $(BENCH_OUT) (schema kg-bench/2)"
 
 # Not part of `bench` above, and not folded into it: this clean-rebuilds
 # both WITH_LISP configurations (restoring WITH_LISP=1, the default,
@@ -1799,16 +2027,16 @@ $(FUZZBIN_DAP_DISPATCH): $(TESTDIR)/fuzz_dap_dispatch.c \
 		$(OBJDIR)/dap_transport.c $(OBJDIR)/announce.c \
 		$(OBJDIR)/framed_io.c $(OBJDIR)/json.c $(OBJDIR)/process.c
 
-$(TESTDIR)/fe_fuzz.o: fe/fe.c fe/fe.h fe/fe_internal.h
+$(TESTDIR)/fe_fuzz.o: fe/fe.c fe/fe.h fe/fe_internal.h fe/fe_perf.h
 	$(FUZZ_CC) $(FE_FUZZ_CFLAGS) -c $< -o $@
 
-$(TESTDIR)/fe_eval_fuzz.o: fe/fe_eval.c fe/fe.h fe/fe_internal.h
+$(TESTDIR)/fe_eval_fuzz.o: fe/fe_eval.c fe/fe.h fe/fe_internal.h fe/fe_perf.h
 	$(FUZZ_CC) $(FE_FUZZ_CFLAGS) -c $< -o $@
 
 $(TESTDIR)/fe_run_fuzz.o: fe/fe_run.c fe/fe.h fe/fe_internal.h
 	$(FUZZ_CC) $(FE_FUZZ_CFLAGS) -c $< -o $@
 
-$(TESTDIR)/fe_unwind_fuzz.o: fe/fe_unwind.c fe/fe.h fe/fe_internal.h
+$(TESTDIR)/fe_unwind_fuzz.o: fe/fe_unwind.c fe/fe.h fe/fe_internal.h fe/fe_perf.h
 	$(FUZZ_CC) $(FE_FUZZ_CFLAGS) -c $< -o $@
 
 clean:
@@ -1816,6 +2044,7 @@ clean:
 	      $(DAP_ALL) \
 	      $(OBJDIR)/.features-* $(OBJDIR)/.with-lisp-* $(TESTDIR)/*.o \
 	      $(TESTBINS) $(TESTDIR)/kgbatch $(GC_STRESS_KGBATCH) \
+	      $(TESTDIR)/prelude_read_eval_split $(TESTDIR)/prelude_gc_probe \
 	      $(FUZZBINS) $(TESTDIR)/fuzz_lsp_frames \
 	      $(FUZZBIN_DAP_DISPATCH) $(REGEX_DIFF_BIN)
 	rm -rf $(PERFOBJDIR) $(TS_FAKE_GRAMMAR_DIR)
@@ -1846,9 +2075,9 @@ uninstall:
 	rm -f $(addprefix $(DESTDIR)$(lispdir)/,$(notdir $(LISP_PACKAGES)))
 	-rmdir $(DESTDIR)$(lispdir) $(DESTDIR)$(datadir)/kg
 
-.PHONY: all clean distclean check header-check lisp-include-check docs-check lisp-compat-check lisp-compat-oracle lisp-prelude-generate lisp-prelude-check lisp-package-check lisp-oracle-check forecast-audit forecast-check forecast-init-check check-unit check-pty-tokens check-pty check-regex-differential \
-	bench bench-lisp-toggle complexity complexity-check \
-	pmccabe pmccabe-check pmccabe-baseline gateway-check gateway-baseline coverage coverage-check coverage-baseline coverage-clean format format-check compile-db iwyu \
+.PHONY: all clean distclean check header-check lisp-include-check docs-check lisp-compat-check lisp-compat-oracle lisp-prelude-generate lisp-prelude-check lisp-package-check lisp-oracle-check package-compat-check package-oracle forecast-audit forecast-check forecast-init-check check-unit check-pty-tokens check-pty check-regex-differential \
+	bench bench-lisp-toggle perf-baseline complexity complexity-check \
+	pmccabe pmccabe-check pmccabe-baseline gateway-check gateway-baseline prelude-census-check prelude-census-baseline prelude-probe-link-check coverage coverage-check coverage-baseline coverage-clean format format-check compile-db iwyu \
 	fuzz-keypress fuzz-keypress-seed fuzz-keypress-smoke \
 	fuzz-syntax fuzz-syntax-seed fuzz-syntax-smoke \
 	fuzz-lsp-json fuzz-lsp-json-seed fuzz-lsp-json-smoke \

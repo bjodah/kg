@@ -1,0 +1,6 @@
+{
+ "id": "vector-read-inside-quoted-list",
+ "setup": [],
+ "expr": "'(a [1 2] b)",
+ "note": "A vector reached through a quoted LIST rather than at top level. This is the shape that actually stops real packages -- sel-frontier's `declare' debug spec is a vector inside a form, not a literal somebody typed -- and it is the one that proves the reader recurses into brackets from inside a list rather than only at the start of a form."
+}

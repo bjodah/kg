@@ -236,8 +236,8 @@ static int wrapped_chars_col(erow *row, int target_vcol, int win_w,
 					    row->chars, row->size, j);
 					next = vcol
 					    + wrap_pad(vcol,
-						utf8_width_at(row->chars,
-						    row->size, j),
+						utf8_width_at(
+						    row->chars, row->size, j),
 						win_w)
 					    + utf8_width_at(
 						row->chars, row->size, j);
@@ -366,8 +366,8 @@ void render_span_of_segment(erow *row, int segment, int win_w,
 	while (seg_start < row->size) {
 		get_row_segment(row, seg_start, win_w, options, &seg);
 		if (seg_idx == segment || seg.end_chars >= row->size) {
-			*out_start
-			    = chars_to_render_col(row, seg.start_chars, options);
+			*out_start = chars_to_render_col(
+			    row, seg.start_chars, options);
 			*out_end = seg.end_chars >= row->size
 			    ? row->rsize
 			    : chars_to_render_col(row, seg.end_chars, options);
@@ -413,9 +413,6 @@ int visual_eol_to_chars(erow *row, int chars_col, int win_w,
 	while (seg_start < row->size) {
 		get_row_segment(row, seg_start, win_w, options, &seg);
 		if (chars_col < seg.end_chars || seg.end_chars >= row->size) {
-			if (options && options->word_wrap) {
-				return seg.eol_chars;
-			}
 			if (seg.end_chars >= row->size && seg.vcols > 0
 			    && seg.vcols % win_w == 0
 			    && chars_col < seg.eol_chars) {

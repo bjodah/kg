@@ -683,7 +683,7 @@ static void region_kill_or_delete(int save)
 }
 
 void editor_kill_region(void) { region_kill_or_delete(1); }
-void editor_delete_region(void) { region_kill_or_delete(0); }
+static void editor_delete_region(void) { region_kill_or_delete(0); }
 
 /* Copy region - saves to kill ring without removing */
 void editor_copy_region(void)

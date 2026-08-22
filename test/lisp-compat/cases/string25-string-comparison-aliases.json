@@ -1,0 +1,6 @@
+{
+ "id": "string25-string-comparison-aliases",
+ "setup": [],
+ "expr": "(list (fboundp 'string-equal) (fboundp 'string-lessp) (fboundp 'string-greaterp))",
+ "note": "The census that says how wide the alias gap is: Emacs answers (t t t), kg (nil nil nil). All three long spellings are missing and all three short ones (`string=`, `string<`, `string>`) are present, so the whole gap is vocabulary rather than behaviour -- and this case is what fails if Phase 25.2 adds one alias and forgets the other two."
+}

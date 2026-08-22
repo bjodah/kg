@@ -128,8 +128,8 @@ static bool move_visual_line(int key, int filerow, erow *row, int filecol)
 			} else {
 				rcol = visual_line_cursor_col(
 				    row, filecol, win_w, options);
-				char_idx = visual_col_to_chars(
-				    row, (rcol / win_w) * win_w, win_w, options);
+				char_idx = visual_col_to_chars(row,
+				    (rcol / win_w) * win_w, win_w, options);
 			}
 			editor_cursor_goto(filerow, char_idx);
 		}
@@ -140,8 +140,8 @@ static bool move_visual_line(int key, int filerow, erow *row, int filecol)
 				char_idx = visual_eol_to_chars(
 				    row, filecol, win_w, options);
 			} else {
-				int max_rcol = visual_line_width(
-				    row, win_w, options);
+				int max_rcol
+				    = visual_line_width(row, win_w, options);
 				int target_rcol;
 
 				rcol = visual_line_cursor_col(

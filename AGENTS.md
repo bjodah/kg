@@ -51,10 +51,13 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   is not part of `make check`; CI runs it as `.ci/ci-10-*.sh`. Both sides
   report BYTE offsets — Emacs reports character offsets natively and the
   oracle converts, so do not remove that conversion.
-  Every generated pattern is asked in two modes (`--modes f,fa`): the
-  first match from offset 0, and every successive match iterated by
+  Every generated pattern is asked in three modes (`--modes f,fa,fb`):
+  the first match from offset 0; every successive match iterated by
   `kg_regex_next_offset()`'s rule, which is where empty-match progress
-  and leftover capture registers show up. Backward matching is still
+  and leftover capture registers show up; and the first match under a
+  bounded window, where both sides derive the limit from the subject
+  (half its byte length) so the limit is never in the protocol and a
+  case line means the same thing in every mode. Backward matching is still
   uncompared; `kg_regex_match_backward()`'s selection rule (last match
   ending at or before the limit, taking the plain forward match at each
   candidate start) is not Emacs' bounded backward search, so an oracle
@@ -111,6 +114,23 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   carries its rationale and measured proof in the commit message, never as
   a comment beside the knob. The manifest is follow-up Plan 02's remaining
   migration work written down.
+- `make prelude-census-check` (part of `make check` under `WITH_LISP=1`,
+  alongside `lisp-oracle-check` and `lisp-gc-stress-check`) holds the
+  embedded Lisp prelude (`lisp/prelude.el`) to four ceilings in
+  `.ci/prelude-startup-census.json`: post-prelude `peak_live_objects`
+  (`test/kgbatch -g`'s high-water mark), `reachable_live_objects` (what
+  survives a forced collection after the prelude, via
+  `test/prelude_gc_probe`, the stabler figure since a high-water mark
+  alone conflates fewer definitions with less transient load-time
+  garbage), `embedded_bytes` (`lisp/prelude.el`'s own size -- the
+  generated `.inc` is a byte-for-byte copy of it) and `definition_count`
+  (its top-level `defalias` forms). No number may rise without a
+  rationale and measured proof in the commit message; `make
+  prelude-census-baseline` banks a fall. It does not live in
+  `.ci/ci-01-*.sh` beside complexity/pmccabe/gateway because those three
+  read source text only ("build nothing", the property that lets the CI
+  runner share one tree across them) while this census needs a real
+  `kg_lisp_init()` run, which `make check` already pays for.
 - Every `make check` writes machine-readable results to `test/.results/`
   (gitignored): `unit.json` from `utils/run_unit_tests.py`, `pty.json`
   from `utils/pty_accept.py --json`, both with per-case status and wall
@@ -118,8 +138,11 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   `.ci/.run/results/<step>` and ends by writing `.ci/.run/quality.json`
   (`utils/quality_report.py`): stages and durations, both layers' counts
   and slowest cases, coverage against its floor, the complexity manifest,
-  the pins. `utils/print-tool-versions.sh` prints the toolchain and the
-  box; hosted CI runs it before every step.
+  the pins, and the artifact header off the last `make bench` with a
+  verdict on whether it names this tree -- a run with no bench.json, or
+  one written before that header existed, says so in a sentence rather
+  than going missing. `utils/print-tool-versions.sh` prints the toolchain
+  and the box; hosted CI runs it before every step.
 - Performance evidence is counters first, wall clock second.
   `src/perf.h` declares counters that compile to nothing unless
   `KG_PERF_COUNTERS` is 1 (the KG_SHOW_TILDE/KG_FUZZ pattern), so the
@@ -146,7 +169,12 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   with the reason on a build without it: the `ts-*` cases (large-file
   open and mid-file typing, the tree-sitter latency policy's evidence)
   need `make bench WITH_TREE_SITTER=1`, and a plain `make bench` skips
-  them.
+  them. Every report opens with an `artifact` header -- `kg -V` verbatim
+  from the measured binary, its sha256, and `git describe --always
+  --dirty` for this tree and for fe -- because a number whose artifact
+  line is not the tree under discussion is not evidence about it. fe's
+  own `perfobj/workloads.json` carries the same kind of header
+  (`fe-perf-workloads/3`).
 - Hosted CI is one Woodpecker step (`.woodpecker.yaml`): a prebuilt image
   with the whole toolchain in it, an interpreter activation, then
   `.ci/run-ci-steps.sh` -- the same runner, and the same steps discovered
@@ -506,7 +534,8 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   operator before Phase 2's hard cut, and this bullet said so until the
   Phase 11 docs sweep found it still saying it.
 - `WITH_LISP=1` is the default build; `make WITH_LISP=0` must reproduce the
-  pre-Lisp editor. CI stage `.ci/ci-08-with-lisp-0.sh` enforces the disabled
+  pre-Lisp editor, with one deliberate exception: M-q wraps at 70, Emacs'
+  `fill-column` default, in every build (`src/word.c`'s fallback). CI stage `.ci/ci-08-with-lisp-0.sh` enforces the disabled
   configuration; keep both configurations green.
 - Lisp is trusted code: init files and packages run with full editor
   privileges, bounded by a step budget and C-g cancellation. Do not present

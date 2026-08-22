@@ -1,0 +1,6 @@
+{
+ "id": "r2-bound-forward-later-match",
+ "setup": [],
+ "expr": "(with-temp-buffer (insert \"axxxb\") (goto-char (point-min)) (list (re-search-forward \"xxxx\\\\|xx\" 4 t) (match-beginning 0)))",
+ "note": "A LATER VALID MATCH, with the alternation reversed relative to the first probe: the wide alternative fits nowhere under BOUND, and the narrow one matches at byte 1 (position 2).  Emacs answers (4 2).  The point of the pair is that the bound has to survive BOTH the choice of alternative and the choice of start."
+}

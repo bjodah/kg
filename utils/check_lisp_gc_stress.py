@@ -33,6 +33,7 @@ STRESS_TIMEOUT_RATIO below is where that is measured and sized.
 """
 
 import argparse
+import os
 import pathlib
 import re
 import subprocess
@@ -119,9 +120,10 @@ EXPECTED = ('(40 (40 20) 2 "kept-name" nil nil '
             '("one,two,three" "one,two,three") (one "held-by-one") '
             '(two "held-by-two") the-default)')
 
-# The same script with enough iterations to fill kg's 1 MB arena at least
-# once, which the stress-affordable loop above does not: run through the
-# ORDINARY build only, to assert the collector is invoked at all.
+# The same script with enough iterations to fill at least once the 1 MiB
+# arena ARENA_BYTES below pins these runs to, which the stress-affordable
+# loop above does not: run through the ORDINARY build only, to assert the
+# collector is invoked at all.
 BIG_SCRIPT = SCRIPT.replace("< n 40", "< n 4000").replace(
     "(* 20 (/ n 20))", "(* 1000 (/ n 1000))")
 BIG_EXPECTED = ('(4000 (4000 3000 2000 1000) 4 "kept-name" nil nil '
@@ -138,15 +140,23 @@ MIN_STRESS_COLLECTIONS = 1000
 # A stress collection is O(arena), and the arena holds tens of thousands
 # of objects, so this lane is slow by construction and slowest where it
 # matters most.  Measured with the ci-05 MSan lane's own binary on the
-# 32-core development box, where the whole run is 142.7 s and 15612
-# collections: the PRELUDE ALONE is 97.7 s and 11339 of them, before the
+# 32-core development box, where the whole run was 142.7 s and 15612
+# collections: the PRELUDE ALONE was 97.7 s and 11339 of them, before the
 # script's first form runs; the forms outside the loop add 686 more; the
-# 40 iterations add 3587.  So 73% of the run is fixed cost, and time
+# 40 iterations add 3587.  So 73% of the run was fixed cost, and time
 # tracks collections almost exactly, at ~9 ms each (0 iterations 104.9 s,
 # 10 iterations 128.7 s, 40 iterations 142.7 s).  That is why the loop is
 # 40 iterations rather than the 300 it was through Phase 14 (measured
 # under MSan then: 300 -> 229 s, 100 -> 149 s, 40 -> 138 s), and why
-# cutting it further buys almost nothing: the knee is the prelude.  Nor
+# cutting it further buys almost nothing: the knee is the prelude.
+#
+# The embedded-prelude work has since moved those counts and the shape
+# they imply.  On this tree the whole run is 12315 collections and the
+# prelude alone 6819, so the prelude is 55% of the run rather than the
+# 73% above -- still the single largest block, so the 40-iteration choice
+# stands, but no longer most of the run.  Counts are what this script
+# asserts; doc/plans/2026-08-14-embedded-prelude.md's Phase 3 results
+# carry the current MSan timings beside them.  Nor
 # does a smaller arena -- a stress build at KG_LISP_ARENA_SIZE=256 KiB
 # measures 75 s, only 1.9x, because marking the ~10600 live objects costs
 # what sweeping the rest does, and it would want a second object build
@@ -165,13 +175,21 @@ MIN_STRESS_COLLECTIONS = 1000
 # scale factor.  Ratios measured per build, each ordinary run against its
 # own stress run over the same script:
 #
-#   gcc -O0 -g (make check)      0.03 s ->   1.55 s    52x
-#   gcc --coverage (ci-02)       0.03 s ->   3.24 s   108x
-#   clang ASan+UBSan (ci-04)     0.04 s ->  10.65 s   266x
-#   clang MSan (ci-05)           0.53 s -> 142.71 s   269x
-#   clang MSan, 3-vCPU CI box    2.10 s -> 644.40 s   307x
+#   gcc -O0 -g (make check)      0.014 s ->   1.97 s   140x
+#   clang MSan (ci-05)           0.185 s -> 213.97 s  1157x
+#   gcc --coverage (ci-02)       0.03 s  ->   3.24 s   108x  (older tree)
+#   clang ASan+UBSan (ci-04)     0.04 s  ->  10.65 s   266x  (older tree)
+#   clang MSan, 3-vCPU CI box    2.10 s  -> 644.40 s   307x  (older tree)
 #
-# The plain build's 52x is not the outlier it looks like: its ordinary
+# The two runs measure different things, so their ratio is not a
+# constant of the box: the ordinary run is eval over a prelude whose
+# arena rarely fills (0-1 collections), the stress run is ~15k of them,
+# and any change that speeds eval or adds per-collection work raises
+# the true ratio without touching either run's correctness.  MSan is
+# where that shows first, because its instrumentation multiplies the
+# collection loops far more than the eval path.
+#
+# The plain build's 140x is not the outlier it looks like: its ordinary
 # run is mostly process startup, which is why there is a floor as well as
 # a ratio.  The last row is why the number cannot be fixed at all.  That
 # box is ~3x slower per core than this one on the ordinary run and ~4.5x
@@ -184,12 +202,13 @@ MIN_STRESS_COLLECTIONS = 1000
 # 60% of one vCPU and taking 720.85 s.  A ratio moves with all of that
 # because both of its terms do.
 #
-# 1000 is 3.3x the worst ratio above; on that box it computes a 2100 s
-# budget for the 644.4 s run.
+# 4000 is 3.5x the worst ratio above; on this box it computes a 740 s
+# budget for the 214 s MSan run, and on the 3-vCPU box the cap takes
+# over before the scaled budget does.
 #
-# The floor is what every build except MSan actually gets, because their
-# ordinary run is too short to scale anything from: 120 s is 11x the ASan
-# stress run, 37x the coverage one, 77x the plain one.  The cap keeps "a
+# The floor is what the shortest ordinary runs still need, because they
+# are too short to scale anything from: at 0.014 s the plain build would
+# scale to 56 s, and 120 s is 61x its 1.97 s stress run.  The cap keeps "a
 # hang fails the build" true no matter what the calibration run reports:
 # an hour, not an unbounded multiple.  Both numbers are printed against
 # what they were given, so the next sizing decision is made from a CI log
@@ -203,11 +222,38 @@ MIN_STRESS_COLLECTIONS = 1000
 # here a slower box could still outgrow, and the run it bounds is the
 # cheap one, which is the trade.
 ORDINARY_TIMEOUT = 300
-STRESS_TIMEOUT_RATIO = 1000
+STRESS_TIMEOUT_RATIO = 4000
 STRESS_TIMEOUT_FLOOR = 120
 STRESS_TIMEOUT_CAP = 3600
 
-STATS = re.compile(r"^arena: collections=(\d+) peak-live=(\d+) failures=(\d+)$")
+# Extended additively as kgbatch -g grows fields: every group here keeps its
+# position, and a new one is appended, because the tuple below is read by
+# index. The payload group is Phase 23.2's five fields, which are zero in kg
+# until Phase 25 gives the region an owner -- captured rather than skipped, so
+# a stress run that started allocating payloads would be readable here.
+STATS = re.compile(
+	r"^arena: collections=(\d+) peak-live=(\d+) failures=(\d+) bytes=(\d+)"
+	r" payload-capacity=(\d+) payload-live=(\d+) payload-peak=(\d+)"
+	r" payload-compactions=(\d+) payload-failures=(\d+)$")
+
+
+# An instrument holds its own conditions fixed.  What this lane measures
+# is collection CORRECTNESS -- the same answer from a build that collects
+# before every allocation as from one that collects when the free list
+# empties -- and that property does not depend on how big the arena is;
+# every number this file carries (the collection counts, the peak-live
+# figures, the BIG_SCRIPT sized to fill the arena at least once) was
+# measured against a 1 MiB one.  A stress collection is O(total_slots),
+# so inheriting the compiled default instead would scale the whole lane
+# with it and say nothing new: measured on this box, this run is 1.57 s
+# at 1 MiB and 10.64 s at 10 MiB, for the same 14856 collections and the
+# same peak-live 10411.  Phase B of
+# doc/plans/2026-08-19-fe-simplification-and-cheap-compat.md is what makes
+# holding it possible -- before the knob the arena was a constant of the
+# build and this lane simply inherited whatever it was.  All three runs
+# get it, since the ordinary run is also the scale factor the stress run's
+# budget is derived from.
+ARENA_BYTES = "1M"
 
 
 def run(binary: pathlib.Path, script: pathlib.Path, budget: float, why: str):
@@ -218,10 +264,11 @@ def run(binary: pathlib.Path, script: pathlib.Path, budget: float, why: str):
 	enough to tell that apart from a box slower than the one the budget
 	was derived on -- which is the failure this replaced.
 	"""
+	env = dict(os.environ, KG_LISP_ARENA_BYTES=ARENA_BYTES)
 	start = time.monotonic()
 	try:
 		proc = subprocess.run(
-		    [str(binary), "-b", "-g", str(script)],
+		    [str(binary), "-b", "-g", str(script)], env=env,
 		    capture_output=True, text=True, timeout=budget)
 	except subprocess.TimeoutExpired:
 		raise SystemExit(

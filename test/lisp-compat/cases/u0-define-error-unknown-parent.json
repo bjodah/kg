@@ -1,0 +1,6 @@
+{
+ "id": "u0-define-error-unknown-parent",
+ "setup": [],
+ "expr": "(progn (define-error 'u0-e6 \"Orphan\" 'u0-no-such-parent) (list (get 'u0-e6 'error-conditions) (condition-case e (signal 'u0-e6 nil) (error 'caught-as-error) (t 'caught-by-t))))",
+ "note": "THE EDGE THAT SHOWS `define-error' DOES NOT VALIDATE. Emacs answers ((u0-e6 u0-no-such-parent) caught-by-t): a parent that was never defined contributes its (empty) conditions, so the new symbol's list does NOT contain `error' -- and the resulting condition is caught by `t' and NOT by an `error' handler. A package that misspells a parent gets an error nothing routine can catch, and an implementation that helpfully appended `error' would be more forgiving than Emacs and would diverge here. kg answers `void-function'."
+}

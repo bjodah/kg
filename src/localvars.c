@@ -1,6 +1,5 @@
 #include "localvars.h"
 #include "def.h"
-#include "lisp.h"
 #include <ctype.h>
 #include <limits.h>
 #include <stdio.h>
@@ -1070,8 +1069,7 @@ static bool is_integer_token(const char *s)
 	return true;
 }
 
-static void init_apply_setq(
-    struct dlr *r, struct init_settings *out)
+static void init_apply_setq(struct dlr *r, struct init_settings *out)
 {
 	char varname[128];
 	int vlen;

@@ -14,11 +14,11 @@ covers what is different about kg's half.
 
 Ownership decides which manifest an entry lives in; comparability is a
 separate axis. `fe/compat/features.json` owns Fe's core language surface
-(71 primitives/aliases at this pin, plus the handful of fe-owned divergences that
+(81 primitives/aliases at this pin, plus the handful of fe-owned divergences that
 live in the reader/writer/evaluator). `test/lisp-compat/features.json`
-(this directory) owns kg's 127 natives (`native_bindings[]`,
+(this directory) owns kg's 134 natives (`native_bindings[]`,
 `src/lisp_prelude.c`) and kg's prelude definitions
-(`lisp/prelude.el`'s top-level `(defalias 'NAME ...)` forms, currently 127) -- kg-owned,
+(`lisp/prelude.el`'s top-level `(defalias 'NAME ...)` forms, currently 126) -- kg-owned,
 even though most of the prelude definitions are themselves oracle-comparable
 Emacs Lisp forms
 (`let`, `defun`, `cond`, `mapcar`, ...). Putting kg's half inside the
@@ -41,7 +41,7 @@ the native/PTY test named in `kg_test`, not by an Emacs snapshot.
 ```text
 test/lisp-compat/
   README.md          this file
-  features.json       the manifest: 127 kg natives + 127 prelude definitions
+  features.json       the manifest: 134 kg natives + 126 prelude definitions
                        (plus a handful of kg-owned cross-cutting
                        divergences and the defcustom entry), each
                        with a status, an owner, a comparison mode, and the
@@ -122,6 +122,212 @@ for equality. Reader errors happen before the wrapper evaluates, and an
 uncatchable budget happens outside it; only those message-source records use
 fe's weaker fallback, requiring the oracle condition name to occur in kg's
 diagnostic. The runner's self-test pins the structured path.
+
+## A group recorded before its implementation exists (`vectors`)
+
+The 35 `vector-*` cases and their ten `category: vectors` rows were
+recorded by Phase 24.0
+(`doc/plans/2026-08-20-elisp-data-model-phase24-execution.md`), whose
+entry gate is: *the oracle cases exist and are green as divergences
+before any fe reader change lands.* They are the first group in this
+corpus written entirely **ahead** of the behaviour they describe, so
+they read strangely on purpose — 33 of the 35 are recorded divergences,
+and they are supposed to be.
+
+Two things make that honest rather than a placeholder:
+
+* every row is classified by what kg **measured**, not by what the phase
+  expects to change. 22 of the 33 divergences are the reader stopping at
+  `unsupported read syntax: vector brackets`; the other 11 contain no
+  bracket at all and record a real, different kg answer — ten are
+  `void-function`, from the first of `vectorp`/`aref`/`make-vector`/
+  `vector` the case reaches (none of the six names `vectorp`, `aref`,
+  `aset`, `make-vector`, `vector`, `vconcat` is bound at this pin), and
+  one is `wrong-type-argument`, the case where kg has the name and
+  answers differently anyway (`vector-append-string`, where kg's
+  `append` rejects a string Emacs flattens to `(97 98)`).
+* two cases carry `"expect": "agree"` inside divergent rows, and they
+  are what makes the other 33 attributable rather than a blanket
+  "vectors are missing". `vector-sequence-list-baseline` shows every
+  generalised name (`length`, `elt`, `mapcar`, `mapconcat`,
+  `copy-sequence`) already answering exactly what Emacs answers when
+  given a list, and `vector-elt-list-out-of-range` shows kg already
+  matching Emacs' measured asymmetry (`elt` past the end of a list is
+  `nil`; past the end of a vector it raises). A change that generalises
+  these names by breaking the list case fails the run instead of passing
+  it.
+
+Where a row's `kg_test` is `null` that is the honest answer at 24.0 and
+not an oversight: no kg-side test asserts anything about vector identity,
+printing, access or construction, because kg has no vectors. Those
+citations land in the same commits as the implementation, and until then
+this runner's XPASS rule is the pin — each case must keep diverging on
+every `make lisp-oracle-check`.
+
+## The same shape, for a type that already exists (`strings`)
+
+The 26 `string25-*` cases and their fourteen `category: strings` rows were
+recorded by Phase 25.0
+(`doc/plans/2026-08-20-elisp-data-model-phase25-execution.md`), whose entry
+gate is the `vectors` gate one phase on: *the cases exist and are green as
+recorded answers* before the representation moves. They read differently
+from the `vectors` group on purpose, because the subject is different. kg
+HAS strings, so nine of the 26 are agreements rather than two of 35, and
+each one is a control that makes a neighbouring divergence attributable:
+
+* `string25-multibyte-character-view` shows `length`, `substring`,
+  `string-to-char` and `%S` already answering exactly what Emacs answers on
+  multibyte text — so `string25-multibyte-aref-vs-elt`, where `aref` gives
+  195 and `elt` gives 233 for the same character of the same string, is
+  about ONE unwrapped name and not about UTF-8.
+* `string25-match-data-clobbered` shows that a second `string-match` moves
+  the match data, which is what gives
+  `string25-string-match-p-non-perturbing` its meaning: a probe that could
+  not see a move cannot testify that something did not make one.
+* `string25-substring-in-range` and `string25-aref-string-bounds` show the
+  in-range and out-of-bounds halves that already agree, beside the
+  clamp-versus-raise and the refuse-to-mutate halves that do not.
+
+Two mechanical points a reader of these cases should know:
+
+* **Some cases ask for a condition's MESSAGE or DATA as their value**, on
+  purpose. The runner compares condition SYMBOLS for structured records, and
+  three of the contracts here are invisible at that resolution: both of
+  Emacs' `aset` width-change refusals are plain `error`, as is kg's single
+  refusal, and `substring` out of range raises in Emacs and returns a
+  clamped string in kg. A `condition-case` that returns `(cdr e)` or the
+  message makes the difference part of the value, which is compared exactly.
+* **A case file cannot carry a raw invalid byte.** A case's `expr` is a JSON
+  string and JSON must be valid UTF-8, so the lone `0xE2` the master plan's
+  "invalid byte input" bullet asks about is written `\342` — the octal
+  escape both readers turn into that byte. It is the nearest expressible
+  form; a case carrying the byte itself would have to be a PTY case. The
+  limitation is recorded in `string25-raw-byte-length-and-aref`'s own note.
+
+Four rows carry `kg_test: null` for the 24.0 reason: no kg-side test asserts
+anything about `aref`/`aset` on a string, an embedded NUL, or the writer's
+treatment of an invalid byte. The rows for names kg does not have yet
+(`string-match-p`, `save-match-data`, `match-data`, `set-match-data`) cite
+the test that pins the match surface kg DOES have, and say so in their
+rationale; those names' own citations land with the implementation.
+
+## A third group written ahead of its behaviour (`phase26`)
+
+The 24 `phase26-*` cases and their eight rows were recorded by Phase 26.0
+(`doc/plans/2026-08-20-elisp-data-model-phase26-execution.md`), the third
+group in this corpus written before the behaviour it describes and the
+first one that is entirely a *capability* track: `count-matches`, the
+`` \` ``/`\'` anchor spellings, `replace-match`, and `eql`'s float
+corners. 21 are recorded divergences and three already agree — the same
+measure-first rule the `vectors` and `strings` groups were classified by,
+and the three agreements are what makes the 21 attributable rather than a
+blanket "the match surface is missing":
+
+* `phase26-anchor-never-matches` shows an anchor written where it can
+  never match answering `nil` on both sides *today*, so a 26.2
+  implementation that made a mid-pattern anchor match something fails
+  here rather than passing.
+* `phase26-eql-float-corners` and `phase26-equal-float-corners` show
+  `eql`, `equal`, `=` and the integer-versus-double rule already
+  answering exactly what Emacs answers on signed zero and NaN. They are
+  in this corpus because they are the Lisp-visible edge of the hash
+  contracts Phase 26.1 writes down, not because anything about them is
+  broken.
+
+Three things a reader of these cases should know, because they are
+properties of the group rather than of any one case:
+
+* **One row is written NOT to flip.**
+  `phase26-anchor-line-vs-subject` is separate from
+  `phase26-anchor-spellings` on purpose. The spellings are a vocabulary
+  gap kg closes by aliasing the anchors its engine already has; the row
+  beside them measures the fact that in an Emacs STRING match `^` and
+  `$` are LINE anchors, so `^` and `` \` `` are *not* the same thing
+  there. kg's are subject anchors, a recorded engine divergence
+  (`doc/lisp-api.md`, `phase15-string-match-anchors-and-case`), so after
+  the spellings land kg's `` \` `` will be right and kg's `^` will still
+  be wrong — from the same code, which is why the two claims get two
+  rows.
+* **kg does not reject the two spellings, it misreads them.** The engine
+  drops the backslash and matches the punctuation, so a pattern using
+  either can match the WRONG THING today rather than merely failing.
+  `phase26-anchor-literal-backtick-today` is that measurement, and its
+  third element is an accidental agreement inside a diverging list —
+  both sides answer 0, for two unrelated reasons.
+* **Several cases ask for a condition's DATA as their value**, the
+  `string25` group's device, because the runner compares condition
+  symbols and `replace-match`'s two distinct failures raise the same
+  condition with the same message. Only the data tells them apart.
+
+Rows here cite `test/test_lisp.c:test_s_el_vendored_load` — the vendored
+package's own frontier assertions — where the name does not exist yet,
+and `test_phase15_regex_seam` for the engine's side of the anchors. The
+`eql` row carries `owner: fe-core` and `kg_test: null` for the 24.0
+reason: both names are fe primitives and no kg test asserts either float
+corner.
+
+## A fourth group written ahead of its behaviour (`frontier`)
+
+The 44 `frontier-*` cases and their seven rows were recorded by the
+frontier demand phase's F.0 freeze
+(`doc/plans/2026-08-20-elisp-frontier-demand-phase.md`), the fourth group
+written before the behaviour it describes and the first whose membership
+was chosen by a *measurement* rather than by a design: Phase 26's closing
+probe called 51 of unmodified s.el's entry points and exactly six things
+stopped it — five missing names (`compare-strings`, `fill-region`,
+`regexp-opt`, `multibyte-string-p`, `assoc-string`) and one arity
+(`re-search-forward`'s NOERROR). 39 of the 44 are recorded divergences
+and five already agree.
+
+The five agreements are the group's controls, one per row, and they are
+what makes the 39 attributable to the missing name rather than to the
+machinery under it: `frontier-string-comparison-baseline` (string
+comparison itself agrees, so what `compare-strings` adds is the index,
+the bounds and the flag), `frontier-temp-buffer-baseline` (everything in
+`s-word-wrap`'s body except the fill already works),
+`frontier-regexp-alternation-leftmost` (kg's engine already prefers the
+leftmost alternative, which is the whole licence for implementing
+`regexp-opt` as a longest-first sort), `frontier-assoc-baseline` (the
+alist walk agrees, so `assoc-string` is coercion and folding) and
+`frontier-search-two-argument-baseline` (a successful two-argument search
+agrees, so the row is about the third argument and about failure).
+
+Four things a reader of these cases should know, because they are
+properties of the group:
+
+* **Every row carries its phase's DECISION in the rationale**, in the
+  form implementation reads rather than re-litigates — the two fold
+  flags (ASCII only, one answer for `compare-strings` and
+  `assoc-string`), `multibyte-string-p` (nil for every string, always),
+  `fill-region`'s scope (paragraph by paragraph across the region) and
+  what is declined (the `sentence-end-double-space` nobreak rule,
+  `regexp-opt`'s PAREN, the search family's COUNT).
+* **Two rows are written NOT to flip**, and one of them has a row of its
+  own for it. `frontier-regexp-shy-group` is separate from
+  `frontier-regexp-opt` for the reason `phase26-anchor-line-vs-subject`
+  is separate from the spellings: kg's engine has no shy groups and
+  MISREADS `\(?:` as ordinary characters, which is an engine limit no
+  bound name can close — and it is why kg's `regexp-opt` may not emit
+  Emacs' own wrapper. `frontier-search-count-argument` is the other:
+  COUNT stays a named `wrong-number-of-arguments`.
+* **The `regexp-opt` cases are CONTRACT cases, never spelling cases.**
+  Emacs returns an optimized trie and matching its text would encode
+  Emacs' optimizer here; every case instead compiles the returned regexp
+  with kg's own engine and asks what it matches.
+* **Two cases pin a name the frontier probe never reached.** A probe
+  stops at the first raise, so `frontier-s-reverse-concat-blocker` and
+  `frontier-fill-column-variable` measure the *second* thing each want
+  needs — `concat` accepting a list of characters, and a `fill-column`
+  that is special rather than a package's `defvar` — which is the
+  difference between binding a name and answering a demand.
+
+Rows here cite `test/test_lisp.c:test_s_el_vendored_load`, the vendored
+package's own frontier assertions, where the name does not exist yet, and
+the existing native test beside it (`test_phase15_regex_seam`,
+`test_search_forward_backward`, `test_string_length_and_substring`) where
+kg already has the machinery the row is measured against. Every
+`source_name` is `null`: none of the six wants is a kg native or prelude
+definition at this pin.
 
 ## Proof 2 — the representative user init, bullet by bullet
 
@@ -295,7 +501,13 @@ seeded `error-message` properties moved three more; and at the Phase 20
 pin, where two string primitives and two condition rows moved one; and at
 the let-binding-buffer-tag pin, where a host tag on every cleanup entry
 moved two more.  The 1 MiB arena partitions to 56147 object slots and 1087
-frames now, against the 56224 and 1096 the table names.
+frames now, against the 56224 and 1096 the table names.  That arena is no
+longer the default either: Phase B of
+`doc/plans/2026-08-19-fe-simplification-and-cheap-compat.md` made it
+10 MiB, which the same fe partitions to 440489 slots and 10916 frames
+once Phase 24's payload carve has taken its quarter, so the percentages
+below are read against a denominator eight times smaller than a default
+build's.
 
 | §15 measurement | Counter | Reading |
 | --- | --- | --- |

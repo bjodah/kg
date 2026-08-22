@@ -1,0 +1,7 @@
+{
+ "id": "frontier-fill-column-variable",
+ "setup": [],
+ "expr": "(list (condition-case e fill-column (error (car e))) (condition-case e (let ((fill-column 5)) fill-column) (error (car e))))",
+ "note": "THE SECOND HALF OF THE DEMAND, and this phase's plan is WRONG about it: it says kg `already has ... a buffer-local-aware fill-column', and kg does not. Emacs answers (70 5) -- a global default and a `let' that rebinds it. In kg `fill-column' is a `defvar' in lisp/auto-fill.el, a LOADABLE PACKAGE that a plain Lisp session has not loaded, so reading it is `void-variable'; and kg's C fill does not consult it either way -- src/word.c has `#define FILL_COLUMN 72', clamped to the window width, with no route from Lisp to it. So `(let ((fill-column len)) (fill-region ...))', which IS s-word-wrap's body, has nothing to bind: without a `defvar' making the name special the `let' is LEXICAL and the fill would never see it. THE DECISION, MADE: F.1 makes `fill-column' a special variable the prelude owns (`defvar', default 70, Emacs' own default measured here) and kg's fill reads it; lisp/auto-fill.el's own `defvar' then rebinds nothing and must be reconciled in the same commit. The second element is why this case is not just a missing name: kg answers 5 there, silently, from a lexical binding nothing reads.",
+ "expect": "agree"
+}

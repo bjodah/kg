@@ -46,6 +46,27 @@
  * that needs one. */
 #define PUMP_QUIET_SECONDS 0.30
 
+static double pump_time_scale(void)
+{
+	const char *scale_text = getenv("KG_TEST_TIME_SCALE");
+	double scale = scale_text != NULL ? atof(scale_text) : 1.0;
+
+	if (scale < 1.0 || scale > 60.0) {
+		scale = 1.0;
+	}
+	return scale;
+}
+
+static double pump_deadline_seconds(void)
+{
+	return PUMP_DEADLINE_SECONDS * pump_time_scale();
+}
+
+static double pump_quiet_seconds(void)
+{
+	return PUMP_QUIET_SECONDS * pump_time_scale();
+}
+
 static char script_path[1024];
 
 /* The order callbacks ran in, across a case: what proves two answers
@@ -269,7 +290,7 @@ static struct dap_client *start_protocol(const char *const *extra)
  * value that never changed. */
 static bool pump_until(struct dap_client *c, const int *counter, int want)
 {
-	double deadline = monotonic_seconds() + PUMP_DEADLINE_SECONDS;
+	double deadline = monotonic_seconds() + pump_deadline_seconds();
 
 	for (;;) {
 		(void)dap_client_poll(c);
@@ -287,7 +308,7 @@ static bool pump_until(struct dap_client *c, const int *counter, int want)
  * not happen. */
 static void pump_quietly(struct dap_client *c)
 {
-	double deadline = monotonic_seconds() + PUMP_QUIET_SECONDS;
+	double deadline = monotonic_seconds() + pump_quiet_seconds();
 
 	while (monotonic_seconds() < deadline) {
 		(void)dap_client_poll(c);
@@ -297,9 +318,23 @@ static void pump_quietly(struct dap_client *c)
 
 static bool pump_until_dead(struct dap_client *c)
 {
-	double deadline = monotonic_seconds() + PUMP_DEADLINE_SECONDS;
+	double deadline = monotonic_seconds() + pump_deadline_seconds();
 
 	while (dap_client_alive(c)) {
+		(void)dap_client_poll(c);
+		if (monotonic_seconds() >= deadline) {
+			return false;
+		}
+		nap_a_millisecond();
+	}
+	return true;
+}
+
+static bool pump_until_event_budget(struct dap_client *c, int want)
+{
+	double deadline = monotonic_seconds() + pump_deadline_seconds();
+
+	while (heard.events < want || !dap_client_wants_poll(c)) {
 		(void)dap_client_poll(c);
 		if (monotonic_seconds() >= deadline) {
 			return false;
@@ -988,7 +1023,7 @@ static void test_a_sustained_flood_stays_inside_the_bounds(void)
 	struct dap_client *c = start_protocol(extra);
 	struct answer a = { 0 };
 	struct answer during = { 0 };
-	double deadline = monotonic_seconds() + PUMP_DEADLINE_SECONDS;
+	double deadline = monotonic_seconds() + pump_deadline_seconds();
 	int worst = 0;
 
 	CHECK(c != NULL);
@@ -1196,8 +1231,7 @@ static void test_one_poll_cannot_be_monopolised(void)
 		return;
 	}
 	CHECK(dap_client_initialize(c, "kg-test", record, &a) > 0);
-	CHECK(pump_until(c, &heard.events, DAP_CLIENT_MAX_MESSAGES_PER_POLL));
-	CHECK(dap_client_wants_poll(c));
+	CHECK(pump_until_event_budget(c, DAP_CLIENT_MAX_MESSAGES_PER_POLL + 1));
 	before = heard.events;
 	(void)dap_client_poll(c);
 	CHECK(heard.events - before <= DAP_CLIENT_MAX_MESSAGES_PER_POLL);

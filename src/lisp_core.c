@@ -37,6 +37,7 @@ void copy_result(char *result, size_t result_size, const char *text)
 #endif
 
 #include "../fe/fe.h"
+#include "../fe/fe_perf.h"
 #include "bufhandle.h"
 #include "cmd.h"
 /* lisp.h is already included, unconditionally, above -- this second
@@ -55,25 +56,60 @@ void copy_result(char *result, size_t result_size, const char *text)
 #define lisp_free_arena free
 #endif
 
-static_assert(FE_API_VERSION == 11);
-static_assert(FE_LANGUAGE_VERSION == 14);
+static_assert(FE_API_VERSION == 15);
+static_assert(FE_LANGUAGE_VERSION == 20);
 
 #ifndef KG_LISP_ARENA_SIZE
-#define KG_LISP_ARENA_SIZE (1024U * 1024U)
+#define KG_LISP_ARENA_SIZE (10U * 1024U * 1024U)
 #endif
 
 #ifndef KG_LISP_STEP_LIMIT
 #define KG_LISP_STEP_LIMIT (1U << 20)
 #endif
 
-/* The arena holds the whole Fe context, its 4096-slot GC stack and Fe's
- * arena-resident evaluator frames. FeMinimumArenaSize() measures 66264
- * bytes (~64.7 KiB) at the pinned Fe, so an override much below ~72 KiB
- * fails to start; the default's 1 MiB still leaves roughly 94% of the
- * arena for objects and frame growth -- 56147 object slots and a
- * 1087-frame evaluator stack, as kg_lisp_arena_stats() reports them.
- * All three are measured at the pin, never carried forward. */
+/* The arena holds the whole Fe context, its 4096-slot GC stack, Fe's
+ * arena-resident evaluator frames and the payload region a vector's
+ * elements and a string's bytes live in. FeMinimumArenaSize() measures
+ * 74488 bytes (~72.7 KiB) at the pinned Fe -- it funds the core symbol
+ * names' own blocks and the symbol index's first table block -- so an
+ * override much below ~73 KiB fails to start; the default's 10 MiB
+ * leaves roughly 99% of the arena for the three pools, partitioned into
+ * 440101 object slots, a 10909-frame evaluator stack and 2350944 payload
+ * bytes, as kg_lisp_arena_stats() reports them. All four are measured at
+ * the pin, never carried forward. */
 static constexpr size_t lisp_arena_size = KG_LISP_ARENA_SIZE;
+
+/* The size the environment sets instead, read once per kg_lisp_init(),
+ * the way $KG_LSP_TIMEOUT_MS is read once per language server. */
+static const char lisp_arena_env[] = "KG_LISP_ARENA_BYTES";
+
+/* The floor that variable may not go under.  An arena that holds the
+ * prelude and little else is not an editor, so kg refuses it rather than
+ * starting into it: 896 KiB opens 36441 object slots UNDER THE CARVE
+ * below, against the 31467 that are three times the prelude's measured
+ * reachable set (.ci/prelude-startup-census.json,
+ * reachable_live_objects 10489) -- the same 3x margin test/test_lisp.c
+ * asserts of the default arena.  Both halves of that sentence are
+ * re-derived by that file's test_arena_floor_matches_census(), from the
+ * census file and from a real arena opened at exactly this size, so the
+ * constant and the measurement cannot drift apart in silence. */
+static constexpr size_t lisp_arena_min_size = 896U * 1024U;
+/* How the arena is divided, which fe made the host's decision at
+ * FE_API_VERSION 13.  kg names fe's own split rather than inheriting it
+ * silently: it is the one field of the record, and the value kg asks for
+ * is the value a reader of this file should be able to see.  There is no
+ * longer an option not to carve -- since FE_API_VERSION 15 a symbol's
+ * name is a string and a string's bytes are payload, so a context with
+ * no region cannot finish opening -- and what this percentage divides is
+ * only the SURPLUS above the floor FeMinimumArenaSize() funds.  Measured
+ * at the 10 MiB default: 440101 cells beside 2350944 payload bytes, of
+ * which the core names' blocks and the symbol index's first table block
+ * are already spent when the context opens.  Every arena number kg holds
+ * itself to, the 3x floor above included, is re-measured at each pin
+ * rather than carried over. */
+static const FeOpenOptions lisp_arena_options
+    = { .payload_percent = FeDefaultPayloadPercent };
+
 static constexpr size_t lisp_step_limit = KG_LISP_STEP_LIMIT;
 static constexpr size_t lisp_poll_interval = 256;
 
@@ -106,11 +142,14 @@ long long lisp_monotonic_ns(void)
 }
 #endif
 
+static void release_frame_buffers(void);
+
 static void reset_state(void)
 {
 	char error[sizeof(state.error)];
 
 	copy_result(error, sizeof(error), state.error);
+	release_frame_buffers();
 	memset(&state, 0, sizeof(state));
 	copy_result(state.error, sizeof(state.error), error);
 }
@@ -134,6 +173,18 @@ void release_scratch(void)
 {
 	free(state.scratch);
 	state.scratch = nullptr;
+}
+
+/* Park TEXT in state.scratch, releasing any previous occupant.  Frame
+ * recovery frees a parked buffer only when a raise unwinds all the way
+ * to the host barrier; one that Lisp catches (condition-case) never gets
+ * there, so the slot may still be occupied when the next native parks --
+ * assigning over it is how a caught raise used to leak its predecessor. */
+char *park_scratch(char *text)
+{
+	free(state.scratch);
+	state.scratch = text;
+	return text;
 }
 
 /* Emacs' `error-message-string' of the condition fe is reporting, spliced
@@ -372,9 +423,92 @@ static void release_lisp_commands(void)
 	}
 }
 
+/* The multiplier a size suffix names: 1 for no suffix at all, and 0 --
+ * "not a suffix kg knows" -- for anything else, trailing text included. */
+static size_t arena_suffix_scale(const char *suffix)
+{
+	switch (*suffix) {
+	case '\0':
+		return 1;
+	case 'k':
+	case 'K':
+		return suffix[1] == '\0' ? 1024U : 0;
+	case 'm':
+	case 'M':
+		return suffix[1] == '\0' ? 1024U * 1024U : 0;
+	default:
+		return 0;
+	}
+}
+
+/* An arena size written the way a person writes one: plain bytes, or a
+ * K/M suffix for KiB/MiB.  True and *out set only for a value that is
+ * entirely a number and an optional known suffix; false -- leaving *out
+ * alone -- for an empty string, a sign, whitespace, 0x10, trailing text,
+ * and for a number too large for size_t either before or after scaling.
+ * The digits are accumulated with checked arithmetic rather than handed
+ * to strtoull() for the reason the numeric classifier at the foot of this
+ * file gives: that function accepts far more than this grammar does and
+ * reports it through a combination of `end` and errno that is easy to
+ * read wrong. */
+static bool parse_arena_bytes(const char *text, size_t *out)
+{
+	const char *p = text;
+	size_t value = 0, scale;
+
+	if (!ascii_is_digit(*p)) {
+		return false;
+	}
+	for (; ascii_is_digit(*p); p++) {
+		if (ckd_mul(&value, value, (size_t)10)
+		    || ckd_add(&value, value, (size_t)(*p - '0'))) {
+			return false;
+		}
+	}
+	scale = arena_suffix_scale(p);
+	if (scale == 0 || ckd_mul(&value, value, scale)) {
+		return false;
+	}
+	*out = value;
+	return true;
+}
+
+/* How many bytes this session's arena is, ready to hand to
+ * FeOpenContext(): the compiled default, or what $KG_LISP_ARENA_BYTES
+ * names when it names a size at or above the floor, rounded up to
+ * Fe's alignment either way.
+ *
+ * A value that does not parse is not an answer and leaves the default
+ * alone, as an unreadable $KG_LSP_TIMEOUT_MS does.  A value that DOES
+ * parse and is under the floor is refused -- returning false with the
+ * error set and the refusal latched -- because the one thing kg must
+ * never do here is run on a smaller arena than the user asked for
+ * without saying so. */
+static bool select_arena_size(size_t alignment, size_t *out)
+{
+	const char *text = getenv(lisp_arena_env);
+	size_t bytes, padding;
+
+	if (text == nullptr || !parse_arena_bytes(text, &bytes)) {
+		bytes = lisp_arena_size;
+	} else if (bytes < lisp_arena_min_size) {
+		state.config_refused = true;
+		set_error("%s=%zu is below the %zu-byte minimum Lisp arena",
+		    lisp_arena_env, bytes, lisp_arena_min_size);
+		return false;
+	}
+	padding = bytes % alignment;
+	if (padding != 0 && ckd_add(&bytes, bytes, alignment - padding)) {
+		set_error("Lisp arena size overflow");
+		return false;
+	}
+	*out = bytes;
+	return true;
+}
+
 int kg_lisp_init(void)
 {
-	size_t alignment, arena_size, padding;
+	size_t alignment, arena_size;
 	void *arena;
 	FeContext *context;
 	volatile bool in_prelude = false;
@@ -383,17 +517,14 @@ int kg_lisp_init(void)
 		return 0;
 	}
 	state.error[0] = '\0';
+	state.config_refused = false;
 
 	alignment = FeArenaAlignment();
 	if (alignment == 0) {
 		set_error("invalid Fe arena alignment");
 		return 1;
 	}
-	padding = lisp_arena_size % alignment;
-	arena_size = lisp_arena_size;
-	if (padding != 0
-	    && ckd_add(&arena_size, arena_size, alignment - padding)) {
-		set_error("Lisp arena size overflow");
+	if (!select_arena_size(alignment, &arena_size)) {
 		return 1;
 	}
 
@@ -402,7 +533,8 @@ int kg_lisp_init(void)
 		set_error("cannot allocate Lisp arena: %s", strerror(errno));
 		return 1;
 	}
-	context = FeOpenContext(arena, arena_size);
+	context
+	    = FeOpenContextWithOptions(arena, arena_size, &lisp_arena_options);
 	if (!context) {
 		lisp_free_arena(arena);
 		set_error("cannot open Fe context");
@@ -410,6 +542,7 @@ int kg_lisp_init(void)
 	}
 
 	state.arena = arena;
+	state.arena_bytes = arena_size;
 	state.context = context;
 	state.initialized = true;
 	FeSetUserData(context, &state);
@@ -464,6 +597,32 @@ int kg_lisp_init(void)
 	evaluate_prelude(context);
 #endif
 	FeRestoreGC(context, state.frame.gc_checkpoint);
+	/* The post-prelude collect (doc/plans/2026-08-14-embedded-prelude.md,
+	 * "Post-prelude collect -- results"): one forced collection, after
+	 * everything the prelude phase does and after the GC-stack restore
+	 * just above -- root safety depends on that order. With zero
+	 * collections during loading, every temporary the reader and the
+	 * macro-expanders produced is still "live" by fe's own accounting;
+	 * this reclaims what of it the restore just made unreachable
+	 * (~860 slots measured at this pin) before a session's own work
+	 * begins, rather than waiting for natural exhaustion to find it.
+	 * Everything still needed is reachable from fe's own roots --
+	 * `symbol_list` for every `defalias`'s and `defvar`'s function/value
+	 * cell -- so nothing kg holds across this call needs a root of its
+	 * own; see the plan section for the per-site audit.
+	 * FeCollectGarbage() cannot raise, so this needs no error handling
+	 * of its own even though it runs inside the setjmp above. */
+#if KG_PERF_COUNTERS
+	{
+		long long before = lisp_monotonic_ns();
+
+		FeCollectGarbage(context);
+		KG_PERF_SET(KG_PERF_LISP_POSTPRELUDE_COLLECT_NS,
+		    lisp_monotonic_ns() - before);
+	}
+#else
+	FeCollectGarbage(context);
+#endif
 	state.frame_active = false;
 	return 0;
 }
@@ -479,6 +638,10 @@ void kg_lisp_shutdown(void)
 	release_lisp_commands();
 	FeCloseContext(state.context);
 	lisp_free_arena(state.arena);
+	/* The frame's heap side: a raise Lisp caught can leave a parked
+	 * scratch (and, mid-load, load buffers) that frame recovery never
+	 * saw; zeroing the pointers without this would leak them. */
+	release_frame_buffers();
 	memset(&state, 0, sizeof(state));
 }
 
@@ -618,6 +781,8 @@ int kg_lisp_load_init(void)
 }
 
 const char *kg_lisp_last_error(void) { return state.error; }
+
+int kg_lisp_config_refused(void) { return state.config_refused ? 1 : 0; }
 
 enum kg_lisp_error_kind kg_lisp_last_error_kind(void)
 {
@@ -788,6 +953,24 @@ static void cleanup_prefix_binding(FeContext *context, void *ptr)
 	    context, "void-variable", FeMakeList(context, parts, 1));
 }
 
+/* Raise Emacs' `(setting-constant SYMBOL)`: what `(setq t 1)`,
+ * `(setq nil 1)` and `(setq :k 1)` answer.  Phase 2 of
+ * doc/plans/2026-08-14-embedded-prelude.md needs it because
+ * `internal--bind-name` (a `let`/`let*` binding-list check, native since
+ * that phase) validates a proposed binding name without ever writing it,
+ * so it cannot reach fe's own `FeSet` guard the way an ordinary
+ * assignment does. */
+[[noreturn]] void lisp_raise_setting_constant(
+    FeContext *context, FeObject *symbol)
+{
+	FeObject *parts[1];
+
+	FePushGC(context, symbol);
+	parts[0] = symbol;
+	raise_signal_form(
+	    context, "setting-constant", FeMakeList(context, parts, 1));
+}
+
 /* Raise Emacs' `(args-out-of-range ...)`: the range failure that is not a
  * type failure.  Emacs' data is the offending arguments themselves, in the
  * order the call wrote them and with no predicate in front -- measured,
@@ -806,6 +989,115 @@ static void cleanup_prefix_binding(FeContext *context, void *ptr)
 	parts[1] = second;
 	raise_signal_form(
 	    context, "args-out-of-range", FeMakeList(context, parts, 2));
+}
+
+/* Raise Emacs' `(args-out-of-range STRING START END)`: the three-element
+ * form `compare-strings` needs, where the two-element one above cannot
+ * say which string the bad span belonged to.  Emacs' own data, measured
+ * on 31.0.91: `(compare-strings "abc" 5 6 "abc" 0 3)` is
+ * `(args-out-of-range "abc" 5 3)` -- the string, the START as passed, and
+ * the END after the silent clip against the string's length. */
+[[noreturn]] void lisp_raise_args_out_of_range3(
+    FeContext *context, FeObject *first, FeObject *second, FeObject *third)
+{
+	FeObject *parts[3];
+
+	FePushGC(context, first);
+	FePushGC(context, second);
+	FePushGC(context, third);
+	parts[0] = first;
+	parts[1] = second;
+	parts[2] = third;
+	raise_signal_form(
+	    context, "args-out-of-range", FeMakeList(context, parts, 3));
+}
+
+/* Raise Emacs' `(search-failed PATTERN)`: what a search whose NOERROR is
+ * nil answers, with the pattern it did not find as its one data element
+ * -- measured on 31.0.91, `(search-forward "z")` in a buffer without one
+ * is `(search-failed "z")` and point has not moved.  The symbol joined
+ * fe's condition table at the frontier demand phase's pin; before that
+ * `signal` refused it, so kg's four search names could only answer nil
+ * for a failure, which is Emacs' NOERROR-`t` behaviour applied
+ * unconditionally. */
+[[noreturn]] void lisp_raise_search_failed(
+    FeContext *context, FeObject *pattern)
+{
+	FeObject *parts[1];
+
+	FePushGC(context, pattern);
+	parts[0] = pattern;
+	raise_signal_form(
+	    context, "search-failed", FeMakeList(context, parts, 1));
+}
+
+/* Emacs' diagnostic text for the common compile failures tiny-regex-c
+ * reports as RE_STATUS_BAD_PATTERN.  Best-effort: the condition symbol is the
+ * contract, and only the frozen scenarios compare the message byte-for-byte.
+ * The scan tracks bracket classes and group-paren depth, and treats a
+ * trailing backslash-escaped brace as its unmatched form -- the shapes
+ * Emacs 31.0.91 reports as a named `invalid-regexp' datum. */
+static const char *kg_invalid_regexp_message(const char *pattern)
+{
+	bool in_class = false;
+	bool prev_bs = false;
+	int depth = 0;
+
+	for (const char *p = pattern; *p; p++) {
+		if (prev_bs) {
+			if (*p == '{') {
+				return "Unmatched \\{";
+			}
+			prev_bs = false;
+			continue;
+		}
+		if (*p == '\\') {
+			prev_bs = true;
+			continue;
+		}
+		if (in_class) {
+			if (*p == ']') {
+				in_class = false;
+			}
+			continue;
+		}
+		if (*p == '[') {
+			in_class = true;
+		} else if (*p == '(') {
+			depth++;
+		} else if (*p == ')') {
+			if (depth > 0) {
+				depth--;
+			} else {
+				return "Unmatched ) or \\)";
+			}
+		}
+	}
+	if (in_class) {
+		return "Unmatched [ or [^";
+	}
+	if (depth > 0) {
+		return "Unmatched ( or \\(";
+	}
+	return "Invalid regexp";
+}
+
+/* Raise Emacs' `(invalid-regexp MESSAGE)' -- what a search whose REGEXP fails
+ * to compile answers, carrying the engine's diagnostic as its one data item.
+ * Measured on 31.0.91, (string-match "[" "") signals `(invalid-regexp
+ * "Unmatched [ or [^")' and a handler naming `error' catches it (lisp_core.c,
+ * mirroring fe's own FexCompileRE). */
+[[noreturn]] void lisp_raise_invalid_regexp(
+    FeContext *context, const char *pattern)
+{
+	const char *diagnostic = kg_invalid_regexp_message(pattern);
+	FeObject *message = FeMakeString(context, diagnostic);
+	FeObject *parts[1];
+
+	FePushGC(context, message);
+	parts[0] = message;
+	raise_signal_form(
+	    context, "invalid-regexp", FeMakeList(context, parts, 1));
 }
 
 /* Raise Emacs' `(end-of-buffer)` or `(beginning-of-buffer)`: the two edges
@@ -1483,6 +1775,48 @@ int kg_lisp_variable_non_nil(const char *name)
 	return non_nil;
 }
 
+/* The same read as an INTEGER, and buffer-local aware where the boolean
+ * one above is not: `fill-column' is the consumer and its whole point is
+ * that one buffer may wrap at a different column from the next, so this
+ * asks lisp_locals_buffer_value() for the binding in force in bcur()
+ * rather than reading the value cell blind.  That also makes a `let' over
+ * the name visible, since a `let' binds whichever cell the swap has put
+ * there -- which is what src/word.c's M-q wants when an init file or a
+ * hook has moved the column. */
+int kg_lisp_variable_integer(const char *name, int fallback)
+{
+	FeObject *symbol, *value;
+	/* `fallback' is a parameter and so may be clobbered by the longjmp;
+	 * the answer is carried in this volatile instead, which also makes
+	 * the error path's answer the same object as the success path's. */
+	volatile int result = fallback;
+
+	if (name == nullptr || !state.initialized || state.frame_active) {
+		return result;
+	}
+	state.frame.gc_checkpoint = FeSaveGC(state.context);
+	state.frame_active = true;
+	if (setjmp(state.frame.error_jump) != 0) {
+		FeRestoreGC(state.context, state.frame.gc_checkpoint);
+		state.frame_active = false;
+		lisp_settle_completion();
+		return result;
+	}
+	symbol = FeMakeSymbol(state.context, name);
+	value = lisp_locals_buffer_value(
+	    state.context, symbol, buf_handle_of(bcur()));
+	if (value != nullptr && FeGetType(value) == FeTInteger) {
+		int64_t n = FeToInteger(state.context, value);
+
+		if (n >= INT_MIN && n <= INT_MAX) {
+			result = (int)n;
+		}
+	}
+	FeRestoreGC(state.context, state.frame.gc_checkpoint);
+	state.frame_active = false;
+	return result;
+}
+
 /* Fe has no host callback on assignment, so C cannot be notified at the
  * exact setq.  Poll at the two seams that need a current answer: before a
  * repaint, and inside a geometry-consuming native.  One symbol lookup and
@@ -1543,6 +1877,7 @@ int kg_lisp_arena_stats(struct kg_lisp_arena_stats *out)
 		return 1;
 	}
 	stats = FeGetArenaStats(state.context);
+	out->arena_bytes = state.arena_bytes;
 	out->total_slots = stats.total_slots;
 	out->free_slots = stats.free_slots;
 	out->peak_live_objects = stats.peak_live_objects;
@@ -1553,6 +1888,11 @@ int kg_lisp_arena_stats(struct kg_lisp_arena_stats *out)
 	out->peak_cleanup_stack_depth = stats.peak_cleanup_stack_depth;
 	out->peak_native_reentry = stats.peak_native_reentry;
 	out->allocation_failures = stats.allocation_failures;
+	out->payload_capacity_bytes = stats.payload_capacity_bytes;
+	out->payload_live_bytes = stats.payload_live_bytes;
+	out->payload_peak_bytes = stats.payload_peak_bytes;
+	out->payload_compaction_count = stats.payload_compaction_count;
+	out->payload_allocation_failures = stats.payload_allocation_failures;
 	return 0;
 }
 
@@ -1575,7 +1915,36 @@ void kg_lisp_perf_snapshot(void)
 	KG_PERF_SET(
 	    KG_PERF_LISP_PEAK_NATIVE_REENTRY, stats.peak_native_reentry);
 	KG_PERF_SET(KG_PERF_LISP_ALLOC_FAILURES, stats.allocation_failures);
+	KG_PERF_SET(
+	    KG_PERF_LISP_PAYLOAD_CAPACITY, stats.payload_capacity_bytes);
+	KG_PERF_SET(KG_PERF_LISP_PAYLOAD_LIVE, stats.payload_live_bytes);
+	KG_PERF_SET(KG_PERF_LISP_PAYLOAD_PEAK, stats.payload_peak_bytes);
+	KG_PERF_SET(
+	    KG_PERF_LISP_PAYLOAD_COMPACTIONS, stats.payload_compaction_count);
+	KG_PERF_SET(
+	    KG_PERF_LISP_PAYLOAD_FAILURES, stats.payload_allocation_failures);
 }
+
+/* See src/lisp.h's doc comment. The real implementation exists only when
+ * THIS translation unit was compiled with FE_PERF_COUNTERS=1 --
+ * $(PERFOBJDIR)'s PERF_CFLAGS, never $(OBJDIR)'s plain CFLAGS -- because
+ * FePerfWriteJson() is declared only inside fe_perf.h's own
+ * `#if FE_PERF_COUNTERS`. */
+#if FE_PERF_COUNTERS
+void kg_lisp_perf_dump_fe_json(FILE *fp)
+{
+	FeArenaStats stats;
+
+	if (!state.initialized) {
+		fputs("null\n", fp);
+		return;
+	}
+	stats = FeGetArenaStats(state.context);
+	FePerfWriteJson(fp, &stats);
+}
+#else
+void kg_lisp_perf_dump_fe_json(FILE *fp) { fputs("null\n", fp); }
+#endif
 
 #else
 
@@ -1604,10 +1973,7 @@ int kg_lisp_init(void)
 	return 1;
 }
 
-void kg_lisp_shutdown(void)
-{
-	init_settings_init(&disabled_init_settings);
-}
+void kg_lisp_shutdown(void) { init_settings_init(&disabled_init_settings); }
 
 void kg_lisp_run_kill_buffer_hook(struct kg_buffer_handle handle)
 {
@@ -1702,6 +2068,11 @@ int kg_lisp_load_init(void)
 
 const char *kg_lisp_last_error(void) { return disabled_error; }
 
+/* This build reads no $KG_LISP_ARENA_BYTES and has no arena to refuse, so
+ * its one init failure is the compile-time one and is never a refused
+ * configuration. */
+int kg_lisp_config_refused(void) { return 0; }
+
 enum kg_lisp_error_kind kg_lisp_last_error_kind(void)
 {
 	return KG_LISP_ERROR_NONE;
@@ -1744,6 +2115,12 @@ int kg_lisp_variable_non_nil(const char *name)
 	return 0;
 }
 
+int kg_lisp_variable_integer(const char *name, int fallback)
+{
+	(void)name;
+	return fallback;
+}
+
 void kg_lisp_sync_display_options(void)
 {
 	int width = disabled_init_settings.tab_width_set
@@ -1764,6 +2141,12 @@ int kg_lisp_arena_stats(struct kg_lisp_arena_stats *out)
 }
 
 void kg_lisp_perf_snapshot(void) { }
+
+/* fe is not compiled into a WITH_LISP=0 build at all, so there is no
+ * FePerfWriteJson() to reach for; the JSON literal null is this
+ * configuration's whole answer, matching every other counter this build
+ * reports as zero/inactive rather than refusing to build the JSON. */
+void kg_lisp_perf_dump_fe_json(FILE *fp) { fputs("null\n", fp); }
 
 #endif /* KG_USE_LISP */
 

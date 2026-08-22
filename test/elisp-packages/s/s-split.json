@@ -1,0 +1,11 @@
+{
+  "id": "s-split",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-split \",\" \"a,b,c\")",
+  "expect": "agree",
+  "note": "Split family, exact value. Both return (\"a\" \"b\" \"c\")."
+}

@@ -1,0 +1,7 @@
+{
+ "id": "r2-regexp-opt-outer-alternation",
+ "setup": [],
+ "expr": "(let ((re (regexp-opt (list \"ab\" \"a\")))) (list (string-match (concat \"x\\\\|\" re \"y\") \"aby\") (match-end 0)))",
+ "note": "NESTING IN AN OUTER ALTERNATION, the other half of composability: `\\\\|' binds looser than concatenation in both dialects, so an unwrapped result would put the `y' inside the constructor's own last alternative and the `x' branch beside its first.  Emacs answers (0 3).",
+ "expect": "agree"
+}

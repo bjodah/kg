@@ -1,0 +1,6 @@
+{
+ "id": "prelude-autoload-fboundp",
+ "setup": [],
+ "expr": "(progn (autoload 'kg-autoload-probe \"kg-no-such-library\") (fboundp 'kg-autoload-probe))",
+ "note": "The recorded divergence, half two, at the other place a program can see it: Emacs puts an autoload OBJECT in the function cell, so `fboundp' answers t before anything is loaded; kg's macro writes nothing, so it answers nil.  The two halves are one fact -- kg's `autoload' records nothing -- and they are separate cases because a program meets them at separate moments."
+}

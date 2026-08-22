@@ -1,0 +1,6 @@
+{
+ "id": "r2-bound-backward-lower-bound",
+ "setup": [],
+ "expr": "(with-temp-buffer (insert \"axxxb\") (list (progn (goto-char (point-max)) (re-search-backward \"x\" 3 t)) (progn (goto-char (point-max)) (re-search-backward \"x\" 5 t)) (progn (goto-char 4) (list (re-search-backward \"a.*b\\\\|ax\" 1 t) (match-end 0)))))",
+ "note": "BOUND IN THE BACKWARD DIRECTION IS THE LOWER END of the window: the match may not START before it, where point is the upper end the match may not END past.  Emacs answers (4 nil (1 3)) -- the last `x' is inside [3, point-max] and outside [5, point-max], and the third element repeats the alternation probe with an explicit BOUND to show the two ends composing."
+}

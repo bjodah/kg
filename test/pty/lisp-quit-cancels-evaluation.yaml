@@ -9,12 +9,22 @@
 # paste) later, where kg's interrupt poll finds it.  The race the case has
 # to avoid is the *step budget* finishing the loop before that: a bare
 # `(while t 1)` exhausts 2^20 steps in ~10 ms on an idle box, which is
-# faster than the C-g arrives.  So the loop's body is a 400-character
-# `concat`, which makes each step slow rather than making the loop longer:
-# measured, it runs ~900 ms before the budget fires, ~18x the window the
-# C-g needs, and every slower configuration (a sanitizer lane, valgrind, a
-# loaded box) widens that margin rather than narrowing it.  The run itself
-# still ends at the C-g, ~0.1 s in, not at the budget.
+# faster than the C-g arrives.  So the loop's body is a `concat` of a long
+# string, which makes each step slow rather than making the loop longer,
+# and the length is what buys the margin: 2^20 steps is a constant, so the
+# only knob is how many bytes each iteration copies.
+#
+# THE LENGTH IS RE-MEASURED AT EVERY PIN THAT MAKES STRINGS FASTER, and
+# Phase 25 is one: a 400-character pad ran ~900 ms when this case was
+# written and ~50 ms once a fe string became a header over payload bytes
+# instead of a chain of seven-byte cells, which is under the 0.05 s the
+# C-g needs.  Five doublings take the pad to 12800 characters and the loop
+# back to ~980 ms, measured three times identically, and cost the init
+# file nothing (they are five `concat`s, where `pad` itself is quadratic).
+# ~20x the window the C-g needs, and every slower configuration (a
+# sanitizer lane, valgrind, a loaded box) widens that margin rather than
+# narrowing it.  The run itself still ends at the C-g, ~0.1 s in, not at
+# the budget.
 #
 # tmux, because the assertion is a status-line one: the saved file is
 # unchanged, which is the other half of "the command was cancelled".
@@ -30,6 +40,7 @@ config_files:
         (dotimes (i n) (setq r (concat r "x")))
         r))
     (setq spin-pad (pad 400))
+    (dotimes (i 5) (setq spin-pad (concat spin-pad spin-pad)))
     (defun spin ()
       "Loop until cancelled or until the step budget stops it."
       (interactive)

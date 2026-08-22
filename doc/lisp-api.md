@@ -94,13 +94,19 @@ trusting it.
   many a run performs. Without that release the 65th `save-excursion`
   between two collections failed — the Phase 11 acceptance review's
   blocker, pinned now by `test_save_excursion_pool_bound` and two PTY
-  cases. Since the pool went to 256 records (Phase 12), it no longer
-  bounds nesting at all: fe's evaluation frame limit fires first.
-  Re-measured at the let-binding-buffer-tag pin, nested `save-excursion`
-  runs to **217** and the 218th raises `evaluation frame limit
-  exceeded`; nested `with-current-buffer` over `(current-buffer)` runs
-  to **155** and the 156th raises the same — both the arena partition's
-  verdict (1087 frames here), not the pool's. `test/test_lisp.c`'s
+  cases. Which of the two bounds a nesting depth actually meets — the
+  256-record pool (Phase 12) or fe's evaluation frame limit — moved with
+  Phase B's arena default. At the 1 MiB arena that preceded it, frames
+  were the smaller: nested `save-excursion` ran to **217** and the 218th
+  raised `evaluation frame limit exceeded`, nested
+  `with-current-buffer` over `(current-buffer)` ran to **155**, both the
+  arena partition's verdict (1086 frames at the payload-substrate pin,
+  1087 when those depths were measured) rather than the pool's. The
+  10 MiB default opens 10916 frames and hands the bound back to the
+  pool: re-measured, nested `save-excursion` runs to **256** and the
+  257th raises `too many marker objects`, and nested
+  `with-current-buffer` runs to **256** and the 257th raises `cleanup
+  stack overflow`. `test/test_lisp.c`'s
   `test_save_excursion_pool_bound` pins its own probe's figures.
 - **Process objects** are deduplicated like buffer objects (one object
   per live table entry) and, like a buffer object, never change handle
@@ -256,8 +262,9 @@ Ordering rules that hold across every subscriber:
     about 2 frames per level (measured at the Phase 12 fix cycle:
     `(deep n)`-shaped recursion runs to 544 levels against the
     1095-frame arena of that pin), so in practice it stops such
-    recursion a few hundred levels in. kg's default 1 MiB arena measures
-    `frame_capacity` 1087; exceeding it raises
+    recursion a few thousand levels in. kg's default 10 MiB arena
+    measures `frame_capacity` 10916 (the 1 MiB arena that preceded
+    Phase B measured 1086); exceeding it raises
     `evaluation frame limit exceeded`. Macro expansion is bounded by the
     same limit, so a macro that expands into itself raises too.
   - **Native re-entry** (`FeEvalOptions.max_native_reentry`, 0 selecting
@@ -350,9 +357,13 @@ Ordering rules that hold across every subscriber:
   heap allocation that grows; hitting one is an ordinary Lisp error, not
   a crash.
 - **The object arena is fixed and exhaustible, and exhaustion is an
-  ordinary catchable condition.** kg opens Fe with a 1 MiB arena that
-  never grows (`KG_LISP_ARENA_SIZE`, `src/lisp_core.c`), measured at the
-  current pin as 56147 object slots and a 1087-frame evaluator stack.
+  ordinary catchable condition.** kg opens Fe with a 10 MiB arena that
+  never grows (`KG_LISP_ARENA_SIZE`, `src/lisp_core.c`;
+  `$KG_LISP_ARENA_BYTES` asks for another size), measured at the current
+  pin as 440489 object slots, a 10916-frame evaluator stack and
+  2344064 bytes of payload region — the pool a vector's elements live in,
+  which kg carves a quarter of the arena for since Phase 24 and which the
+  same arena would turn into 586993 object slots if it did not.
   A program that consumes all of them raises `out of memory` under the
   condition `arena-exhaustion`, and a program that fills Fe's GC root
   stack raises `GC stack overflow` under `evaluation-stack-exhaustion`.
@@ -374,6 +385,16 @@ Ordering rules that hold across every subscriber:
   completion kind rather than by object shape. Budget exhaustion (steps,
   frames, native re-entry) remains catchable by nothing.
 
+  Reaching the end of 440489 slots takes more allocations than ONE
+  evaluation's step budget buys — measured, a `(while t (setq l (cons 1
+  l)))` costs about 10.7 steps per cons and `KG_LISP_STEP_LIMIT`'s 2^20
+  steps stop it at roughly 97000 — so a single runaway loop meets
+  `evaluation step limit exceeded`, a Budget wall catchable by nothing,
+  where the 1 MiB arena before Phase B let it meet `out of memory`
+  instead. A program that allocates into something reachable across
+  several evaluations still fills the arena and still raises the
+  catchable condition.
+
   **Recovery depends on what the exhausting data was reachable from.**
   Data held in a `let` local or an argument is unreachable the moment the
   handler runs, so the next collection returns it and the session is
@@ -383,8 +404,11 @@ Ordering rules that hold across every subscriber:
   as debt); restarting is the recovery.
 - **`(command-execute "lisp-arena-stats")`** reports the arena's state to
   the echo area: total slots, free slots, peak live objects, collections,
-  peak GC root depth, peak frames against `frame_capacity`, and the count
-  of failed allocations. It allocates nothing and mutates nothing, so it
+  peak GC root depth, peak frames against `frame_capacity`, the count
+  of failed allocations, the arena's size in bytes, and last Fe's payload
+  region — bytes live of bytes carved, their peak, compactions, and
+  failed payload requests, all five of them zero because kg opens its
+  arena without a payload region. It allocates nothing and mutates nothing, so it
   is safe to call from inside a handler that has just caught an
   `arena-exhaustion` — it is the one way for a program to see how much of
   the arena came back. `M-x lisp-arena-stats` is the same command.
@@ -413,7 +437,7 @@ Ordering rules that hold across every subscriber:
 | `(switch-to-buffer BUFFER-OR-NAME)` | Show it in the selected window and make it current, creating it when a string names no buffer. Answers the buffer object |
 | `(kill-buffer &optional BUF)` | Kill `BUF` (or current); raises on a modified buffer with no confirmation path from Lisp |
 | `(point)` / `(point-min)` / `(point-max)` | Point and buffer bounds, 1-based |
-| `(goto-char N)` | Move point to `N`, clamped to the buffer |
+| `(goto-char N)` | Move point to `N`, clamped to the buffer; answers `N` itself, unclamped, as Emacs does |
 | `(goto-line N)` | Move point to the start of line `N`, clamped; takes no column |
 | `(line-number-at-pos)` | 1-based line of point |
 | `(current-column)` | Display column of point (tabs expand, wide characters count two) |
@@ -480,10 +504,11 @@ and therefore one undo step:
 | `(delete-char &optional N)` | Delete `N` characters after point, or `-N` before it. Clamps where Emacs signals, so a count past the end deletes what is there |
 | `(erase-buffer)` | The whole buffer becomes empty |
 | `(replace-region START END TEXT)` | The region becomes `TEXT`, as one edit — never delete-then-insert |
-| `(search-forward STRING &optional BOUND)` | Literal search to `BOUND` (default `point-max`); moves point past the match, or `nil` |
-| `(search-backward STRING &optional BOUND)` | Literal search to `BOUND` (default `point-min`); moves point to the match start, or `nil` |
-| `(re-search-forward PATTERN &optional BOUND)` | Regexp search forward; error on a bad or too-complex pattern |
-| `(re-search-backward PATTERN &optional BOUND)` | Regexp search backward; see `src/lisp_search.c` for the exact (non-Emacs) rule |
+| `(fill-region START END)` | Reflow every paragraph between the two positions at `fill-column`, one gateway edit (one undo step) per paragraph. Answers the fill PREFIX — the last filled paragraph's indent, `""` when it had none, `nil` when the region held no paragraph — and leaves point at the end of the region. `START` is rounded back to the start of its line and `END` is taken exactly, as Emacs' is. No `sentence-end-double-space` nobreak rule: see below |
+| `(search-forward STRING &optional BOUND NOERROR)` | Literal search to `BOUND` (default `point-max`); moves point past the match. On failure `NOERROR` decides — see below |
+| `(search-backward STRING &optional BOUND NOERROR)` | Literal search to `BOUND` (default `point-min`); moves point to the match start. `NOERROR` as above |
+| `(re-search-forward PATTERN &optional BOUND NOERROR)` | Regexp search forward; error on a bad or too-complex pattern |
+| `(re-search-backward PATTERN &optional BOUND NOERROR)` | Regexp search backward; see `src/lisp_search.c` for the exact (non-Emacs) rule |
 | `(match-beginning N)` / `(match-end N)` | Group `N`'s bounds from the last search, or `nil` |
 | `(looking-at REGEXP)` | Anchored match at point; sets the match data, moves point nowhere |
 | `(make-marker)` | A marker that points nowhere until something sets it |
@@ -491,6 +516,28 @@ and therefore one undo step:
 | `(copy-marker &optional POSITION TYPE)` | A marker at `POSITION` (a position or another marker); with no `POSITION` it points nowhere. Non-nil `TYPE` makes it advance ahead of text inserted at it |
 | `(set-marker MARKER POS &optional BUF)` | Move `MARKER`; `POS` nil detaches it |
 | `(marker-position MARKER)` / `(marker-buffer MARKER)` | Where `MARKER` points, or `nil` |
+
+`NOERROR` is Emacs' third argument and has Emacs' three answers, the same
+three from all four names: **nil raises** `search-failed` carrying the
+pattern and leaves point where it was, **`t` answers `nil`** and leaves
+point where it was, and **any other value answers `nil` and MOVES POINT
+to the limit** — to `BOUND` when one was given, and to `point-max`
+(forward) or `point-min` (backward) when it was not. The third is not a
+variation on the second: `t` and `'move` differ only in where point ends
+up, and a caller that wants the move has no other way to ask. Emacs' own
+fourth argument, `COUNT`, is not implemented and is
+`wrong-number-of-arguments` by name.
+
+`fill-region` is the same fill `M-q` runs — src/word.c's word stream and
+wrap loop, driven across a span instead of around point — and it carries
+that fill's limits. **Two recorded divergences from Emacs.** It does not
+implement `sentence-end-double-space`, the rule that makes Emacs break
+EARLIER than the column allows after `". "`, so a paragraph with a
+period in it fills to the obvious width here; kg has no sentence
+machinery to hang the rule on, and the declining is deliberate
+(`frontier-fill-region-sentence-nobreak`). And it counts BYTES against
+the column where Emacs counts display columns, so a paragraph of
+non-ASCII text wraps early — the same limit `M-q` has always had.
 
 None of the search natives wrap around the buffer (unlike `C-s`/`C-r`),
 none fold case, and a match cannot span two lines — the same limit
@@ -751,9 +798,10 @@ editor.
 | Form | Result |
 | ---- | ------ |
 | `(provide FEATURE)` | Register `FEATURE` (a symbol or a string) in the bounded feature table; returns `FEATURE` |
-| `(require FEATURE &optional FILENAME)` | No-op (returns `FEATURE`) if already provided; else resolves `FILENAME` (or `FEATURE`'s own name) through `load-path` — written with or without the `.el` suffix, the same rule `load` applies to a bare name — and evaluates it nested, the way `load` nests; a `FILENAME` containing `/` is a literal path, neither suffixed nor searched; errors if the feature is still not provided afterward |
+| `(require FEATURE &optional FILENAME NOERROR)` | No-op (returns `FEATURE`) if already provided; else resolves `FILENAME` (or `FEATURE`'s own name) through `load-path` — written with or without the `.el` suffix, the same rule `load` applies to a bare name — and evaluates it nested, the way `load` nests; a `FILENAME` containing `/` is a literal path, neither suffixed nor searched; errors if the feature is still not provided afterward. A non-nil `NOERROR` answers `nil` instead of raising when the file is not found, and provides nothing — the guarded-require idiom `(require 'foo nil t)`. It covers **that failure only**: a cyclic require, the nesting-depth refusal, and every error the required file itself raises still propagate, which is Emacs' rule. One measured divergence rides on the literal-path rule above: because a `/`-containing `FILENAME` is returned unopened, its missing-file error comes from the load rather than from the resolve and `NOERROR` does not catch it, where Emacs answers `nil` |
 | `(featurep FEATURE)` | `t`/`nil`, without loading anything |
 | `(add-to-load-path DIR)` | Prepend `DIR` to the bounded load-path, so it is searched before every directory already in it |
+| `(autoload SYMBOL FILE ...)` | Accepted and inert; returns nil, records nothing and loads nothing. **Divergence:** Emacs arms lazy loading here, so `fboundp` answers `t` at once and the first call loads `FILE`; in kg the function cell stays empty and a function only an autoload would have provided is `void-function` at its first call |
 
 `load-path` itself is not Lisp-visible as a list — it is a bounded
 C-side array of `LISP_MAX_LOAD_PATH` = 8 directories, each up to
@@ -783,21 +831,140 @@ accident of directory listing order.
 bounds answering different questions; see "Error handling and budget
 limits" above.
 
+`autoload` is a no-op macro (`lisp/prelude.el`) rather than a missing
+name, and the difference is what a package's header meets first: a real
+package opens with autoload declarations for names it defines later in
+the same file, so raising on the declaration ends the load before the
+file has defined anything, while accepting it costs only the lazy
+loading kg does not have yet. The honest consequence is that nothing is
+armed — the miss surfaces at the first CALL of a function no later form
+defined, as an ordinary `void-function`, which is the same answer a typo
+gets. It is recorded as the `prelude-autoload` row of
+ `test/lisp-compat/features.json`, with an oracle case for the inert
+shape both dialects agree on and one for each half of the divergence.
+
+### Supported external packages
+
+kg ships a small set of vendored Emacs packages. Each carries one of four
+labels — `loads`, `smoke-green`, `scenario-green`, `supported` (master plan
+section 3.1) — and only `scenario-green` and `supported` are product claims.
+A package is scenario-green **for a published input domain only**: every
+required scenario in that domain agrees with the pinned Emacs by exact
+value, condition, or handler selection, and everything outside the domain
+is an explicit, named exclusion. The 73-call `s.el` smoke probe exists to
+surface missing names; a green smoke run is not a support claim and is never
+reported as one.
+
+| Package | Label | Input domain | Excluded (recorded divergences) |
+| --- | --- | --- | --- |
+| `s.el` | scenario-green | `s-core/ascii` — ASCII plus byte-preserving strings (embedded NUL included) | non-ASCII case folding, `multibyte-string-p`, combining marks, canonical normalization |
+
+`make package-compat-check` is the gate; `make package-oracle` regenerates
+the Emacs snapshots it compares against. The full contract, the per-family
+scenario inventory and the untested public families live in
+`test/elisp-packages/manifest.json`.
+
+### Features kg provides without a file
+
+**`(require 'subr-x)` is NOT provided.** It was, briefly: Phase 29's
+U.1a answered the require with the feature plus a named subset
+(`string-blank-p`, `string-remove-prefix`, `string-remove-suffix`,
+`string-pad`, `string-clean-whitespace`, `thread-first`, `thread-last`),
+and that was a claim the surface did not back — exactly the false-capability
+shape that had already caused `cl-lib` to be retracted. A provided feature
+is a capability promise `require` and `featurep` can see, and `named-let`,
+`hash-table-keys`, `-values` and `-empty-p` are real consumers behind
+successful `subr-x` requires. So **the feature claim is retracted** (Phase
+M0.1): `(require 'subr-x)` now raises `file-missing`, the honest
+diagnostic. The implemented names stay, **unadvertised** — Emacs 31 answers
+`string-trim`, `string-empty-p` and `string-join` before any require, and
+kg's own definitions are still callable — and removing working
+definitions would only narrow what an init file can do without making any
+package truer. Completing the selected-version `subr-x` surface is a
+later, separately sized package vertical; growing M0 to hash tables just
+to retain the feature bit was explicitly declined.
+
+**`(require 'cl-lib)` is NOT provided.** It was, briefly: Phase 29's
+U.1a answered the require with the feature plus a named subset
+(`cl-incf`, `cl-case`, `cl-find-if`), and that was a claim the surface
+did not back — inheritenv loaded past the require and died at
+`cl-letf*` with `void-function`, and `featurep` answering `t` told
+packages kg cannot run to take modern code paths. A provided feature is
+a capability promise, so **the feature claim is retracted** until every
+operation needed by one complete target-package scenario works
+unmodified; `(require 'cl-lib)` raises `file-missing`, the honest
+diagnostic. The three implemented names stay, **unadvertised** — they
+are Emacs-comparable where they stand, and removing working definitions
+would only narrow what an init file can do without making any package
+truer. What is not here is unchanged, each absence with a measurement
+behind it: `cl-loop` is an iteration sub-language rather than a name;
+`cl-defun` is absent because of 533 `cl-defun` sites across the ELPA
+tree, 462 use `&key`, and a `cl-defun` that was `defun` would mis-bind
+87% of its callers *silently*; `cl-defstruct` needs records; `cl-letf*`
+needs generalised-variable machinery. Of the three that are here:
+`cl-case` compares with `eql` (a string key does not match an equal
+string, a float key does), treats `t` and `otherwise` alike, and answers
+`nil` for a clause with no body; `cl-incf`'s PLACE must be a **symbol**
+(kg has no generalised variables, so anything else is refused at
+expansion with a message naming the limit — measured: 188 of 212
+`cl-incf` sites in the tree pass a bare symbol), and a third argument is
+`wrong-number-of-arguments`, which the expansion checks rather than
+silently ignoring.
+
+**`lexical-binding` is `t`**, and that is a measurement about kg rather
+than a convenience: fe's evaluator is lexical-by-default, so `nil` —
+which U.1a bound first — was a silent semantic lie, telling every probe
+that closures close over nothing while they went on closing. `t` is the
+truthful value, but it does **not** make a `nil` or absent `LEXICAL`
+argument behave exactly as Emacs: Emacs evaluates `eval`'s form
+*Dynamically* when `LEXICAL` is `nil` or absent, so a closure created
+inside the evaluated form captures nothing and `funcall` of it raises
+`void-variable`, whereas kg evaluates lexically by default and the same
+lambda closes over its binding and returns the captured value (the
+`eval-nil-lexical-closure-inside-form` compat case records this
+divergence). What kg does not have is a first-class lexical *environment*:
+`eval` refuses a non-nil `LEXICAL` argument by name, so `(eval FORM
+lexical-binding)`, the shape a package's `static-if` polyfill writes,
+raises here where Emacs evaluates FORM lexically. (Emacs' own `(default-value 'lexical-binding)` is `nil`
+— there the `t` a file sees is a per-file binding over that global,
+which kg has no per-file evaluation mode to represent.)
+
+**There is no `emacs-major-version`.** U.1a bound it to 31, on the
+theory that a version gate reading "at least N" gets the right answer
+for every name kg has. The external review's finding removed it: a
+version claim is a capability promise, and packages read 31 as "modern
+code paths are safe" — font-lock keyword lists, `static-if` branches,
+`define-minor-mode` generations — for capabilities kg does not have. A
+package that needs the name now gets `void-variable`, which names the
+gap, where the number papered over it.
+
 ## Strings and the prelude
 
 Fe has no string operations of its own; every one of these is a kg
 native (`src/lisp_string.c`), indexed by codepoint like the position API
-so no result is ever cut mid-glyph:
+so no result is ever cut mid-glyph.
+
+**A string is BYTES with a length**, not a C string: it may contain a
+NUL, `"a\0b"` reads as three units, and every native here carries its
+result's length rather than its terminator.  Where kg hands a string to
+something that takes a C string -- a file path, a hook name, an `execve`
+argument, the echo area -- it truncates at the first NUL on purpose;
+`doc/lisp-string-nul-policy.md` is the list of which sites do which.
 
 | Form | Result |
 | ---- | ------ |
 | `(string-length S)` | Length of `S` in characters |
 | `(substring S FROM &optional TO)` | 0-based character indices; negative counts from the end; clamps out of range; `TO` before `FROM` yields `""` |
-| `(concat A B ...)` | Joins any number of strings; `(concat)` is `""` |
-| `(string= A B)` | `t` when equal |
-| `(char-to-string N)` | One-character string for codepoint `N`; rejects 0, surrogates, values above `U+10FFFF` |
+| `(concat A B ...)` | Joins any number of arguments; `(concat)` is `""`. An argument is a string, or a LIST OF CHARACTER CODES, which is encoded as UTF-8 — so `(concat (nreverse (string-to-list S)))` reverses S by character. A non-integer element is `(wrong-type-argument characterp X)`; an argument that is neither string nor list is `(wrong-type-argument stringp X)` |
+| `(string= A B)` | `t` when equal. Either argument may be a SYMBOL, whose name is compared, or `nil`, which compares as `"nil"` — Emacs' rule, and already `string<`'s. Anything else is `(wrong-type-argument stringp X)` |
+| `(compare-strings S1 START1 END1 S2 START2 END2 &optional IGNORE-CASE)` | `t` when the two spans are equal, else ±(1 + the characters that compared equal), signed by which side sorts first. A nil `START` is 0 and a nil `END` the length; a negative index counts from the end; an `END` past the string is clipped silently, while a `START` past it is `(args-out-of-range STRING START CLIPPED-END)`. The index is in CHARACTERS. `IGNORE-CASE` folds ASCII only — `É` and `é` do not compare equal here, where in Emacs they do |
+| `(regexp-opt STRINGS &optional PAREN)` | A regexp matching exactly the strings in `STRINGS`, as ONE ATOM: sorted LONGEST FIRST, each member `regexp-quote`d, joined with `\|` and wrapped as `PAREN` says, where Emacs returns an optimized trie. The wrapper is what makes the result composable — text concatenated before or after it, an outer alternation, and a quantifier all bind to the whole result. No members gives Emacs' own unmatchable body, `\`a\``, inside that same wrapper; one member comes back wrapped too, which is safe under a quantifier where Emacs' bare one-member answer is not. Spelling is not the contract and never was: what is guaranteed is that the result matches exactly the members, entirely, preferring the longest, and composes. `PAREN` decides the wrapper and nothing else, and is Emacs' rule value for value: absent or `nil` is the SHY group `\(?:…\)`, so a caller's own capture groups keep their numbers; `t` is a CAPTURING group `\(…\)`, so the whole match is also group 1 and every group number in the caller's surrounding regexp shifts by one; `words` is `\<\(…\)\>` and `symbols` is `\_<\(…\)\_>` — **and those two are REFUSED, loudly**: kg's engine has no `\<`, `\>`, `\_<` or `\_>` and reads each as the ordinary character after the backslash, so producing Emacs' exact string gave callers a plausible-but-wrong match (`(regexp-opt '("ab") 'words)` matched `x <ab> y` rather than `x ab y`, silently), and a plausible-but-wrong match is worse than an error. The two arms raise at the call naming the engine gap (Phase 29's U.2); the day the engine gains the four boundaries they become wrappers again, exactly as written. A STRING is used as the literal group OPENER and `regexp-opt` closes it (`"\(?2:"` numbers the group itself — the escape hatch from that shift); any other non-nil value behaves as `t`. A STRING opener naming a group number is rejected by the engine at match time with `invalid regexp`, loudly |
+| `(assoc-string KEY ALIST &optional CASE-FOLD)` | ALIST's first element whose string form matches `KEY`, the ELEMENT itself. An element may be a cons (compared by its car) or a bare string or symbol; a symbol on either side is coerced with `symbol-name`. A non-string, non-symbol ELEMENT is skipped silently and the scan continues, while such a KEY is `(wrong-type-argument stringp KEY)` — the asymmetry is Emacs'. `CASE-FOLD` is `compare-strings`' ASCII-only fold |
+| `(multibyte-string-p S)` | `nil` for every string, always — kg's string is fe's unibyte byte string, and answering `t` would send callers such as `s-reverse` into a `ucs-normalize` branch kg has no library for. A non-string is `(wrong-type-argument stringp X)` |
+| `(string-equal A B)` / `(string-lessp A B)` / `(string-greaterp A B)` | Emacs' long spellings of `string=`, `string<` and `string>`; aliases of the same objects, so they cannot differ |
+| `(char-to-string N)` | One-character string for codepoint `N`; rejects surrogates and values above `U+10FFFF`. `N` may be 0, which builds a one-byte string holding a NUL, as in Emacs |
 | `(string-to-char S)` | First codepoint of `S`, `nil` for `""` |
-| `(format FORMAT ARG ...)` | `%s`/`%S`/`%d`/`%e`/`%f`/`%g`/`%c`/`%x`/`%X`/`%o`/`%%`; `-`/`0`, widths and precision are supported for numeric and string/character conversions; `%c` writes a UTF-8 codepoint, and refuses 0 where Emacs writes a NUL byte; Emacs' `+`, ` ` and `#` flags and its `N$` field numbers raise `invalid format operation`; extra arguments ignored, a missing one or an unknown specifier raises |
+| `(format FORMAT ARG ...)` | `%s`/`%S`/`%d`/`%e`/`%f`/`%g`/`%c`/`%x`/`%X`/`%o`/`%%`; `-`/`0`, widths and precision are supported for numeric and string/character conversions; `%c` writes a UTF-8 codepoint, 0 included (a NUL byte, as in Emacs); Emacs' `+`, ` ` and `#` flags and its `N$` field numbers raise `invalid format operation`; extra arguments ignored, a missing one or an unknown specifier raises |
 | `(make-string N CHAR)` | `N` copies of one character. Emacs' third `MULTIBYTE` argument is not accepted — every kg string is UTF-8 |
 | `(string-to-number S &optional BASE)` | `0` for anything that does not begin with a number, as in Emacs — including `"0x10"` and `"inf"`, which are not numbers to it either. `"1."` is the integer `1` and `"1.5"` is a float, the same split the reader makes. `BASE` is 2–16 |
 | `(upcase X)` / `(downcase X)` / `(capitalize X)` | `X` is a string or a character, and the result has `X`'s type. **ASCII only** — see the differences section |
@@ -820,15 +987,32 @@ groups and up to nine of them.
 | `(match-string N &optional STRING)` | The `N`th group's text, `nil` when that group did not participate. With `STRING` it reads the string the last `string-match` ran over; without it, the buffer |
 | `(match-beginning N)` / `(match-end N)` | 0-based character indices after a `string-match`, 1-based buffer positions after a buffer search — the units of whichever subject was matched |
 | `(replace-regexp-in-string REGEXP REP STRING &optional FIXEDCASE LITERAL)` | `REP` is a replacement string understanding `\\&`, `\\N` and `\\\\`, or a function of the matched text. `LITERAL` suppresses the escapes; `FIXEDCASE` is accepted and ignored (kg never case-adjusts, because it never case-folds) |
+| `(replace-match NEWTEXT &optional FIXEDCASE LITERAL STRING SUBEXP)` | The **string** form only: with `STRING` it answers a new string with the last match's span replaced, and mutates nothing. `SUBEXP` picks which group's span. `LITERAL` suppresses `\\&`/`\\N`/`\\\\`; `FIXEDCASE` is accepted and ignored, the same as beside it. The match data is **not** adjusted afterwards, which is Emacs' answer for the string form. Without `STRING` it is an error: kg has no buffer form |
 | `(regexp-quote S)` | `S` as a regexp matching itself |
+| `(string-match-p REGEXP STRING &optional START)` | The same index `string-match` answers, WITHOUT touching the match data. That is its whole contract, and it is why it is `(save-match-data (string-match …))` here as in Emacs |
+| `(match-data &optional INTEGERS)` | The whole register as a flat list of BEGIN END pairs, group 0 first, `nil nil` for a group that did not participate, `nil` when nothing has matched |
+| `(set-match-data LIST &optional RESEAT)` | `match-data`'s inverse: the accessors read `LIST` afterwards |
+| `(save-match-data BODY…)` | A macro. Runs BODY with the register restored on every way out, including a raise and a `C-g` |
+| `(count-matches REGEXP &optional START END INTERACTIVE)` | How many matches for `REGEXP` lie between `START` and `END`, counting from **point** to the end of the buffer when neither is given. Reversed bounds are ordered, not refused; a zero-width match counts and the scan then advances one character; point is where it was when it returns; the match register is left on the LAST match, as in Emacs, which is why callers wrap it in `save-match-data`. A non-nil `INTERACTIVE` also messages the count. Emacs' primary spelling is `how-many` and `count-matches` its alias; kg binds only `count-matches` |
 
 There is **one** match-data register, shared by string and buffer
 matches exactly as in Emacs, so a search of either kind replaces what
-the other left. Three properties are inherited from the engine and are
-recorded divergences rather than surprises: `^` and `$` anchor the whole
-subject rather than each line of it, matching is always
-case-**sensitive** (there is no `case-fold-search`), and the subject is
-NUL-terminated, so a match stops at an embedded NUL.
+the other left — which is what `save-match-data` is for. Three
+properties are inherited from the engine and are recorded divergences
+rather than surprises: `^` and `$` anchor the whole subject rather than
+each line of it, matching is always case-**sensitive** (there is no
+`case-fold-search`), and the subject is NUL-terminated, so a match stops
+at an embedded NUL.  Emacs' own subject anchors ``\\` `` and `\\'` ARE
+understood, since Phase 26 — they compile to the same two assertions
+`^` and `$` already make here, so on a subject with no newline in it all
+four spellings pick the same two offsets, which is the only condition
+under which they agree with Emacs at all.
+
+`match-data` answers INTEGERS for a buffer match where Emacs answers
+markers unless its `INTEGERS` argument says otherwise — kg's answer is
+Emacs' own `(match-data t)`. kg has no marker in the register to hand
+out, and one would promise that saved spans follow a later edit. Both
+that argument and `set-match-data`'s `RESEAT` are accepted and ignored.
 
 ## The string and list library
 
@@ -843,7 +1027,7 @@ corpus of *target* Lisp reaches for against the names kg has, and
 | Trimming and testing | `string-trim`, `string-trim-left`, `string-trim-right`, `string-prefix-p`, `string-suffix-p`, `string-empty-p` |
 | Alists and plists | `alist-get`, `assq-delete-all`, `plist-get`, `plist-put` |
 | List utilities | `elt`, `butlast`, `copy-sequence`, `number-sequence`, `nconc`, `mapcan`, `sort`, `cdar`, `caddr`, `cdddr`, `cadddr` |
-| The `seq-` shim | `seq-map`, `seq-filter`, `seq-remove`, `seq-find`, `seq-some`, `seq-take` — **lists only** |
+| The `seq-` shim | `seq-map`, `seq-filter`, `seq-remove`, `seq-find`, `seq-some`, `seq-take` — over any sequence, see below |
 | Arithmetic | `abs`, `mod`, `%`, `ash` |
 
 `string<` and `string>` are **not** in this table any more: they were
@@ -869,6 +1053,57 @@ Three notes a caller will want:
   `REGEXP`, `alist-get`'s `TESTFN`, `plist-get`'s `PREDICATE`,
   `split-string`'s `TRIM` — the extra argument is **refused by name**, not
   accepted and ignored.
+
+## Vectors and the sequence contract
+
+Since Phase 24, a vector is an ordinary fe object with reader syntax, so
+`[1 2 3]` reads and prints as itself and `(type-of [1 2 3])` is `vector`.
+Its elements live in fe's payload region, which is why kg's arena carves
+one (`src/lisp_core.c`); `aref` and `aset` are a field read and one
+multiply-add, not a walk.
+
+| Form | Notes |
+| ---- | ---- |
+| `vector`, `make-vector` | `(vector 1 "a" '(b))` is `[1 "a" (b)]`; `make-vector` STORES its init, so every slot is `eq` to every other |
+| `vectorp` | `t` for a vector only — `[]` is a vector and `nil` is not |
+| `aref`, `aset` | zero-based; `aset` answers the value it stored |
+| `vconcat` | vectors, lists and strings into one vector; a string contributes its CHARACTER CODES, so `(vconcat "ab")` is `[97 98]` |
+| `length`, `elt` | generic over lists, strings and vectors |
+
+Out of range on either `aref` or `aset` is `args-out-of-range` with data
+`(SEQUENCE INDEX)` — the offending sequence first — and a negative index
+takes the same route. A non-array argument is `wrong-type-argument` with
+data `(arrayp OBJ)`, naming `arrayp` rather than `vectorp` because `aref`
+is an array operation and strings are arrays. `[1 2` with no closing
+bracket is `end-of-file`, Emacs' generic incomplete-input condition.
+
+**`elt` past the end is asymmetric, and deliberately so**: `(elt '(1 2) 9)`
+is `nil` because it routes to `nth`, while `(elt [1 2] 9)` raises because
+it routes to `aref`. Emacs does the same.
+
+**Generic means generic, and it means the RESULT TYPE Emacs gives.**
+`mapcar`, `mapc`, `mapconcat`, `append`, `copy-sequence` and every `seq-`
+form take a list, a string or a vector:
+
+```elisp
+(mapcar #'1+ [1 2 3])        ; => (2 3 4)      -- a LIST, not a vector
+(append [1 2] nil)           ; => (1 2)        -- the idiomatic conversion
+(append "ab" nil)            ; => (97 98)      -- a string flattens to codes
+(copy-sequence [1 2])        ; => [1 2]        -- a fresh VECTOR
+(seq-take [1 2 3] 2)         ; => [1 2]        -- the sequence's own type
+(seq-filter #'zerop [0 1 0]) ; => (0 0)        -- a list, as in Emacs
+```
+
+`copy-sequence` is shallow: the copy is `equal` but not `eq`, and a write
+through it does not reach the original.
+
+**Two divergences, both recorded rather than incidental.** `length` and
+`elt` count and index a string's CHARACTERS, as Emacs does, because kg
+keeps its own string arm in front of fe's generic primitives — fe counts
+bytes, and `(aref "é" 0)` is fe's byte 195 where `(elt "é" 0)` is 233.
+And a self-referential vector prints as fe's bounded nesting ending in
+`#<deep>` rather than Emacs' `[0 #0]`: kg has no `print-circle`, and the
+reasons are in `doc/fe-upstream.md`'s Phase 24 row.
 
 ## Symbols, property lists and the reader's escapes
 
@@ -914,8 +1149,9 @@ the whole token a symbol. An escaped dot is an ordinary list element
 where a bare one is the dotted-tail marker: `(a \. b)` has three
 elements and `(a . b)` is a pair. `##` is the symbol with the empty name.
 A backslash with nothing after it is a read error, and the strict-reader
-policy is otherwise unchanged — vectors, `#:` and the other `#`
-dispatches are still named read errors rather than misreadings.
+policy is otherwise unchanged — `#:` and the other `#` dispatches are
+still named read errors rather than misreadings. Vectors left that list
+in Phase 24; `[1 2 3]` reads.
 
 The printer is the inverse, so a symbol always reads back as itself:
 bytes at or below the space, and `"#'(),;[]\` and the backquote, escape
@@ -937,15 +1173,18 @@ before any init file runs — this is what makes `defun`, `let`, `cond`,
 | Binding | `let` `let*` `setq` `progn` `special-variable-p` — `let`/`let*` bind a *marked* name dynamically and every other name lexically; `special-variable-p` answers whether `defvar`/`defconst` marked it |
 | Control | `cond` `when` `unless` `prog1` `dolist` `dotimes` |
 | Non-local exits | `catch` `throw` `condition-case` `signal` `error` `unwind-protect` `ignore-errors` — all core Fe forms except `ignore-errors`, which is the prelude's one-line macro over `condition-case` |
-| Lists | `length` `nth` `nthcdr` `last` `reverse` `append` `mapcar` `mapc` `mapconcat` `assoc` `assq` `member` `memq` `push` `pop` `nreverse` `delq` `delete` `add-to-list` `caar` `cadr` `cddr` `1+` `1-` |
+| Lists | `length` `nth` `nthcdr` `last` `reverse` `append` `mapcar` `mapc` `mapconcat` `assoc` `assq` `assoc-string` `regexp-opt` `member` `memq` `push` `pop` `nreverse` `delq` `delete` `add-to-list` `caar` `cadr` `cddr` `1+` `1-` |
 | Predicates | `null` `eq` `eql` `equal` `zerop` `integerp` `floatp` `listp` `type-of` `stringp` `symbolp` `numberp` `consp` `functionp` `commandp` `keywordp` `boundp` `special-variable-p` |
 | Functions | `funcall` `apply` `eval` `function` (written `#'f`) `fboundp` `symbol-function` `symbol-value` `fset` `defalias` `fmakunbound` |
 | Symbols | `intern` `intern-soft` `symbol-name` `make-symbol` `gensym` `put` `get` `symbol-plist` — core Fe primitives, described above |
 | Numbers | `+` `-` `*` `/` and the comparators `=` `<` `<=` `>` `>=` `/=` |
 | Quoting | `` ` `` / `,` / `,@` (quasiquote); `#'f` is `(function f)` |
-| Editor | `string-empty-p` `thing-at-point` |
+| Editor | `string-empty-p` `thing-at-point` `multibyte-string-p` |
 | Small library | `identity` `prog2` `max` `min` `documentation` `number-to-string` `string-to-list` `kbd` |
 | Buffer-local | `setq-local` `setq-default` `set-default` `default-value` `make-local-variable` `kill-local-variable` `local-variable-p` `buffer-local-value` — see "Buffer-local variables" below |
+| Package preamble | `static-if` `eval-when-compile` `eval-and-compile` `make-obsolete-variable`, and the variable `lexical-binding` (`t` — see below) — the names a package file reaches before any of its own code runs |
+| `subr-x` | `string-blank-p` `string-remove-prefix` `string-remove-suffix` `string-pad` `string-clean-whitespace` `thread-first` `thread-last`, joining `string-join` `string-trim` `string-empty-p` `string-prefix-p` above — defined but UNADVERTISED: the feature is not provided, so `(require 'subr-x)` raises `file-missing`; see "Features kg provides without a file" above |
+| `cl-lib` | `cl-incf` `cl-case` `cl-find-if` — defined but UNADVERTISED: the feature is not provided; see "Features kg provides without a file" below |
 
 The table is the whole startup surface, not only what the prelude adds:
 the forms in `Functions` and `Numbers`, like `setq` in `Binding`, are
@@ -960,8 +1199,12 @@ it reaches the handler, catch or recovery the caller is standing in:
 which is Emacs' answer and not an approximation of it: Emacs' optional
 LEXICAL argument *selects* an environment rather than inheriting the
 caller's, and `(let ((qq 1)) (eval 'qq))` is `(void-variable qq)` under
-the pinned Emacs 31.0.90 exactly as it is here. A non-nil LEXICAL is
-refused by name, the way `macroexpand`'s ENVIRONMENT is.
+the pinned Emacs 31.0.90 exactly as it is here. The agreement is for the
+*global* environment only: a closure created inside the evaluated form
+captures under kg's lexical-by-default evaluation and not under Emacs'
+dynamic `nil` evaluation, which is the `eval-nil-lexical-closure-inside-form`
+compat case. A non-nil LEXICAL is refused by name, the way `macroexpand`'s
+ENVIRONMENT is.
 
 `load-path` remains a bounded C search-path
 array; use kg's `add-to-load-path` native rather than modifying it with
@@ -1021,10 +1264,10 @@ recorded and tested:
   plain `setq` never creates a binding. In Emacs `fill-column` is one of
   these, so where Emacs lets `setq` do it, kg needs `setq-local`.
 
-`lisp/auto-fill.el` is the shipped consumer: `fill-column` is its
-default, `(setq-local fill-column N)` gives one buffer a margin of its
-own, and auto-fill reads the name inside the buffer the change happened
-in.
+`fill-column` is the prelude's own `defvar` (70, Emacs' default), read
+by `fill-region`, by M-q and by `lisp/auto-fill.el`;
+`(setq-local fill-column N)` gives one buffer a margin of its own, and
+each reader asks the name inside the buffer it is filling.
 
 `defun` recognises only an `(interactive ...)` form immediately after its
 optional docstring. That declaration is removed from the body and registers
@@ -1244,7 +1487,7 @@ read the two cells directly with `(symbol-function 'NAME)` and
 | `(funcall F &rest ARGS)` | Call function object or designator `F` with `ARGS` |
 | `(apply F &rest ARGS LIST)` | Like `funcall`, with the final operand a list whose elements are appended as arguments |
 | `(fset 'NAME FN)` | Write `FN` into `NAME`'s function cell |
-| `(defalias 'NAME FN)` | Emacs' spelling for installing `FN` in `NAME`'s function cell; the cell may hold a symbol, which is resolved at call time, so a `defalias` chain is late-bound |
+| `(defalias 'NAME FN &optional DOCSTRING)` | Emacs' spelling for installing `FN` in `NAME`'s function cell; the cell may hold a symbol, which is resolved at call time, so a `defalias` chain is late-bound. `DOCSTRING` is STORAGE, not decoration: it is `put` on `NAME`'s `function-documentation` property, where `documentation` reads it back ahead of anything `defun` recorded, and it is the ALIAS's own — `(defalias 'first 'car "Take the first.")` documents `first`, not `car`. Emacs does not type-check it, so a non-string is stored verbatim and `documentation` then answers `nil` for it; a `nil` `DOCSTRING` stores nothing rather than clearing what is there, as the two-argument form does not either. A fourth argument is `wrong-number-of-arguments` |
 | `(fboundp 'NAME)` | `t` if `NAME`'s function cell holds anything, else `nil` — never consults the value cell, never errors |
 | `(symbol-function 'NAME)` | `NAME`'s function cell, without resolving a designator (`void-function` when empty) |
 | `(symbol-value 'NAME)` | `NAME`'s value cell, without evaluating it (`void-variable` when empty) |
@@ -1308,12 +1551,20 @@ primitive's function cell.
 - **A regexp never folds case, and its anchors are the subject's.**
   There is no `case-fold-search`: `string-match`, `re-search-forward`,
   `looking-at` and `replace-regexp-in-string` are all case-sensitive, and
-  `replace-regexp-in-string` therefore never case-adjusts a replacement
-  either (its `FIXEDCASE` argument is accepted and ignored). `^` and `$`
+  `replace-regexp-in-string` and `replace-match` therefore never
+  case-adjust a replacement either (both take a `FIXEDCASE` argument and
+  both ignore it — one argument, one meaning across the family).  The
+  rule they decline is Emacs' "upcase the replacement after an all-upper
+  match, upcase its word initials after a capitalised one", which without
+  case folding could only ever fire on a pattern that matched upper-case
+  text without needing to fold. `^` and `$`
   match the start and end of the whole subject, not of each line in it —
   except in the buffer, where the subject *is* one line, which is why
   `looking-at`'s anchors behave exactly as Emacs' do and why no pattern
-  it is given can match across a line break.
+  it is given can match across a line break. Emacs' ``\\` `` and `\\'`
+  are the *same* two assertions here rather than a second pair, which is
+  why they are right where `^`/`$` are wrong: on a multi-line subject
+  ``\\`b`` agrees with Emacs and `^b` does not, from one node.
 - **The writer does not re-escape a backslash inside a string.**
   `(format "%S" "a\\b")` is `"a\b"` here and `"a\\b"` in Emacs, so a
   printed string holding backslashes — anything `regexp-quote` returns,
@@ -1330,7 +1581,11 @@ primitive's function cell.
   oracle; unlike Emacs, one named `nil` or a keyword is refused rather
   than bound (a divergence recorded in fe's own compat corpus).
 - **`condition-case` exists; `catch`/`throw` exist; `signal`/`error`
-  exist.** Conditions have a static hierarchy: `wrong-type-argument`,
+  exist.** Built-in condition symbols are seeded with Emacs-compatible
+   `error-conditions` and `error-message` properties, and `signal` and
+   handlers consult those live properties. `define-error` writes the same
+   properties for new conditions. The built-in hierarchy includes
+   `wrong-type-argument`,
   `wrong-number-of-arguments`, `void-function`, `void-variable`,
   `arith-error`, `args-out-of-range`, `file-error`, `setting-constant`,
   `end-of-buffer`, `beginning-of-buffer`
@@ -1352,7 +1607,9 @@ primitive's function cell.
   sub-conditions of `error`. Two things are deliberately *not* claimed.
   A native whose failure Emacs itself reports unstructured keeps a plain
   `error`: resource exhaustion, a dead buffer, a NaN position, and kg's
-  own refusal of NUL and surrogate character codes, which Emacs accepts.
+  own refusal of surrogate character codes, which Emacs accepts.  (A NUL
+  character code was refused here too until Phase 25 gave fe strings a
+  length instead of a terminator; it is an ordinary character now.)
   An **uncaught** one reports Emacs' own sentence —
   `Wrong type argument: integer-or-marker-p, "x"` — since Phase 19 gave
   fe the `error-message` property and `error-message-string`; see below.
@@ -1433,7 +1690,8 @@ primitive's function cell.
   `phase18-automatically-buffer-local`, and the closed pair are
   `phase18-let-buffer-switched-out` and
   `phase18-make-local-while-let-bound`.
-- **No vectors, no hash tables, no property lists.**
+- **No hash tables.** Vectors landed in Phase 24 (see "Vectors and the
+  sequence contract" above) and symbol property lists in Phase 14.
 - **A macro's function cell holds fe's own macro object**, not Emacs'
   `(macro . FUNCTION)` cons: `(symbol-function 'a-macro)` prints
   `(macro (args) ...)` rather than Emacs' `(macro . FUNCTION)`. A
@@ -1466,7 +1724,11 @@ primitive's function cell.
   also answers here, where Emacs reserves `documentation` for functions
   and raises `void-function`. A BUILT-IN command's documentation is the
   one-line summary `cmdtable` carries for it, which is the same text
-  `M-x` and the help screen show.
+  `M-x` and the help screen show. Since Phase 29 the symbol's own
+  `function-documentation` property is consulted **first**, which is
+  Emacs' own order (measured: a `defun` with a docstring and a
+  `function-documentation` property on the same symbol answers the
+  property), and it is how a three-argument `defalias` documents a name.
 - A **variable's** docstring additionally lives where Emacs puts one,
   on the symbol's `variable-documentation` property, since Phase 20:
   `(get 'my-var 'variable-documentation)` answers it, a program can
@@ -1496,14 +1758,19 @@ primitive's function cell.
 Things a reader coming from Emacs might expect are deliberately absent
 from this surface, each recorded here rather than silently missing:
 
-- **Hash tables, vectors and records.** Off-roadmap, and Phase 15's
-  forecast audit is the instrument that re-answers it with kg-relevant
-  data rather than intuition: across the whole corpus it measured
+- **Hash tables and records.** Off-roadmap, and Phase 15's forecast
+  audit is the instrument that re-answers it with kg-relevant data
+  rather than intuition: across the whole corpus it measures
   **4 references to hash-table names** (one package sketch's word tally,
-  which the same sketch also spells with an alist), **0 to vectors** and
-  **0 to records**. `utils/forecast/AUDIT.md`'s watch-item table carries
-  the number on every run, so reopening the question has evidence to
-  start from.
+  which the same sketch also spells with an alist) and **0 to records**.
+  `utils/forecast/AUDIT.md`'s watch-item table carries the number on
+  every run, so reopening the question has evidence to start from.
+  **Vectors used to head this bullet and no longer do**: the same audit
+  measured 0 references to them too, and they were funded anyway, because
+  a reference count is not a product decision — one vector literal in a
+  `declare` spec stopped a whole package file from being read, which is
+  what `test/lisp-compat/cases/sel-frontier-*.json` pinned until Phase 24
+  moved it.
 - **`logand`, `logior`, `logxor`.** `ash` is here because it is exact in
   three lines of prelude Lisp over `expt` and `floor`; the three bitwise
   operations are not, and the forecast audit measured **zero** references

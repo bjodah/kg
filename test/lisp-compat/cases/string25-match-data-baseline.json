@@ -1,0 +1,7 @@
+{
+ "id": "string25-match-data-baseline",
+ "setup": [],
+ "expr": "(list (string-match \"b+\" \"abbbc\") (match-beginning 0) (match-end 0) (match-string 0 \"abbbc\"))",
+ "note": "The control for the match-data group: everything kg already has answers exactly what Emacs answers -- (1 1 4 \"bbb\"). `string-match` returns the match position and SETS the match data; `match-beginning`, `match-end` and `match-string` read it back. Every divergence in this group is therefore a missing NAME rather than a broken matcher.",
+ "expect": "agree"
+}

@@ -12,10 +12,15 @@
 # almost every case; draining removed the stall, and with it 11 lines of
 # src/tty.c that nothing asked for on purpose.  This case asks on purpose.
 #
-# Timing is the sibling case's, for the sibling case's reasons: the loop
-# body is a 400-character `concat`, so the step budget takes ~900 ms to
-# fire, and the four keys behind `C-c s` land 0.05 s apart well inside
-# that.  A slower configuration widens the window rather than narrowing it.
+# Timing is the sibling case's, for the sibling case's reasons and with
+# its measurement: the loop body is a `concat` of a 12800-character pad,
+# so the step budget takes ~980 ms to fire, and the four keys behind
+# `C-c s` land 0.05 s apart -- 0.2 s in all -- well inside that.  A slower
+# configuration widens the window rather than narrowing it.  The pad was
+# 400 characters until Phase 25 made a fe string a header over payload
+# bytes: the same loop then ran ~50 ms, which is INSIDE the 0.2 s, and
+# this case failed while its sibling (whose C-g is 0.05 s in) passed by
+# coin flip.  lisp-quit-cancels-evaluation.yaml carries the numbers.
 #
 # tmux, so the status line can be asserted too: the replay must not look
 # like an error, and the evaluation must still have ended in `Quit`.
@@ -31,6 +36,7 @@ config_files:
         (dotimes (i n) (setq r (concat r "x")))
         r))
     (setq spin-pad (pad 400))
+    (dotimes (i 5) (setq spin-pad (concat spin-pad spin-pad)))
     (defun spin ()
       "Loop until cancelled or until the step budget stops it."
       (interactive)

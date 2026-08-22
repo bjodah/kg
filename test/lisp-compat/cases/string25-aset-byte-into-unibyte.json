@@ -1,0 +1,6 @@
+{
+ "id": "string25-aset-byte-into-unibyte",
+ "setup": [],
+ "expr": "(let ((s (copy-sequence \"abc\"))) (aset s 1 233) (list s (length s) (aref s 1)))",
+ "note": "THE WIDTH-CHANGE CONTRACT, half one: a value that is a BYTE but not ASCII goes into a unibyte string. Emacs answers (\"a\\351c\" 3 233) -- the string stays three units long, `aref` reads 233 back, and the printer escapes the byte octally rather than emitting it. That is unibyte semantics and NOT a codepoint being stored, which is what the sibling case's error proves. kg refuses every `aset` on a string, so it answers `error` here too."
+}

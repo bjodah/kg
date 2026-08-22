@@ -1,0 +1,6 @@
+{
+ "id": "u0-error-conditions-controls",
+ "setup": [],
+ "expr": "(list (get 'error 'error-conditions) (get 'error 'error-message) (condition-case e (error \"x\") (error (list 'caught (car e)))))",
+ "note": "Control case: built-in error properties remain readable and a plain error is caught by error."
+}

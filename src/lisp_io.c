@@ -12,7 +12,9 @@
 #include "def.h"
 #include "edit.h"
 #include "lisp_internal.h"
+#include "lisp_locals.h"
 #include "lisp_obj.h"
+#include "word.h"
 
 /* ---- Formatting ------------------------------------------------------
  * `format` walks the format string a byte at a time and appends to a
@@ -41,6 +43,9 @@ static void format_grow(FeContext *context, struct format_buffer *out)
 	if (!text) {
 		FeHandleError(context, "out of memory");
 	}
+	/* Not park_scratch(): realloc consumed the previous occupant, and
+	 * that occupant is this very slot -- freeing it again would be a
+	 * double free (or free the block just returned).  Assign only. */
 	state.scratch = out->text = text;
 	out->capacity = capacity;
 }
@@ -92,6 +97,9 @@ static void format_reserve(
 	if (!text) {
 		FeHandleError(context, "out of memory");
 	}
+	/* Not park_scratch(): realloc consumed the previous occupant, and
+	 * that occupant is this very slot -- freeing it again would be a
+	 * double free (or free the block just returned).  Assign only. */
 	state.scratch = out->text = text;
 	out->capacity = needed;
 }
@@ -318,10 +326,9 @@ static void format_write_text(FeContext *context, void *userdata, char chr)
 }
 
 /* %c: a codepoint, UTF-8 encoded, one display character wide whatever it
- * encodes to.  Emacs writes a NUL byte for (format "%c" 0); kg refuses
- * it, along with the surrogates and anything past U+10FFFF, because
- * nothing kg stores in a string may contain a NUL -- a recorded
- * divergence (doc/lisp-api.md). */
+ * encodes to.  0 writes a NUL byte, as in Emacs: kg refused it until
+ * FE_LANGUAGE_VERSION 17, when a fe string stopped ending at one.  The
+ * surrogates and anything past U+10FFFF are still refused. */
 static void format_character(FeContext *context, struct format_buffer *out,
     const struct format_spec *spec, FeObject *object)
 {
@@ -329,7 +336,7 @@ static void format_character(FeContext *context, struct format_buffer *out,
 	char utf8[4];
 	size_t length;
 
-	if (codepoint < 1 || codepoint > 0x10ffff
+	if (codepoint < 0 || codepoint > 0x10ffff
 	    || (codepoint >= 0xd800 && codepoint <= 0xdfff)) {
 		FeHandleError(context, "format %c character is out of range");
 	}
@@ -506,8 +513,13 @@ static void format_walk(FeContext *context, struct format_buffer *out,
 
 /* (format FORMAT &rest ARGS) without the string object: the result stays
  * in state.scratch so `message` can hand it straight to the editor.  The
- * caller releases the scratch. */
-static char *lisp_format_text(FeContext *context, FeObject *arguments)
+ * caller releases the scratch.  It is still NUL-terminated, because
+ * `message` wants a C string; *out_length, when asked for, is the byte
+ * count WITHOUT that terminator, which is what a caller building a fe
+ * string wants -- `%c` can write a NUL and the output is bytes, not a C
+ * string, from that point on. */
+static char *lisp_format_text(
+    FeContext *context, FeObject *arguments, size_t *out_length)
 {
 	FeObject *object = FeGetNextArgument(context, &arguments);
 	struct format_buffer out = { 0 };
@@ -517,18 +529,22 @@ static char *lisp_format_text(FeContext *context, FeObject *arguments)
 	 * on Emacs, measured. */
 	lisp_check_string(context, object);
 	out.text = copy_fe_string(context, object, &length);
-	state.scratch = out.text;
+	park_scratch(out.text);
 	out.start = length + 1;
 	out.capacity = length + 1;
 	format_walk(context, &out, length, arguments);
 	format_put(context, &out, '\0');
+	if (out_length != nullptr) {
+		*out_length = out.length - 1;
+	}
 	return out.text + out.start;
 }
 
 FeObject *native_format(FeContext *context, FeObject *arguments)
 {
-	FeObject *result
-	    = FeMakeString(context, lisp_format_text(context, arguments));
+	size_t length;
+	char *text = lisp_format_text(context, arguments, &length);
+	FeObject *result = FeMakeStringBytes(context, text, length);
 
 	release_scratch();
 	return result;
@@ -536,7 +552,10 @@ FeObject *native_format(FeContext *context, FeObject *arguments)
 
 FeObject *native_message(FeContext *context, FeObject *arguments)
 {
-	editor_set_status_message("%s", lisp_format_text(context, arguments));
+	/* The echo area takes a C string, so this one truncates at a NUL by
+	 * design -- doc/lisp-string-nul-policy.md's row for it. */
+	editor_set_status_message(
+	    "%s", lisp_format_text(context, arguments, nullptr));
 	release_scratch();
 	return FeNil(context);
 }
@@ -655,6 +674,86 @@ FeObject *native_replace_region(FeContext *context, FeObject *arguments)
 	}
 	free(text);
 	return FeNil(context);
+}
+
+/* The `fill-column' in force in the buffer being filled: read through
+ * the buffer-local table, so a `setq-local' answers for that buffer and a
+ * `let' -- which binds whichever cell the swap has put there -- answers
+ * for its own extent.  `s-word-wrap' is exactly the second of those.
+ *
+ * A binding that is not a number is Emacs' error, measured on 31.0.91:
+ * `(let ((fill-column "x")) (fill-region ...))' is
+ * `(wrong-type-argument number-or-marker-p "x")'.  This is Lisp calling
+ * Lisp, so it raises where editor_fill_column()'s contained read for M-q
+ * falls back instead; the one shape not copied is Emacs' obsolete nil,
+ * which warns and fills nothing where this raises like any other
+ * non-number. */
+static int lisp_fill_column(FeContext *context, struct editor_buffer *b)
+{
+	FeObject *symbol = FeMakeSymbol(context, "fill-column");
+	FeObject *value
+	    = lisp_locals_buffer_value(context, symbol, buf_handle_of(b));
+	FeDouble column;
+
+	if (value == nullptr) {
+		lisp_raise_void_variable(context, symbol);
+	}
+	column = lisp_finite(context, value, "number-or-marker-p");
+	if (column > (FeDouble)INT_MAX) {
+		return INT_MAX;
+	}
+	if (column < -(FeDouble)INT_MAX) {
+		return -INT_MAX;
+	}
+	return (int)column;
+}
+
+/* (fill-region START END): fill every paragraph between the two
+ * positions at `fill-column', answering the fill PREFIX -- the last
+ * filled paragraph's indent, "" when it had none, nil when the region
+ * held no paragraph at all -- and leaving point at the end of the
+ * region.  All three are Emacs' contract, frozen case by case before
+ * this was written (test/lisp-compat/cases/frontier-fill-region-*).
+ *
+ * The filling itself is src/word.c's, the same word stream and wrap loop
+ * M-q runs, one gateway replacement per paragraph and therefore one undo
+ * step each.  What is NOT here is Emacs' `sentence-end-double-space'
+ * nobreak rule, which makes Emacs break earlier than the column allows
+ * after ". "; kg has no sentence machinery to hang it on and the demand
+ * behind this name is a column.  Declined at F.0 and recorded as a
+ * divergence in frontier-fill-region-sentence-nobreak. */
+FeObject *native_fill_region(FeContext *context, FeObject *arguments)
+{
+	FeObject *beg_object = FeGetNextArgument(context, &arguments);
+	FeObject *end_object = FeGetNextArgument(context, &arguments);
+	struct editor_buffer *b = lisp_exec_buffer(context);
+	size_t beg, end, moved;
+	char *prefix = nullptr;
+	int column;
+
+	FeRequireNoArguments(context, arguments);
+	lisp_region_arguments(context, b, beg_object, end_object, &beg, &end);
+	column = lisp_fill_column(context, b);
+	if (b->readonly) {
+		FeHandleError(context, "buffer is read-only");
+	}
+	if (!editor_fill_region(b, beg, end, column, &prefix, &moved)) {
+		FeHandleError(context, "out of memory");
+	}
+	lisp_exec_goto_char(b, lisp_char_offset_of(b, moved));
+	if (prefix == nullptr) {
+		return FeNil(context);
+	}
+	/* park_scratch() rather than free() after the make: FeMakeString
+	 * can raise on an exhausted arena, and a raise here never returns
+	 * to this frame. */
+	park_scratch(prefix);
+	{
+		FeObject *result = FeMakeString(context, prefix);
+
+		release_scratch();
+		return result;
+	}
 }
 
 /* The optional BUFFER argument the buffer-inspecting natives share: the

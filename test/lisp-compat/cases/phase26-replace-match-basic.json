@@ -1,0 +1,7 @@
+{
+ "id": "phase26-replace-match-basic",
+ "setup": [],
+ "expr": "(progn (string-match \"b+\" \"abbbc\") (replace-match \"X\" t t \"abbbc\"))",
+ "note": "THE SHAPE s.el REACHES, at its simplest: a `string-match' sets the register, then `replace-match' is handed the SAME string as its STRING argument and RETURNS a new one -- `aXc' -- rather than mutating anything. FIXEDCASE and LITERAL are both t here, which is exactly how s-trim-left and s-trim-right call it (`(replace-match \"\" t t s)', s.el:41 and s.el:49), so this element alone is what those two functions need. kg answered `void-function' before 26.2 and answers \"aXc\" now.",
+ "expect": "agree"
+}

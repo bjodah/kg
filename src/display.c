@@ -555,7 +555,8 @@ static void draw_window_rows(struct abuf *ab, struct editor_window *w,
 			    ? vline_it.cur_render_end
 			    : r->rsize;
 			len = 0;
-			while (offset + len < max_render && offset + len < r->rsize) {
+			while (offset + len < max_render
+			    && offset + len < r->rsize) {
 				int w = utf8_width_at(
 				    r->render, r->rsize, offset + len);
 
@@ -884,8 +885,8 @@ void editor_refresh_screen(void)
 			}
 			int cur_col = editor_display_col(
 			    rows, numrows, filerow, filecol, &b->display);
-			int total_rows
-			    = wrapping ? get_total_visual_rows(w, b) : b->numrows;
+			int total_rows = wrapping ? get_total_visual_rows(w, b)
+						  : b->numrows;
 			draw_mode_line(&ab, ml_row, w->x, w->w, bidx, is_active,
 			    cur_row, cur_col, total_rows, wrowoff, w->h);
 		}

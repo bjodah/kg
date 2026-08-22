@@ -200,11 +200,18 @@ as in Emacs: loaded forms are read and evaluated one at a time in the
 caller's own run, so errors, throws and quits cross the
 .Li load
 as if the forms were written in place.
-.Li (require FEATURE &optional FILENAME)
+.Li (require FEATURE &optional FILENAME NOERROR)
 loads at most once, a no-op when
 .Li (provide FEATURE)
 has already run, and errors ("cyclic require") when re-entered for a
 feature already mid-load.
+A non-nil
+.Li NOERROR
+answers
+.Li nil
+instead of raising when the file is not found, and provides nothing;
+it covers that failure only, so a cyclic require and any error the
+required file itself raises still propagate.
 .Li (featurep FEATURE)
 asks without loading.
 .Li require
@@ -227,6 +234,18 @@ suffix and both spellings resolve to the same file, while a name
 containing a slash is a literal path, neither suffixed nor searched.
 .Li (add-to-load-path DIR)
 prepends a directory so it is searched first.
+.Li (autoload SYMBOL FILE ...)
+is accepted and inert.
+Emacs arms lazy loading with it \(em the first call loads
+.Li FILE
+\(em while kg records nothing and loads nothing, so a function that only
+an autoload would have provided is
+.Li void-function
+at its first call and
+.Li fboundp
+answers nil for it.
+The form exists so that a package's own header does not end the load
+before its first definition.
 .Pa lisp/auto-fill.el
 is a worked package: it
 .Li provide Ns s
@@ -242,6 +261,13 @@ as they are typed past it, via
 and one
 .Li replace-region
 call per break.
+.Li fill-column
+is the prelude's own variable, 70 by default, shared with
+.Li fill-region
+and
+.Ic M-q ;
+a package does not have to be loaded for the editor to have a fill
+column.
 Its hook entry point is a
 .Li condition-case
 that removes the hook and reports once, so a bad
@@ -434,6 +460,7 @@ Editing and search go through the same gateway every command does, so each
 of these is one undo step:
 .Li (delete-region START END) ,
 .Li (replace-region START END TEXT) ,
+.Li (fill-region START END) ,
 .Li (search-forward STRING &optional BOUND) ,
 .Li (search-backward STRING &optional BOUND) ,
 .Li (re-search-forward PATTERN &optional BOUND) ,
@@ -444,6 +471,23 @@ of these is one undo step:
 .Li (set-marker MARKER POS &optional BUF)
 and
 .Li (marker-position MARKER) / (marker-buffer MARKER) .
+.Li fill-region
+fills EVERY paragraph between the two positions, at
+.Li fill-column ,
+one undo step per paragraph, and answers the fill prefix -- the last
+filled paragraph's indent,
+.Li \(dq\(dq
+when it had none, and
+.Li nil
+when the region held no paragraph at all.
+It is the fill
+.Ic M-q
+runs and has that fill's two limits: no
+.Li sentence-end-double-space
+rule (kg has no sentence machinery, so a period followed by one space is
+an ordinary break point where Emacs refuses one), and a column counted in
+bytes rather than in display cells, so non-ASCII text wraps early.
+.Pp
 None of the search natives wrap around the buffer the way
 .Ic C-s / C-r
 do, none fold case, and a match cannot span two lines.
@@ -2537,7 +2581,10 @@ Bound to
 .Ic M-x .
 A numeric argument is passed to the command it runs.
 .It fill-paragraph
-Reflow the paragraph around point to the fill column.
+Reflow the paragraph around point to the fill column, which is the Lisp
+variable
+.Li fill-column
+(70, Emacs' own default, in every build).
 Bound to
 .Ic M-q .
 .It find-file
@@ -2704,20 +2751,28 @@ and
 Report the state of the fixed Lisp arena in the status area: total object
 slots, free slots, the high-water mark of live objects, the number of
 collections, the peak GC root-stack depth, the peak evaluator frame depth
-against the arena's frame capacity, and the number of allocations that
-failed.
+against the arena's frame capacity, the number of allocations that
+failed, the arena's own size in bytes, and last the payload region \(em
+bytes live of bytes carved, their high-water mark, compactions, and
+payload requests that failed.
+The payload region is a part of the arena kg does not currently ask for,
+so every one of those five numbers is zero.
 It allocates nothing and changes nothing, so asking cannot alter the
 answer, and it is the way to see whether a session that reported
 .Ql out of memory
 recovered.
 That last use has one wrinkle, and it follows from the first: slots come
-back only when a collection runs, and a collection runs only when an
-allocation finds the free list empty.
+back only when a collection runs, and once a session is under way a
+collection runs only when an allocation finds the free list empty.
 Asking is not an allocation, so straight after an exhaustion the command
 reports
 .Ql 0 free
 even where the data is already unreachable.
 Evaluate anything at all, then ask again, to see what came back.
+A session that has only just started already reports one collection
+rather than none: kg forces a single one at the end of Lisp
+initialisation, so that what loading the prelude left unreachable is
+reclaimed before any of the session's own work begins.
 Also callable from Lisp as
 .Ql (command-execute "lisp-arena-stats") .
 .It lisp-interaction-mode
@@ -4973,7 +5028,9 @@ These two bindings are built in and only active in commit buffers; they
 take priority over any user Lisp binding for the same keys.
 .Ic M-q
 leaves the subject line and comment paragraphs untouched; body
-paragraphs still reflow to column 72 as usual.
+paragraphs still reflow to
+.Li fill-column
+as usual.
 .Pp
 .Ic C-x #
 saves the current buffer and exits with status 0 in
@@ -5266,6 +5323,34 @@ asks for mouse reports at all; see
 Nothing else in
 .Nm
 consults it.
+.It Ev KG_LISP_ARENA_BYTES
+How many bytes of arena a
+.Sq +lisp
+build gives the interpreter, replacing the 10 MiB it is built with.
+Plain bytes, or a
+.Sq K
+or
+.Sq M
+suffix for KiB or MiB:
+.Sq 2M ,
+.Sq 2048K
+and
+.Sq 2097152
+are the same arena.
+Read once, at startup.
+Unset, empty, or anything that is not one of those spellings leaves the
+compiled default alone.
+A value that IS one of them but is below 917504 bytes is refused, naming
+itself and that floor, and
+.Nm
+comes up with Lisp switched off rather than on a smaller arena than was
+asked for; the floor is three times what the built-in Lisp prelude needs
+to stay resident.
+.Ic M-x lisp-arena-stats
+reports the size in force.
+Ignored by a
+.Sq -lisp
+build.
 .It Ev KG_LSP_SERVER_C , Ev KG_LSP_SERVER_PYTHON , Ev KG_LSP_SERVER_GO , Ev KG_LSP_SERVER_RUST , Ev KG_LSP_SERVER_JAVA
 The command line a
 .Sq +lsp

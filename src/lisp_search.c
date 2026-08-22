@@ -1,7 +1,6 @@
 #include <limits.h>
 #include <stdckdint.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -11,6 +10,7 @@
 #include "lisp_internal.h"
 #include "localvars.h"
 #include "marker.h"
+#include "re.h"
 #include "regex.h"
 
 /* ---- search-forward/-backward, re-search-forward/-backward -----------
@@ -43,12 +43,19 @@ struct lisp_search_hit {
  * `from_col` whose end does not exceed `limit_col`.  Returns 1 with
  * *hit filled, 0 for no match in this row, -1 for KG_REGEX_TOO_COMPLEX.
  *
- * A match that starts within bounds but ends past `limit_col` ends the
- * search in this row rather than trying a later start: every later
- * literal match starts no earlier and is the same length, so it cannot
- * end sooner, and editor_query_replace_regexp() already makes the same
- * simplification for regex matches (its "match straddles the region
- * end" check stops rather than searching on). */
+ * `limit_col` REACHES THE ENGINE for the regexp kind (bytes of
+ * row->chars, the space every column here is in), so a preferred branch
+ * that would cross BOUND is shortened, loses to another alternative at
+ * the same start, or gives way to a later start -- all three inside the
+ * matcher.  This used to run the pattern against the whole row and then
+ * test the answer's end against `limit_col`, which reaches none of them:
+ * the engine's unbounded answer IS the over-BOUND one, so rejecting it
+ * ended the row and Emacs' `(re-search-forward "a.*b\|x" 4 t)' over
+ * "axxxb" answered nil here and 3 there (adversarial-review Finding 2).
+ *
+ * The LITERAL kind keeps its post-test, where the same reasoning is
+ * exact rather than a simplification: every later literal match starts
+ * no earlier and is the same length, so it cannot end sooner. */
 static int lisp_search_row_forward(erow *row, int from_col, int limit_col,
     bool regexp, const struct kg_regex *rx, const char *needle,
     size_t needle_len, struct lisp_search_hit *hit)
@@ -60,16 +67,13 @@ static int lisp_search_row_forward(erow *row, int from_col, int limit_col,
 		return 0;
 	}
 	if (regexp) {
-		int status = kg_regex_match_forward(
-		    rx, row->chars, from_col, &hit->match);
+		int status = kg_regex_match_forward_bounded(
+		    rx, row->chars, from_col, limit_col, &hit->match);
 
 		if (status == KG_REGEX_TOO_COMPLEX) {
 			return -1;
 		}
-		if (status != KG_REGEX_OK) {
-			return 0;
-		}
-		return hit->match.spans[0].end <= limit_col;
+		return status == KG_REGEX_OK;
 	}
 	if (needle_len == 0) {
 		/* An empty search string matches immediately, as in Emacs. */
@@ -167,14 +171,25 @@ static int lisp_search_row_backward_literal(erow *row, int before_col,
 
 /* Row-by-row, start_row..bound_row, no wraparound.
  *
- * The regex case is a known, documented simplification, not full Emacs
- * backward search: kg_regex_match_backward() answers "the last match in
- * this row ending at or before `before_col`", with no lower bound of its
- * own (see its header comment in src/regex.h and the CLAUDE.md note this
- * follows).  A row is tried exactly once here; if that one match starts
- * before `limit_col`, the row is treated as having no eligible match at
- * all, even though an earlier, in-bounds match may exist between
- * `limit_col` and it.  Emacs would find that match; this does not. */
+ * BOUND's two ends are one window here: backward, Emacs' BOUND is the
+ * lower one (the match may not START before it) and point is the upper
+ * one (it may not END past it), which is exactly
+ * kg_regex_match_backward_bounded()'s [start_offset, limit].  Both are
+ * bytes of row->chars.
+ *
+ * This used to sweep from column 0 with no limit and then test the one
+ * answer's start against `limit_col`, and the review's defect was in
+ * that sweep rather than in the test: a candidate start whose preferred
+ * branch crossed point was dropped instead of shortened, so a row could
+ * report no eligible match while holding one.  With the window inside
+ * the sweep, the last match it keeps is the one with the greatest start,
+ * and there is nothing left to filter.
+ *
+ * What is still NOT full Emacs backward search: which match kg prefers
+ * among those in the window.  kg takes the plain forward match at the
+ * latest candidate start; an empty match exactly at point is excluded
+ * (src/regex.h).  r2-bound-backward-empty-at-point records the one
+ * measured consequence. */
 static int lisp_search_backward(FeContext *ctx, struct editor_buffer *b,
     int start_row, int start_col, int bound_row, int bound_col, bool regexp,
     const struct kg_regex *rx, const char *needle, size_t needle_len,
@@ -195,15 +210,15 @@ static int lisp_search_backward(FeContext *ctx, struct editor_buffer *b,
 			continue;
 		}
 		if (regexp) {
-			int status = kg_regex_match_backward(
-			    rx, b->row[row].chars, before_col, &hit->match);
+			int status = kg_regex_match_backward_bounded(rx,
+			    b->row[row].chars, limit_col, before_col,
+			    &hit->match);
 
 			if (status == KG_REGEX_TOO_COMPLEX) {
 				FeHandleError(ctx,
 				    "search: regular expression too complex");
 			}
-			if (status == KG_REGEX_OK
-			    && hit->match.spans[0].start >= limit_col) {
+			if (status == KG_REGEX_OK) {
 				hit->found_row = row;
 				return 1;
 			}
@@ -235,6 +250,43 @@ static long lisp_search_bound(FeContext *context, struct editor_buffer *b,
 	return lisp_offset_argument(context, b, object);
 }
 
+/* Emacs' NOERROR, which is THREE answers rather than a flag, measured on
+ * 31.0.91 and frozen by frontier-search-noerror-* before any of it
+ * existed here: nil RAISES `search-failed' carrying the pattern and
+ * leaves point, `t' answers nil and leaves point, and ANY OTHER value
+ * answers nil AND MOVES POINT TO THE LIMIT -- to BOUND when one was
+ * given, and to point-max forward or point-min backward when it was not.
+ * The third is not optional: `t' and `'move' differ only in where point
+ * ends up, so a caller that wants the move has no other way to ask.  All
+ * four search names take it, on 26.2's FIXEDCASE precedent that one
+ * argument means one thing across a family. */
+enum lisp_search_noerror {
+	LISP_SEARCH_RAISE,
+	LISP_SEARCH_ANSWER_NIL,
+	LISP_SEARCH_MOVE,
+};
+
+/* The optional third argument.  `t' is compared by identity because fe
+ * interns its symbols, which is how src/lisp_cmd.c asks the same
+ * question. */
+static enum lisp_search_noerror lisp_search_noerror(
+    FeContext *context, FeObject **arguments)
+{
+	FeObject *object;
+
+	if (FeIsNil(*arguments)) {
+		return LISP_SEARCH_RAISE;
+	}
+	object = FeGetNextArgument(context, arguments);
+	if (FeIsNil(object)) {
+		return LISP_SEARCH_RAISE;
+	}
+	if (object == FeMakeSymbol(context, "t")) {
+		return LISP_SEARCH_ANSWER_NIL;
+	}
+	return LISP_SEARCH_MOVE;
+}
+
 enum lisp_search_dir { LISP_SEARCH_FORWARD, LISP_SEARCH_BACKWARD };
 
 static FeObject *lisp_search(FeContext *context, FeObject *arguments,
@@ -251,6 +303,7 @@ static FeObject *lisp_search(FeContext *context, FeObject *arguments,
 	size_t pattern_len;
 	struct kg_regex rx;
 	struct lisp_search_hit hit = { 0 };
+	enum lisp_search_noerror noerror;
 	int found;
 	size_t match_byte;
 
@@ -264,8 +317,14 @@ static FeObject *lisp_search(FeContext *context, FeObject *arguments,
 	 * FeRequireNoArguments() below can both raise, and a raise longjmps
 	 * past every free() in this function.  .ci/ci-04's LeakSanitizer
 	 * caught exactly that. */
-	state.scratch = pattern;
+	park_scratch(pattern);
 	bound_off = lisp_search_bound(context, b, &arguments, default_bound);
+	noerror = lisp_search_noerror(context, &arguments);
+	/* A FOURTH argument is Emacs' COUNT, which kg does not implement:
+	 * `wrong-number-of-arguments' by name rather than accepted and
+	 * ignored, the Phase 14 `intern'-OBARRAY precedent.  Measured
+	 * demand is zero -- no s.el call passes one -- and
+	 * frontier-search-count-argument pins the condition. */
 	FeRequireNoArguments(context, arguments);
 
 	if (regexp) {
@@ -276,12 +335,7 @@ static FeObject *lisp_search(FeContext *context, FeObject *arguments,
 			FeHandleError(context, "regexp too complex to compile");
 		}
 		if (status != KG_REGEX_OK) {
-			char message[400];
-
-			(void)snprintf(message, sizeof(message),
-			    "invalid regexp: %s", pattern);
-			release_scratch();
-			FeHandleError(context, message);
+			lisp_raise_invalid_regexp(context, pattern);
 		}
 	}
 
@@ -304,6 +358,13 @@ static FeObject *lisp_search(FeContext *context, FeObject *arguments,
 	release_scratch();
 
 	if (!found) {
+		if (noerror == LISP_SEARCH_MOVE) {
+			(void)kg_marker_set_position(lisp_exec_point_marker(),
+			    lisp_byte_of_char_offset(b, bound_off));
+		}
+		if (noerror == LISP_SEARCH_RAISE) {
+			lisp_raise_search_failed(context, pattern_object);
+		}
 		return FeNil(context);
 	}
 
@@ -348,23 +409,16 @@ FeObject *native_re_search_backward(FeContext *context, FeObject *arguments)
  * top-level forms -- and is resolved against the buffer it names, not
  * whatever the exec buffer happens to be when read. */
 
-static FeObject *lisp_match_bound(
-    FeContext *context, FeObject *arguments, bool want_end)
+/* One end of group N, as the object `match-beginning'/`match-end' answers:
+ * nil for a group that did not participate or that the last match does
+ * not have, an integer for a string match, a buffer POSITION otherwise.
+ * `match-data' below is the second caller, which is why this is a
+ * function of N rather than of an argument list. */
+static FeObject *lisp_match_span(FeContext *context, long n, bool want_end)
 {
-	FeObject *object = FeGetNextArgument(context, &arguments);
-	long n = (long)lisp_finite(context, object, "integerp");
 	struct editor_buffer *b;
 	int col;
 
-	FeRequireNoArguments(context, arguments);
-	/* A negative group index is Emacs' args-out-of-range, measured:
-	 * (match-beginning -1) is (args-out-of-range -1 0).  A group *past*
-	 * the last one is nil there and here -- the range error is only for
-	 * the side that cannot name a group at all. */
-	if (n < 0) {
-		lisp_raise_args_out_of_range(
-		    context, object, FeMakeInteger(context, 0));
-	}
 	if (!state.match.valid || n >= state.match.match.nspans
 	    || state.match.match.spans[n].start < 0) {
 		return FeNil(context);
@@ -390,6 +444,24 @@ static FeObject *lisp_match_bound(
 		b, buffer_row_col_to_position(b, state.match.row, col)));
 }
 
+static FeObject *lisp_match_bound(
+    FeContext *context, FeObject *arguments, bool want_end)
+{
+	FeObject *object = FeGetNextArgument(context, &arguments);
+	long n = (long)lisp_finite(context, object, "integerp");
+
+	FeRequireNoArguments(context, arguments);
+	/* A negative group index is Emacs' args-out-of-range, measured:
+	 * (match-beginning -1) is (args-out-of-range -1 0).  A group *past*
+	 * the last one is nil there and here -- the range error is only for
+	 * the side that cannot name a group at all. */
+	if (n < 0) {
+		lisp_raise_args_out_of_range(
+		    context, object, FeMakeInteger(context, 0));
+	}
+	return lisp_match_span(context, n, want_end);
+}
+
 FeObject *native_match_beginning(FeContext *context, FeObject *arguments)
 {
 	return lisp_match_bound(context, arguments, false);
@@ -398,6 +470,102 @@ FeObject *native_match_beginning(FeContext *context, FeObject *arguments)
 FeObject *native_match_end(FeContext *context, FeObject *arguments)
 {
 	return lisp_match_bound(context, arguments, true);
+}
+
+/* ---- match-data / set-match-data --------------------------------------
+ *
+ * The whole match register as one value, which is what `save-match-data'
+ * is built out of and what Phase 24's frontier probe found s.el reaching
+ * for.  Both are C rather than prelude Lisp for one reason: the register
+ * is C -- there is no Lisp-visible object it could be read out of.
+ *
+ * WHAT KG ANSWERS, AND WHERE IT DIVERGES.  Emacs' `match-data' returns
+ * MARKERS for a buffer match unless its INTEGERS argument says otherwise;
+ * kg always answers integers, which is Emacs' own `(match-data t)'.  kg
+ * has no marker in the register to hand out -- `match-beginning' resolves
+ * a row and a byte column into a position at the read -- and a marker
+ * would promise something kg cannot keep, that the saved spans follow a
+ * later edit.  INTEGERS is accepted and ignored for the same reason
+ * `set-match-data''s RESEAT is: an integer list is what both sides of the
+ * round trip already speak.
+ *
+ * `set-match-data' therefore records what it is given as a STRING match
+ * whatever produced it, which is not a shortcut: the numbers in the list
+ * are already in the units `match-beginning' answers, so replaying them
+ * unconverted is what makes (set-match-data (match-data)) the identity
+ * it has to be for `save-match-data' to work over either kind of
+ * search. */
+
+FeObject *native_match_data(FeContext *context, FeObject *arguments)
+{
+	FeObject *list = FeNil(context);
+	size_t gc = FeSaveGC(context);
+	long n;
+
+	if (!FeIsNil(arguments)) {
+		(void)FeGetNextArgument(context, &arguments); /* INTEGERS */
+	}
+	FeRequireNoArguments(context, arguments);
+	if (!state.match.valid) {
+		return FeNil(context);
+	}
+	/* Backwards, so the pairs come out group 0 first, and re-rooting
+	 * the head after each cons -- the idiom lisp_cmd.c's name list
+	 * uses: every allocation pushes its own result, so restoring the
+	 * checkpoint and pushing the head keeps the stack one deep. */
+	for (n = state.match.match.nspans - 1; n >= 0; n--) {
+		list = FeCons(context, lisp_match_span(context, n, true), list);
+		FeRestoreGC(context, gc);
+		FePushGC(context, list);
+		list
+		    = FeCons(context, lisp_match_span(context, n, false), list);
+		FeRestoreGC(context, gc);
+		FePushGC(context, list);
+	}
+	FeRestoreGC(context, gc);
+	return list;
+}
+
+/* One end out of the list `set-match-data' was given: nil is a group that
+ * did not participate, which the register spells as a negative start. */
+static int lisp_match_element(FeContext *context, FeObject **list)
+{
+	FeObject *object;
+
+	if (FeIsNil(*list)) {
+		return -1;
+	}
+	object = FeCar(context, *list);
+	*list = FeCdr(context, *list);
+	if (FeIsNil(object)) {
+		return -1;
+	}
+	return (int)lisp_finite(context, object, "integer-or-marker-p");
+}
+
+FeObject *native_set_match_data(FeContext *context, FeObject *arguments)
+{
+	FeObject *list = FeGetNextArgument(context, &arguments);
+	struct kg_lisp_match_data fresh = { 0 };
+	int n = 0;
+
+	if (!FeIsNil(arguments)) {
+		(void)FeGetNextArgument(context, &arguments); /* RESEAT */
+	}
+	FeRequireNoArguments(context, arguments);
+	fresh.on_string = true;
+	while (!FeIsNil(list) && n < RE_MAX_SPANS) {
+		int start = lisp_match_element(context, &list);
+		int end = lisp_match_element(context, &list);
+
+		fresh.match.spans[n].start = start;
+		fresh.match.spans[n].end = start < 0 ? -1 : end;
+		n++;
+	}
+	fresh.match.nspans = n;
+	fresh.valid = n > 0;
+	state.match = fresh;
+	return FeNil(context);
 }
 
 /* ---- string-match / regexp-quote --------------------------------------
@@ -446,7 +614,7 @@ static char *lisp_pattern_and_subject(FeContext *context, FeObject *pattern_obj,
 	if (!block) {
 		FeHandleError(context, "out of memory");
 	}
-	state.scratch = block;
+	park_scratch(block);
 	(void)FeCopyStringBytes(context, pattern_obj, block, *pattern_len);
 	block[*pattern_len] = '\0';
 	*subject_out = block + *pattern_len + 1;
@@ -461,15 +629,12 @@ static void lisp_compile_or_raise(
     FeContext *context, struct kg_regex *rx, const char *pattern)
 {
 	int status = kg_regex_compile(rx, pattern, 0);
-	char message[400];
 
 	if (status == KG_REGEX_TOODEEP) {
 		FeHandleError(context, "regexp too complex to compile");
 	}
 	if (status != KG_REGEX_OK) {
-		(void)snprintf(
-		    message, sizeof(message), "invalid regexp: %s", pattern);
-		FeHandleError(context, message);
+		lisp_raise_invalid_regexp(context, pattern);
 	}
 }
 
@@ -581,7 +746,7 @@ FeObject *native_regexp_quote(FeContext *context, FeObject *arguments)
 	if (!block) {
 		FeHandleError(context, "out of memory");
 	}
-	state.scratch = block;
+	park_scratch(block);
 	(void)FeCopyStringBytes(context, object, block, length);
 	quoted = block + length;
 	for (i = 0; i < length; i++) {
@@ -590,8 +755,7 @@ FeObject *native_regexp_quote(FeContext *context, FeObject *arguments)
 		}
 		quoted[out++] = block[i];
 	}
-	quoted[out] = '\0';
-	result = FeMakeString(context, quoted);
+	result = FeMakeStringBytes(context, quoted, out);
 	release_scratch();
 	return result;
 }
@@ -626,7 +790,7 @@ FeObject *native_looking_at(FeContext *context, FeObject *arguments)
 
 	lisp_check_string(context, pattern_object);
 	pattern = copy_fe_string(context, pattern_object, &pattern_len);
-	state.scratch = pattern;
+	park_scratch(pattern);
 	FeRequireNoArguments(context, arguments);
 	lisp_compile_or_raise(context, &rx, pattern);
 	release_scratch();

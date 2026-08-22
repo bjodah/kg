@@ -1,0 +1,7 @@
+{
+ "id": "frontier-assoc-string-element-shapes",
+ "setup": [],
+ "expr": "(list (assoc-string \"b\" (list (cons \"a\" 1) (cons \"b\" 2))) (assoc-string \"z\" (list (cons \"a\" 1))) (assoc-string \"a\" (list \"a\" \"b\")) (assoc-string \"a\" (list (quote a) (quote b))) (assoc-string (quote a) (list (cons \"a\" 1))) (assoc-string \"a\" (list (cons (quote a) 1))))",
+ "note": "KEY AND ELEMENT COERCION, the whole matrix in one value. Emacs answers ((\"b\" . 2) nil \"a\" a (\"a\" . 1) (a . 1)). An element may be a CONS (compared by its car) or a BARE string or symbol (compared as itself), and either way the ELEMENT is what comes back, not the key and not the cdr -- s.el's `s--aget' takes the `cdr' of this. A SYMBOL on either side is coerced with `symbol-name': key `a' finds element \"a\", and key \"a\" finds a cons whose car is `a'. kg answers `void-function' at this pin. THIS CASE FLIPPED in the frontier demand phase: `assoc-string' is prelude Lisp now and answers the whole coercion matrix, the ELEMENT coming back in every shape.",
+ "expect": "agree"
+}

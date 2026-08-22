@@ -35,6 +35,6 @@ export CFLAGS="-Werror -Wall -Wextra -pedantic -fsanitize=memory -fsanitize-memo
 # measurement here that would justify a number.  A pre-set environment
 # value still wins, as everywhere else.
 PTY_TIMEOUT=${PTY_TIMEOUT_MSAN:-90}
-export PTY_TIMEOUT PTY_STARTUP_DELAY_ADD PTY_KEY_DELAY_ADD PTY_SETTLE_FLOOR PTY_JOBS
+export PTY_TIMEOUT PTY_STARTUP_DELAY_ADD PTY_ORACLE_STARTUP_DELAY_ADD PTY_KEY_DELAY_ADD PTY_SETTLE_FLOOR PTY_JOBS
 
 "${MAKE_PARALLEL[@]}" -B check

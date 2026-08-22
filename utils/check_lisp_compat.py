@@ -36,6 +36,8 @@ import json
 import re
 import subprocess
 import sys
+import argparse
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -204,6 +206,48 @@ def check_source_coverage(fe_data: dict, kg_data: dict) -> list[str]:
 
 
 PHASE_RE = re.compile(r"Phase \d")
+
+VALID_FAILURE_MODES = {
+	"silent-wrong",
+	"loud-unsupported",
+	"intentional-policy",
+	"resource-bound",
+}
+
+
+def check_failure_mode(data: dict, path: Path) -> list[str]:
+	"""Every non-supported feature row must name exactly one failure_mode.
+
+	Phase M3 step 1 (master plan section 7) requires a `failure_mode` on
+	every row whose status is not `supported`, so the debt dashboard has
+	honest per-case classification: `silent-wrong` (kg gives a plausible
+	but incorrect answer), `loud-unsupported` (kg refuses/errors by
+	name), `intentional-policy` (a documented deliberate divergence), or
+	`resource-bound` (correct within stated bounds).  A row that lost its
+	mode, or that carries a value this gate does not define, fails -- the
+	whole point is that the field cannot drift back to absent or to a
+	spelling nobody gated.
+	"""
+	errors = []
+	for feature in data.get("features", []):
+		if feature.get("status") == "supported":
+			continue
+		fid = feature.get("id")
+		try:
+			where = f"{path.relative_to(ROOT)}:{fid}"
+		except ValueError:
+			where = f"{path}:{fid}"
+		mode = feature.get("failure_mode")
+		if mode is None:
+			errors.append(
+				f"{where}: status={feature.get('status')!r} has no "
+				f"failure_mode (required by master plan M3.1)")
+			continue
+		if mode not in VALID_FAILURE_MODES:
+			errors.append(
+				f"{where}: failure_mode is {mode!r}, not one of "
+				f"{sorted(VALID_FAILURE_MODES)}")
+	return errors
 
 
 def check_planned_names_phase(data: dict, path: Path) -> list[str]:
@@ -375,7 +419,117 @@ def check_orphan_snapshots(kg_data: dict) -> list[str]:
 	return errors
 
 
+def _display(path: Path) -> str:
+	"""A path for error messages, relative to ROOT when it is under it.
+
+	The self-test builds its temp corpus outside ROOT, so a bare
+	relative_to(ROOT) would raise there; fall back to the absolute path.
+	"""
+	try:
+		return str(path.relative_to(ROOT))
+	except ValueError:
+		return str(path)
+
+
+def check_case_identity(corpus_root: Path) -> list[str]:
+	"""cases/NAME.json must carry id == NAME.
+
+	Corpus identity, not decoration (master plan M0.4): diagnostics,
+	snapshots, manifest rows and filenames must name the same
+	experiment. A renamed U.1a case whose body moved but whose embedded
+	`id` kept the old spelling would otherwise diverge from the
+	features.json entry that names it and the oracle snapshot keyed by
+	its new filename, and nothing downstream would notice.
+	"""
+	cases_dir = corpus_root / "cases"
+	errors = []
+	if not cases_dir.is_dir():
+		return errors
+	for path in sorted(cases_dir.glob("*.json")):
+		try:
+			data = json.loads(path.read_text(encoding="utf-8"))
+		except json.JSONDecodeError as exc:
+			errors.append(
+				f"{path.relative_to(ROOT)}: not valid JSON "
+				f"({exc})")
+			continue
+		embedded = data.get("id")
+		if embedded != path.stem:
+			errors.append(
+				f"{_display(path)}: embedded id is "
+				f"{embedded!r} but the file is named {path.stem!r} "
+				f"(cases/NAME.json requires id == NAME)")
+	return errors
+
+
+def check_oracle_identity(corpus_root: Path) -> list[str]:
+	"""oracle/NAME.json must carry case == NAME.
+
+	The mirror of check_case_identity for the snapshot side: a snapshot
+	keyed by a renamed filename but still naming the old case would claim
+	the pinned Emacs answered an experiment nobody runs anymore.
+	"""
+	oracle_dir = corpus_root / "oracle"
+	errors = []
+	if not oracle_dir.is_dir():
+		return errors
+	for path in sorted(oracle_dir.glob("*.json")):
+		try:
+			data = json.loads(path.read_text(encoding="utf-8"))
+		except json.JSONDecodeError as exc:
+			errors.append(
+				f"{path.relative_to(ROOT)}: not valid JSON "
+				f"({exc})")
+			continue
+		embedded = data.get("case")
+		if embedded != path.stem:
+			errors.append(
+				f"{_display(path)}: embedded case is "
+				f"{embedded!r} but the file is named {path.stem!r} "
+				f"(oracle/NAME.json requires case == NAME)")
+	return errors
+
+
+def check_snapshot_count(kg_data: dict, corpus_root: Path) -> list[str]:
+	"""Every comparison=emacs case has exactly one matching snapshot.
+
+	The manifest alone cannot name a missing snapshot (it names a case,
+	not its existence), so the structural checker owns that too: a case
+	no oracle file backs is currently only a SKIP in the runtime runner,
+	which is how a renamed case can silently lose its pinned contract.
+	A snapshot directory keyed by case id can hold at most one file, so
+	"at least one" and "exactly one" are the same check here; the
+	orphan rule in check_orphan_snapshots is the other half (no extra).
+	"""
+	wanted = {
+		cid
+		for feature in kg_data.get("features", [])
+		if feature.get("comparison") == "emacs"
+		for cid in (feature.get("cases") or [])
+	}
+	oracle_dir = corpus_root / "oracle"
+	have = {p.stem for p in oracle_dir.glob("*.json")}
+	errors = []
+	for cid in sorted(wanted):
+		if cid not in have:
+			errors.append(
+				f"{_display(corpus_root)}/oracle/{cid}.json: "
+				f"no oracle snapshot for comparison=emacs case "
+				f"{cid!r} (every such case needs exactly one)")
+	return errors
+
+
 def main() -> int:
+	parser = argparse.ArgumentParser(description=__doc__)
+	parser.add_argument("--self-test", action="store_true",
+			    help="prove the corpus-identity and snapshot-count "
+				 "rules fail on the deliberate violations, in "
+				 "a temp corpus; touches no corpus file")
+	args = parser.parse_args()
+
+	if args.self_test:
+		return self_test()
+
 	errors: list[str] = []
 
 	errors += run_fe_checker(KG_MANIFEST, FE_MANIFEST)
@@ -388,19 +542,177 @@ def main() -> int:
 	errors += check_planned_names_phase(fe_data, FE_MANIFEST)
 	errors += check_planned_names_phase(kg_data, KG_MANIFEST)
 	errors += check_defcustom(kg_data)
+	errors += check_failure_mode(fe_data, FE_MANIFEST)
+	errors += check_failure_mode(kg_data, KG_MANIFEST)
 	errors += check_orphan_snapshots(kg_data)
 	errors += check_kg_test_targets(kg_data, KG_MANIFEST)
 	errors += check_kg_test_targets(fe_data, FE_MANIFEST)
+	errors += check_case_identity(KG_MANIFEST.parent)
+	errors += check_oracle_identity(KG_MANIFEST.parent)
+	errors += check_snapshot_count(kg_data, KG_MANIFEST.parent)
 
 	total = len(fe_data.get("features", [])) + len(kg_data.get("features", []))
 	print(f"lisp compat check: {total} feature(s) across both manifests, "
 	      f"{len(errors)} problem(s)")
+
+	from collections import Counter
+	fe_counts = Counter(
+		f.get("failure_mode") for f in fe_data.get("features", [])
+		if f.get("status") != "supported")
+	kg_counts = Counter(
+		f.get("failure_mode") for f in kg_data.get("features", [])
+		if f.get("status") != "supported")
+	order = ["silent-wrong", "loud-unsupported",
+		 "intentional-policy", "resource-bound"]
+	def fmt(c):
+		return " ".join(f"{m}:{c.get(m, 0)}" for m in order)
+	print(f"failure_mode dashboard: "
+	      f"kg={{{fmt(kg_counts)}}} fe={{{fmt(fe_counts)}}}")
 	if errors:
 		print("FAIL:", file=sys.stderr)
 		for line in errors:
 			print(f"  {line}", file=sys.stderr)
 		return 1
 	return 0
+
+
+def self_test() -> int:
+	"""Prove the corpus-identity and snapshot-count rules actually fail.
+
+	The gate this script is has to be shown failing, or "0 problems"
+	means nothing (master plan M0.4). A temp corpus is built with one
+	good case, one good oracle, one good emacs case backed by a
+	snapshot, and the three deliberate violations; the rules must flag
+	each violation and must leave the good files alone.  Touches no
+	corpus file.
+	"""
+	with tempfile.TemporaryDirectory() as tmp:
+		root = Path(tmp)
+		(root / "cases").mkdir()
+		(root / "oracle").mkdir()
+
+		good_case = root / "cases" / "good-case.json"
+		good_case.write_text(
+			json.dumps({"id": "good-case", "expr": "1"}),
+			encoding="utf-8")
+		bad_case = root / "cases" / "bad-case.json"
+		bad_case.write_text(
+			json.dumps({"id": "wrong-id", "expr": "1"}),
+			encoding="utf-8")
+
+		good_oracle = root / "oracle" / "good-case.json"
+		good_oracle.write_text(
+			json.dumps({"schema": "fe-compat-oracle/1",
+				    "case": "good-case",
+				    "emacs_version": "self-test",
+				    "record": {"kind": "value",
+					       "printed": "1"}}),
+			encoding="utf-8")
+		bad_oracle = root / "oracle" / "bad-oracle.json"
+		bad_oracle.write_text(
+			json.dumps({"schema": "fe-compat-oracle/1",
+				    "case": "wrong-case",
+				    "emacs_version": "self-test",
+				    "record": {"kind": "value",
+					       "printed": "1"}}),
+			encoding="utf-8")
+
+		kg_data = {
+			"features": [{
+				"id": "self-test-feature",
+				"comparison": "emacs",
+				"cases": ["good-case", "no-snapshot-case"],
+			}],
+		}
+
+		case_errors = check_case_identity(root)
+		oracle_errors = check_oracle_identity(root)
+		snapshot_errors = check_snapshot_count(kg_data, root)
+
+		ok = True
+
+		def expect_flagged(errors, needle, what):
+			nonlocal ok
+			if not any(needle in e for e in errors):
+				print(f"FAIL: {what} was not flagged by the rule",
+				      file=sys.stderr)
+				for line in errors:
+					print(f"  {line}", file=sys.stderr)
+				ok = False
+
+		def expect_clean(errors, needle, what):
+			nonlocal ok
+			if any(needle in e for e in errors):
+				print(f"FAIL: {what} was wrongly flagged by the "
+				      f"rule", file=sys.stderr)
+				for line in errors:
+					print(f"  {line}", file=sys.stderr)
+				ok = False
+
+		expect_flagged(case_errors, "bad-case", "a case id != filename")
+		expect_clean(case_errors, "good-case",
+			     "a case whose id matches its filename")
+		expect_flagged(oracle_errors, "bad-oracle",
+			       "an oracle case != filename")
+		expect_clean(oracle_errors, "good-oracle",
+			     "an oracle whose case matches its filename")
+		expect_flagged(snapshot_errors, "no-snapshot-case",
+			       "an emacs case with no snapshot")
+		expect_clean(snapshot_errors, "good-case",
+			     "an emacs case that has a snapshot")
+
+		# failure_mode gate (master plan M3.1): a non-supported row
+		# missing the field, or carrying an unknown value, must fail;
+		# a row with a valid mode must be left alone.
+		manifest_ok = root / "manifest-ok.json"
+		manifest_ok.write_text(json.dumps({
+			"features": [{
+				"id": "ok-row",
+				"status": "divergent",
+				"failure_mode": "silent-wrong",
+			}]}), encoding="utf-8")
+		manifest_missing = root / "manifest-missing.json"
+		manifest_missing.write_text(json.dumps({
+			"features": [{
+				"id": "missing-row",
+				"status": "divergent",
+			}]}), encoding="utf-8")
+		manifest_bad = root / "manifest-bad.json"
+		manifest_bad.write_text(json.dumps({
+			"features": [{
+				"id": "bad-row",
+				"status": "divergent",
+				"failure_mode": "totally-wrong",
+			}]}), encoding="utf-8")
+
+		ok_errors = check_failure_mode(
+			json.loads(manifest_ok.read_text()), manifest_ok)
+		missing_errors = check_failure_mode(
+			json.loads(manifest_missing.read_text()), manifest_missing)
+		bad_errors = check_failure_mode(
+			json.loads(manifest_bad.read_text()), manifest_bad)
+
+		expect_clean(ok_errors, "ok-row",
+			     "a non-supported row with a valid failure_mode")
+		expect_flagged(missing_errors, "missing-row",
+			       "a non-supported row with no failure_mode")
+		expect_flagged(bad_errors, "bad-row",
+			       "a non-supported row with an unknown failure_mode")
+
+		if not ok:
+			return 1
+		print("self-test: a case id != filename fails the rule")
+		print("self-test: an oracle case != filename fails the rule")
+		print("self-test: a comparison=emacs case with no snapshot "
+		      "fails the rule")
+		print("self-test: correctly-formed files are left untouched")
+		print("self-test: a non-supported row with no failure_mode "
+		      "fails the rule")
+		print("self-test: a non-supported row with an unknown "
+		      "failure_mode fails the rule")
+		print("self-test: a non-supported row with a valid "
+		      "failure_mode is left untouched")
+		return 0
 
 
 if __name__ == "__main__":

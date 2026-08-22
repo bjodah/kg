@@ -1,0 +1,8 @@
+{
+ "id": "sel-frontier-vector-literal",
+ "setup": [
+  "(setq sel-frontier-path (if (fboundp 'expand-file-name) (expand-file-name \"test/lisp-compat/fixtures/sel-frontier.el\") \"test/lisp-compat/fixtures/sel-frontier.el\"))"
+ ],
+ "expr": "(condition-case e (load sel-frontier-path) (error (error-message-string e)))",
+ "note": "Phase C3 pinned the frontier a package-shaped file stopped kg at; PHASE 24 MOVED IT and this case moved with the behaviour, in the same commit. test/lisp-compat/fixtures/sel-frontier.el reproduces s.el's blocker SHAPE (an autoload declaration in the header, a page separator between sections, a `declare' debug spec carrying a vector literal) without copying a line of it. Emacs loads the file and so does kg now, so the handler never runs and both sides answer t; the checked-in expected error it used to answer was \"unsupported read syntax: vector brackets\"."
+}

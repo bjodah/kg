@@ -1,0 +1,7 @@
+{
+ "id": "frontier-s-reverse-concat-blocker",
+ "setup": [],
+ "expr": "(condition-case e (list (concat (nreverse (string-to-list \"abc\"))) (concat (list 97 98))) (error (cons (car e) (cdr e))))",
+ "note": "THE SECOND MISSING PIECE, which the frontier probe could not see because it stops at the first raise. Emacs answers (\"cba\" \"ab\"); kg answers (wrong-type-argument stringp (99 98 97)). Once `multibyte-string-p' exists and answers nil, `s-reverse' runs its else branch and lands on `(concat LIST-OF-CHARACTERS)' -- kg's `concat' takes strings only, so binding the predicate alone leaves s-reverse raising, one name further along. So the demand behind `multibyte-string-p' is TWO names deep and F.1 has to bind both; `string-to-list' and `nreverse' are already kg's and already agree. It also fixes what the reversal MEANS in kg: `string-to-list' decodes UTF-8 into codepoints, so the concat arm reassembles characters and kg's `s-reverse' reverses BY CHARACTER, not by byte, which corrects what this phase's plan predicted. THIS CASE FLIPPED in the frontier demand phase: `concat' has its list-of-characters arm now, encoding each code as UTF-8, so both elements answer what Emacs answers.",
+ "expect": "agree"
+}

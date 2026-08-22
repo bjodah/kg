@@ -1,0 +1,11 @@
+{
+  "id": "s-empty-trim",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-trim \"\")",
+  "expect": "agree",
+  "note": "Empty string. Both return \"\"."
+}

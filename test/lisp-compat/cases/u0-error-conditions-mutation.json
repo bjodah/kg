@@ -1,0 +1,6 @@
+{
+ "id": "u0-error-conditions-mutation",
+ "setup": [],
+ "expr": "(progn (define-error 'u0-mut \"old\") (put 'u0-mut 'error-conditions (list 'u0-mut 'u0-mid)) (list (condition-case e (signal 'u0-mut nil) (u0-mid 'caught) (error 'error)) (get 'u0-mut 'error-conditions)))",
+ "note": "Mutation after definition is live: replacing the plist changes both signal validity and handler matching."
+}

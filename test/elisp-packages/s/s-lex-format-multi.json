@@ -1,0 +1,11 @@
+{
+  "id": "s-lex-format-multi",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(let ((a \"x\") (b \"y\")) (s-lex-format \"${a}-${b}\"))",
+  "expect": "agree",
+  "note": "s-lex-format with MULTIPLE bindings (exit-gate requirement). Both return \"x-y\"."
+}

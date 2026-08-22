@@ -1,0 +1,6 @@
+{
+ "id": "phase24-internal-equal-vectors",
+ "setup": [],
+ "expr": "(list (internal--equal-vectors [1 [2]] [1 [2]]) (internal--equal-vectors [1] [1 2]) (internal--equal-vectors [] []))",
+ "note": "kg-only helper: `equal''s vector arm on its own -- recursive on elements, and an unequal length answers nil before an element is read. Reached through `equal' in user code; vector-equal-structural and vector-equal-nested are the oracle-compared contract."
+}

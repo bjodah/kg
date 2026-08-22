@@ -22,9 +22,11 @@ fi
 if [ "${CI_PARALLEL}" = 1 ]; then
 	JOBS=${JOBS:-$((CI_NPROC / CI_PARALLEL_LANES > 0 ? CI_NPROC / CI_PARALLEL_LANES : 1))}
 	PTY_TIMEOUT=${PTY_TIMEOUT:-40}
+	KG_TEST_TIME_SCALE=${KG_TEST_TIME_SCALE:-30}
 else
 	JOBS=${JOBS:-${CI_NPROC}}
 	PTY_TIMEOUT=${PTY_TIMEOUT:-20}
+	KG_TEST_TIME_SCALE=${KG_TEST_TIME_SCALE:-1}
 fi
 
 # The delay adds do not vary by mode, measurement having killed the
@@ -34,6 +36,7 @@ fi
 # so it cannot push an inter-key gap below the 30 ms paste threshold in
 # kbd.c.  PTY_TIMEOUT still doubles under --parallel, as failure headroom.
 PTY_STARTUP_DELAY_ADD=${PTY_STARTUP_DELAY_ADD:-0.3}
+PTY_ORACLE_STARTUP_DELAY_ADD=${PTY_ORACLE_STARTUP_DELAY_ADD:-$([ "${CI_PARALLEL}" = 1 ] && echo 2.0 || echo 0.5)}
 PTY_KEY_DELAY_ADD=${PTY_KEY_DELAY_ADD:-0.01}
 
 # What the key add cannot buy, bought once per case instead of once per

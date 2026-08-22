@@ -1,0 +1,6 @@
+{
+ "id": "string25-save-match-data-restores",
+ "setup": [],
+ "expr": "(progn (string-match \"b\" \"abc\") (list (save-match-data (string-match \"cc\" \"xxxcc\") (list (match-beginning 0) (match-end 0))) (match-beginning 0) (match-end 0)))",
+ "note": "`save-match-data` in one expression that shows BOTH halves. Emacs answers ((3 5) 1 2): inside the body the clobbering `string-match` is visible, and after it the outer (1 2) is back. A macro that restored too eagerly would answer ((1 2) 1 2) and one that did not restore at all ((3 5) 3 5), so this single value tells all three apart. kg answers `void-function`. (Emacs' own expansion, measured, is a `let` over `(match-data)` and an `unwind-protect` calling `(set-match-data SAVED t)`, which is why the two accessors are in this group too -- but kg is free to implement the macro any way that answers this.)"
+}

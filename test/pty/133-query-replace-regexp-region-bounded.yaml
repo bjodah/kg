@@ -1,0 +1,23 @@
+name: query-replace-regexp-region-bounded
+filename: region-bounded-regexp.txt
+initial: |
+  axxxb
+# The region covers "axx" only.  The pattern's FIRST alternative reaches
+# the "b" outside the region, so a bounded matcher has to hand the
+# characters back, try the second alternative, and go on to later starts;
+# kg used to run the pattern against the whole row, see the over-region
+# match, and stop with nothing replaced (adversarial-review Finding 2).
+keys:
+  - C-SPC
+  - C-f
+  - C-f
+  - C-f
+  - "M-x"
+  - query-replace-regexp
+  - RET
+  - 'a.*b\|x'
+  - RET
+  - Q
+  - RET
+  - "!"
+oracle: emacs

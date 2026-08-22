@@ -1,0 +1,7 @@
+{
+ "id": "r2-regexp-opt-quantified",
+ "setup": [],
+ "expr": "(let ((re (regexp-opt (list \"ab\" \"a\")))) (list (string-match (concat \"\\\\(?:\" re \"\\\\)+z\") \"abaz\") (match-end 0)))",
+ "note": "THE RESULT UNDER A QUANTIFIER, inside a caller's own shy group -- one atom nested in another.  Emacs answers (0 4).  Note that kg is STRICTLY safer than Emacs here and the case cannot say so: Emacs' one-member answer is bare (`(regexp-opt '(\"ab\"))' is \"ab\"), so \"ab\" + \"*\" repeats the `b' there, while kg's always-wrapped answer repeats the whole atom.  The contract this group freezes is behaviour under composition, which both satisfy for the inputs it names.",
+ "expect": "agree"
+}

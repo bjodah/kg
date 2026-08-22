@@ -1,0 +1,6 @@
+{
+ "id": "r2-bound-forward-exact-end",
+ "setup": [],
+ "expr": "(with-temp-buffer (insert \"axxxb\") (list (progn (goto-char (point-min)) (re-search-forward \"axx\" 4 t)) (progn (goto-char (point-min)) (re-search-forward \"axx\" 3 t))))",
+ "note": "THE BOUNDARY ITSELF.  A match ending exactly AT BOUND is found; one needing a single byte more is not.  Emacs answers (4 nil).  A fixed-length pattern is used on purpose: nothing here can be explained by backtracking, so it pins the comparison and not the search strategy."
+}

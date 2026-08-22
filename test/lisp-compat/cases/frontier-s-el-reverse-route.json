@@ -1,0 +1,10 @@
+{
+ "id": "frontier-s-el-reverse-route",
+ "setup": [
+  "(setq s-el-path (if (fboundp 'expand-file-name) (expand-file-name \"external/elpa/s.el\") \"external/elpa/s.el\"))",
+  "(condition-case e (load s-el-path) (error nil))"
+ ],
+ "expr": "(condition-case e (list (s-reverse \"abc\") (s-reverse \"\") (s-reverse \"héllo\")) (void-function (car (cdr e))))",
+ "note": "THE PACKAGE'S OWN CALL. Emacs answers (\"cba\" \"\" \"olléh\") -- and the third element is the one to read twice: Emacs reaches it through the MULTIBYTE branch (grapheme clusters, `ucs-normalize') while kg will reach the same answer through the else branch, because kg's `string-to-list' is already character-based. So this case is expected to FLIP to agreement in F.1 even though frontier-multibyte-string-p-non-ascii beside it stays divergent forever: kg gets the right answer from the wrong branch, and the input where that stops being true is frontier-s-reverse-grapheme-cluster. kg answers the missing NAME, `multibyte-string-p'. THIS CASE FLIPPED in the frontier demand phase: kg reaches Emacs' answer through the ELSE branch, because `string-to-list' decodes UTF-8 and `concat' now re-encodes it, so the reversal is by character.",
+ "expect": "agree"
+}

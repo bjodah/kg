@@ -1,0 +1,6 @@
+{
+ "id": "frontier-compare-strings-ignore-case",
+ "setup": [],
+ "expr": "(list (compare-strings \"ABC\" nil nil \"abc\" nil nil t) (compare-strings \"ABC\" nil nil \"abc\" nil nil nil) (compare-strings \"É\" nil nil \"é\" nil nil t) (compare-strings \"STRASSE\" nil nil \"straße\" nil nil t))",
+ "note": "THE FLAG THE FREEZE HAS TO DECIDE, measured on both sides of ASCII. Emacs answers (t -1 t -5): IGNORE-CASE folds ASCII, folds non-ASCII too (É and é are `t'), and does NOT do multi-character case expansion (ß does not fold to `ss', so \"STRASSE\" against \"straße\" mismatches at the fifth character, -5). THE DECISION, MADE: kg FOLDS ASCII ONLY, and the third element is a RECORDED DIVERGENCE that will still diverge after F.1. Two things decide it and neither is taste. First, kg's own case surface is already ASCII-only and measured -- (upcase \"héllo\") is \"HéLLO\" here and \"HÉLLO\" in Emacs (native-upcase) -- so an IGNORE-CASE that folded É would make `compare-strings' the ONLY name in kg that knows a non-ASCII case pair, which is a Unicode case table arriving through a flag rather than through a decision. Second, s.el passes no fold at all from `s-shared-start' or `s-shared-end', and passes one from `s-ends-with?' only when its own caller asks; the demand behind this phase is the second element, not the third. kg answers `void-function' at this pin."
+}

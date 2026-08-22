@@ -1,0 +1,6 @@
+{
+ "id": "vector-mapcar",
+ "setup": [],
+ "expr": "(mapcar #'1+ [1 2 3])",
+ "note": "`mapcar' over a vector returns a LIST, not a vector: (2 3 4). One of the prelude combinators 24.2 has to generalise, and the return type is the half a `just make it work' change gets wrong by returning the input type back."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "u0-regexp-opt-paren-symbols-are-boundaries",
+ "setup": [],
+ "expr": "(let ((re (regexp-opt (list \"ab\") (quote symbols)))) (list (string-match re \"x ab y\") (match-end 0) (string-match re \"xaby\")))",
+ "note": "PAREN `symbols', measured beside `words' because the two are NOT the same wrapper: Emacs answers (2 4 nil) with \\\\_< ... \\\\_>, symbol boundaries rather than word boundaries. The third element repeats the inside-a-longer-run refusal. U.1a produces Emacs' exact text, \"\\\\_<\\\\(ab\\\\)\\\\_>\", which is why this case still fails a `symbols'-aliased-to-`words' implementation; what stays divergent is the MATCH, because kg's engine has neither spelling and reads both as ordinary characters. That engine work is Phase 29's U.2."
+}

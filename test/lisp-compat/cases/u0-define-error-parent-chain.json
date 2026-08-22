@@ -1,0 +1,6 @@
+{
+ "id": "u0-define-error-parent-chain",
+ "setup": [],
+ "expr": "(progn (define-error 'u0-e2 \"Base\") (define-error 'u0-e3 \"Child\" 'u0-e2) (list (get 'u0-e3 'error-conditions) (condition-case e (signal 'u0-e3 (list 1)) (u0-e2 (list 'parent (car e) (cdr e))))))",
+ "note": "THE PARENT ARGUMENT, and the behaviour it buys. Emacs answers ((u0-e3 u0-e2 error) (parent u0-e3 (1))): the child's conditions are its own symbol CONSED ONTO THE PARENT'S LIST -- read at define time, not chased at signal time -- and a `condition-case' naming the PARENT catches the child, with the condition object still carrying the child's own symbol and data. That last point is the one a handler depends on. kg answers `void-function' at this pin."
+}

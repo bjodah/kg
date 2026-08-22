@@ -385,6 +385,57 @@ static void test_caret_anchors_at_line_start(void)
 	CHECK(match.spans[0].end == 3);
 }
 
+/* Emacs' subject anchors, through kg's own seam.  "\\`" and "\\'" are the
+ * SAME two assertions "^" and "$" already make here -- one node each in
+ * fe/tiny-regex-c -- so everything this asserts of them is asserted of
+ * the anchors above too.  Until Phase 26 the engine's escaped-character
+ * fall-through made a literal '`' or '\'' of them, which is why the
+ * first two lines matter: the pattern used to MATCH the punctuation
+ * rather than fail. */
+static void test_subject_anchors(void)
+{
+	struct kg_regex rx;
+	struct kg_match match;
+
+	CHECK(kg_regex_compile(&rx, "\\`abc", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "x`abc", 0, &match)
+	    == KG_REGEX_NOMATCH);
+	CHECK(kg_regex_match_forward(&rx, "abcd", 0, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0);
+	CHECK(match.spans[0].end == 3);
+	/* Like "^", it holds at the START OF THE ROW and not at the offset
+	 * the scan resumes from. */
+	CHECK(
+	    kg_regex_match_forward(&rx, "abcd", 1, &match) == KG_REGEX_NOMATCH);
+
+	CHECK(kg_regex_compile(&rx, "abc\\'", 0) == KG_REGEX_OK);
+	CHECK(
+	    kg_regex_match_forward(&rx, "abcd", 0, &match) == KG_REGEX_NOMATCH);
+	CHECK(kg_regex_match_forward(&rx, "xabc", 0, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 1);
+	CHECK(match.spans[0].end == 4);
+
+	/* The whole-subject idiom, and the zero-width reading of it: an
+	 * implementation that consumed a character here would fail the
+	 * empty subject and the doubled anchor. */
+	CHECK(kg_regex_compile(&rx, "\\`a\\'", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "a", 0, &match) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "ab", 0, &match) == KG_REGEX_NOMATCH);
+	CHECK(kg_regex_compile(&rx, "\\`\\'", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "", 0, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0);
+	CHECK(match.spans[0].end == 0);
+	CHECK(kg_regex_compile(&rx, "\\`\\`a", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "a", 0, &match) == KG_REGEX_OK);
+
+	/* Where it can never hold, it matches nothing rather than the
+	 * punctuation it is spelled with. */
+	CHECK(kg_regex_compile(&rx, "a\\`b", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "ab", 0, &match) == KG_REGEX_NOMATCH);
+	CHECK(
+	    kg_regex_match_forward(&rx, "a`b", 0, &match) == KG_REGEX_NOMATCH);
+}
+
 /* "?" is greedy, as it is in Emacs. */
 static void test_question_mark_is_greedy(void)
 {
@@ -861,6 +912,259 @@ static void test_group_repeat_ceiling_is_reported(void)
 	CHECK(match.spans[1].start == 0 && match.spans[1].end == 0);
 }
 
+/* ---- the bounded window (adversarial-review Finding 2) --------------
+ *
+ * Every expectation below is GNU Emacs 31.0.91's own answer for the same
+ * subject and the same window, measured before this seam was written:
+ * `re-search-forward'/`re-search-backward' with BOUND at the byte the
+ * limit names, converted from Emacs' 1-based positions to kg's byte
+ * offsets.  The subject is "axxxb" throughout, so one row can carry a
+ * greedy branch that overshoots, an alternative that fits, and the two
+ * anchors. */
+static void test_match_window_forward(void)
+{
+	struct kg_regex rx;
+	struct kg_match match, unbounded;
+	const char *text = "axxxb";
+
+	/* THE CANONICAL CASE.  The preferred branch reaches the `b' at byte
+	 * 4 and cannot fit under the limit, so the SECOND alternative wins
+	 * at a LATER start -- which a filter over the unbounded answer can
+	 * never reach, because that answer is the whole row.  Emacs:
+	 * (re-search-forward "a.*b\\|x" 4 t) is 3. */
+	CHECK(kg_regex_compile(&rx, "a.*b\\|x", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward_bounded(&rx, text, 0, 3, &match)
+	    == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 1 && match.spans[0].end == 2);
+	CHECK(kg_regex_match_forward(&rx, text, 0, &unbounded) == KG_REGEX_OK);
+	CHECK(unbounded.spans[0].start == 0 && unbounded.spans[0].end == 5);
+
+	/* "No limit", both spellings, is the unbounded call byte for byte. */
+	CHECK(kg_regex_match_forward_bounded(
+		  &rx, text, 0, KG_REGEX_LIMIT_NONE, &match)
+	    == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0 && match.spans[0].end == 5);
+	CHECK(kg_regex_match_forward_bounded(&rx, text, 0, 5, &match)
+	    == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0 && match.spans[0].end == 5);
+	CHECK(kg_regex_match_forward_bounded(&rx, text, 0, 99, &match)
+	    == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0 && match.spans[0].end == 5);
+
+	/* Ending exactly AT the limit is a match; needing one more byte is
+	 * not.  Emacs: bound 4 is 4, bound 3 is nil. */
+	CHECK(kg_regex_compile(&rx, "axx", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward_bounded(&rx, text, 0, 3, &match)
+	    == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0 && match.spans[0].end == 3);
+	CHECK(kg_regex_match_forward_bounded(&rx, text, 0, 2, &match)
+	    == KG_REGEX_NOMATCH);
+
+	/* A greedy repetition hands characters back at the limit rather
+	 * than failing.  Emacs: (2 3) and (4 5) for bounds 3 and 6. */
+	CHECK(kg_regex_compile(&rx, "ax*", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward_bounded(&rx, text, 0, 2, &match)
+	    == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0 && match.spans[0].end == 2);
+	CHECK(kg_regex_match_forward_bounded(&rx, text, 0, 5, &match)
+	    == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0 && match.spans[0].end == 4);
+
+	/* An empty alternative is what is left when the consuming one
+	 * cannot fit.  Emacs: (re-search-forward "a.*b\\|" 4 t) is 1. */
+	CHECK(kg_regex_compile(&rx, "a.*b\\|", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward_bounded(&rx, text, 0, 3, &match)
+	    == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0 && match.spans[0].end == 0);
+
+	/* THE LIMIT IS NOT A SHORTER SUBJECT.  `\'` asks about the row's own
+	 * terminator at byte 5, never about the limit, so neither anchored
+	 * pattern matches under one -- and the truncation that would answer
+	 * differently is spelled out beside it.  Emacs: nil, nil, 6. */
+	CHECK(kg_regex_compile(&rx, "x\\'", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward_bounded(&rx, text, 0, 4, &match)
+	    == KG_REGEX_NOMATCH);
+	CHECK(kg_regex_match_forward_bounded(&rx, "axxx", 0, 4, &match)
+	    == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 3 && match.spans[0].end == 4);
+	CHECK(kg_regex_compile(&rx, "b\\'", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward_bounded(&rx, text, 0, 4, &match)
+	    == KG_REGEX_NOMATCH);
+	CHECK(kg_regex_match_forward_bounded(&rx, text, 0, 5, &match)
+	    == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 4 && match.spans[0].end == 5);
+	/* and `\`` still asks about the row's start, not the window's */
+	CHECK(kg_regex_compile(&rx, "\\`x", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward_bounded(&rx, text, 1, 3, &match)
+	    == KG_REGEX_NOMATCH);
+
+	/* The refusals the header names. */
+	CHECK(kg_regex_compile(&rx, "x", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward_bounded(&rx, text, 2, 1, &match)
+	    == KG_REGEX_NOMATCH);
+	CHECK(kg_regex_match_forward_bounded(&rx, text, 0, -2, &match)
+	    == KG_REGEX_NOMATCH);
+}
+
+static void test_match_window_backward(void)
+{
+	struct kg_regex rx;
+	struct kg_match match, unbounded;
+	const char *text = "axxxb";
+
+	/* THE CANONICAL BACKWARD CASE, and the reason re.h says to hand the
+	 * same limit to every candidate: at byte 0 the preferred branch
+	 * crosses the limit, so that start yields its shorter branch instead
+	 * of dropping out of the sweep with nothing behind it.  Emacs:
+	 * (goto-char 4) (re-search-backward "a.*b\\|ax" nil t) is 1 with
+	 * match-end 3. */
+	CHECK(kg_regex_compile(&rx, "a.*b\\|ax", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_backward(&rx, text, 3, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0 && match.spans[0].end == 2);
+	CHECK(kg_regex_match_backward_bounded(&rx, text, 0, 3, &match)
+	    == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0 && match.spans[0].end == 2);
+
+	/* Greedy, backward: Emacs stops the repetition at the window's end
+	 * (match-end 4, i.e. byte 3) rather than refusing the start. */
+	CHECK(kg_regex_compile(&rx, "ax*", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_backward(&rx, text, 3, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0 && match.spans[0].end == 3);
+
+	/* The window's LOWER end is the sweep's first candidate start: the
+	 * last `x' is inside [2, 5] and outside [4, 5]. */
+	CHECK(kg_regex_compile(&rx, "x", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_backward_bounded(&rx, text, 2, 5, &match)
+	    == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 3 && match.spans[0].end == 4);
+	CHECK(kg_regex_match_backward_bounded(&rx, text, 4, 5, &match)
+	    == KG_REGEX_NOMATCH);
+
+	/* Anchors, again independent of the window.  Emacs: nil from point
+	 * 4, and 5 for `b\'` from point-max. */
+	CHECK(kg_regex_compile(&rx, "x\\'", 0) == KG_REGEX_OK);
+	CHECK(
+	    kg_regex_match_backward(&rx, text, 3, &match) == KG_REGEX_NOMATCH);
+	CHECK(kg_regex_compile(&rx, "b\\'", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_backward(&rx, text, 5, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 4 && match.spans[0].end == 5);
+
+	/* An empty match exactly AT the window's end is not a match BEFORE
+	 * it -- the one asymmetry between the directions, unchanged by the
+	 * limit reaching the engine. */
+	CHECK(kg_regex_compile(&rx, "x*", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_backward_bounded(&rx, text, 0, 2, &match)
+	    == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 1 && match.spans[0].end == 2);
+	CHECK(kg_regex_match_backward_bounded(&rx, text, 0, 0, &match)
+	    == KG_REGEX_NOMATCH);
+
+	/* "No limit" is the whole row, which is what the unbounded entry
+	 * point has always meant. */
+	CHECK(kg_regex_compile(&rx, "a.*b\\|ax", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_backward(&rx, text, 5, &unbounded) == KG_REGEX_OK);
+	CHECK(kg_regex_match_backward_bounded(
+		  &rx, text, 0, KG_REGEX_LIMIT_NONE, &match)
+	    == KG_REGEX_OK);
+	CHECK(match.spans[0].start == unbounded.spans[0].start
+	    && match.spans[0].end == unbounded.spans[0].end);
+	CHECK(match.spans[0].start == 0 && match.spans[0].end == 5);
+	CHECK(kg_regex_match_backward_bounded(&rx, text, 0, -2, &match)
+	    == KG_REGEX_NOMATCH);
+}
+
+/* Walking every match under a limit, the way a bounded count does: the
+ * resume offset comes from kg_regex_next_offset(), and an empty match at
+ * the limit is an ordinary result that still has to be stepped over. */
+static void test_match_window_empty_iteration(void)
+{
+	struct kg_regex rx;
+	struct kg_match match;
+	const char *text = "axxxb";
+	int len = (int)strlen(text);
+	int expect[3][2] = { { 0, 0 }, { 1, 2 }, { 2, 2 } };
+	int from = 0;
+	int seen = 0;
+
+	CHECK(kg_regex_compile(&rx, "x*", 0) == KG_REGEX_OK);
+	while (from >= 0
+	    && kg_regex_match_forward_bounded(&rx, text, from, 2, &match)
+		== KG_REGEX_OK) {
+		int next;
+
+		CHECK(seen < 3);
+		if (seen < 3) {
+			CHECK(match.spans[0].start == expect[seen][0]);
+			CHECK(match.spans[0].end == expect[seen][1]);
+		}
+		next = kg_regex_next_offset(text, len, &match.spans[0]);
+		CHECK(next > from);
+		from = next;
+		seen++;
+	}
+	/* Three matches, and the walk ends because byte 3 is past the
+	 * window and not because the row ran out. */
+	CHECK(seen == 3);
+	CHECK(from == 3);
+	CHECK(kg_regex_match_forward_bounded(&rx, text, from, 2, &match)
+	    == KG_REGEX_NOMATCH);
+	CHECK(kg_regex_match_forward(&rx, text, from, &match) == KG_REGEX_OK);
+}
+
+/* Shy groups through the adapter (adversarial-review Finding 3's engine
+ * prerequisite).  Every expectation is Emacs 31.0.91's, measured: a shy
+ * group is a group everywhere and a capture nowhere, so the capturing
+ * groups beside it keep the numbers they would have had without it. */
+static void test_shy_groups_through_adapter(void)
+{
+	struct kg_regex rx;
+	struct kg_match match;
+
+	CHECK(kg_regex_compile(&rx, "\\(?:a\\)", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "a", 0, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0 && match.spans[0].end == 1);
+	CHECK(match.nspans == 1); /* the whole match, and no register */
+	/* the misreading this closes: `\(?:a\)' used to match "?:a" */
+	CHECK(kg_regex_match_forward(&rx, "?:a", 0, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 2 && match.spans[0].end == 3);
+
+	/* numbering: the `b' group is capture 1, as in Emacs */
+	CHECK(kg_regex_compile(&rx, "\\(?:a\\)\\(b\\)", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "ab", 0, &match) == KG_REGEX_OK);
+	CHECK(match.nspans == 2);
+	CHECK(match.spans[1].start == 1 && match.spans[1].end == 2);
+
+	/* it bounds an alternation, in the right order */
+	CHECK(kg_regex_compile(&rx, "\\(?:ab\\|a\\)", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "ab", 0, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0 && match.spans[0].end == 2);
+	/* and under a window the second alternative is what fits */
+	CHECK(kg_regex_match_forward_bounded(&rx, "ab", 0, 1, &match)
+	    == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0 && match.spans[0].end == 1);
+
+	/* it takes a quantifier, and it nests around a capture */
+	CHECK(kg_regex_compile(&rx, "\\(?:ab\\)*", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "ababX", 0, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0 && match.spans[0].end == 4);
+	CHECK(kg_regex_compile(&rx, "\\(?:a\\(b\\)\\)", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "ab", 0, &match) == KG_REGEX_OK);
+	CHECK(match.nspans == 2);
+	CHECK(match.spans[1].start == 1 && match.spans[1].end == 2);
+
+	/* `\(?' is RESERVED now: every other spelling is a bad pattern
+	 * rather than the literal characters.  `\(?1:a\)' is Emacs' numbered
+	 * group, which this compiler cannot express and refuses instead of
+	 * misreading (doc/fe-upstream.md carries the divergence). */
+	CHECK(kg_regex_compile(&rx, "\\(?a\\)", 0) == KG_REGEX_BADPAT);
+	CHECK(kg_regex_compile(&rx, "\\(?\\)", 0) == KG_REGEX_BADPAT);
+	CHECK(kg_regex_compile(&rx, "\\(?1:a\\)", 0) == KG_REGEX_BADPAT);
+	/* inside the group the `?' is ordinary, as in Emacs */
+	CHECK(kg_regex_compile(&rx, "\\(?:*\\)", 0) == KG_REGEX_OK);
+	CHECK(kg_regex_match_forward(&rx, "*", 0, &match) == KG_REGEX_OK);
+	CHECK(match.spans[0].start == 0 && match.spans[0].end == 1);
+}
+
 int main(void)
 {
 	RUN(test_compile_valid);
@@ -878,6 +1182,7 @@ int main(void)
 	RUN(test_intervals);
 	RUN(test_posix_class_names);
 	RUN(test_caret_anchors_at_line_start);
+	RUN(test_subject_anchors);
 	RUN(test_question_mark_is_greedy);
 	RUN(test_utf8_glyph_boundaries);
 	RUN(test_utf8_engine_counts_characters);
@@ -891,5 +1196,9 @@ int main(void)
 	RUN(test_capture_group_ceiling);
 	RUN(test_invalid_hex_escape_does_not_break_later_groups);
 	RUN(test_group_repeat_ceiling_is_reported);
+	RUN(test_match_window_forward);
+	RUN(test_match_window_backward);
+	RUN(test_match_window_empty_iteration);
+	RUN(test_shy_groups_through_adapter);
 	return test_summary();
 }

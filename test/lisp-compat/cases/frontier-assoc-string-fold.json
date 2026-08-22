@@ -1,0 +1,6 @@
+{
+ "id": "frontier-assoc-string-fold",
+ "setup": [],
+ "expr": "(list (assoc-string \"A\" (list (cons \"a\" 1))) (assoc-string \"A\" (list (cons \"a\" 1)) t) (assoc-string \"a\" (list (cons \"A\" 1)) t) (assoc-string \"É\" (list (cons \"é\" 1)) t))",
+ "note": "THE FOLD FLAG, the same decision shape as `compare-strings''s and decided the same way. Emacs answers (nil (\"a\" . 1) (\"A\" . 1) (\"é\" . 1)): without CASE-FOLD the comparison is exact, with it the fold works in both directions, and it folds non-ASCII too. THE DECISION, MADE: kg FOLDS ASCII ONLY here as well, and the fourth element is a RECORDED DIVERGENCE that survives F.1 -- one answer for both names, for the reason 26.2 gave when it made `replace-match' and `replace-regexp-in-string' agree about FIXEDCASE: an argument with one name should not mean two things one line apart. s.el reaches `assoc-string' from `s--aget' with NO fold argument at all, so the demand is the first element. kg answers `void-function' at this pin."
+}

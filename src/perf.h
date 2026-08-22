@@ -171,6 +171,22 @@ enum kg_perf_counter {
 	KG_PERF_LISP_PEAK_NATIVE_REENTRY, /* FeArenaStats.peak_native_reentry
 					   */
 	KG_PERF_LISP_ALLOC_FAILURES, /* FeArenaStats.allocation_failures */
+	/* Fe's payload region (FE_API_VERSION 13), the same five gauges
+	 * kg_lisp_arena_stats() reports.  They were all zero, and asserted
+	 * so by test/test_perf.c, while a vector was the region's only
+	 * possible tenant and the prelude built none; Phase 25 of
+	 * doc/plans/2026-08-18-elisp-data-model.md made a string's bytes
+	 * payload, so the four USE gauges move before kg has evaluated
+	 * anything of its own -- interning `car' publishes a block.  What
+	 * test/test_perf.c asserts now is the SHAPE (live under capacity,
+	 * peak at or above live, no failures), and the numbers themselves
+	 * are .ci/prelude-startup-census.json's ratchet. */
+	KG_PERF_LISP_PAYLOAD_CAPACITY, /* bytes carved for the region */
+	KG_PERF_LISP_PAYLOAD_LIVE, /* bytes live in it */
+	KG_PERF_LISP_PAYLOAD_PEAK, /* high-water mark of those bytes */
+	KG_PERF_LISP_PAYLOAD_COMPACTIONS, /* compactions that moved survivors
+					   */
+	KG_PERF_LISP_PAYLOAD_FAILURES, /* payload requests it could not meet */
 	/* Wall-clock nanoseconds spent in evaluate_prelude() (CLOCK_MONOTONIC),
 	 * set once by kg_lisp_init(). A duration, not a count -- unlike every
 	 * other counter here it is not asserted anywhere, since a wall time
@@ -180,6 +196,16 @@ enum kg_perf_counter {
 	 * the pty-launch noise a `make bench` case's whole-process wall time
 	 * carries. */
 	KG_PERF_LISP_PRELUDE_NS,
+	/* Wall-clock nanoseconds spent in the post-prelude
+	 * FeCollectGarbage() call (doc/plans/2026-08-14-embedded-prelude.md,
+	 * "Post-prelude collect -- results"), set once by kg_lisp_init()
+	 * right after KG_PERF_LISP_PRELUDE_NS's own window closes.  Same
+	 * caveat as that counter: a duration, not asserted anywhere, since
+	 * a wall time is not the same number twice on a loaded box -- what
+	 * it answers is what the one collection kg_lisp_init() now always
+	 * runs costs, against the whole reachable set live at the call (a
+	 * mark-and-sweep over it, not just the slots it reclaims). */
+	KG_PERF_LISP_POSTPRELUDE_COLLECT_NS,
 	/* Wall-clock nanoseconds spent loading the *user's* init file
 	 * (kg_lisp_load_init()'s kg_lisp_load_file call), and the total
 	 * spent evaluating files that `(require ...)` had to load
@@ -211,6 +237,32 @@ enum kg_perf_counter {
 	 *     the two together and call it startup cost. */
 	KG_PERF_LISP_USER_INIT_NS,
 	KG_PERF_LISP_PACKAGE_LOAD_NS,
+	/* `M-:' evaluations (eval-expression, src/cmd.c) that reached a
+	 * value.  A COUNT, and the only Lisp counter here that is neither a
+	 * gauge nor a duration, because the question it answers is not "how
+	 * big did the arena get" but "did the minibuffer round trip happen
+	 * at all in THIS process".
+	 *
+	 * The defect it exists for: utils/bench.py's Lisp cases type an
+	 * expression at `M-:' in a counting kg and then check the ANSWER in
+	 * a separate test/kgbatch process, so the answer says nothing about
+	 * what the measured process did; and the arena gauges beside it are
+	 * all non-zero after a bare startup, since loading the prelude
+	 * fills the arena.  An exit-only key script therefore passed both
+	 * validations of `lisp-command-latency' while evaluating nothing --
+	 * demonstrated in the Phase 21 adversarial review, finding 4.  This
+	 * counter is zero after a startup that only ever exits, so a case
+	 * asserting it > 0 cannot degrade into a startup benchmark while
+	 * keeping its name.
+	 *
+	 * Successful completion only: a condition or a C-g leaves it alone,
+	 * so a case whose expression raised is not credited with having
+	 * measured the shape it is named for.  eval-buffer (`M-x
+	 * eval-buffer') shares kg_lisp_eval_string() with it and is
+	 * deliberately NOT counted here -- what a bench case drives is the
+	 * minibuffer, and a counter that both paths moved could not tell
+	 * one from the other. */
+	KG_PERF_LISP_MINIBUFFER_EVAL,
 	/* Phase 18's post-command-hook question, as counts rather than as a
 	 * duration, because a duration is the one thing this file's header
 	 * says not to decide on.  CALLS is how many times the main loop

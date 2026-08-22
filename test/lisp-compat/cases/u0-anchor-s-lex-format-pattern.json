@@ -1,0 +1,7 @@
+{
+ "id": "u0-anchor-s-lex-format-pattern",
+ "setup": [],
+ "expr": "(let ((re \"${\\\\([^}]+\\\\)}\")) (list (string-match re \"x ${abc} y\") (match-beginning 0) (match-end 0) (match-string 1 \"x ${abc} y\")))",
+ "expect": "agree",
+ "note": "The `s.el' `s-lex-fmt|expand' pattern now has the same contextual-anchor behavior in kg and Emacs: (2 2 8 \"abc\")."
+}

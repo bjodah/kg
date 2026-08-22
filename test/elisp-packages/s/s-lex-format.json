@@ -1,0 +1,11 @@
+{
+  "id": "s-lex-format",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(let ((x \"1\")) (s-lex-format \"${x}\"))",
+  "expect": "agree",
+  "note": "Package acceptance: the exact one-binding expansion returns the same value as Emacs."
+}

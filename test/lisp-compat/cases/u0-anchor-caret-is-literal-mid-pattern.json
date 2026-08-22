@@ -1,0 +1,7 @@
+{
+ "id": "u0-anchor-caret-is-literal-mid-pattern",
+ "setup": [],
+ "expr": "(list (string-match \"a^b\" \"a^b\") (string-match \"a^b\" \"ab\") (string-match \"\\\\(b^a\\\\)\" \"b^a\"))",
+ "expect": "agree",
+ "note": "The contextual `^' rule: it is an anchor at the START of the regexp or just after `\\\\(', `\\\\(?:' or `\\\\|'; elsewhere it is a literal. Both Emacs and kg answer (0 nil 0)."
+}

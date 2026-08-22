@@ -32,6 +32,6 @@ expected_screen_contains:
   # Short rows still fit whole at this width.
   - "<f4>        dap-evaluate (dap)"
   # A row that does not fit folds rather than being cut off.
-  - "<f9>        dap-breakpoint-toggle (dap-b"
-  - "reakpoint)"
+  - "<f9>        dap-breakpoint-toggle"
+  - "(dap-breakpoint)"
   - "VLine"

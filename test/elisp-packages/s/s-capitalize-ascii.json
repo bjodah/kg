@@ -1,0 +1,11 @@
+{
+  "id": "s-capitalize-ascii",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-capitalize \"hello world\")",
+  "expect": "agree",
+  "note": "ASCII capitalize, exact value. Both return \"Hello world\"."
+}

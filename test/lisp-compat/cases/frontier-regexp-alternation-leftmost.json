@@ -1,0 +1,7 @@
+{
+ "id": "frontier-regexp-alternation-leftmost",
+ "setup": [],
+ "expr": "(list (string-match \"a\\\\|ab\" \"ab\") (match-end 0) (string-match \"ab\\\\|a\" \"ab\") (match-end 0) (string-match \"\\\\(a\\\\|b\\\\)c\" \"bc\") (match-end 0))",
+ "note": "THE CONTROL THAT LICENSES THE IMPLEMENTATION, and it already agrees: both sides answer (0 1 0 2 0 2). kg's engine takes the LEFTMOST alternative that can match, exactly as Emacs' does -- \"a\\\\|ab\" against \"ab\" matches one character on both sides and \"ab\\\\|a\" matches two -- and a group around the alternation does not change that. That is the whole licence for implementing `regexp-opt' as `sort longest-first, regexp-quote, join with \\\\|': the preference frontier-regexp-opt-longest-preference demands is a property kg's engine already has, so the name needs an ORDERING and not a new matcher.",
+ "expect": "agree"
+}

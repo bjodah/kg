@@ -1,0 +1,7 @@
+{
+ "id": "string25-substring-in-range",
+ "setup": [],
+ "expr": "(list (substring \"abcdef\" 2) (substring \"abcdef\" 2 4) (substring \"abcdef\" -2) (substring \"abcdef\" 2 -1) (substring \"abcdef\" 3 3) (substring \"日本語abc\" -3))",
+ "note": "The control for the bounds case beside it: every IN-RANGE `substring` shape, negative indices and an empty result included, already answers exactly what Emacs answers -- (\"cdef\" \"cd\" \"ef\" \"cde\" \"\" \"abc\") on both sides, with the last one counting characters rather than bytes. So the divergence next door is about what happens OUTSIDE the range and nothing else.",
+ "expect": "agree"
+}

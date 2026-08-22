@@ -1,0 +1,7 @@
+{
+ "id": "u0-anchor-dollar-is-literal-mid-pattern",
+ "setup": [],
+ "expr": "(list (string-match \"a$b\" \"a$b\") (string-match \"a$b\" \"ab\") (string-match \"a$*\" \"a$$\"))",
+ "expect": "agree",
+ "note": "The contextual `$' rule: it is an anchor only at the END of the regexp or before `\\\\|' or `\\\\)'; anywhere else it is a literal dollar. Both Emacs and kg answer (0 nil 0)."
+}

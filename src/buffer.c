@@ -44,7 +44,7 @@ static int editor_saturating_add(int a, int b)
  * dirty counter could not, because the paths that set it to 1 leave it at
  * 1 when it was already there.  `layout_generation` advances with it so
  * display caches see text changes too. */
-void buffer_note_change(struct editor_buffer *b)
+static void buffer_note_change(struct editor_buffer *b)
 {
 	b->dirty++;
 	b->content_generation++;

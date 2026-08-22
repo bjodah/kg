@@ -21,9 +21,9 @@ any other answer.  A share of the generated cases are deliberately
 malformed -- unclosed groups, unterminated bracket expressions, malformed
 intervals, unknown class names -- and both sides must reject them.  The
 only permitted acceptance differences are the four named in KG_STRICTER
-and KG_LOOSER below, each of which the generator tags on purpose; every
-other one is reported as DIVERGE-ACCEPT.  Only kg's work budget
-("toocomplex") is incomparable, Emacs having none.
+below, each of which the generator tags on purpose; every other one is
+reported as DIVERGE-ACCEPT.  Only kg's work budget ("toocomplex") is
+incomparable, Emacs having none.
 
 Its first find beyond the previously known cases was the capture
 register left by an empty repetition of a quantified group
@@ -69,6 +69,17 @@ POSIX_CLASSES = ["[:ascii:]", "[:nonascii:]"]
 MAX_GROUPS = 9
 
 
+def capturing_groups(pattern):
+	"""How many capture registers PATTERN asks for.
+
+	Every '\\(' except the shy '\\(?:', which is a group everywhere in
+	the matcher and a capture nowhere -- so a pattern full of shy groups
+	is nowhere near the register ceiling and must not be regenerated as
+	if it were.
+	"""
+	return pattern.count("\\(") - pattern.count("\\(?:")
+
+
 def rnd_range(rng):
 	a, b = sorted(rng.sample(ALL, 2), key=ord)
 	return a + "-" + b
@@ -93,7 +104,12 @@ def rnd_atom(rng, depth):
 	if r < 0.8:
 		return rnd_class(rng)
 	if depth > 0 and r < 0.95:
-		return "\\(" + rnd_alt(rng, depth - 1) + "\\)"
+		# Shy and capturing groups are the same construct to the
+		# matcher and differ only in whether they take a register, so
+		# both spellings are generated here and the two dialects have
+		# to agree about the SPANS as well as about the match.
+		opener = "\\(?:" if rng.random() < 0.4 else "\\("
+		return opener + rnd_alt(rng, depth - 1) + "\\)"
 	return rng.choice(ASCII)
 
 
@@ -136,14 +152,28 @@ def rnd_alt(rng, depth):
 	return "\\|".join(parts)
 
 
+# The four anchor spellings, in the two positions the generator puts one.
+# In kg all four are the same two assertions -- the start and the end of
+# the whole subject -- and in Emacs they are not: `^' also holds after
+# every newline and `$' before every one, while "\\`" and "\\'" hold only at
+# the subject's own ends.  Generating both spellings is therefore safe
+# under this file's subject policy AND ONLY UNDER IT: subjects are
+# single-line, so the two readings pick the same offsets.  A generator
+# that grew multi-line subjects would start failing on `^'/`$' for a
+# reason Phase 26 did not cause (doc/lisp-api.md's recorded engine
+# divergence, and the phase26-anchor-line-vs-subject compat row).
+LEADING_ANCHORS = ["^", "\\`"]
+TRAILING_ANCHORS = ["$", "\\'"]
+
+
 def rnd_pattern(rng):
 	pattern = rnd_alt(rng, 2)
 	# '^' anchors at offset 0 and '$' at the end; subjects are single-line,
 	# so neither has a second place to match.
 	if rng.random() < 0.12:
-		pattern = "^" + pattern
+		pattern = rng.choice(LEADING_ANCHORS) + pattern
 	if rng.random() < 0.12:
-		pattern = pattern + "$"
+		pattern = pattern + rng.choice(TRAILING_ANCHORS)
 	return pattern
 
 
@@ -160,15 +190,24 @@ def rnd_pattern(rng):
 #                      Emacs answers them from the string's internal
 #                      representation, which a byte matcher cannot see;
 #                      rejecting beats answering wrongly.
-#   group-count        kg rejects a pattern with ten or more '\('.
-#                      RE_MAX_SPANS is 10, the whole match plus nine
-#                      groups, so the tenth has nowhere to be reported;
-#                      Emacs has no limit.
-#   group-question     kg reads '\(?' as a group holding a literal '?'.
-#                      Emacs rejects it, reserving the spelling for shy
-#                      groups, which kg does not have.
-KG_STRICTER = {"double-quantifier", "representation-class", "group-count"}
-KG_LOOSER = {"group-question"}
+#   group-count        kg rejects a pattern with ten or more CAPTURING
+#                      '\('.  RE_MAX_SPANS is 10, the whole match plus
+#                      nine groups, so the tenth has nowhere to be
+#                      reported; Emacs has no limit.
+#   numbered-group     kg rejects Emacs' explicitly numbered group,
+#                      '\(?N:...\)'.  Placing a group at a capture
+#                      number the pattern NAMES, rather than at the one
+#                      its position gives it, is not something kg's
+#                      compiler can express, so it refuses instead of
+#                      misreading.
+#
+# There is no KG_LOOSER set any more.  It held one tag, "group-question",
+# for a spelling kg used to READ as a group holding a literal '?' where
+# Emacs reserved it; the R2 pin gave the engine real shy groups and the
+# same reservation, so an unrecognised '\(?' is now a bad pattern on both
+# sides and is generated untagged, compared like any other rejection.
+KG_STRICTER = {"double-quantifier", "representation-class", "group-count",
+	       "numbered-group"}
 
 
 def rnd_bad_pattern(rng):
@@ -195,10 +234,24 @@ def rnd_bad_pattern(rng):
 		(body + "[[:" + rng.choice(["multibyte", "unibyte"]) + ":]]",
 		 "representation-class"),
 		(body + rnd_quant(rng) + rnd_quant(rng), "double-quantifier"),
-		("\\(?" + body + "\\)", "group-question"),
+		# '\(?' is reserved for shy groups in both dialects now, so
+		# any other spelling of it is a bad pattern on both sides and
+		# needs no tag.  '\(?N:' is the one Emacs does accept.
+		("\\(?" + body + "\\)", None),
+		("\\(?%d:" % rng.randint(1, 9) + body + "\\)",
+		 "numbered-group"),
 		("\\(a\\)" * (MAX_GROUPS + rng.randint(1, 3)), "group-count"),
 		(rng.choice(["*", "+", "?"]) + body, None),
-		("^" + rng.choice(["*", "+", "?"]) + body, None),
+		# A quantifier with nothing to repeat is the literal
+		# character after either leading anchor, in both dialects.
+		# The TRAILING ones are deliberately absent: Emacs reads
+		# "$*" and "\\'*" as a quantified assertion and matches the
+		# empty string, where kg reads the '*' as a literal -- a
+		# divergence this file has never generated and which the
+		# subject anchors inherit unchanged from the anchors they
+		# alias.
+		(rng.choice(LEADING_ANCHORS) + rng.choice(["*", "+", "?"])
+		 + body, None),
 		("[]" + rng.choice(ASCII) + "]" + body, None),
 	]
 	return rng.choice(kinds)
@@ -226,7 +279,8 @@ def gen_cases(rng, count):
 		# pattern is only usable as the tagged acceptance difference;
 		# anywhere else it would drown every other answer.
 		if case in seen or (
-				tag != "group-count" and case[0].count("\\(") > MAX_GROUPS):
+				tag != "group-count"
+				and capturing_groups(case[0]) > MAX_GROUPS):
 			continue
 		seen.add(case)
 		cases.append(case + (tag,))
@@ -288,9 +342,10 @@ def main():
 	parser.add_argument("--oracle", default=ORACLE)
 	parser.add_argument("--cases", type=int, default=2000)
 	parser.add_argument("--seed", type=int, default=20260729)
-	parser.add_argument("--modes", default="f,fa",
+	parser.add_argument("--modes", default="f,fa,fb",
 			    help="comma-separated result modes to compare: "
-				 "f (first match), fa (every match)")
+				 "f (first match), fa (every match), "
+				 "fb (first match under a match window)")
 	parser.add_argument("--show", type=int, default=10,
 			    help="how many divergences to print")
 	args = parser.parse_args()
@@ -310,7 +365,14 @@ def main():
 	# offset 0, which is all this harness compared for its first two
 	# years; "fa" is the whole succession of matches, iterated by the
 	# rule callers must use, which is where empty-match progress and
-	# capture registers left over from a previous match show up.
+	# capture registers left over from a previous match show up; "fb" is
+	# "f" under a MATCH WINDOW, which is what a bounded search is.  The
+	# window is not in the protocol -- both sides derive it from the
+	# subject as half its length in bytes -- so a case line means the
+	# same thing in every mode.  Backward matching is still uncompared:
+	# kg's backward selection rule is not Emacs' bounded backward
+	# search, so an oracle for it would have to encode kg's policy
+	# rather than read Emacs'.
 	cases = [(pattern, subject, tag, mode)
 		 for pattern, subject, tag in gen_cases(rng, args.cases)
 		 for mode in modes]
@@ -342,8 +404,7 @@ def main():
 		# is compared like everything else.  Only the two documented
 		# differences above are allowed to disagree.
 		if (mine == "badpat") != (theirs == "badpat"):
-			if (mine == "badpat" and tag in KG_STRICTER) or (
-					theirs == "badpat" and tag in KG_LOOSER):
+			if mine == "badpat" and tag in KG_STRICTER:
 				allowed += 1
 				continue
 			diverged += 1

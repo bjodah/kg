@@ -1,0 +1,6 @@
+{
+ "id": "string25-substring-out-of-range-conditions",
+ "setup": [],
+ "expr": "(list (condition-case e (substring \"abcdef\" 7) (args-out-of-range (cdr e))) (condition-case e (substring \"abcdef\" 4 2) (args-out-of-range (cdr e))) (condition-case e (substring \"abcdef\" 0 99) (args-out-of-range (cdr e))))",
+ "note": "kg CLAMPS where Emacs RAISES, in all three directions, and the case is written to catch the condition so its DATA is the value rather than a symbol the runner would compare and kg would never produce. Emacs answers ((\"abcdef\" 7 nil) (\"abcdef\" 4 2) (\"abcdef\" 0 99)) -- args-out-of-range with the offending string first, a nil END reported as nil. kg raises nothing and the `condition-case` returns the clamped substrings, (\"\" \"\" \"abcdef\"): a start past the end gives the empty string, a reversed pair gives the empty string, and an end past the end gives the whole string."
+}

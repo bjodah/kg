@@ -1,0 +1,6 @@
+{
+ "id": "prelude-autoload-first-call",
+ "setup": [],
+ "expr": "(condition-case e (progn (autoload 'kg-autoload-probe \"kg-no-such-library\") (kg-autoload-probe)) (error (car e)))",
+ "note": "The recorded divergence, half one: Emacs' `autoload' arms lazy loading, so the first CALL loads the named library -- `file-missing' here, the library not existing -- while kg's records nothing and the call answers `void-function'.  Measured through test/kgbatch at the commit that adds the macro.  That is the correct kg answer until kg has package loading at all; a `void-function' from a name only an autoload would have provided is not a different kind of miss from any other."
+}

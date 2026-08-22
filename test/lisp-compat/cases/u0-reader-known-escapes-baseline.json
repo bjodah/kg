@@ -1,0 +1,7 @@
+{
+ "id": "u0-reader-known-escapes-baseline",
+ "setup": [],
+ "expr": "(list \"\\n\" \"\\t\" \"\\s\" \"\\101\" \"\\\\\" \"\\\"\")",
+ "note": "THE CONTROL, and the fence: the escapes kg's reader ALREADY knows must keep their meanings when the unknown ones stop being errors. Both sides answer (\"\\n\" \"\\t\" \" \" \"A\" \"\\\\\" \"\\\"\") -- newline, tab, `\\\\s' as a space, the octal `\\\\101' as `A', an escaped backslash and an escaped quote. An implementation that made every escape mean its own character would break four of these six, and would fail here rather than pass.",
+ "expect": "agree"
+}

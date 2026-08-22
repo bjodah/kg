@@ -1,0 +1,6 @@
+{
+ "id": "u0-defalias-docstring-on-a-symbol-target",
+ "setup": [],
+ "expr": "(progn (defalias 'u0-first 'car \"Take the first.\") (list (u0-first (list 1 2)) (documentation 'u0-first)))",
+ "note": "THE SHAPE dash.el ACTUALLY WRITES: the DEFINITION is a symbol (`car', `#\\'remove'), not a lambda, and the docstring is the alias's own. Emacs answers (1 \"Take the first.\") -- the alias calls through to `car' and `documentation' reports the alias's docstring rather than `car''s. An implementation that only accepts a function object would still leave dash.el:603 blocked. U.1a's implementation stores the docstring on the ALIAS, so kg answers this too."
+}

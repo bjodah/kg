@@ -1,0 +1,6 @@
+{
+ "id": "u0-define-error-message-format",
+ "setup": [],
+ "expr": "(progn (define-error 'u0-format \"Bad value\") (error-message-string (list 'u0-format 7 \"x\")))",
+ "note": "A define-error message is rendered with condition data in error-message-string."
+}

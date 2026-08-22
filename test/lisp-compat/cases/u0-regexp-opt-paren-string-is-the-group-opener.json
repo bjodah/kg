@@ -1,0 +1,6 @@
+{
+ "id": "u0-regexp-opt-paren-string-is-the-group-opener",
+ "setup": [],
+ "expr": "(let ((re (regexp-opt (list \"a\" \"ab\") \"\\\\(?2:\"))) (list (string-match re \"ab\") (match-string 2 \"ab\")))",
+ "note": "PAREN AS A STRING, the value nobody expects: Emacs takes the string as the literal GROUP OPENER and closes it itself. Emacs answers (0 \"ab\") for \"\\\\(?2:\", i.e. the caller chose the group NUMBER -- the escape hatch from the numbering shift PAREN `t' causes. Measured because a `stringp' branch is easy to leave out and this is a documented value. U.1a takes the string as the opener and produces \"\\\\(?2:ab\\\\|a\\\\)\"; what stays divergent is that kg's engine has no EXPLICITLY NUMBERED group and rejects the result outright (`invalid regexp'), where it reads the shy `\\\\(?:' beside it. A second engine gap, named here rather than left to be rediscovered."
+}

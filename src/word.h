@@ -1,6 +1,35 @@
 #ifndef KG_WORD_H
 #define KG_WORD_H
 
+#include <stddef.h>
+
+struct editor_buffer;
+
+/* The column both of kg's fills wrap at: the Lisp variable
+ * `fill-column' as the current buffer sees it, or the same 70 for a
+ * build with no evaluator to ask.  A number of BYTES of `row->chars` compared
+ * against a display column, which is the same number for the ASCII a fill
+ * column is a statement about. */
+[[nodiscard]] int editor_fill_column(void);
+
+/* Fill every paragraph of `b` between the buffer byte positions `beg`
+ * and `end`, at `fill_col` -- Emacs' `fill-region', and the only caller
+ * is the native of that name.  The two ends are not symmetric, because
+ * Emacs' are not: `beg' is rounded back to the start of its own line and
+ * `end' is taken exactly, so no paragraph is followed past it.  Blank
+ * lines survive; each paragraph is one gateway replacement and therefore
+ * one undo step.
+ *
+ * `*out_prefix' becomes a malloc'd copy of the LAST filled paragraph's
+ * indent -- the value Emacs answers -- or nullptr when the region held
+ * no paragraph to fill; the caller frees it.  `*out_end' is where the
+ * region's end moved to, which is where Emacs leaves point.  False, with
+ * both outputs cleared, only when an allocation failed; the buffer may
+ * hold the paragraphs already filled by then, exactly as an interrupted
+ * M-q would. */
+[[nodiscard]] bool editor_fill_region(struct editor_buffer *b, size_t beg,
+    size_t end, int fill_col, char **out_prefix, size_t *out_end);
+
 /* Word-level editing.
  *
  * One byte of a word-case transformation: `mode` is 'u' (upcase), 'l'

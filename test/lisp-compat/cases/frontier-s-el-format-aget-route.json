@@ -1,0 +1,10 @@
+{
+ "id": "frontier-s-el-format-aget-route",
+ "setup": [
+  "(setq s-el-path (if (fboundp 'expand-file-name) (expand-file-name \"external/elpa/s.el\") \"external/elpa/s.el\"))",
+  "(condition-case e (load s-el-path) (error nil))"
+ ],
+ "expr": "(condition-case e (list (s-format \"${a}-${b}\" (quote aget) (list (cons \"a\" \"1\") (cons \"b\" \"2\"))) (s--aget (list (cons \"k\" \"v\")) \"k\")) (void-function (car (cdr e))))",
+ "note": "THE PACKAGE'S OWN CALL: `s--aget' is a one-line wrapper over `assoc-string' and `s-format' with the `aget' replacer is its only caller inside s.el, so the two are one demand. Emacs answers (\"1-2\" \"v\"). The first element is the shape a user writes -- a template with ${...} references resolved from an alist -- and it exercises `replace-regexp-in-string' with a FUNCTION replacement, match-data save/restore and `assoc-string' together, which is why it is the row's package witness rather than a second `s--aget' call. kg answers the missing NAME, `assoc-string'. THIS CASE FLIPPED in the frontier demand phase, and it took ONE FIX MORE than the name: `s-format' reads its template's groups with (match-string N MD), where MD is the MATCHED TEXT, and kg's `replace-regexp-in-string' called a function replacer with the match data of the whole SUBJECT -- so every ${...} after the first read subject offsets out of a three-character string and resolved to nothing. kg now re-matches the extracted text before the call, which is Emacs' own rule.",
+ "expect": "agree"
+}

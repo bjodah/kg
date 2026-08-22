@@ -1,0 +1,6 @@
+{
+ "id": "vector-aref-wrong-type",
+ "setup": [],
+ "expr": "(aref 5 0)",
+ "note": "Wrong-type condition data on a non-array argument, and a second HONEST ROW with no bracket in it: Emacs raises `wrong-type-argument' with data (arrayp 5) -- the PREDICATE that failed, not `vectorp', because `aref' is an array operation and strings are arrays too. kg answers `void-function' today because `aref' is not bound at all."
+}

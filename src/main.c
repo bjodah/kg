@@ -192,9 +192,42 @@ static int startup_screen_inhibited(void)
 	    || kg_lisp_variable_non_nil("inhibit-startup-message");
 }
 
+/* Bring the interpreter up.  Answers false only when kg should not start
+ * at all, and otherwise fills `refusal' with what a session coming up
+ * without an interpreter has to say for itself -- empty when there is
+ * nothing to say.
+ *
+ * Two failures, told apart by kg_lisp_config_refused().  An interpreter
+ * that could not start on a sound configuration is fatal, as it has always
+ * been -- reported on a cooked terminal, because raw mode is on by now and
+ * with OPOST off the newline would not return the carriage, and
+ * editor_at_exit() then finds no frame painted and leaves the message where
+ * the user can read it.  A configuration kg REFUSED -- today only
+ * $KG_LISP_ARENA_BYTES naming an arena below the floor -- is the user's to
+ * fix and not a broken editor: the session comes up with Lisp inactive and
+ * carries the refusal into the echo area instead of the greeting.  The
+ * text is copied rather than borrowed because kg_lisp_last_error() is the
+ * interpreter's one error buffer and the echo area is not written until
+ * the files have been loaded. */
+static bool start_lisp(char *refusal, size_t size)
+{
+	if (!kg_lisp_active() || kg_lisp_init() == 0) {
+		return true;
+	}
+	if (!kg_lisp_config_refused()) {
+		disable_raw_mode(STDIN_FILENO);
+		fprintf(stderr, "kg: cannot initialize Lisp: %s\n",
+		    kg_lisp_last_error());
+		return false;
+	}
+	snprintf(refusal, size, "%s; Lisp is off", kg_lisp_last_error());
+	return true;
+}
+
 int main(int argc, char **argv)
 {
 	int opt, readonly = 0, no_init = 0;
+	char lisp_refusal[256] = { 0 };
 
 #ifdef _WIN32
 #define KG_GETOPT kg_getopt
@@ -252,22 +285,19 @@ int main(int argc, char **argv)
 	 * init_editor() is under 0.1 ms, so going in front of it would buy
 	 * nothing to weigh against that. */
 	enable_raw_mode(STDIN_FILENO);
-	if (kg_lisp_active() && kg_lisp_init() != 0) {
-		/* Said on a cooked terminal: raw mode is on by now, and with
-		 * OPOST off the newline below would not return the carriage.
-		 * editor_at_exit() then finds no frame painted and leaves the
-		 * message where the user can read it. */
-		disable_raw_mode(STDIN_FILENO);
-		fprintf(stderr, "kg: cannot initialize Lisp: %s\n",
-		    kg_lisp_last_error());
+	if (!start_lisp(lisp_refusal, sizeof(lisp_refusal))) {
 		return 1;
 	}
 	kg_lisp_set_interrupt_check(editor_check_quit_pending);
 	buf_load_args(argc - KG_OPTIND, argv + KG_OPTIND, readonly);
 	/* The greeting is set before init-file loading so a load error is
-	 * not overwritten by it. */
+	 * not overwritten by it.  A refused configuration replaces both:
+	 * there is no init file to load without an interpreter, and what
+	 * the user needs to read is why. */
 	editor_set_status_message("Press Ctrl-h for help");
-	if (!no_init && kg_lisp_load_init() != 0) {
+	if (lisp_refusal[0] != '\0') {
+		editor_set_status_message("%s", lisp_refusal);
+	} else if (!no_init && kg_lisp_load_init() != 0) {
 		editor_set_status_message(
 		    "Init file error: %s", kg_lisp_last_error());
 	}

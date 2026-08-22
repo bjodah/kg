@@ -1,0 +1,6 @@
+{
+ "id": "string25-multibyte-character-view",
+ "setup": [],
+ "expr": "(list (length \"héllo\") (length \"日本語\") (substring \"héllo\" 0 2) (substring \"日本語\" 1 3) (string-to-char \"éx\") (format \"%S\" \"héllo\"))",
+ "note": "The control for this whole group, and the reason its divergences are attributable: every character-indexed name kg wraps already answers exactly what Emacs answers on multibyte text -- both sides give (5 3 \"hé\" \"本語\" 233 \"\\\"héllo\\\"\"). `length`, `elt` and `substring` are wrapped in lisp/prelude.el precisely because a fe string indexes by BYTE; this case is the evidence that the wrapping works, so string25-multibyte-aref-bytes next door is about the ONE name that was not wrapped rather than about UTF-8 in general."
+}

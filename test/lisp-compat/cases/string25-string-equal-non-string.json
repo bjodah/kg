@@ -1,0 +1,7 @@
+{
+ "id": "string25-string-equal-non-string",
+ "setup": [],
+ "expr": "(string= \"abc\" 3)",
+ "note": "A non-string, non-symbol argument: `wrong-type-argument` on both sides. Emacs' data is (stringp 3); the runner compares the condition symbol for structured records, and the data is recorded here so a Phase 25.2 that touches this family can see what it must keep.",
+ "expect": "agree"
+}

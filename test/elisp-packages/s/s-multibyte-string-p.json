@@ -1,0 +1,11 @@
+{
+  "id": "s-multibyte-string-p",
+  "package": "s.el",
+  "domain": "utf8-codepoint",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(multibyte-string-p \"café\")",
+  "expect": "diverge",
+  "note": "Exposes the multibyte-string-p domain exclusion: Emacs returns t, kg has no multibyte notion (returns nil / no such predicate). Recorded divergence outside s-core/ascii."
+}

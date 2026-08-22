@@ -1,0 +1,7 @@
+{
+ "id": "r2-regexp-opt-composition",
+ "setup": [],
+ "expr": "(let ((re (regexp-opt (list \"a\" \"b\")))) (list (string-match (concat re \"c\") \"a\") (string-match (concat re \"c\") \"ac\") (string-match (concat \"x\" re) \"xb\")))",
+ "note": "THE ADVERSARIAL REVIEW'S THIRD PROBE (Finding 3), permanent.  Emacs answers (nil 0 0); kg answered (0 0 0) while `regexp-opt' returned a BARE alternation, because \"a\\\\|b\" + \"c\" is \"a\\\\|bc\" and the suffix binds to the last alternative only.  Element one is the whole finding: a regexp CONSTRUCTOR whose result changes meaning when something is concatenated to it is not one.  Elements two and three are the controls that keep element one from passing for the wrong reason -- the composed regexp must still MATCH what it should, prefix and suffix alike.  Spelling is not compared here or anywhere in this group: Emacs' answer is the character class \"[ab]\" and kg's is the shy-grouped alternation the R2 pin made spellable.",
+ "expect": "agree"
+}

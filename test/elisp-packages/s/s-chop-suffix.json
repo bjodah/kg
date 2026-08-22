@@ -1,0 +1,11 @@
+{
+  "id": "s-chop-suffix",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-chop-suffix \"-bar\" \"foo-bar\")",
+  "expect": "agree",
+  "note": "Chop-suffix family, exact value. Both return \"foo\"."
+}

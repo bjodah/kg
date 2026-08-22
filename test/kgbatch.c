@@ -184,11 +184,12 @@ static int evaluate_file(const char *path, bool prin1, bool record)
 static void usage(const char *argv0)
 {
 	fprintf(stderr,
-	    "usage: %s [-p|-r] [-b] [-g] FILE...\n"
+	    "usage: %s [-p|-r] [-b] [-g] [-a] FILE...\n"
 	    "  -p  print the value the way prin1 does (strings quoted)\n"
 	    "  -r  print a tagged value, condition symbol, or quit record\n"
 	    "  -b  open a live scratch buffer before evaluating\n"
-	    "  -g  print one arena-stats line after the results\n",
+	    "  -g  print one arena-stats line after the results\n"
+	    "  -a  print one census line with every FeArenaStats field\n",
 	    argv0);
 }
 
@@ -198,7 +199,16 @@ static void usage(const char *argv0)
  * ordinary kgbatch and through one whose fe was built with
  * -DFE_GC_STRESS=1 and compares the collection counts.  Off by default,
  * and never passed by the oracle runner, so kgbatch's one-line output
- * contract is unchanged for everything else. */
+ * contract is unchanged for everything else.  `bytes=` names the arena
+ * the three before it were counted in, which $KG_LISP_ARENA_BYTES makes
+ * a run-time question.
+ *
+ * The five `payload-` fields are appended AFTER it, in the order
+ * kg_lisp_arena_stats() declares them, so every field an existing reader
+ * matches on keeps its text and its place: this line is what
+ * utils/check_lisp_gc_stress.py and utils/check_prelude_census.py parse.
+ * They read zero in kg until Phase 25 gives the region an owner, and
+ * .ci/prelude-startup-census.json holds them to that. */
 static void print_arena_stats(void)
 {
 	struct kg_lisp_arena_stats stats;
@@ -207,14 +217,42 @@ static void print_arena_stats(void)
 		fprintf(stderr, "arena stats unavailable\n");
 		return;
 	}
-	printf("arena: collections=%zu peak-live=%zu failures=%zu\n",
+	printf("arena: collections=%zu peak-live=%zu failures=%zu bytes=%zu "
+	       "payload-capacity=%zu payload-live=%zu payload-peak=%zu "
+	       "payload-compactions=%zu payload-failures=%zu\n",
 	    stats.collection_count, stats.peak_live_objects,
-	    stats.allocation_failures);
+	    stats.allocation_failures, stats.arena_bytes,
+	    stats.payload_capacity_bytes, stats.payload_live_bytes,
+	    stats.payload_peak_bytes, stats.payload_compaction_count,
+	    stats.payload_allocation_failures);
+}
+
+/* `-a': every FeArenaStats field on one line, prefixed `census:' rather
+ * than `arena:' so utils/check_lisp_gc_stress.py's `^arena: ...$' regex
+ * never has to change to tolerate it.  Built for
+ * utils/prelude_slot_census.py (Phase 0.1's per-section slot census),
+ * which needs total_slots alongside peak-live: total_slots is fixed by
+ * the arena partition, not by how much of the prelude ran, so one `-a'
+ * call against the real, whole prelude gives the denominator every `-g'
+ * reading from a truncated prelude slice is read against. */
+static void print_full_arena_stats(void)
+{
+	struct kg_lisp_arena_stats stats;
+
+	if (kg_lisp_arena_stats(&stats) != 0) {
+		fprintf(stderr, "arena stats unavailable\n");
+		return;
+	}
+	printf("census: total=%zu free=%zu peak-live=%zu collections=%zu "
+	       "failures=%zu\n",
+	    stats.total_slots, stats.free_slots, stats.peak_live_objects,
+	    stats.collection_count, stats.allocation_failures);
 }
 
 int main(int argc, char **argv)
 {
 	bool prin1 = false, record = false, scratch = false, stats = false;
+	bool full_stats = false;
 	int i, status = 0;
 
 	for (i = 1; i < argc; i++) {
@@ -226,6 +264,8 @@ int main(int argc, char **argv)
 			scratch = true;
 		} else if (strcmp(argv[i], "-g") == 0) {
 			stats = true;
+		} else if (strcmp(argv[i], "-a") == 0) {
+			full_stats = true;
 		} else if (strcmp(argv[i], "--") == 0) {
 			i++;
 			break;
@@ -257,6 +297,9 @@ int main(int argc, char **argv)
 	}
 	if (stats) {
 		print_arena_stats();
+	}
+	if (full_stats) {
+		print_full_arena_stats();
 	}
 	kg_lisp_shutdown();
 	return status;

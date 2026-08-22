@@ -6,12 +6,20 @@
 
 #include "def.h"
 #include "edit.h"
+#include "lisp.h"
 #include "marker.h"
 #include "syntax.h"
 #include "word.h"
 #include "yank.h"
 
-#define FILL_COLUMN 72
+/* The fill column when there is no evaluator to ask.  `fill-column' is
+ * a prelude `defvar' (70, Emacs' own) that both fills read, and this is
+ * what kg_lisp_variable_integer() answers when there is nothing to
+ * ask -- WITH_LISP=0, an interpreter that has not started, or a binding
+ * that is not an integer.  The same 70, so M-q wraps where Emacs would
+ * in every build: the one place a WITH_LISP=0 editor deliberately does
+ * not reproduce its pre-Lisp self, which wrapped at 72. */
+#define FILL_COLUMN_FALLBACK 70
 
 static int is_word_char(int c) { return isalnum((unsigned char)c) || c == '_'; }
 
@@ -1306,15 +1314,16 @@ static char *reflow_join(const struct reflow_lines *l, int *out_len)
 }
 
 /* A paragraph runs between blank lines. */
-static void reflow_paragraph_bounds(int filerow, int *start, int *end)
+static void reflow_paragraph_bounds(
+    const struct editor_buffer *b, int filerow, int *start, int *end)
 {
 	int s = filerow;
 	int e = filerow;
 
-	while (s > 0 && bcur()->row[s - 1].size > 0) {
+	while (s > 0 && b->row[s - 1].size > 0) {
 		s--;
 	}
-	while (e < bcur()->numrows - 1 && bcur()->row[e + 1].size > 0) {
+	while (e < b->numrows - 1 && b->row[e + 1].size > 0) {
 		e++;
 	}
 	*start = s;
@@ -1332,7 +1341,7 @@ static int reflow_indent_len(const erow *row)
 }
 
 /* Git commit buffers: never reflow the subject line or the comment
- * paragraphs; the body reflows at FILL_COLUMN (72) as usual.  Says why in
+ * paragraphs; the body reflows at `fill-column' as usual.  Says why in
  * the echo area when it refuses. */
 static bool reflow_refused_by_git_commit(int para_start, int para_end)
 {
@@ -1353,17 +1362,55 @@ static bool reflow_refused_by_git_commit(int para_start, int para_end)
 	return false;
 }
 
+/* One line's contribution to the word stream: its bytes with its own
+ * leading and trailing whitespace dropped, preceded by a separating
+ * space when the stream is not empty.  `words` is sized by the caller
+ * for every row plus one separator each, so this never checks capacity. */
+static void reflow_append_line(
+    char *words, int *words_len, const char *line, int len)
+{
+	while (len > 0 && isspace((unsigned char)*line)) {
+		line++;
+		len--;
+	}
+	while (len > 0 && isspace((unsigned char)line[len - 1])) {
+		len--;
+	}
+	/* A row that is entirely whitespace contributes nothing.  The test
+	 * is `<= 0` rather than `== 0` so that the only way past it is a
+	 * run of bytes the analyzer can also see is positive: `row->size`
+	 * is never negative, but nothing here says so, and an
+	 * assumed-negative `len` makes both the memcpy() below and
+	 * `*words_len` run backwards. */
+	if (len <= 0) {
+		return;
+	}
+	if (*words_len > 0) {
+		words[(*words_len)++] = ' ';
+	}
+	memcpy(words + *words_len, line, (size_t)len);
+	*words_len += len;
+}
+
 /* The paragraph as one space-separated word stream: every line stripped
  * of its own leading and trailing whitespace, joined with single spaces.
- * NULL when out of memory. */
-static char *reflow_word_stream(int para_start, int para_end)
+ * NULL when out of memory.
+ *
+ * `last_len` is how many bytes of the LAST row belong to it, in chars
+ * space (bytes of `row->chars`), which is the one thing a region fill
+ * needs and the paragraph at point does not: M-q always passes that
+ * row's whole `size`, and a region whose end falls inside a row passes
+ * the column it falls at. */
+static char *reflow_word_stream(
+    const struct editor_buffer *b, int para_start, int para_end, int last_len)
 {
 	int total = 0;
 	int words_len = 0;
 	char *words;
 
+	KG_ASSERT_CHARS_OFF(&b->row[para_end], last_len);
 	for (int i = para_start; i <= para_end; i++) {
-		total += bcur()->row[i].size;
+		total += b->row[i].size;
 	}
 	words = malloc((size_t)total + (size_t)(para_end - para_start + 1) + 1);
 	if (!words) {
@@ -1371,31 +1418,8 @@ static char *reflow_word_stream(int para_start, int para_end)
 	}
 
 	for (int i = para_start; i <= para_end; i++) {
-		const char *line = bcur()->row[i].chars;
-		int len = bcur()->row[i].size;
-
-		while (len > 0 && isspace((unsigned char)*line)) {
-			line++;
-			len--;
-		}
-		while (len > 0 && isspace((unsigned char)line[len - 1])) {
-			len--;
-		}
-		/* A row that is entirely whitespace contributes nothing.  The
-		 * test is `<= 0` rather than `== 0` so that the only way past
-		 * it is a run of bytes the analyzer can also see is positive:
-		 * `row->size` is never negative, but nothing in this function
-		 * says so, and an assumed-negative `len` makes both the
-		 * memcpy() below and `words_len` run backwards. */
-		if (len <= 0) {
-			continue;
-		}
-
-		if (words_len > 0) {
-			words[words_len++] = ' ';
-		}
-		memcpy(words + words_len, line, (size_t)len);
-		words_len += len;
+		reflow_append_line(words, &words_len, b->row[i].chars,
+		    i < para_end ? b->row[i].size : last_len);
 	}
 	words[words_len] = '\0';
 	return words;
@@ -1436,7 +1460,16 @@ static void reflow_wrap(struct reflow_lines *l, const char *words, int fill_col)
 	}
 }
 
-/* Reflow the current paragraph to FILL_COLUMN (M-q).
+/* The column both fills wrap at: `fill-column', which the prelude
+ * declares (70) and an init file, a hook or a `setq-local' may move.  The
+ * read is buffer-local aware and cannot raise; a build with no evaluator,
+ * or a binding that is not an integer, gets the pre-Lisp 72. */
+int editor_fill_column(void)
+{
+	return kg_lisp_variable_integer("fill-column", FILL_COLUMN_FALLBACK);
+}
+
+/* Reflow the current paragraph to `fill-column' (M-q).
  * Paragraph boundaries are blank lines.  Indentation from the first
  * line is detected and re-applied to every reflowed line.
  * The entire operation is recorded as a single undo record. */
@@ -1455,15 +1488,19 @@ void editor_reflow_paragraph(void)
 		return;
 	}
 
-	reflow_paragraph_bounds(filerow, &para_start, &para_end);
+	reflow_paragraph_bounds(bcur(), filerow, &para_start, &para_end);
 	if (reflow_refused_by_git_commit(para_start, para_end)) {
 		return;
 	}
 
-	fill_col = (FILL_COLUMN < wcur()->w - 1) ? FILL_COLUMN : wcur()->w - 1;
+	fill_col = editor_fill_column();
+	if (fill_col > wcur()->w - 1) {
+		fill_col = wcur()->w - 1;
+	}
 	indent_len = reflow_indent_len(&bcur()->row[para_start]);
 
-	words = reflow_word_stream(para_start, para_end);
+	words = reflow_word_stream(
+	    bcur(), para_start, para_end, bcur()->row[para_end].size);
 	reflow_lines_init(
 	    &lines, bcur()->row[para_start].chars, indent_len, fill_col);
 	if (!words) {
@@ -1494,6 +1531,193 @@ void editor_reflow_paragraph(void)
 
 	editor_cursor_goto(para_start, indent_len);
 	editor_set_status_message("Paragraph reflowed");
+}
+
+/* ---- Fill a region (`fill-region', Lisp) ----
+ *
+ * The same reflow as M-q above, driven across a span rather than around
+ * point: one paragraph at a time, blank lines left where they are, each
+ * paragraph rewritten by the same word stream, the same wrap loop and
+ * the same single gateway replacement -- so a region fill is N undo
+ * steps of exactly the shape M-q makes one of, and nothing here is a
+ * second implementation of filling.
+ *
+ * Two rules the region has that a paragraph at point does not, both
+ * measured on the oracle (GNU Emacs 31.0.91) rather than chosen:
+ *
+ *  - The START is rounded back to the beginning of its own LINE.
+ *    `(fill-region 4 12)' over "aa bb cc dd" refills the whole line in
+ *    Emacs, because `fill-region-as-paragraph' begins with a
+ *    `beginning-of-line'; without this a region starting mid-word would
+ *    rewrite a fragment as if it were the paragraph.
+ *  - The END is NOT rounded, and no paragraph is followed past it.
+ *    `(fill-region 1 6)' over "aa bb cc dd ee" leaves Emacs' buffer
+ *    alone: the paragraph continues past 6 and only the part inside the
+ *    region is filled.
+ *
+ * Positions are buffer bytes; `last_len` inside the walk is chars space
+ * (bytes of `row->chars`), and the wrap loop counts BYTES against the
+ * fill column exactly as M-q's does -- the two agree for the ASCII a
+ * fill column is a statement about, and a paragraph of wide or
+ * multi-byte glyphs wraps early here where Emacs wraps by display
+ * column. */
+
+/* Fill rows [para_start, para_end] of `b`, taking `last_len` bytes of
+ * the last one.  `*prefix` becomes this paragraph's indent when it fills
+ * anything (the caller owns the old one); `*rows_out` is how many rows
+ * the paragraph occupies afterwards, which is how the walk finds the
+ * next one.  False only on allocation failure. */
+static bool reflow_fill_one(struct editor_buffer *b, int para_start,
+    int para_end, int last_len, int fill_col, char **prefix, int *rows_out)
+{
+	struct reflow_lines lines;
+	int indent_len, joined_len = 0;
+	char *words, *joined, *kept;
+
+	*rows_out = para_end - para_start + 1;
+	words = reflow_word_stream(b, para_start, para_end, last_len);
+	if (!words) {
+		return false;
+	}
+	/* Whitespace with no word in it is not a paragraph: Emacs answers
+	 * nil and leaves the text alone for a region holding only spaces,
+	 * so this contributes no prefix and makes no edit. */
+	if (words[0] == '\0') {
+		free(words);
+		return true;
+	}
+
+	indent_len = reflow_indent_len(&b->row[para_start]);
+	reflow_lines_init(
+	    &lines, b->row[para_start].chars, indent_len, fill_col);
+	reflow_wrap(&lines, words, fill_col);
+	free(words);
+	joined = lines.failed ? NULL : reflow_join(&lines, &joined_len);
+	if (joined && lines.count > 0) {
+		*rows_out = lines.count;
+	}
+	reflow_lines_free(&lines);
+	if (!joined) {
+		return false;
+	}
+
+	kept = malloc((size_t)indent_len + 1);
+	if (!kept) {
+		free(joined);
+		return false;
+	}
+	memcpy(kept, b->row[para_start].chars, (size_t)indent_len);
+	kept[indent_len] = '\0';
+
+	{
+		struct kg_edit e = kg_edit_user(b,
+		    buffer_row_col_to_position(b, para_start, 0),
+		    buffer_row_col_to_position(b, para_end, last_len), joined,
+		    (size_t)joined_len);
+
+		kg_buffer_replace(&e, NULL);
+	}
+	free(joined);
+	free(*prefix);
+	*prefix = kept;
+	return true;
+}
+
+/* The next paragraph of the region at or after row `row`, with `end_byte`
+ * as the region's current end: its first and last row, and how many bytes
+ * of the last one are inside the region.  False when there is none left,
+ * which is what ends the walk. */
+static bool reflow_region_paragraph(const struct editor_buffer *b, int row,
+    size_t end_byte, int *para_start, int *para_end, int *last_len)
+{
+	int end_row, end_col, last_row;
+
+	buffer_position_to_row_col(b, end_byte, &end_row, &end_col);
+	/* A region ending at column 0 ends BEFORE that row, and taking the
+	 * row would swallow the newline in front of it -- the one byte
+	 * whose loss would join two paragraphs the caller never named. */
+	last_row = end_row;
+	*last_len = end_col;
+	if (*last_len == 0) {
+		last_row--;
+		if (last_row >= 0) {
+			*last_len = b->row[last_row].size;
+		}
+	}
+	while (row <= last_row && b->row[row].size == 0) {
+		row++;
+	}
+	if (row > last_row) {
+		return false;
+	}
+	*para_start = row;
+	*para_end = row;
+	while (*para_end < last_row && b->row[*para_end + 1].size > 0) {
+		(*para_end)++;
+	}
+	if (*para_end != last_row) {
+		*last_len = b->row[*para_end].size;
+	}
+	return true;
+}
+
+bool editor_fill_region(struct editor_buffer *b, size_t beg, size_t end,
+    int fill_col, char **out_prefix, size_t *out_end)
+{
+	struct kg_marker_handle end_marker;
+	char *prefix = NULL;
+	int row, col;
+	bool ok = true;
+
+	*out_prefix = NULL;
+	*out_end = end;
+	if (beg > end) {
+		size_t swap = beg;
+
+		beg = end;
+		end = swap;
+		*out_end = end;
+	}
+	if (b->numrows <= 0) {
+		return true;
+	}
+
+	/* The region end follows the text it is at the end of: every
+	 * replacement below is strictly before it, but each one changes the
+	 * length of what it rewrites, so a marker is the only thing that
+	 * still names the same place afterwards.  Left gravity, since
+	 * Emacs' own `(copy-marker end)' does not advance for an insertion
+	 * at the marker either. */
+	end_marker = kg_marker_create(b, end, KG_MARKER_GRAV_LEFT);
+	buffer_position_to_row_col(b, beg, &row, &col);
+
+	for (;;) {
+		size_t end_byte;
+		int para_start, para_end, last_len, rows;
+
+		if (kg_marker_resolve(end_marker, &end_byte) != KG_MARKER_OK
+		    || !reflow_region_paragraph(
+			b, row, end_byte, &para_start, &para_end, &last_len)) {
+			break;
+		}
+		if (!reflow_fill_one(b, para_start, para_end, last_len,
+			fill_col, &prefix, &rows)) {
+			ok = false;
+			break;
+		}
+		row = para_start + rows;
+	}
+
+	if (kg_marker_resolve(end_marker, out_end) != KG_MARKER_OK) {
+		*out_end = buffer_byte_length(b);
+	}
+	(void)kg_marker_delete(end_marker);
+	if (!ok) {
+		free(prefix);
+		return false;
+	}
+	*out_prefix = prefix;
+	return true;
 }
 
 /* Shared entry check for the git-rebase-todo editing commands: the row

@@ -1,0 +1,7 @@
+{
+ "id": "u0-regexp-opt-paren-nil-is-shy",
+ "setup": [],
+ "expr": "(let ((re (regexp-opt (list \"a\" \"ab\")))) (list (string-match re \"ab\") (match-string 0 \"ab\") (match-beginning 1)))",
+ "note": "THE CONTROL, and the one PAREN value kg ALREADY implements: with PAREN absent both sides answer (0 \"ab\" nil) -- the members match, the whole match is group 0, and there is NO group 1, because the wrapper is shy. Emacs' text is \"\\\\(?:ab?\\\\)\" and kg's is \"\\\\(?:ab\\\\|a\\\\)\"; the contract is identical and the spelling is not, which is exactly why every case in this group asks what the regexp MATCHES.",
+ "expect": "agree"
+}

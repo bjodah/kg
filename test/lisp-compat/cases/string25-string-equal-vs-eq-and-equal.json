@@ -1,0 +1,6 @@
+{
+ "id": "string25-string-equal-vs-eq-and-equal",
+ "setup": [],
+ "expr": "(list (eq \"abc\" \"abc\") (equal \"abc\" \"abc\") (string= \"abc\" \"abc\") (equal 'foo \"foo\"))",
+ "note": "The three-way distinction the master plan asks for, measured: two equal string literals are NOT `eq` (each is its own object), ARE `equal` (structural), and ARE `string=`; and `equal` does not cross the symbol/string boundary. Both sides answer (nil t t nil). This is the control that makes string25-string-equal-symbol-argument attributable to the symbol argument alone."
+}

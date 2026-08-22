@@ -36,8 +36,35 @@
 #include <time.h>
 #include <unistd.h>
 
-#define PUMP_DEADLINE_SECONDS 10.0
+#define PUMP_DEADLINE_SECONDS 30.0
 #define PUMP_QUIET_SECONDS 0.30
+
+/* The deadline is a budget, not a cost: pump_until() returns the moment
+ * its predicate holds, so only a test that is genuinely failing ever
+ * spends it.  KG_TEST_TIME_SCALE stretches the budget on a box where
+ * wall-clock is not the test's own -- the parallel CI runner sets it for
+ * the same reason PTY_TIMEOUT doubles there.  Clamped so a typo cannot
+ * make a real hang look like a pass that never returns. */
+static double pump_time_scale(void)
+{
+	const char *scale_text = getenv("KG_TEST_TIME_SCALE");
+	double scale = scale_text != NULL ? atof(scale_text) : 1.0;
+
+	if (scale < 1.0 || scale > 60.0) {
+		scale = 1.0;
+	}
+	return scale;
+}
+
+static double pump_deadline_seconds(void)
+{
+	return PUMP_DEADLINE_SECONDS * pump_time_scale();
+}
+
+static double pump_quiet_seconds(void)
+{
+	return PUMP_QUIET_SECONDS * pump_time_scale();
+}
 
 /* Bounded well under PATH_MAX on purpose: it is interpolated into a
  * command line, and a destination the compiler cannot prove is big enough
@@ -291,7 +318,7 @@ typedef bool (*done_fn)(const struct dap_session_state *st);
 
 static bool pump_until(struct dap_session *s, done_fn done)
 {
-	double deadline = monotonic_seconds() + PUMP_DEADLINE_SECONDS;
+	double deadline = monotonic_seconds() + pump_deadline_seconds();
 	struct dap_session_state st;
 
 	for (;;) {
@@ -309,7 +336,7 @@ static bool pump_until(struct dap_session *s, done_fn done)
 
 static void pump_quietly(struct dap_session *s)
 {
-	double deadline = monotonic_seconds() + PUMP_QUIET_SECONDS;
+	double deadline = monotonic_seconds() + pump_quiet_seconds();
 
 	while (monotonic_seconds() < deadline) {
 		(void)dap_session_poll(s);
@@ -805,7 +832,20 @@ static struct dap_session *start_spawn_port_session(const char *cwd,
 	    "python3 '%s' --mode protocol --announce '%s' %s", script_path,
 	    DELVE_PREFIX, extra ? extra : "");
 	error[0] = '\0';
-	return dap_session_start(&request, error, error_size);
+	{
+		struct dap_session *session
+		    = dap_session_start(&request, error, error_size);
+
+		if (session) {
+			/* The outer pump budget scales under CI load; keep the
+			 * adapter's announce deadline in the same budget so a
+			 * slow child reports a real timeout rather than
+			 * poisoning the following assertions. */
+			dap_session_set_spawn_deadline(session,
+			    (unsigned)(pump_deadline_seconds() * 1000.0));
+		}
+		return session;
+	}
 }
 
 static pid_t session_child(struct dap_session *s)
@@ -1011,7 +1051,7 @@ static void test_the_debuggee_output_on_the_adapters_stderr(void)
 		return;
 	}
 	CHECK(pump_until(s, is_configured));
-	deadline = monotonic_seconds() + PUMP_DEADLINE_SECONDS;
+	deadline = monotonic_seconds() + pump_deadline_seconds();
 	while (strstr(heard.output_text, want) == NULL
 	    && monotonic_seconds() < deadline) {
 		(void)dap_session_poll(s);

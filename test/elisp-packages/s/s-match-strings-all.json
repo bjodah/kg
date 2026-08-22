@@ -1,0 +1,11 @@
+{
+  "id": "s-match-strings-all",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-match-strings-all \"\\\\(a\\\\)\" \"aba\")",
+  "expect": "agree",
+  "note": "Match extraction, exact value. Both return ((\"a\") (\"a\"))."
+}

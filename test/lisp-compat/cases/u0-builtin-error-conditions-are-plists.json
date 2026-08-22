@@ -1,0 +1,6 @@
+{
+ "id": "u0-builtin-error-conditions-are-plists",
+ "setup": [],
+ "expr": "(list (get 'wrong-type-argument 'error-conditions) (get 'arith-error 'error-conditions) (get 'error 'error-conditions) (get 'wrong-type-argument 'error-message))",
+ "note": "EMACS' OWN CONDITIONS ARE THE SAME MECHANISM, which is what makes this a substrate item and not a library one. Emacs answers ((wrong-type-argument error) (arith-error error) (error) \"Wrong type argument\") -- every built-in condition is a plist a package can READ, and `error''s own conditions list is just (error). kg answers (nil nil nil \"Wrong type argument\"): it has the messages but not the condition lists, because its hierarchy is a fixed table in fe. `ellama.el:3607' reads `(get err-type \\'error-conditions)' on conditions it did not define, and gets nil here."
+}

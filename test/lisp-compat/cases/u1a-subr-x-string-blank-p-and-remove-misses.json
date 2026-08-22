@@ -1,0 +1,7 @@
+{
+ "id": "u1a-subr-x-string-blank-p-and-remove-misses",
+ "expect": "agree",
+ "setup": [],
+ "expr": "(list (string-blank-p \"\") (string-blank-p \"\\n\\t\") (string-blank-p \"a\") (string-remove-prefix \"z\" \"abc\") (string-remove-suffix \"z\" \"abc\") (string-remove-prefix \"\" \"abc\"))",
+ "note": "THE MISSES, which are where these three names are easy to get wrong. Emacs answers (0 0 nil \"abc\" \"abc\" \"abc\"): the empty string is blank and so is a tab-and-newline one, so the predicate's character class is not just the space; a prefix or suffix that does not match answers the STRING ITSELF rather than nil; and an empty prefix removes nothing. u0-subr-x-string-helpers pins the hits."
+}

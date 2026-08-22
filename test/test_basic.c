@@ -491,13 +491,15 @@ static void test_coordinate_space_round_trips(void)
 		}
 		CHECK(visual_bol_to_chars(row, 0, 10, &ww) == 0);
 		CHECK(visual_bol_to_chars(row, 3, 10, &ww) == 0);
-		CHECK(visual_bol_to_chars(row, 6, 10, &ww) == 6); /* "world foo" */
+		CHECK(visual_bol_to_chars(row, 6, 10, &ww)
+		    == 6); /* "world foo" */
 		CHECK(visual_bol_to_chars(row, 8, 10, &ww) == 6);
 		CHECK(visual_bol_to_chars(row, 12, 10, &ww) == 6);
 
 		CHECK(visual_eol_to_chars(row, 0, 10, &ww) == 5); /* "hello" */
 		CHECK(visual_eol_to_chars(row, 3, 10, &ww) == 5);
-		CHECK(visual_eol_to_chars(row, 6, 10, &ww) == 15); /* "world foo" */
+		CHECK(visual_eol_to_chars(row, 6, 10, &ww)
+		    == 15); /* "world foo" */
 		CHECK(visual_eol_to_chars(row, 12, 10, &ww) == 15);
 		teardown();
 	}

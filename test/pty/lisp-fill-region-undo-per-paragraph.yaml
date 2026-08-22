@@ -1,0 +1,20 @@
+# `fill-region' fills paragraph by paragraph, and each paragraph is ONE
+# gateway replacement -- so it is one undo step each, which is the
+# property no unit test can see and the one a user meets first.  Two
+# paragraphs are filled at column 5 from the minibuffer, then C-_ once:
+# the SECOND paragraph goes back and the first stays filled.
+#
+# It is also the end-to-end proof that the Lisp name reaches the C fill
+# in a real editor rather than only in test/kgbatch.
+name: lisp-fill-region-undo-per-paragraph
+filename: fill-region-undo.txt
+requires_feature: lisp
+initial: "aaa bbb\n\nccc ddd\n"
+keys:
+  - M-x
+  - eval-expression
+  - RET
+  - (let ((fill-column 5)) (fill-region (point-min) (point-max)))
+  - RET
+  - C-_
+expected_saved: "aaa\nbbb\n\nccc ddd\n"

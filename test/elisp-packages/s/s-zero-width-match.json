@@ -1,0 +1,11 @@
+{
+  "id": "s-zero-width-match",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-match \"^\" \"abc\")",
+  "expect": "agree",
+  "note": "Zero-width match: anchor ^ matches the empty position at string start. Both return (\"\")."
+}

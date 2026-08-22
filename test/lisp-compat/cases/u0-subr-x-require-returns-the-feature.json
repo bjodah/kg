@@ -1,0 +1,7 @@
+{
+  "id": "u0-subr-x-require-returns-the-feature",
+  "setup": [],
+  "expr": "(list (require 'subr-x) (featurep 'subr-x))",
+  "expect": "diverge",
+  "note": "THE BLOCKER ITSELF. Emacs answers (subr-x t): `(require \\'subr-x)' loads the library and the feature is provided afterwards -- and `(featurep \\'subr-x)' is nil before it, so this is a real load and not a preloaded no-op. U.1a provided the feature from the prelude, so kg agreed; Phase M0.1 RETRACTED it: kg now answers `file-missing' (the honest diagnostic) and `(featurep \\'subr-x)' is nil, because a provided feature is a capability promise that the unimplemented `subr-x' contract (named-let, hash-table-keys/values/-empty-p) would betray. The names remain callable but unadvertised. Recorded as a divergence: Emacs (subr-x t) vs kg file-missing."
+}

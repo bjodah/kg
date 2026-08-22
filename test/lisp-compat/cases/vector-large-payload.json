@@ -1,0 +1,6 @@
+{
+ "id": "vector-large-payload",
+ "setup": [],
+ "expr": "(let ((v (make-vector 5000 7))) (list (length v) (aref v 4999) (vectorp v)))",
+ "note": "The master plan's required `more than 4032 elements' case, stated as a language contract rather than as a substrate measurement: 5000 elements is past the point where Design B's payload block cannot be one conveniently small allocation, and the answer is still (5000 7 t). Bounded and deterministic -- it allocates once and reads one slot -- so it is answerable by Emacs in batch inside the runner's timeout."
+}

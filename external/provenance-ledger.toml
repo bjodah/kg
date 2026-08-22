@@ -1,0 +1,25 @@
+# Provenance ledger for external/ -- third-party files vendored for
+# TESTING ONLY, one entry per subfolder.  The policy (maintainer
+# decision, 2026-08-20): nothing under external/ may reach a shipped
+# artifact.  Not installed by `make install`, not copied by any
+# packaging manifest (debian/, PKGBUILD), not embedded into the kg
+# binary, and excluded from release tarballs -- utils/mkrel.sh builds
+# them with `git archive`, which honors the `external/ export-ignore`
+# line in .gitattributes.  utils/check_external_quarantine.py enforces
+# every clause of this in `make check`.  Using GPL-licensed files for
+# pure testing does not contaminate the license of the project at
+# large; it does make this ledger the place that says so.
+
+[elpa]
+description = "Emacs Lisp packages the Lisp compatibility suite loads as fixtures"
+license = "GPL-3.0-or-later"
+license-source = "each file's header carries the standard GNU blurb; upstream repositories carry COPYING"
+
+[elpa.files."s.el"]
+upstream = "https://github.com/magnars/s.el"
+obtained-from = "/root/.emacs.d/elpa/s-20260522.135/s.el (a MELPA build, this development box)"
+package-version = "20260522.135"
+package-revision = "7393fa6fa305"
+copyright = "Copyright (C) 2012-2022 Magnar Sveen"
+copied = 2026-08-20
+modified = false

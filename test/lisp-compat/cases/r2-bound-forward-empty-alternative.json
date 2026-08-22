@@ -1,0 +1,6 @@
+{
+ "id": "r2-bound-forward-empty-alternative",
+ "setup": [],
+ "expr": "(with-temp-buffer (insert \"axxxb\") (goto-char (point-min)) (list (re-search-forward \"a.*b\\\\|\" 4 t) (point) (match-end 0)))",
+ "note": "AN EMPTY ALTERNATIVE is what is left when the consuming one cannot fit under BOUND, and an empty match is an ordinary result at the bound as anywhere else.  Emacs answers (1 1 1) -- point does not move, and the search SUCCEEDS.  kg answered (nil 1) until R2b, because the unbounded preferred answer crossed BOUND and took the whole row with it."
+}

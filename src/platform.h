@@ -165,4 +165,10 @@ ssize_t kg_getline(char **line, size_t *capacity, FILE *stream);
 
 #endif
 
+/* The POSIX configuration compiles none of this module's Windows
+ * definitions; this anchor keeps the translation unit non-empty and is
+ * declared here so its external linkage is the module surface saying so
+ * rather than an accident clang-tidy flags. */
+int kg_platform_anchor(void);
+
 #endif

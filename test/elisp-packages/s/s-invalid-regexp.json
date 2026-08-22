@@ -1,0 +1,11 @@
+{
+  "id": "s-invalid-regexp",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(condition-case e (s-match \"[a\" \"x\") (error (cons (car e) (cadr e))))",
+  "expect": "agree",
+  "note": "Frozen control: an invalid regexp must raise the Emacs condition `invalid-regexp' carrying its diagnostic as the one data item, so a handler naming `error' catches it and (car e) is `invalid-regexp', not the bare `error' symbol. kg maps the regexp engine's compile failure to `invalid-regexp' through fe (fex_re.c) and kg (lisp_search.c); the message matches Emacs 31.0.91's \"Unmatched [ or [^\". Now agrees."
+}

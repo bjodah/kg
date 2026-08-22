@@ -1,0 +1,11 @@
+{
+  "id": "s-anchor-start",
+  "package": "s.el",
+  "domain": "ascii",
+  "setup": [
+    "(load \"external/elpa/s.el\")"
+  ],
+  "expr": "(s-match \"^a\" \"abc\")",
+  "expect": "agree",
+  "note": "Anchor ^ at pattern start still anchors. Both return (\"a\")."
+}

@@ -1,0 +1,6 @@
+{
+ "id": "vector-elt-sequences",
+ "setup": [],
+ "expr": "(list (elt '(a b c) 1) (elt \"abc\" 1) (elt [a b c] 1))",
+ "note": "`elt' over all three sequence types: (b 98 b). A string's element is its character CODE, a vector's and a list's are whatever they hold, so the three answers are deliberately not the same shape."
+}

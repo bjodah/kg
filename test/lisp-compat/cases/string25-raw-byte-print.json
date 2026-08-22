@@ -1,0 +1,6 @@
+{
+ "id": "string25-raw-byte-print",
+ "setup": [],
+ "expr": "(format \"%S\" \"a\\342b\")",
+ "note": "The same byte through the WRITER, which is where the two sides part. Emacs prints \"a\\342b\" -- it escapes a byte that is not a character back into the octal form that reads again. kg prints the raw 0xE2 verbatim, so its own output is not valid UTF-8 and does not read back as the string it came from. Recorded before Phase 25.1 touches the writer, because `%S`'s job is to produce something the reader accepts."
+}

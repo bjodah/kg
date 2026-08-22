@@ -140,6 +140,11 @@ struct kg_lisp_match_data {
 
 struct lisp_state {
 	void *arena;
+	/* The arena's size in bytes, exactly as FeOpenContext() was given
+	 * it: the compiled default or $KG_LISP_ARENA_BYTES, rounded up to
+	 * Fe's alignment.  Reported by kg_lisp_arena_stats() so a slot
+	 * figure always says which arena produced it. */
+	size_t arena_bytes;
 	FeContext *context;
 	struct lisp_frame frame;
 	char error[1024];
@@ -219,6 +224,10 @@ struct lisp_state {
 	 * function for why this is a bare pointer and not a root. */
 	FeObject *command_value;
 	bool initialized;
+	/* Set when kg_lisp_init() REFUSED the configuration it was handed
+	 * rather than failing to start on a sound one; see
+	 * kg_lisp_config_refused(). */
+	bool config_refused;
 };
 
 extern struct lisp_state state;
@@ -232,6 +241,7 @@ void copy_result(char *result, size_t result_size, const char *text);
 [[noreturn]] void command_error(
     FeContext *context, const char *prefix, const char *name);
 void release_scratch(void);
+char *park_scratch(char *text);
 char *copy_fe_string(FeContext *context, FeObject *object, size_t *length);
 /* Resolve a function designator to the object it names (lisp_core.c): a
  * symbol reads its function cell, anything else passes through unchanged.
@@ -267,6 +277,27 @@ FeObject *lisp_callable_designator(FeContext *context, FeObject *object,
  * (lisp_core.c). */
 [[noreturn]] void lisp_raise_void_variable(
     FeContext *context, FeObject *symbol);
+/* Raise Emacs' `(setting-constant SYMBOL)' -- a `let'/`let*' binding name
+ * that is `t', `nil' or a keyword (lisp_core.c). */
+[[noreturn]] void lisp_raise_setting_constant(
+    FeContext *context, FeObject *symbol);
+/* The three-element form of the same, which `compare-strings' needs:
+ * (args-out-of-range STRING START END), naming the string whose span was
+ * bad (lisp_core.c). */
+[[noreturn]] void lisp_raise_args_out_of_range3(
+    FeContext *context, FeObject *first, FeObject *second, FeObject *third);
+/* Raise Emacs' `(search-failed PATTERN)' -- what a failed search whose
+ * NOERROR argument is nil answers, carrying the pattern it did not find.
+ * The symbol became raisable at the frontier demand phase's fe pin, which
+ * is what added it to fe's condition table (lisp_core.c). */
+[[noreturn]] void lisp_raise_search_failed(
+    FeContext *context, FeObject *pattern);
+/* Raise Emacs' `(invalid-regexp MESSAGE)' -- what a search whose REGEXP
+ * fails to compile answers, carrying the engine's diagnostic as its one data
+ * item.  The symbol became raisable at the Phase M2 fe pin (fe commit
+ * cf343eb), which is what added it to fe's condition table (lisp_core.c). */
+[[noreturn]] void lisp_raise_invalid_regexp(
+    FeContext *context, const char *pattern);
 /* Raise Emacs' `(end-of-buffer)' / `(beginning-of-buffer)', the two edges
  * a motion or an edit runs into.  Both carry no data, and both became
  * raisable at the Phase 20 fe pin, which is what added them to fe's
@@ -452,6 +483,11 @@ FeObject *native_string_length(FeContext *context, FeObject *arguments);
 FeObject *native_substring(FeContext *context, FeObject *arguments);
 FeObject *native_concat(FeContext *context, FeObject *arguments);
 FeObject *native_string_equal(FeContext *context, FeObject *arguments);
+FeObject *native_compare_strings(FeContext *context, FeObject *arguments);
+/* Emacs' IGNORE-CASE / CASE-FOLD fold, ASCII ONLY and an UPCASE -- the
+ * one answer `compare-strings' and `assoc-string' share, so an argument
+ * with one name cannot mean two things (lisp_string.c). */
+long lisp_fold_case_ascii(long codepoint);
 FeObject *native_char_to_string(FeContext *context, FeObject *arguments);
 FeObject *native_string_to_char(FeContext *context, FeObject *arguments);
 FeObject *native_string_to_number(FeContext *context, FeObject *arguments);
@@ -473,6 +509,7 @@ FeObject *native_stringp(FeContext *context, FeObject *arguments);
 FeObject *native_symbolp(FeContext *context, FeObject *arguments);
 FeObject *native_numberp(FeContext *context, FeObject *arguments);
 FeObject *native_consp(FeContext *context, FeObject *arguments);
+FeObject *native_listp(FeContext *context, FeObject *arguments);
 FeObject *native_functionp(FeContext *context, FeObject *arguments);
 FeObject *native_command(FeContext *context, FeObject *arguments);
 FeObject *native_commandp(FeContext *context, FeObject *arguments);
@@ -482,6 +519,17 @@ FeObject *native_command_documentation(FeContext *context, FeObject *arguments);
 FeObject *native_prefix_numeric_value(FeContext *context, FeObject *arguments);
 FeObject *lisp_prefix_object(
     FeContext *context, const struct command_prefix *prefix);
+/* Phase 2 of doc/plans/2026-08-14-embedded-prelude.md: the prelude names
+ * Phase 0.2 found eager on every startup path, small and ordering-free
+ * enough to be natives instead of the lambdas lisp/prelude.el used to
+ * carry (lisp_cmd.c). */
+FeObject *native_reverse(FeContext *context, FeObject *arguments);
+FeObject *native_nconc(FeContext *context, FeObject *arguments);
+FeObject *native_internal_bind_name(FeContext *context, FeObject *arguments);
+FeObject *native_internal_bind_value(FeContext *context, FeObject *arguments);
+FeObject *native_internal_doc_put(FeContext *context, FeObject *arguments);
+FeObject *native_internal_variable_doc_put(
+    FeContext *context, FeObject *arguments);
 /* Read and clear the value the command activation just finished produced
  * (lisp_core.c).  Nothing may allocate between the activation returning and
  * this call -- see the definition. */
@@ -508,12 +556,15 @@ FeObject *native_buffer_file_name(FeContext *context, FeObject *arguments);
 FeObject *native_buffer_modified_p(FeContext *context, FeObject *arguments);
 FeObject *native_set_buffer_modified_p(FeContext *context, FeObject *arguments);
 FeObject *native_replace_region(FeContext *context, FeObject *arguments);
+FeObject *native_fill_region(FeContext *context, FeObject *arguments);
 FeObject *native_search_forward(FeContext *context, FeObject *arguments);
 FeObject *native_search_backward(FeContext *context, FeObject *arguments);
 FeObject *native_re_search_forward(FeContext *context, FeObject *arguments);
 FeObject *native_re_search_backward(FeContext *context, FeObject *arguments);
 FeObject *native_match_beginning(FeContext *context, FeObject *arguments);
 FeObject *native_match_end(FeContext *context, FeObject *arguments);
+FeObject *native_match_data(FeContext *context, FeObject *arguments);
+FeObject *native_set_match_data(FeContext *context, FeObject *arguments);
 FeObject *native_string_match(FeContext *context, FeObject *arguments);
 FeObject *native_regexp_quote(FeContext *context, FeObject *arguments);
 FeObject *native_looking_at(FeContext *context, FeObject *arguments);

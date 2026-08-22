@@ -1,0 +1,6 @@
+{
+ "id": "phase26-anchor-string-match-p",
+ "setup": [],
+ "expr": "(list (string-match-p \"\\\\`ab\" \"abc\") (string-match-p \"bc\\\\'\" \"abc\") (string-match-p \"\\\\`z\" \"abc\"))",
+ "note": "THE SAME TWO SPELLINGS THROUGH THE NON-PERTURBING PROBE. `string-match-p' is `save-match-data' over `string-match' (string25-string-match-p-non-perturbing is that contract), so it sees whatever the engine sees and nothing else: Emacs answers (0 1 nil), and so does kg since 26.2; it answered (nil nil nil) before. The row exists because the two names have separate implementations in kg -- one native, one prelude macro over it -- and a spelling taught to only one of them would show up here and nowhere else."
+}

@@ -28,157 +28,159 @@
 #include "syntax_backend.h"
 
 /* C / C++ */
-char *C_HL_extensions[] = { ".c", ".h", ".cpp", ".hpp", ".cc", NULL };
+static char *C_HL_extensions[] = { ".c", ".h", ".cpp", ".hpp", ".cc", NULL };
 
 /* Python */
-char *PYTHON_HL_extensions[] = { ".py", ".pyw", ".pyi", ".pyx", NULL };
+static char *PYTHON_HL_extensions[] = { ".py", ".pyw", ".pyi", ".pyx", NULL };
 
 /* Shell */
-char *SHELL_HL_extensions[] = { ".sh", ".bash", ".zsh", ".ksh", ".csh", ".tcsh",
-	".profile", ".bashrc", ".bash_profile", ".bash_login", ".zshrc",
-	".zshenv", ".zlogin", ".zprofile", NULL };
+static char *SHELL_HL_extensions[] = { ".sh", ".bash", ".zsh", ".ksh", ".csh",
+	".tcsh", ".profile", ".bashrc", ".bash_profile", ".bash_login",
+	".zshrc", ".zshenv", ".zlogin", ".zprofile", NULL };
 
 /* JavaScript */
-char *JS_HL_extensions[] = { ".js", ".jsx", ".mjs", ".cjs", NULL };
+static char *JS_HL_extensions[] = { ".js", ".jsx", ".mjs", ".cjs", NULL };
 
 /* Rust */
-char *RUST_HL_extensions[] = { ".rs", ".rlib", NULL };
+static char *RUST_HL_extensions[] = { ".rs", ".rlib", NULL };
 
 /* Go.  Only ".go": a go.mod or a go.sum is the module's manifest, not Go
  * source, and it is a workspace marker (src/lsp_server.c) rather than a
  * mode. */
-char *GO_HL_extensions[] = { ".go", NULL };
+static char *GO_HL_extensions[] = { ".go", NULL };
 
 /* Java */
-char *JAVA_HL_extensions[] = { ".java", ".class", NULL };
+static char *JAVA_HL_extensions[] = { ".java", ".class", NULL };
 
 /* TypeScript */
-char *TS_HL_extensions[] = { ".ts", ".tsx", ".d.ts", NULL };
+static char *TS_HL_extensions[] = { ".ts", ".tsx", ".d.ts", NULL };
 
 /* C# */
-char *CSHARP_HL_extensions[] = { ".cs", ".csx", NULL };
+static char *CSHARP_HL_extensions[] = { ".cs", ".csx", NULL };
 
 /* PHP */
-char *PHP_HL_extensions[]
+static char *PHP_HL_extensions[]
     = { ".php", ".phtml", ".php3", ".php4", ".php5", ".phps", NULL };
 
 /* Ruby */
-char *RUBY_HL_extensions[] = { ".rb", ".rbw", ".rake", ".gemspec", NULL };
+static char *RUBY_HL_extensions[]
+    = { ".rb", ".rbw", ".rake", ".gemspec", NULL };
 
 /* Swift */
-char *SWIFT_HL_extensions[] = { ".swift", NULL };
+static char *SWIFT_HL_extensions[] = { ".swift", NULL };
 
 /* SQL */
-char *SQL_HL_extensions[] = { ".sql", ".ddl", ".dml", NULL };
+static char *SQL_HL_extensions[] = { ".sql", ".ddl", ".dml", NULL };
 
 /* Dart */
-char *DART_HL_extensions[] = { ".dart", NULL };
+static char *DART_HL_extensions[] = { ".dart", NULL };
 
 /* HTML */
-char *HTML_HL_extensions[] = { ".html", ".htm", ".xhtml", NULL };
+static char *HTML_HL_extensions[] = { ".html", ".htm", ".xhtml", NULL };
 
 /* React/JSX - extends JavaScript with React-specific features */
-char *REACT_HL_extensions[] = { ".jsx", NULL };
+static char *REACT_HL_extensions[] = { ".jsx", NULL };
 
 /* Vue.js - single file component syntax */
-char *VUE_HL_extensions[] = { ".vue", NULL };
+static char *VUE_HL_extensions[] = { ".vue", NULL };
 
 /* Angular - TypeScript with Angular decorators and directives */
-char *ANGULAR_HL_extensions[] = { ".component.ts", ".service.ts", ".module.ts",
-	".directive.ts", ".pipe.ts", ".guard.ts", NULL };
+static char *ANGULAR_HL_extensions[] = { ".component.ts", ".service.ts",
+	".module.ts", ".directive.ts", ".pipe.ts", ".guard.ts", NULL };
 
 /* Svelte - single file component with reactive syntax */
-char *SVELTE_HL_extensions[] = { ".svelte", NULL };
+static char *SVELTE_HL_extensions[] = { ".svelte", NULL };
 
 /* Makefile */
-char *MAKE_HL_extensions[]
+static char *MAKE_HL_extensions[]
     = { "Makefile", "makefile", "GNUmakefile", ".mk", ".mak", NULL };
 
 /* Markdown */
-char *MD_HL_extensions[] = { ".md", ".markdown", ".mkd", NULL };
+static char *MD_HL_extensions[] = { ".md", ".markdown", ".mkd", NULL };
 
 /* YAML */
-char *YAML_HL_extensions[] = { ".yaml", ".yml", NULL };
+static char *YAML_HL_extensions[] = { ".yaml", ".yml", NULL };
 
 /* Lisp */
-char *LISP_HL_extensions[] = { ".el", NULL };
+static char *LISP_HL_extensions[] = { ".el", NULL };
 
 /* Dockerfile */
-char *DOCKERFILE_HL_extensions[]
+static char *DOCKERFILE_HL_extensions[]
     = { "Dockerfile", "dockerfile", "Containerfile", "containerfile",
 	      ".dockerfile", ".containerfile", NULL };
 
 /* Lua */
-char *LUA_HL_extensions[] = { ".lua", NULL };
+static char *LUA_HL_extensions[] = { ".lua", NULL };
 
 /* Haskell */
-char *HASKELL_HL_extensions[] = { ".hs", ".lhs", NULL };
+static char *HASKELL_HL_extensions[] = { ".hs", ".lhs", NULL };
 
 /* ISPC */
-char *ISPC_HL_extensions[] = { ".ispc", ".isph", NULL };
+static char *ISPC_HL_extensions[] = { ".ispc", ".isph", NULL };
 
 /* XML */
-char *XML_HL_extensions[] = { ".xml", ".xsl", ".xslt", ".xsd", ".svg", ".plist",
-	".wsdl", ".wsdd", NULL };
+static char *XML_HL_extensions[] = { ".xml", ".xsl", ".xslt", ".xsd", ".svg",
+	".plist", ".wsdl", ".wsdd", NULL };
 
 /* DTD */
-char *DTD_HL_extensions[] = { ".dtd", ".ent", NULL };
+static char *DTD_HL_extensions[] = { ".dtd", ".ent", NULL };
 
 /* Linker script */
-char *LINKERSCRIPT_HL_extensions[] = { ".ld", ".lds", ".x", NULL };
+static char *LINKERSCRIPT_HL_extensions[] = { ".ld", ".lds", ".x", NULL };
 
 /* RON */
-char *RON_HL_extensions[] = { ".ron", NULL };
+static char *RON_HL_extensions[] = { ".ron", NULL };
 
 /* TableGen */
-char *TABLEGEN_HL_extensions[] = { ".td", NULL };
+static char *TABLEGEN_HL_extensions[] = { ".td", NULL };
 
 /* re2c */
-char *RE2C_HL_extensions[] = { ".re", NULL };
+static char *RE2C_HL_extensions[] = { ".re", NULL };
 
 /* Common Lisp */
-char *COMMONLISP_HL_extensions[] = { ".cl", ".lisp", ".lsp", ".asd", NULL };
+static char *COMMONLISP_HL_extensions[]
+    = { ".cl", ".lisp", ".lsp", ".asd", NULL };
 
 /* GLSL */
-char *GLSL_HL_extensions[]
+static char *GLSL_HL_extensions[]
     = { ".glsl", ".vert", ".frag", ".geom", ".comp", ".tesc", ".tese", NULL };
 
 /* Properties */
-char *PROPERTIES_HL_extensions[] = { ".properties", NULL };
+static char *PROPERTIES_HL_extensions[] = { ".properties", NULL };
 
 /* PSV */
-char *PSV_HL_extensions[] = { ".psv", NULL };
+static char *PSV_HL_extensions[] = { ".psv", NULL };
 
 /* CSV */
-char *CSV_HL_extensions[] = { ".csv", NULL };
+static char *CSV_HL_extensions[] = { ".csv", NULL };
 
 /* TSV */
-char *TSV_HL_extensions[] = { ".tsv", NULL };
+static char *TSV_HL_extensions[] = { ".tsv", NULL };
 
 /* CUDA */
-char *CUDA_HL_extensions[] = { ".cu", ".cuh", NULL };
+static char *CUDA_HL_extensions[] = { ".cu", ".cuh", NULL };
 
 /* Git attributes */
-char *GITATTRIBUTES_HL_extensions[]
+static char *GITATTRIBUTES_HL_extensions[]
     = { ".gitattributes", "gitattributes", NULL };
 
 /* Julia */
-char *JULIA_HL_extensions[] = { ".jl", NULL };
+static char *JULIA_HL_extensions[] = { ".jl", NULL };
 
 /* Diff */
-char *DIFF_HL_extensions[] = { ".diff", ".patch", NULL };
+static char *DIFF_HL_extensions[] = { ".diff", ".patch", NULL };
 
 /* Doxygen */
-char *DOXYGEN_HL_extensions[]
+static char *DOXYGEN_HL_extensions[]
     = { "Doxyfile", "doxyfile", ".doxyfile", ".doxygen", NULL };
 
 /* Meson */
-char *MESON_HL_extensions[]
+static char *MESON_HL_extensions[]
     = { "meson.build", "meson_options.txt", ".meson", NULL };
 
 /* SSH config */
-char *SSHCONFIG_HL_extensions[] = { "ssh_config", "sshd_config", ".ssh/config",
-	"ssh/config", ".ssh_config", NULL };
+static char *SSHCONFIG_HL_extensions[] = { "ssh_config", "sshd_config",
+	".ssh/config", "ssh/config", ".ssh_config", NULL };
 
 /* Git message files (.git/COMMIT_EDITMSG and friends).  Like the
  * rebase todo below, matched on the exact basename only in
@@ -188,13 +190,13 @@ char *SSHCONFIG_HL_extensions[] = { "ssh_config", "sshd_config", ".ssh/config",
 static const char *gitcommit_basenames[]
     = { "COMMIT_EDITMSG", "MERGE_MSG", "SQUASH_MSG", "TAG_EDITMSG",
 	      "NOTES_EDITMSG", "EDIT_DESCRIPTION", NULL };
-char *GITCOMMIT_HL_extensions[] = { NULL };
+static char *GITCOMMIT_HL_extensions[] = { NULL };
 
 /* Git interactive-rebase todo (.git/rebase-merge/git-rebase-todo).  No
  * filematch patterns: the mode carries quit-the-editor keys (C-c C-c /
  * C-c C-k), so it is selected only on an exact basename match in
  * editor_select_syntax_highlight(), never on a substring hit. */
-char *GITREBASE_HL_extensions[] = { NULL };
+static char *GITREBASE_HL_extensions[] = { NULL };
 
 /* The mode registry.  The first column is the entry's stable identity
  * (syntax.h's enum kg_mode_id), which is what mode semantics compares.
@@ -203,7 +205,7 @@ char *GITREBASE_HL_extensions[] = { NULL };
  * fontified is the compiled-in backend's business, keyed by that
  * identity.  The column exists for the modes that own their rendering
  * outright -- dired's listing -- and lives outside this table. */
-struct editor_syntax HLDB[] = {
+static struct editor_syntax HLDB[] = {
 	{ KG_MODE_C, "C", C_HL_extensions, "//", NULL },
 	{ KG_MODE_PYTHON, "Python", PYTHON_HL_extensions, "#", NULL },
 	{ KG_MODE_SHELL, "Shell", SHELL_HL_extensions, "#", NULL },

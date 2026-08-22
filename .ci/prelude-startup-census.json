@@ -1,0 +1,27 @@
+{
+ "schema": "kg-prelude-startup-census/2",
+ "regenerate_with": "make prelude-census-baseline",
+ "note": "What the embedded Lisp prelude (lisp/prelude.el) costs at startup, in four numbers: post-prelude peak live arena slots, still-reachable slots after a forced collection, embedded byte count, and top-level definition count -- plus Fe's payload region, whose four USE numbers left zero at FE_LANGUAGE_VERSION 17, where a string's bytes became payload and a symbol's name is a string: the prelude interns hundreds of names, so it publishes blocks and the collection it already ran compacts them. No number may rise without a rationale and measured proof in the commit message; regenerating is how a fall is banked.",
+ "measured_with": {
+  "peak_live_objects": "test/kgbatch -g /dev/null, peak-live=",
+  "reachable_live_objects": "test/prelude_gc_probe, the \"reachable-live (total - free)\" line, read right after kg_lisp_init() -- which now runs the one forced collection this needs itself",
+  "embedded_bytes": "lisp/prelude.el, byte size on disk",
+  "definition_count": "lisp/prelude.el, count of top-level (defalias 'NAME (KIND ...)) forms",
+  "payload_capacity_bytes": "test/kgbatch -g /dev/null, payload-capacity=",
+  "payload_live_bytes": "test/kgbatch -g /dev/null, payload-live=",
+  "payload_peak_bytes": "test/kgbatch -g /dev/null, payload-peak=",
+  "payload_compactions": "test/kgbatch -g /dev/null, payload-compactions=",
+  "payload_allocation_failures": "test/kgbatch -g /dev/null, payload-failures="
+ },
+ "ceiling": {
+  "peak_live_objects": 11963,
+  "reachable_live_objects": 10617,
+  "embedded_bytes": 108528,
+  "definition_count": 157,
+  "payload_capacity_bytes": 2350696,
+  "payload_live_bytes": 49112,
+  "payload_peak_bytes": 90992,
+  "payload_compactions": 1,
+  "payload_allocation_failures": 0
+ }
+}

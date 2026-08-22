@@ -1,0 +1,6 @@
+{
+ "id": "vector-aref-in-bounds",
+ "setup": [],
+ "expr": "(list (aref [10 20 30] 0) (aref [10 20 30] 2))",
+ "note": "Random access at the first and last valid index: (10 30). Zero-based, and the last valid index is length-1 -- the two ends the vector-aref-out-of-bounds case brackets."
+}

@@ -28,6 +28,7 @@
 #include "mouse.h"
 #include "next_error.h"
 #include "occur.h"
+#include "perf.h"
 #include "register.h"
 #include "showparen.h"
 #include "syntax.h"
@@ -233,7 +234,20 @@ static void display_lisp_result(int error, const char *result)
  *
  * `frames` is peak-of-capacity because that pair is the one bound a
  * person can act on (09A Table X's frame row); slots, collections, roots
- * and failures are counts. */
+ * and failures are counts.  The arena's own size comes next, so a report
+ * says which arena produced it -- with $KG_LISP_ARENA_BYTES that is no
+ * longer a constant of the build.
+ *
+ * The payload region comes LAST, appended rather than woven in, so every
+ * word before it is the line PTY cases and test_cmd.c already read.  kg
+ * carves one since Phase 24, because a vector's elements live in it
+ * (src/lisp_core.c's lisp_arena_options), so `live/capacity' is a real
+ * fraction and a session that has built no vector reads 0 of it.  Last is
+ * also where the whole line is cut on a narrow screen -- the echo area
+ * truncates at the window width, and this message passed a screenful long
+ * ago -- which is the right order to lose it in: the pool a session
+ * typically leaves empty is the one a reader can spare.  test/kgbatch -g
+ * prints every field on a line nothing truncates. */
 static void cmd_lisp_arena_stats(int fd)
 {
 	struct kg_lisp_arena_stats stats;
@@ -245,11 +259,16 @@ static void cmd_lisp_arena_stats(int fd)
 	}
 	editor_set_status_message(
 	    "Arena: %zu slots, %zu free, peak %zu; GC %zu; roots %zu; "
-	    "frames %zu/%zu; fails %zu",
+	    "frames %zu/%zu; fails %zu; %zu bytes; "
+	    "payload %zu/%zu bytes, peak %zu; compactions %zu; "
+	    "payload fails %zu",
 	    stats.total_slots, stats.free_slots, stats.peak_live_objects,
 	    stats.collection_count, stats.peak_gc_stack_depth,
 	    stats.peak_frame_depth, stats.frame_capacity,
-	    stats.allocation_failures);
+	    stats.allocation_failures, stats.arena_bytes,
+	    stats.payload_live_bytes, stats.payload_capacity_bytes,
+	    stats.payload_peak_bytes, stats.payload_compaction_count,
+	    stats.payload_allocation_failures);
 }
 
 /* Emacs' read-expression-history. */
@@ -276,6 +295,14 @@ static void cmd_eval_expression(int fd)
 	}
 	rc = kg_lisp_eval_string(
 	    expression, strlen(expression), result, sizeof(result));
+	/* The minibuffer round trip got all the way to a value.  This is
+	 * the one thing a `make bench' Lisp case cannot otherwise prove
+	 * about the process it measured -- see KG_PERF_LISP_MINIBUFFER_EVAL
+	 * in src/perf.h -- and it is nothing at all in a build without
+	 * counters, where the whole statement expands to `((void)0)'. */
+	if (rc == 0) {
+		KG_PERF_INC(KG_PERF_LISP_MINIBUFFER_EVAL);
+	}
 	display_lisp_result(rc, result);
 }
 
@@ -525,11 +552,10 @@ static void cmd_toggle_truncate_lines(int fd)
 
 		wcur()->coloff = 0;
 		wcur()->cx = filecol;
-		wcur()->rowoff_visual
-		    = get_visual_row(w, b, filerow, filecol);
+		wcur()->rowoff_visual = get_visual_row(w, b, filerow, filecol);
 	}
-	editor_set_status_message("truncate-lines %s",
-	    b->truncate_lines ? "enabled" : "disabled");
+	editor_set_status_message(
+	    "truncate-lines %s", b->truncate_lines ? "enabled" : "disabled");
 }
 
 static void cmd_visual_line_mode(int fd)

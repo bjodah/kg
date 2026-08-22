@@ -157,7 +157,9 @@ static void deliver_filter_output(FeContext *ctx,
 		FeObject *args[2];
 
 		args[0] = lisp_process_object(ctx, handle);
-		args[1] = FeMakeString(ctx, text);
+		/* Byte count, not `strlen': a process may write a NUL and
+		 * the filter is entitled to see it. */
+		args[1] = FeMakeStringBytes(ctx, text, len);
 		/* The Fe string owns a copy; drop the C buffer before the
 		 * callback runs, because a quit or budget completion inside
 		 * the filter is re-signalled rather than swallowed and
@@ -323,7 +325,7 @@ static void build_process_argv(FeContext *context, FeObject *program,
 	if (!buf) {
 		FeHandleError(context, "start-process: out of memory");
 	}
-	state.scratch = buf;
+	park_scratch(buf);
 	for (;;) {
 		size_t len;
 

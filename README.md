@@ -334,51 +334,8 @@ turns off the startup screen an empty buffer shows:
 (setq inhibit-startup-message t)
 ```
 
-Lisp runs in a fixed arena, 10 MiB by default; `KG_LISP_ARENA_BYTES` in the
-environment sets another size (`2M`, `4096K`, or plain bytes), read once at
-startup, and `M-x lisp-arena-stats` reports the one in force. Sizes below
-896 KiB are refused rather than quietly enlarged, and kg then starts with
-Lisp switched off.
+Note that simple `setq` rows are supported even when `WITH_LISP=0`.
 
-kg installs a handful of Lisp packages beside itself; `(require 'NAME)`
-loads one. `help-fns` is the one to try first — it makes kg describe
-itself:
-
-```elisp
-(require 'help-fns)
-```
-
-Then `M-x describe-function` reports what a command or function is, how it
-is called interactively and what its documentation says; `M-x
-describe-variable` reports a variable's value, whether that value is this
-buffer's own or the global one, and whether `let` binds it dynamically;
-and `M-x apropos` lists every name containing a substring. They work on
-your own definitions as well as on kg's — a `defun` with a docstring and
-an `(interactive ...)` declaration describes itself exactly as a built-in
-does.
-
-### Supported Lisp packages
-
-kg's Elisp surface is versioned and the packages it ships are held to one
-of four labels (see `doc/plans/2026-08-21-mature-elisp-master-plan.md`,
-section 3.1): `loads`, `smoke-green`, `scenario-green`, and `supported`.
-Only `scenario-green` and `supported` are product claims.
-
-A package is **scenario-green** only for a published **input domain**, and
-every required scenario in that domain must agree with the pinned Emacs by
-exact value, condition, or handler selection; anything outside the domain
-is listed as an explicit exclusion. A 73-call smoke probe exists for `s.el`
-to find missing names, but a green smoke run is **not** a support claim and
-is never reported as one.
-
-| Package | Label | Input domain | Excluded (recorded divergences) |
-| --- | --- | --- | --- |
-| `s.el` | scenario-green | `s-core/ascii` (ASCII plus byte-preserving strings, including embedded NUL) | non-ASCII case folding, `multibyte-string-p`, combining marks, canonical normalization |
-
-`make package-compat-check` runs the scenario gate; `make package-oracle`
-regenerates the Emacs snapshots it compares against. Neither claim is made
-for any package whose required in-domain scenarios have not been frozen and
-verified.
 
 ## Tree-sitter (optional, off by default)
 

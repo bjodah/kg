@@ -129,16 +129,25 @@ trap cleanup EXIT
 clone() {
 	local url=$1 tag=$2 dest=$3
 
-	if ! git clone --quiet --depth 1 --branch "${tag}" \
+	if git clone --quiet --depth 1 --branch "${tag}" \
 	     "${url}" "${dest}" >/dev/null 2>"${work}/clone.err"; then
-		sed 's/^/  git: /' "${work}/clone.err" >&2
-		say "could not clone ${url} at ${tag}."
-		say "a box with no network, or no route to that host, cannot"
-		say "build a tree-sitter prefix.  Point TREE_SITTER_PREFIX at"
-		say "a prebuilt install (the CI image is the right home for"
-		say "one) or drop WITH_TREE_SITTER=1 from this run."
-		die "clone failed: ${url} ${tag}"
+		return 0
 	fi
+	rm -rf "${dest}"
+	mkdir -p "${dest}"
+	if git -C "${dest}" init --quiet >/dev/null 2>&1 && \
+	   git -C "${dest}" remote add origin "${url}" >/dev/null 2>&1 && \
+	   git -C "${dest}" fetch --quiet --depth 1 origin "${tag}" >/dev/null 2>"${work}/clone.err" && \
+	   git -C "${dest}" checkout --quiet FETCH_HEAD >/dev/null 2>>"${work}/clone.err"; then
+		return 0
+	fi
+	sed 's/^/  git: /' "${work}/clone.err" >&2
+	say "could not clone ${url} at ${tag}."
+	say "a box with no network, or no route to that host, cannot"
+	say "build a tree-sitter prefix.  Point TREE_SITTER_PREFIX at"
+	say "a prebuilt install (the CI image is the right home for"
+	say "one) or drop WITH_TREE_SITTER=1 from this run."
+	die "clone failed: ${url} ${tag}"
 }
 
 # ---- the core ----------------------------------------------------------

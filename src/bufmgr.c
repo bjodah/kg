@@ -31,6 +31,7 @@
 #include "localvars.h"
 #include "lsp.h"
 #include "marker.h"
+#include "paste.h"
 #include "perf.h"
 #include "process_table.h"
 #include "syntax.h"
@@ -1133,6 +1134,16 @@ static int minibuf_edit_key(int fd, struct key_event c, char *buf, int bufsize,
 		return 1;
 	case MINIBUF_MOTION_NONE:
 		break;
+	}
+	if (c.base == KEY_BASE_PASTE) {
+		size_t plen = 0;
+		const char *pdata = kg_bracketed_paste_data(&plen);
+		if (pdata && plen > 0) {
+			minibuf_insert(buf, bufsize, cursor, len, overflow,
+			    pdata, (int)plen);
+		}
+		kg_bracketed_paste_clear();
+		return 1;
 	}
 	if (KEY_IS(c, 'k', KEY_MOD_CTRL)) {
 		minibuf_kill_span(buf, cursor, len, *cursor, *len, 0);

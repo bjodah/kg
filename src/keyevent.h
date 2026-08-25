@@ -63,6 +63,8 @@ enum key_base {
 	 * so key_format() refuses it and no keymap can name it; every other
 	 * reader treats it as a key nothing is bound to and drops it. */
 	KEY_BASE_MOUSE,
+	/* Not a key: "a bracketed paste payload was decoded and is waiting". */
+	KEY_BASE_PASTE,
 };
 
 struct key_event {

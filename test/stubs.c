@@ -182,6 +182,22 @@ void kg_mouse_record(const char *params, char final_byte)
 	(void)params;
 	(void)final_byte;
 }
+void kg_bracketed_paste_start(void) { }
+void kg_bracketed_paste_stop(void) { }
+void kg_bracketed_paste_record(char *data, size_t len)
+{
+	(void)data;
+	(void)len;
+}
+void kg_bracketed_paste_clear(void) { }
+const char *kg_bracketed_paste_data(size_t *len)
+{
+	if (len) {
+		*len = 0;
+	}
+	return NULL;
+}
+void kg_bracketed_paste_handle_pending(void) { }
 
 /* Buffer identity lives in bufmgr.c, which these binaries do not link.
  * The stub buflist has no ids, so a view resolves on slot bounds alone:

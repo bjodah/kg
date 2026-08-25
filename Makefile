@@ -449,7 +449,7 @@ SRCS = main.c tty.c async.c syntax.c $(SYNTAX_BACKEND_SRCS) autocomplete.c buffe
        lsp_diag.c lsp_hover.c $(LSP_EDITOR_SRCS) lsp_rename.c lsp_complete.c \
        dabbrev.c \
        width.c dired.c perf.c platform.c process.c process_table.c marker.c decor.c event.c \
-       mouse.c showparen.c prompt.c gitdiag.c
+       mouse.c paste.c showparen.c prompt.c gitdiag.c
 
 # Object and header files
 OBJS = $(addprefix $(OBJDIR)/,$(SRCS:.c=.o))
@@ -586,6 +586,7 @@ FUZZ_SRCS = $(TESTDIR)/fuzz_keypress.c $(TESTDIR)/fuzz_stubs.c \
 	    $(OBJDIR)/undo.c $(OBJDIR)/rect.c $(OBJDIR)/syntax.c \
 	    $(addprefix $(OBJDIR)/,$(SYNTAX_BACKEND_SRCS)) \
 	    $(OBJDIR)/tty.c $(OBJDIR)/async.c $(OBJDIR)/macro.c $(OBJDIR)/mouse.c \
+	    $(OBJDIR)/paste.c \
 	    $(addprefix $(OBJDIR)/,$(LISP_SRCS)) \
 	    $(addprefix $(OBJDIR)/,$(PROTOCOL_SRCS)) \
 	    $(addprefix $(OBJDIR)/,$(LSP_SRCS)) \

@@ -13,6 +13,7 @@
 #include "def.h"
 #include "event.h"
 #include "keyevent.h"
+#include "paste.h"
 #include "prompt.h"
 
 /* Key sets this picker asks about, spelled as bufmgr.c and cmd.c spell
@@ -218,6 +219,15 @@ static int prompt_choice_key(int fd, struct key_event c,
 	}
 	if (KEY_IN_LIST(cancel_keys, c)) {
 		return MINIBUF_CANCELLED;
+	}
+	if (c.base == KEY_BASE_PASTE) {
+		size_t plen = 0;
+		const char *pdata = kg_bracketed_paste_data(&plen);
+		if (pdata && plen > 0) {
+			prompt_choice_insert(st, pdata, (int)plen);
+		}
+		kg_bracketed_paste_clear();
+		return -2;
 	}
 	if (KEY_IS(c, KEY_BASE_RET, 0)) {
 		return prompt_choice_accept(

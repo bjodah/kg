@@ -24,6 +24,7 @@
 #include "marker.h"
 #include "mouse.h"
 #include "occur.h"
+#include "paste.h"
 #include "prompt.h"
 #include "syntax.h"
 #include "xref.h"
@@ -962,6 +963,10 @@ void editor_process_keypress(int fd)
 	 * prompt -- those loops never reach here. */
 	if (c.base == KEY_BASE_MOUSE) {
 		kg_mouse_handle_pending();
+		return;
+	}
+	if (c.base == KEY_BASE_PASTE) {
+		kg_bracketed_paste_handle_pending();
 		return;
 	}
 

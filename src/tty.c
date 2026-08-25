@@ -24,6 +24,7 @@
 #include "def.h"
 #include "keyevent.h"
 #include "mouse.h"
+#include "paste.h"
 #include "perf.h"
 #include "process_table.h"
 #include "tty.h"
@@ -163,6 +164,7 @@ void disable_raw_mode(int fd)
 	 * enable_raw_mode() below.  Idempotent, so the paths that reach
 	 * here twice cost one comparison. */
 	kg_mouse_stop();
+	kg_bracketed_paste_stop();
 #ifdef KG_FUZZ
 	(void)fd;
 	editor.rawmode = 0;
@@ -398,6 +400,7 @@ int enable_raw_mode(int fd)
 	/* The one place raw mode is entered, so the one place mouse
 	 * reporting is asked for: startup, and every C-z resume. */
 	kg_mouse_start();
+	kg_bracketed_paste_start();
 	return 0;
 
 fatal:
@@ -448,6 +451,148 @@ static struct key_event parse_mouse_escape(int fd)
 		params[n++] = (char)c;
 	}
 	return bare_esc();
+}
+
+static int paste_buf_append(
+    char **buf, size_t *len, size_t *cap, const char *s, size_t slen)
+{
+	if (slen == 0) {
+		return 1;
+	}
+	if (*len + slen + 1 > *cap) {
+		size_t new_cap = *cap ? *cap * 2 : 256;
+		while (*len + slen + 1 > new_cap) {
+			if (new_cap > SIZE_MAX / 2) {
+				return 0;
+			}
+			new_cap *= 2;
+		}
+		char *new_buf = realloc(*buf, new_cap);
+		if (!new_buf) {
+			return 0;
+		}
+		*buf = new_buf;
+		*cap = new_cap;
+	}
+	memcpy(*buf + *len, s, slen);
+	*len += slen;
+	(*buf)[*len] = '\0';
+	return 1;
+}
+
+static size_t normalize_paste_newlines(char *buf, size_t len)
+{
+	size_t r = 0, w = 0;
+
+	if (!buf) {
+		return 0;
+	}
+	while (r < len) {
+		if (buf[r] == '\r') {
+			buf[w++] = '\n';
+			r++;
+			if (r < len && buf[r] == '\n') {
+				r++;
+			}
+		} else {
+			buf[w++] = buf[r++];
+		}
+	}
+	buf[w] = '\0';
+	return w;
+}
+
+/* Consume bracketed paste payload from fd until \x1b[201~ is encountered. */
+static struct key_event parse_bracketed_paste(int fd)
+{
+	char *buf = NULL;
+	size_t len = 0, cap = 0;
+	int state = 0;
+	unsigned char c;
+
+	while (running) {
+		if (read_input_byte(fd, &c) != 1) {
+			break;
+		}
+		if (state == 0) {
+			if (c == 0x1b) {
+				state = 1;
+				continue;
+			}
+		} else if (state == 1) {
+			if (c == '[') {
+				state = 2;
+				continue;
+			}
+			if (!paste_buf_append(&buf, &len, &cap, "\x1b", 1)) {
+				break;
+			}
+			state = 0;
+			if (c == 0x1b) {
+				state = 1;
+				continue;
+			}
+		} else if (state == 2) {
+			if (c == '2') {
+				state = 3;
+				continue;
+			}
+			if (!paste_buf_append(&buf, &len, &cap, "\x1b[", 2)) {
+				break;
+			}
+			state = 0;
+			if (c == 0x1b) {
+				state = 1;
+				continue;
+			}
+		} else if (state == 3) {
+			if (c == '0') {
+				state = 4;
+				continue;
+			}
+			if (!paste_buf_append(&buf, &len, &cap, "\x1b[2", 3)) {
+				break;
+			}
+			state = 0;
+			if (c == 0x1b) {
+				state = 1;
+				continue;
+			}
+		} else if (state == 4) {
+			if (c == '1') {
+				state = 5;
+				continue;
+			}
+			if (!paste_buf_append(&buf, &len, &cap, "\x1b[20", 4)) {
+				break;
+			}
+			state = 0;
+			if (c == 0x1b) {
+				state = 1;
+				continue;
+			}
+		} else if (state == 5) {
+			if (c == '~') {
+				break;
+			}
+			if (!paste_buf_append(
+				&buf, &len, &cap, "\x1b[201", 5)) {
+				break;
+			}
+			state = 0;
+			if (c == 0x1b) {
+				state = 1;
+				continue;
+			}
+		}
+		char ch = (char)c;
+		if (!paste_buf_append(&buf, &len, &cap, &ch, 1)) {
+			break;
+		}
+	}
+	len = normalize_paste_newlines(buf, len);
+	kg_bracketed_paste_record(buf, len);
+	return (struct key_event) { KEY_BASE_PASTE, 0 };
 }
 
 /* The longest sequence accepted below is ESC [ 24 ; 8 ~ (7 bytes).
@@ -682,6 +827,10 @@ static struct key_event parse_numeric_escape(
 
 	if (!read_escape_params(fd, first, used, &params, &final_byte)) {
 		return bare_esc();
+	}
+	if (!ss3 && final_byte == '~' && params.count == 1
+	    && params.value[0] == 200) {
+		return parse_bracketed_paste(fd);
 	}
 	if (ss3) {
 		return decode_ss3_key(final_byte, &params);

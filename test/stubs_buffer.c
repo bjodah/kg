@@ -182,3 +182,17 @@ void kg_lisp_run_kill_buffer_hook(struct kg_buffer_handle handle)
 {
 	(void)handle;
 }
+
+void kg_bracketed_paste_record(char *data, size_t len)
+{
+	(void)data;
+	(void)len;
+}
+void kg_bracketed_paste_clear(void) { }
+const char *kg_bracketed_paste_data(size_t *len)
+{
+	if (len) {
+		*len = 0;
+	}
+	return NULL;
+}

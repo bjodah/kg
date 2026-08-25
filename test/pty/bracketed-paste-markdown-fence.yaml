@@ -1,0 +1,15 @@
+# Bracketed paste into a Markdown document inside a fenced code block (```).
+name: bracketed-paste-markdown-fence
+filename: paste.md
+backend: pexpect
+initial: "# Heading\n\nSome paragraph text before.\n\n```\n\n```\n\nSome paragraph text after.\n"
+keys:
+  - "C-n"
+  - "C-n"
+  - "C-n"
+  - "C-n"
+  - "C-n"
+  - "M-[200~"
+  - "const a = 1;\nconst b = 2;\n"
+  - "M-[201~"
+expected_saved: "# Heading\n\nSome paragraph text before.\n\n```\nconst a = 1;\nconst b = 2;\n\n```\n\nSome paragraph text after.\n"

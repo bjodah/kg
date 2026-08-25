@@ -1,0 +1,13 @@
+# Bracketed paste (DECSET 2004) wraps pasted content in \x1b[200~ ... \x1b[201~.
+# The entire payload is inserted atomically as one edit transaction.
+name: bracketed-paste
+filename: paste.txt
+backend: pexpect
+initial: "before\nafter\n"
+keys:
+  - "C-n"
+  - "C-a"
+  - "M-[200~"
+  - "pasted line 1\npasted line 2\n"
+  - "M-[201~"
+expected_saved: "before\npasted line 1\npasted line 2\nafter\n"

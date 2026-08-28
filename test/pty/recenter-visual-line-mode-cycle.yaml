@@ -1,0 +1,26 @@
+# C-l cycles centre -> top -> bottom in visual-line-mode across wrapped lines.
+# A 10-line window (dimensions [12, 10]) over a single 200-char line that wraps
+# into 20 10-column segments.
+# Move point down 15 visual lines (C-u 15 C-n) to segment 15 ("6666666666").
+# Two C-l presses (centre -> top) put segment 15 at the top of the window.
+# A mouse click on row 1 lands on segment 15, and typing X records it.
+name: recenter-visual-line-mode-cycle
+filename: recenter-wrap.txt
+backend: pexpect
+dimensions: [12, 10]
+key_delay: 0.25
+initial: "11111111112222222222333333333344444444445555555555666666666677777777778888888888999999999900000000001111111111222222222233333333334444444444555555555566666666667777777777888888888899999999990000000000\n"
+keys:
+  - M-x
+  - visual-line-mode
+  - RET
+  - C-u
+  - "1"
+  - "5"
+  - C-n
+  - C-l
+  - C-l
+  - "M-[<0;1;1M"
+  - "M-[<0;1;1m"
+  - X
+expected_saved: "111111111122222222223333333333444444444455555555556666666666777777777788888888889999999999000000000011111111112222222222333333333344444444445555555555X66666666667777777777888888888899999999990000000000\n"

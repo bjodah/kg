@@ -1,0 +1,26 @@
+# C-l recenters in visual-line-mode, cycling centre -> top -> bottom.
+# A 10-line window (dimensions [12, 40]) with 30 lines.
+# Enable visual-line-mode, move point to line 20 (C-u 19 C-n).
+# C-n left the viewport showing lines 11-20 (rowoff_visual = 10).
+# A single C-l must recentre line 20 in the window (rowoff_visual = 14),
+# so line 15 is at the top of the window.  A mouse click on the window's
+# top row (row 1) lands on line 15, and typing X inserts XL15.
+name: recenter-visual-line-mode
+filename: recenter-visual.txt
+backend: pexpect
+dimensions: [12, 40]
+key_delay: 0.25
+initial: "L01\nL02\nL03\nL04\nL05\nL06\nL07\nL08\nL09\nL10\nL11\nL12\nL13\nL14\nL15\nL16\nL17\nL18\nL19\nL20\nL21\nL22\nL23\nL24\nL25\nL26\nL27\nL28\nL29\nL30\n"
+keys:
+  - M-x
+  - visual-line-mode
+  - RET
+  - C-u
+  - "1"
+  - "9"
+  - C-n
+  - C-l
+  - "M-[<0;1;1M"
+  - "M-[<0;1;1m"
+  - X
+expected_saved: "L01\nL02\nL03\nL04\nL05\nL06\nL07\nL08\nL09\nL10\nL11\nL12\nL13\nL14\nXL15\nL16\nL17\nL18\nL19\nL20\nL21\nL22\nL23\nL24\nL25\nL26\nL27\nL28\nL29\nL30\n"

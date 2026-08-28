@@ -471,20 +471,43 @@ void editor_scroll_page_backward(void)
 	}
 }
 
+static void recenter_visual(int step, const int above[3])
+{
+	int filerow = editor_current_filerow_or_eof();
+	int filecol = editor_current_filecol();
+	int vrow = get_visual_row(wcur(), bcur(), filerow, filecol);
+
+	wcur()->rowoff_visual = vrow - above[step];
+	if (wcur()->rowoff_visual < 0) {
+		wcur()->rowoff_visual = 0;
+	}
+}
+
+static void recenter_unwrapped(int step, const int above[3])
+{
+	int filerow = editor_current_filerow_or_eof();
+
+	wcur()->rowoff = filerow - above[step];
+	if (wcur()->rowoff < 0) {
+		wcur()->rowoff = 0;
+	}
+	wcur()->cy = filerow - wcur()->rowoff;
+}
+
 /* Scroll so that point's line is at the centre of the window, then its
  * top, then its bottom (C-l), cycling on consecutive presses.  The
  * repaint is unconditional and clears the screen first: this is also the
  * key for "the display is wrong, draw it again". */
 void editor_recenter(void)
 {
-	int filerow = editor_current_filerow_or_eof();
 	int above[3] = { wcur()->h / 2, 0, wcur()->h - 1 };
+	int step = cycle_step();
 
-	wcur()->rowoff = filerow - above[cycle_step()];
-	if (wcur()->rowoff < 0) {
-		wcur()->rowoff = 0;
+	if (!bcur()->truncate_lines) {
+		recenter_visual(step, above);
+	} else {
+		recenter_unwrapped(step, above);
 	}
-	wcur()->cy = filerow - wcur()->rowoff;
 	probe_window_size();
 	(void)tty_write("\x1b[2J", 4);
 	editor_refresh_screen();

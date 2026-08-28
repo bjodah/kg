@@ -1122,6 +1122,64 @@ static void test_recenter_cycles_while_it_is_the_last_command(void)
 	teardown();
 }
 
+static void test_recenter_visual_line_mode(void)
+{
+	const command_id id = 4321;
+
+	setup(30);
+	wcur()->h = 10;
+	wcur()->rowoff_visual = 0;
+	wcur()->rowoff = 0;
+	wcur()->cy = 19; /* point on line 20 */
+	bcur()->visual_line_mode = 1;
+	bcur()->truncate_lines = 0;
+	bcur()->display.word_wrap = 1;
+	cmd_clear_transient();
+
+	run_cycle_command(id, editor_recenter);
+	CHECK(wcur()->rowoff_visual == 14); /* centre: 19 - 10 / 2 */
+	run_cycle_command(id, editor_recenter);
+	CHECK(wcur()->rowoff_visual == 19); /* top */
+	run_cycle_command(id, editor_recenter);
+	CHECK(wcur()->rowoff_visual == 10); /* bottom: 19 - (10 - 1) */
+	run_cycle_command(id, editor_recenter);
+	CHECK(wcur()->rowoff_visual == 14); /* wraps */
+
+	cmd_state_begin_keystroke();
+	run_cycle_command(id, editor_recenter);
+	CHECK(wcur()->rowoff_visual == 14);
+	teardown();
+}
+
+static void test_recenter_visual_line_mode_wrapped_row(void)
+{
+	const command_id id = 4321;
+
+	setup(0);
+	editor_insert_row(bcur(), 0,
+	    "012345678901234567890123456789012345678901234567890123456789", 60);
+	wcur()->w = 10;
+	wcur()->h = 4;
+	wcur()->rowoff_visual = 0;
+	wcur()->rowoff = 0;
+	wcur()->cy = 0;
+	wcur()->cx = 35; /* in visual row 3 (display cols 30..39) */
+	bcur()->visual_line_mode = 1;
+	bcur()->truncate_lines = 0;
+	bcur()->display.word_wrap = 0;
+	cmd_clear_transient();
+
+	run_cycle_command(id, editor_recenter);
+	CHECK(wcur()->rowoff_visual == 1); /* centre: 3 - 4 / 2 */
+	run_cycle_command(id, editor_recenter);
+	CHECK(wcur()->rowoff_visual == 3); /* top */
+	run_cycle_command(id, editor_recenter);
+	CHECK(wcur()->rowoff_visual == 0); /* bottom: 3 - (4 - 1) */
+	run_cycle_command(id, editor_recenter);
+	CHECK(wcur()->rowoff_visual == 1); /* wraps */
+	teardown();
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -1163,5 +1221,7 @@ int main(void)
 	RUN(test_overwrite_malformed_utf8_treated_as_one_byte);
 	RUN(test_window_line_cycles_while_it_is_the_last_command);
 	RUN(test_recenter_cycles_while_it_is_the_last_command);
+	RUN(test_recenter_visual_line_mode);
+	RUN(test_recenter_visual_line_mode_wrapped_row);
 	return test_summary();
 }

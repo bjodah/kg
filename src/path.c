@@ -16,18 +16,90 @@
 
 #include "def.h"
 
-/* Score a picker entry against the typed needle: 0 for prefix match,
- * 1 for substring match elsewhere in the name, -1 for no match.  Empty
- * needle ranks every candidate as a prefix match.  Callers use the
- * rank both to filter and to sort prefix matches above mid-name ones.
+/* Score a picker entry against the typed needle, vertico/orderless
+ * style: the needle is space-separated tokens and every token must
+ * occur in the name as a case-sensitive substring, in any order.  The
+ * rank is 0 when the first token is a prefix of the name and 1
+ * otherwise, so prefix matches still sort above mid-name ones.  An
+ * empty (or all-space) needle ranks every candidate 0.  Callers use
+ * the rank both to filter and to sort, and Tab's longest-common-prefix
+ * still extends over the rank-0 group only.
  * Lives here so path.c (already linked by test_complete) owns it,
  * rather than pulling cmd.o or bufmgr.o into the test target. */
+static int picker_token_hits(const char *haystack, const char *tok, size_t tlen)
+{
+	size_t hlen;
+	size_t i;
+
+	if (tlen == 0) {
+		return 1;
+	}
+	hlen = strlen(haystack);
+	if (hlen < tlen) {
+		return 0;
+	}
+	for (i = 0; i + tlen <= hlen; i++) {
+		if (memcmp(haystack + i, tok, tlen) == 0) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+/* The multi-token half of editor_picker_match_rank(): every token must
+ * hit, and the rank follows the first one.  Split out so the
+ * single-token fast path below keeps its old shape -- and its old
+ * budget -- outright. */
+static int picker_rank_tokens(const char *haystack, const char *needle)
+{
+	const char *p = needle;
+	const char *first = NULL;
+	size_t first_len = 0;
+	int have_first = 0;
+
+	while (*p) {
+		const char *tok;
+		size_t tlen;
+
+		while (*p && ascii_is_space((unsigned char)*p)) {
+			p++;
+		}
+		if (!*p) {
+			break;
+		}
+		tok = p;
+		while (*p && !ascii_is_space((unsigned char)*p)) {
+			p++;
+		}
+		tlen = (size_t)(p - tok);
+		if (!picker_token_hits(haystack, tok, tlen)) {
+			return -1;
+		}
+		if (!have_first) {
+			first = tok;
+			first_len = tlen;
+			have_first = 1;
+		}
+	}
+	if (!have_first) {
+		return 0;
+	}
+	if (first_len <= strlen(haystack)
+	    && memcmp(haystack, first, first_len) == 0) {
+		return 0;
+	}
+	return 1;
+}
+
 int editor_picker_match_rank(const char *haystack, const char *needle)
 {
 	size_t nlen;
 
 	if (!needle || !*needle) {
 		return 0;
+	}
+	if (strpbrk(needle, " \t") != NULL) {
+		return picker_rank_tokens(haystack, needle);
 	}
 	nlen = strlen(needle);
 	if (strncmp(haystack, needle, nlen) == 0) {
@@ -39,8 +111,8 @@ int editor_picker_match_rank(const char *haystack, const char *needle)
 	return -1;
 }
 
-/* The two-pass rank filter every ido-style picker in kg runs: prefix
- * matches first, mid-name matches after, each pass keeping the
+/* The two-pass rank filter every vertico-style picker in kg runs:
+ * prefix matches first, mid-name matches after, each pass keeping the
  * enumerator's own order so a table that is already sorted stays sorted
  * within its rank.  The second pass is skipped for an empty query, where
  * every candidate already ranked as a prefix match.
@@ -89,6 +161,59 @@ void editor_picker_cycle(int *selection, int matches, int direction)
 	if (matches > 0) {
 		*selection = (*selection + direction + matches) % matches;
 	}
+}
+
+/* The vertico-style candidate popup: what the three echo-area pickers
+ * (M-x, C-x C-f, C-x b) show in the rows above the prompt instead of
+ * an inline "{a | b}" list.  The state is set fresh on every redraw by
+ * the picker that owns the prompt and read synchronously by the next
+ * editor_refresh_screen(), so the stored pointers only ever name the
+ * picker's own redraw-lived arrays; a picker clears it on every exit
+ * so no later frame inherits a stale list.  The completing-read
+ * picker (src/prompt.c) keeps the inline list and never touches this.
+ *
+ * `annos` is the marginalia column: the M-x picker passes each shown
+ * command's summary there, the path picker its "/" and open markers.
+ * NULL (or a NULL entry) draws as no annotation. */
+static const char *s_popup_names[PICKER_MAX_ENTRIES];
+static const char *s_popup_annos[PICKER_MAX_ENTRIES];
+static struct picker_popup_view s_popup_view;
+static int s_popup_on;
+
+void editor_picker_popup_show(const char *const *names,
+    const char *const *annos, int n, int total, int sel)
+{
+	int i;
+
+	if (n < 0) {
+		n = 0;
+	}
+	if (n > PICKER_MAX_ENTRIES) {
+		n = PICKER_MAX_ENTRIES;
+	}
+	for (i = 0; i < n; i++) {
+		s_popup_names[i] = names[i] ? names[i] : "";
+		s_popup_annos[i] = (annos && annos[i]) ? annos[i] : "";
+	}
+	s_popup_view.names = s_popup_names;
+	s_popup_view.annos = s_popup_annos;
+	s_popup_view.n = n;
+	s_popup_view.total = total;
+	s_popup_view.sel = sel;
+	if (s_popup_view.sel < 0) {
+		s_popup_view.sel = 0;
+	}
+	if (n > 0 && s_popup_view.sel >= n) {
+		s_popup_view.sel = n - 1;
+	}
+	s_popup_on = 1;
+}
+
+void editor_picker_popup_clear(void) { s_popup_on = 0; }
+
+const struct picker_popup_view *editor_picker_popup_view(void)
+{
+	return s_popup_on ? &s_popup_view : NULL;
 }
 
 /* qsort comparator state: the typed needle that ranked these entries.

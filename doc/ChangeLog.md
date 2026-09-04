@@ -6,6 +6,17 @@ All relevant changes to the project are documented in this file.
 
 ### Changes
 
+- **Completion is vertico-shaped now.**  The `M-x`, `C-x C-f` and
+  `C-x b` prompts used to narrow substring-style into an inline
+  `{a | b}` list, ido-style.  Typing now narrows orderless -- every
+  space-separated token must occur in the name, in any order, so
+  `word up` reaches `upcase-word` -- and the matches show as a vertical
+  popup of up to ten rows above the echo area, with the selection
+  marked `>` and one annotation per row (each command's summary,
+  `/` for directories, `open` for already-open files).
+  `C-n`/`C-p` and Up/Down cycle alongside the historical Left/Right
+  and `C-f`/`C-b` (in the path prompt `C-b`/`C-f` still move the
+  cursor).  Lisp's `completing-read` keeps the inline list.
 - **Errors read the way Emacs writes them.**  A failing editing
   primitive used to report the bare name of the condition it raised —
   `(goto-char "x")` said `wrong-type-argument` and nothing else.  It now

@@ -48,10 +48,10 @@ static const struct key_event history_keys[] = { { 'p', KEY_MOD_META },
 	{ 'p', KEY_MOD_CTRL }, { 'n', KEY_MOD_CTRL } };
 static const struct key_event history_back_keys[]
     = { { 'p', KEY_MOD_META }, { KEY_BASE_UP, 0 }, { 'p', KEY_MOD_CTRL } };
-static const struct key_event picker_next_keys[]
-    = { { KEY_BASE_RIGHT, 0 }, { 'f', KEY_MOD_CTRL } };
-static const struct key_event picker_prev_keys[]
-    = { { KEY_BASE_LEFT, 0 }, { 'b', KEY_MOD_CTRL } };
+static const struct key_event picker_next_keys[] = { { KEY_BASE_RIGHT, 0 },
+	{ KEY_BASE_DOWN, 0 }, { 'f', KEY_MOD_CTRL }, { 'n', KEY_MOD_CTRL } };
+static const struct key_event picker_prev_keys[] = { { KEY_BASE_LEFT, 0 },
+	{ KEY_BASE_UP, 0 }, { 'b', KEY_MOD_CTRL }, { 'p', KEY_MOD_CTRL } };
 static const struct key_event cancel_keys[]
     = { { KEY_BASE_ESC, 0 }, { 'g', KEY_MOD_CTRL } };
 
@@ -1403,6 +1403,23 @@ void editor_msg_appendf(char *msg, int size, int *off, const char *fmt, ...)
 	}
 }
 
+/* The echo-area tail the vertico-style popup leaves behind: the
+ * prompt line keeps only the typed text plus what the popup cannot
+ * say -- "[no match]" when nothing matches, "(+M more)" when matches
+ * overflow the list.  The candidate rows themselves live in the popup
+ * above the echo area.  Lives beside editor_msg_appendf(), the one
+ * primitive it is built on. */
+void editor_picker_popup_suffix(
+    char *msg, int msg_size, int *off, int total, int shown)
+{
+	if (total <= 0) {
+		editor_msg_appendf(msg, msg_size, off, "[no match]");
+	} else if (total > shown) {
+		editor_msg_appendf(
+		    msg, msg_size, off, "  (+%d more)", total - shown);
+	}
+}
+
 /* Is `name` the basename of any currently-open buffer's filename?
  * Used to push already-open files to the back of the path picker so
  * the default selection lands on something not yet open, matching
@@ -1548,12 +1565,24 @@ static int path_ends_in_dot_component(const char *buf)
 	return strcmp(base, ".") == 0 || strcmp(base, "..") == 0;
 }
 
+/* The popup's annotation for a path entry: "/" for a directory and
+ * "open" for a file already open in a buffer -- the marginalia column
+ * of the C-x C-f list. */
+static void path_pick_anno(
+    const struct path_entry *entry, char *out, size_t size)
+{
+	snprintf(out, size, "%s%s", entry->is_dir ? "/" : "",
+	    file_open_in_buflist(entry->name) ? "open" : "");
+}
+
 static void path_prompt_redraw(const char *prompt, char *buf, int cursor,
     int *sel, struct path_entry *entries, char *dir, char *file, char *lcp,
     char *msg, int *matches, int *total, int *flen)
 {
 	const char *names[PICKER_MAX_ENTRIES] = { 0 };
-	int off, i, sel_off;
+	const char *annos[PICKER_MAX_ENTRIES] = { 0 };
+	char marks[PICKER_MAX_ENTRIES][8];
+	int off, i;
 
 	editor_path_split(buf, dir, 256, file, 256);
 	*flen = (int)strlen(file);
@@ -1567,13 +1596,14 @@ static void path_prompt_redraw(const char *prompt, char *buf, int cursor,
 	push_open_files_back(entries, *matches);
 	for (i = 0; i < *matches; i++) {
 		names[i] = entries[i].name;
+		path_pick_anno(&entries[i], marks[i], sizeof(marks[i]));
+		annos[i] = marks[i];
 	}
 	off = 0;
 	editor_msg_appendf(msg, 1024, &off, "%s%s ", prompt, buf);
-	sel_off = editor_picker_render(
-	    msg, 1024, &off, names, *matches, *total, *sel);
+	editor_picker_popup_show(names, annos, *matches, *total, *sel);
+	editor_picker_popup_suffix(msg, 1024, &off, *total, *matches);
 	editor_set_status_message("%s", msg);
-	editor_picker_emphasise(sel_off, names, *matches, *sel);
 	editor.echo_cursor_col
 	    = prompt_cursor_col(prompt, (int)strlen(prompt), buf, cursor);
 	editor_refresh_screen();
@@ -1684,16 +1714,19 @@ static void path_handle_tab(char *buf, int bufsize, int *cursor, int *len,
 	*sel = 0;
 }
 
-/* Prompt for a path with ido-style completion.  Matching directory
- * entries are rendered as a "{name1 | name2 | …}" pick-list to the
- * right of the typed text, with the selected entry shown in bold.
- * Left/Right cycle the selection.  Enter on a directory descends into
- * it; Enter on a file completes the path and returns.  M-RET (and Enter
- * on a path ending in "." or "..") accepts the typed text as it stands,
- * which is how a directory is named without descending into it.  Tab
- * still extends to the longest common prefix.  Backspace at the trailing
- * '/' deletes the whole last path component, so one keystroke walks
- * you up one level. */
+/* Prompt for a path with vertico-style completion.  Matching directory
+ * entries show as a vertical popup above the echo area (up to
+ * PICKER_POPUP_MAX rows, selected row highlighted, directories marked
+ * "/" and already-open files marked "open"), typed text narrows
+ * orderless -- every space-separated token must occur in the name, in
+ * any order -- and the echo area keeps only the typed text.  C-n/C-p
+ * (or Up/Down, or the historical Left/Right) cycle the selection.
+ * Enter on a directory descends into it; Enter on a file completes the
+ * path and returns.  M-RET (and Enter on a path ending in "." or "..")
+ * accepts the typed text as it stands, which is how a directory is
+ * named without descending into it.  Tab still extends to the longest
+ * common prefix.  Backspace at the trailing '/' deletes the whole last
+ * path component, so one keystroke walks you up one level. */
 enum minibuf_result editor_read_line_path(
     int fd, const char *prompt, char *buf, int bufsize)
 {
@@ -1731,6 +1764,7 @@ enum minibuf_result editor_read_line_path(
 			path_handle_erase(fd, c, buf, bufsize, &cursor, &len,
 			    &overflow, &sel);
 		} else if (KEY_IN_LIST(cancel_keys, c)) {
+			editor_picker_popup_clear();
 			return prompt_done(MINIBUF_CANCELLED);
 		} else if (KEY_IS(c, 'b', KEY_MOD_CTRL)) {
 			if (cursor > 0) {
@@ -1745,11 +1779,13 @@ enum minibuf_result editor_read_line_path(
 			 * Keep the path picker's selection cycling on the arrow
 			 * keys so the two operations do not silently steal each
 			 * other's bindings. */
-		} else if (KEY_IS(c, KEY_BASE_LEFT, 0)
-		    || KEY_IS(c, KEY_BASE_UP, 0)) {
+		} else if (KEY_IN_LIST(picker_prev_keys, c)) {
+			/* Left/Up (and C-p): C-b never reaches here, the
+			 * cursor-motion arm above already took it, so sharing
+			 * the buffer picker's table costs no binding. */
 			buf_picker_cycle(&sel, matches, -1);
-		} else if (KEY_IS(c, KEY_BASE_RIGHT, 0)
-		    || KEY_IS(c, KEY_BASE_DOWN, 0)) {
+		} else if (KEY_IN_LIST(picker_next_keys, c)) {
+			/* Right/Down (and C-n): same for C-f above. */
 			buf_picker_cycle(&sel, matches, 1);
 		} else if (KEY_IS(c, KEY_BASE_RET, KEY_MOD_META)
 		    || (KEY_IS(c, KEY_BASE_RET, 0)
@@ -1761,6 +1797,7 @@ enum minibuf_result editor_read_line_path(
 			enum path_accept_action action
 			    = path_handle_accept(buf, bufsize, &cursor, &len,
 				flen, matches, sel, entries, 1, overflow);
+			editor_picker_popup_clear();
 			return prompt_done(action == PATH_ACCEPT_OVERFLOW
 				? MINIBUF_OVERFLOW
 				: MINIBUF_ACCEPTED);
@@ -1772,6 +1809,7 @@ enum minibuf_result editor_read_line_path(
 				sel = 0;
 				continue;
 			}
+			editor_picker_popup_clear();
 			return prompt_done(action == PATH_ACCEPT_OVERFLOW
 				? MINIBUF_OVERFLOW
 				: MINIBUF_ACCEPTED);
@@ -2143,6 +2181,14 @@ static int buf_name_handle_key(int fd, struct key_event c, char *query,
 	return -2;
 }
 
+/* The popup's annotation for a buffer: "*" when modified, "RO" when
+ * read-only -- the marginalia column of the C-x b list. */
+static void buf_pick_anno(int slot, char *out, size_t size)
+{
+	snprintf(out, size, "%s%s", buflist[slot].dirty ? "*" : "",
+	    buflist[slot].readonly ? "RO" : "");
+}
+
 /* Read a buffer name with the same picker used by C-x b.  This deliberately
  * only returns text: selecting or creating the named buffer belongs to the
  * eventual command body, not argument construction. */
@@ -2158,7 +2204,7 @@ enum minibuf_result buf_read_name(int fd, const char *prompt, char *out,
 	int i;
 	struct key_event c;
 	char msg[512];
-	int off, sel_off;
+	int off;
 
 	if (picked == NULL) {
 		picked = &discard;
@@ -2187,6 +2233,8 @@ enum minibuf_result buf_read_name(int fd, const char *prompt, char *out,
 	{
 		static char namebuf[MAX_BUFFERS][128];
 		const char *names[MAX_BUFFERS];
+		const char *annos[MAX_BUFFERS];
+		char marks[MAX_BUFFERS][8];
 		int ring_pos[MAX_BUFFERS];
 		struct bufpick_names cand = { namebuf, n };
 
@@ -2210,10 +2258,16 @@ enum minibuf_result buf_read_name(int fd, const char *prompt, char *out,
 			off = 0;
 			editor_msg_appendf(
 			    msg, sizeof(msg), &off, "%s%s ", prompt, query);
-			sel_off = editor_picker_render(msg, sizeof(msg), &off,
-			    names, matches, matches, sel);
+			for (i = 0; i < matches; i++) {
+				buf_pick_anno(order[ring_pos[i]], marks[i],
+				    sizeof(marks[i]));
+				annos[i] = marks[i];
+			}
+			editor_picker_popup_show(
+			    names, annos, matches, matches, sel);
+			editor_picker_popup_suffix(
+			    msg, sizeof(msg), &off, matches, matches);
 			editor_set_status_message("%s", msg);
-			editor_picker_emphasise(sel_off, names, matches, sel);
 			editor.echo_cursor_col
 			    = prompt_cursor_col(prompt, plen, query, qlen);
 			editor_refresh_screen();
@@ -2224,6 +2278,7 @@ enum minibuf_result buf_read_name(int fd, const char *prompt, char *out,
 			int result = buf_name_handle_key(fd, c, query, &qlen,
 			    &overflow, &sel, &view, out, outsize, mode, picked);
 			if (result != -2) {
+				editor_picker_popup_clear();
 				kg_event_prompt_leave();
 				return (enum minibuf_result)result;
 			}

@@ -41,15 +41,17 @@ static constexpr int lisp_expression_max = 512;
 static constexpr int lisp_result_size = 512;
 static constexpr size_t lisp_last_sexp_max = 64 * 1024;
 
-/* Key sets the M-x picker asks about; see key_in_list(). */
+/* Key sets the M-x picker asks about; see key_in_list().  Movement is
+ * vertico's: C-n/C-p and the Up/Down arrows as well as the historical
+ * Left/Right and C-f/C-b, all of which cycle the same highlight. */
 static const struct key_event erase_keys[]
     = { { KEY_BASE_DELETE, 0 }, { 'h', KEY_MOD_CTRL }, { KEY_BASE_DEL, 0 } };
 static const struct key_event cancel_keys[]
     = { { KEY_BASE_ESC, 0 }, { 'g', KEY_MOD_CTRL } };
-static const struct key_event picker_next_keys[]
-    = { { KEY_BASE_RIGHT, 0 }, { 'f', KEY_MOD_CTRL } };
-static const struct key_event picker_prev_keys[]
-    = { { KEY_BASE_LEFT, 0 }, { 'b', KEY_MOD_CTRL } };
+static const struct key_event picker_next_keys[] = { { KEY_BASE_RIGHT, 0 },
+	{ KEY_BASE_DOWN, 0 }, { 'f', KEY_MOD_CTRL }, { 'n', KEY_MOD_CTRL } };
+static const struct key_event picker_prev_keys[] = { { KEY_BASE_LEFT, 0 },
+	{ KEY_BASE_UP, 0 }, { 'b', KEY_MOD_CTRL }, { 'p', KEY_MOD_CTRL } };
 
 /* ---- Individual commands ---- */
 
@@ -2474,8 +2476,22 @@ static const char *mx_chosen_name(const char **names, int shown, int sel,
 	return names[sel];
 }
 
-/* Prompt "M-x", filter by typing, Tab-complete, Left/Right cycle, Enter
- * execute. */
+/* The popup's annotation for a command: its one-line summary, the
+ * marginalia column of the M-x list.  Unknown names (a Lisp command
+ * removed mid-session) annotate as nothing rather than as stale text. */
+static const char *mx_annotation(const char *name)
+{
+	const struct named_cmd *desc = cmd_lookup(name);
+
+	return desc && desc->summary ? desc->summary : "";
+}
+
+/* Prompt "M-x" the vertico way: typing narrows orderless (every
+ * space-separated token must occur in the name, in any order), the
+ * matches show as a vertical popup above the echo area with each
+ * command's summary as its annotation, C-n/C-p (or Up/Down, or the
+ * historical Left/Right and C-f/C-b) cycle, Tab extends to the longest
+ * common prefix, Enter executes. */
 void editor_named_command(int fd)
 {
 	const char prompt[] = "M-x ";
@@ -2489,13 +2505,13 @@ void editor_named_command(int fd)
 	char name[64];
 	char msg[512];
 	struct key_event c;
-	int len = 0, i, off, sel_off;
+	int len = 0, i, off;
 	int sel = 0; /* index within match_idx[] of the highlighted entry */
-	/* Set once the user explicitly moves `sel` with Left/Right (or
-	 * C-f/C-b) so an empty Enter repeats the *highlighted* command
-	 * rather than silently falling back to last_extended_command.
-	 * Typing, Backspace, and Tab all return the picker to its default
-	 * state and re-arm the fallback. */
+	/* Set once the user explicitly moves `sel` with a cycling key
+	 * (arrows, C-f/C-b, C-n/C-p) so an empty Enter repeats the
+	 * *highlighted* command rather than silently falling back to
+	 * last_extended_command.  Typing, Backspace, and Tab all return the
+	 * picker to its default state and re-arm the fallback. */
 	int explicit_selection = 0;
 
 	name[0] = '\0';
@@ -2505,6 +2521,7 @@ void editor_named_command(int fd)
 		const char *first_name;
 		const char *entry;
 		const char *names[PICKER_MAX_ENTRIES] = { 0 };
+		const char *annos[PICKER_MAX_ENTRIES] = { 0 };
 
 		/* Prefix matches first, then mid-name substring matches, so
 		 * cmdtable's alphabetical order survives within each rank
@@ -2529,11 +2546,13 @@ void editor_named_command(int fd)
 			editor_msg_appendf(
 			    msg, sizeof(msg), &off, "%s%s ", prompt, name);
 		}
-		sel_off = editor_picker_render(
-		    msg, sizeof(msg), &off, names, shown, total, sel);
-
+		for (i = 0; i < shown; i++) {
+			annos[i] = mx_annotation(names[i]);
+		}
+		editor_picker_popup_show(names, annos, shown, total, sel);
+		editor_picker_popup_suffix(
+		    msg, sizeof(msg), &off, total, shown);
 		editor_set_status_message("%s", msg);
-		editor_picker_emphasise(sel_off, names, shown, sel);
 		editor.echo_cursor_col = plen + len + 1;
 		editor_refresh_screen();
 
@@ -2546,10 +2565,12 @@ void editor_named_command(int fd)
 			sel = 0;
 			explicit_selection = 0;
 		} else if (KEY_IN_LIST(cancel_keys, c)) {
+			editor_picker_popup_clear();
 			editor.echo_cursor_col = 0;
 			editor_set_status_message("");
 			return;
 		} else if (KEY_IS(c, KEY_BASE_RET, 0)) {
+			editor_picker_popup_clear();
 			editor.echo_cursor_col = 0;
 			editor_set_status_message("");
 			if (len == 0 && !explicit_selection

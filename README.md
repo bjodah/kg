@@ -82,8 +82,14 @@ standard VT100 escape sequences.
 - Multi-level undo (C-_)
 - Paragraph reflow to `fill-column` columns (M-q), 70 by default
 - Keyboard macros (C-x ( / C-x ) / C-x e; C-u N C-x e repeats N times)
-- M-x, C-x C-f, and C-x b all share an ido-style picker: substring
-  matching, already-open files pushed to the back of the file picker;
+- M-x, C-x C-f, and C-x b all share a vertico-style picker: orderless
+  matching (every space-separated token must occur in the name, in any
+  order, with prefix matches still ranked first), matches shown as a
+  vertical popup above the echo area with the selection marked `>` and
+  one annotation per row (the command's summary, `/` for directories,
+  `open` for already-open files); C-n/C-p or Up/Down (or the historical
+  Left/Right and C-f/C-b) cycle, already-open files pushed to the back
+  of the file picker;
   M-x RET with nothing typed repeats the last M-x command.  In the path
   picker, `M-RET` submits the typed text literally instead of applying
   the completion (an intentional deviation from Emacs), and so does

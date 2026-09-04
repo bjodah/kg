@@ -747,7 +747,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # The whole-tree complexity ceiling.  `make complexity-check` sums scc's
 # per-file complexity over $(SCC_COMPLEXITY_PATHS) and fails above
 # SCC_COMPLEXITY_MAX; a single file above SCC_FILE_COMPLEXITY_MAX fails
-# it too (the worst today is src/bufmgr.c at 519).
+# it too (the worst today is src/bufmgr.c at 525).
 #
 # The ceiling equals the measured actual, with no slack: it is a ratchet,
 # not an allowance, so new complexity has to be paid for rather than
@@ -757,8 +757,8 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 11000
-SCC_FILE_COMPLEXITY_MAX ?= 519
+SCC_COMPLEXITY_MAX ?= 11139
+SCC_FILE_COMPLEXITY_MAX ?= 525
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
 # Per-function backstop for `make pmccabe-check`: no function in the tree
@@ -1598,8 +1598,8 @@ EXTRA_word         := $(TESTDIR)/stubs_noyank.o $(TESTDIR)/stubs_extra.o $(OBJDI
 # test_basic.c #includes src/display.c to reach the drawing helpers, so it
 # needs everything display.c calls -- showparen.o and gitdiag.o among them,
 # since the repaint is where the paren highlight and the git diagnostics
-# are recomputed.
-EXTRA_basic        := $(TESTDIR)/stubs.o          $(OBJDIR)/basic.o $(OBJDIR)/mode.o $(OBJDIR)/vgeom.o $(OBJDIR)/showparen.o $(OBJDIR)/gitdiag.o $(TEST_SRCS_OBJS) $(OBJDIR)/cmdstate.o
+# are recomputed, and path.o for the picker popup the repaint draws.
+EXTRA_basic        := $(TESTDIR)/stubs.o          $(OBJDIR)/basic.o $(OBJDIR)/mode.o $(OBJDIR)/vgeom.o $(OBJDIR)/showparen.o $(OBJDIR)/gitdiag.o $(OBJDIR)/path.o $(TEST_SRCS_OBJS) $(OBJDIR)/cmdstate.o
 # The geometry index's own unit tests need exactly what test_basic needs
 # to reach get_visual_row()/find_visual_row()/goto_visual_row_col(): real
 # basic.o (editor_cursor_goto(), editor_row_insert_char()), mode.o (the

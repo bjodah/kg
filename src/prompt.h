@@ -7,12 +7,12 @@
  * distinguishable from a "no" (`y-or-n-p', where C-g is Emacs' `quit'
  * rather than an answer).
  *
- * The candidate reader is the ido-style picker kg already shows for M-x,
- * C-x b and C-x C-f -- editor_picker_filter()/_render()/_emphasise() from
- * path.c are the shared policy -- driven by an array instead of by a
- * table the editor owns.  Kept out of bufmgr.c so the buffer manager does
- * not grow a fourth picker, and out of the Lisp adapter so nothing in
- * src/lisp_*.c has to read keys.
+ * The candidate reader keeps the inline "{a | b}" pick-list M-x, C-x b
+ * and C-x C-f used to share -- editor_picker_filter()/_render()/
+ * _emphasise() are the shared matching policy -- driven by an array
+ * instead of by a table the editor owns.  Kept out of bufmgr.c so the
+ * buffer manager does not grow a fourth picker, and out of the Lisp
+ * adapter so nothing in src/lisp_*.c has to read keys.
  *
  * Self-contained: bufmgr.h is where `enum minibuf_result' lives, and
  * every reader in kg answers with it. */

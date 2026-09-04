@@ -1,0 +1,17 @@
+# M-x is a vertico-style picker now: the query narrows orderless, so
+# "word up" reaches upcase-word even though neither word is a prefix
+# of it in that order, and the matches show as a vertical popup above
+# the echo area -- the selected row marked "> " with the command's
+# summary as its annotation -- instead of an inline "{a | b}" list.
+name: mx-vertico-orderless-popup
+filename: mx-vertico-orderless.txt
+backend: tmux
+initial: "foo bar\n"
+keys:
+  - M-x
+  - "word up"
+  - SETTLE=2:"> upcase-word  Convert"
+  - RET
+expected_saved: "FOO bar\n"
+expected_screen_contains:
+  - "FOO bar"

@@ -172,6 +172,19 @@ int editor_picker_filter(picker_name_fn name_at, void *data, const char *query,
 	*prefix_matches = 0;
 	return 0;
 }
+/* The vertico-style popup (src/path.c) never shows in these tests: the
+ * real bufmgr.o drives it, but nothing here paints a frame. */
+void editor_picker_popup_show(const char *const *names,
+    const char *const *annos, int n, int total, int sel)
+{
+	(void)names;
+	(void)annos;
+	(void)n;
+	(void)total;
+	(void)sel;
+}
+void editor_picker_popup_clear(void) { }
+const struct picker_popup_view *editor_picker_popup_view(void) { return NULL; }
 
 void __attribute__((weak)) editor_cleanup(void) { }
 void kg_lisp_shutdown(void) { }

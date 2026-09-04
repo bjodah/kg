@@ -528,10 +528,28 @@ enum minibuf_result editor_read_line_with_history(int fd, const char *prompt,
 void editor_prompt_prefill_dir(char *buf, int bufsize);
 int editor_path_expand_tilde(char *buf, int bufsize);
 #define PICKER_MAX_ENTRIES 64
+/* How many candidates the vertico-style popup shows at once, one per
+ * row above the echo area -- Emacs' vertico-count default is 10. */
+#define PICKER_POPUP_MAX 10
+/* One popup frame: the shown names, their marginalia annotations, how
+ * many are shown of how many matched, and which one is selected. */
+struct picker_popup_view {
+	const char *const *names;
+	const char *const *annos;
+	int n;
+	int total;
+	int sel;
+};
 int editor_picker_render(char *msg, int msg_size, int *off,
     const char *const *names, int n, int n_total, int sel);
 void editor_picker_emphasise(
     int sel_off, const char *const *names, int n, int sel);
+void editor_picker_popup_show(const char *const *names,
+    const char *const *annos, int n, int total, int sel);
+void editor_picker_popup_clear(void);
+[[nodiscard]] const struct picker_popup_view *editor_picker_popup_view(void);
+void editor_picker_popup_suffix(
+    char *msg, int msg_size, int *off, int total, int shown);
 void editor_msg_appendf(char *msg, int size, int *off, const char *fmt, ...)
     __attribute__((format(printf, 4, 5)));
 int autorevert_poll(void);

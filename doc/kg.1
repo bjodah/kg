@@ -1900,25 +1900,35 @@ The filename prompts for
 .Ic C-x C-w
 and
 .Ic C-x i
-open an ido-style picker.
-Matching directory entries render as a {pipe-delimited} pick list in
-the echo area, with the currently selected entry shown in bold.
+open a vertico-style picker.
+Matching directory entries show as a vertical popup in the rows just
+above the echo area, up to ten at a time, with the currently selected
+entry marked
+.Ql >
+and shown in reverse video; directories carry a
+.Ql /
+marker and files already open in a buffer an
+.Ql open
+one.
 .Pp
-What you type narrows the list by substring, the way Emacs'
-ido-mode does it: typing
-.Sq buf
-matches both
-.Sq bufmgr.c
-and
-.Sq editor_buffer.c .
-Prefix matches still rank above mid-name ones, so a leading letter
-prioritises the obvious candidate.
+What you type narrows the list orderless, the way Emacs'
+vertico with orderless does it: every space-separated token must occur
+in the name, in any order, so typing
+.Sq beta alpha
+matches
+.Sq alpha-beta.txt .
+A match on the first token's prefix still ranks above a mid-name one,
+so a leading letter prioritises the obvious candidate.
 Files already open in a buffer get pushed to the back of the list,
 matched by basename the way Emacs does it, so the default
 selection lands on something not yet open.
 Handy when walking a directory to open several files in turn.
 .Pp
-Left/Right arrows cycle the selection;
+.Ic C-n
+and
+.Ic C-p
+(or the Up/Down arrows, or the historical Left/Right arrows) cycle the
+selection;
 .Ic C-b
 and
 .Ic C-f
@@ -1953,8 +1963,11 @@ when the sole match is a directory.
 .Ic C-x b
 opens the same picker shape against the active buffers (everything
 except the current one).
-What you type narrows the list by basename;
-Left/Right cycles;
+What you type narrows the list orderless by basename;
+.Ic C-n
+and
+.Ic C-p
+(or Up/Down, or Left/Right) cycle;
 .Ic Enter
 switches to the selected buffer.
 A name that narrows the list to nothing is not a mistake: as in Emacs,
@@ -2143,9 +2156,14 @@ back to wherever you were).
 .Pp
 .Ic M-x
 prompts for a command name and executes it.
-The completion prompt is the same ido-style picker as
+The completion prompt is the same vertico-style picker as
 .Ic C-x C-f :
-substring matching, Left/Right to cycle,
+orderless matching, a vertical popup with one annotation per row (each
+command's summary),
+.Ic C-n
+and
+.Ic C-p
+(or Up/Down, or Left/Right) to cycle,
 .Ic Tab
 to extend to the longest common prefix.
 Pressing

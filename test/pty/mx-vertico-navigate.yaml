@@ -1,0 +1,20 @@
+# C-n/C-p move the M-x popup highlight vertico-style: "case" matches
+# downcase-word and upcase-word, C-n steps down to upcase-word and C-p
+# steps back up, and Enter runs whatever is highlighted.
+name: mx-vertico-navigate
+filename: mx-vertico-navigate.txt
+backend: tmux
+initial: "foo bar\n"
+keys:
+  - M-x
+  - "case"
+  - SETTLE=2:"> downcase-word"
+  - C-n
+  - SETTLE=2:"> upcase-word"
+  - C-p
+  - SETTLE=2:"> downcase-word"
+  - C-n
+  - RET
+expected_saved: "FOO bar\n"
+expected_screen_contains:
+  - "FOO bar"

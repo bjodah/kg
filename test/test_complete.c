@@ -453,6 +453,54 @@ static void test_expand_tilde_reports_overflow(void)
 	}
 }
 
+/* Orderless matching: every space-separated token must occur in the
+ * name, in any order.  A single token keeps the old prefix/substring
+ * rule, so one-word queries behave exactly as before. */
+static void test_picker_match_rank_orderless(void)
+{
+	/* Two tokens, either order, both present.  The rank follows the
+	 * first token: a prefix first token ranks 0, a mid-name one 1. */
+	CHECK(editor_picker_match_rank("upcase-word", "up word") == 0);
+	CHECK(editor_picker_match_rank("upcase-word", "word up") == 1);
+	/* First token a prefix still ranks 0. */
+	CHECK(editor_picker_match_rank("buffer.c", "buf c") == 0);
+	CHECK(editor_picker_match_rank("buffer.c", "c buf") == 1);
+
+	/* A missing token is no match, wherever it sits. */
+	CHECK(editor_picker_match_rank("buffer.c", "buf zzz") == -1);
+	CHECK(editor_picker_match_rank("buffer.c", "zzz buf") == -1);
+
+	/* Extra spaces are harmless: leading, trailing and doubled. */
+	CHECK(editor_picker_match_rank("buffer.c", "  buf   c  ") == 0);
+	CHECK(editor_picker_match_rank("anything", "   ") == 0);
+
+	/* Matching stays case-sensitive, as before. */
+	CHECK(editor_picker_match_rank("README", "read me") == -1);
+	CHECK(editor_picker_match_rank("README", "READ ME") == 0);
+	CHECK(editor_picker_match_rank("README", "ME READ") == 1);
+}
+
+static void test_picker_filter_orderless_narrows(void)
+{
+	const char *names[8] = { 0 };
+	int nprefix = -1, total;
+
+	total = editor_picker_filter(
+	    filter_name_at, NULL, "buf c", names, NULL, 8, &nprefix);
+	/* "buffer.c" and "bufmgr.c" carry both tokens with a buf prefix;
+	 * "editor_buffer.c" carries both with buf mid-name; "syntax.c"
+	 * has no buf at all. */
+	CHECK(total == 3);
+	CHECK(nprefix == 2);
+	CHECK(strcmp(names[0], "buffer.c") == 0);
+	CHECK(strcmp(names[1], "bufmgr.c") == 0);
+
+	total = editor_picker_filter(
+	    filter_name_at, NULL, "zzz buf", names, NULL, 8, &nprefix);
+	CHECK(total == 0);
+	CHECK(nprefix == 0);
+}
+
 int main(void)
 {
 	RUN(test_expand_tilde_reports_overflow);
@@ -466,10 +514,12 @@ int main(void)
 	RUN(test_dot_prefix_shows_hidden);
 	RUN(test_max_clamp);
 	RUN(test_picker_match_rank);
+	RUN(test_picker_match_rank_orderless);
 	RUN(test_picker_filter_ranks_prefix_first);
 	RUN(test_picker_filter_empty_query_takes_one_pass);
 	RUN(test_picker_filter_counts_past_max);
 	RUN(test_picker_filter_no_match);
+	RUN(test_picker_filter_orderless_narrows);
 	RUN(test_substring_matching);
 	RUN(test_path_parent_dir);
 	RUN(test_path_is_dir);

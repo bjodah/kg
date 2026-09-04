@@ -784,6 +784,82 @@ static void update_git_diagnostics(void)
 	}
 }
 
+/* The vertico-style candidate popup: up to PICKER_POPUP_MAX rows just
+ * above the echo area, drawn over whatever window text sits behind
+ * them -- the minibuffer grown upward, the way vertico shows it.
+ * Names and annotations are untrusted text (filenames, buffer names),
+ * so both go through ab_append_terminal_text(); styling stays the
+ * renderer's (reverse for the selected row, dim for the annotation).
+ * One page at a time, with the selected row always on screen.  Every
+ * branch of the popup lives here so editor_refresh_screen() itself
+ * keeps its shape. */
+static int picker_popup_top(int sel, int n)
+{
+	if (n <= PICKER_POPUP_MAX) {
+		return 0;
+	}
+	return (sel / PICKER_POPUP_MAX) * PICKER_POPUP_MAX;
+}
+
+static void picker_popup_row(
+    struct abuf *ab, int row, const char *name, const char *anno, int selected)
+{
+	int budget = win_total_cols - 2; /* the "> " marker */
+	int used = 0;
+	int fit;
+
+	if (budget < 0) {
+		budget = 0;
+	}
+	ab_move_to(ab, row, 1);
+	ab_append(ab, "\x1b[0K", 4);
+	if (selected) {
+		ab_append(ab, "\x1b[7m", 4);
+	}
+	ab_append(ab, selected ? "> " : "  ", 2);
+	fit = display_fit(name, (int)strlen(name), budget, &used);
+	ab_append_terminal_text(ab, name, fit, DISPLAY_STATUS_TEXT);
+	if (anno[0] && used + 2 <= budget) {
+		int aused = 0;
+		int afit = display_fit(
+		    anno, (int)strlen(anno), budget - used - 2, &aused);
+
+		ab_append(ab, "  ", 2);
+		ab_append(ab, "\x1b[2m", 4);
+		ab_append_terminal_text(ab, anno, afit, DISPLAY_STATUS_TEXT);
+		ab_append(ab, "\x1b[22m", 5);
+	}
+	if (selected) {
+		ab_append(ab, "\x1b[27m", 5);
+	}
+	ab_append(ab, "\x1b[0m", 4);
+}
+
+static void draw_picker_popup(struct abuf *ab)
+{
+	const struct picker_popup_view *pop = editor_picker_popup_view();
+	int top, over, rows, i;
+
+	if (!pop || pop->n <= 0) {
+		return;
+	}
+	top = picker_popup_top(pop->sel, pop->n);
+	over = pop->n - top;
+	rows = over > PICKER_POPUP_MAX ? PICKER_POPUP_MAX : over;
+	if (rows > win_total_rows - 1) {
+		rows = win_total_rows - 1;
+	}
+	if (rows <= 0) {
+		return;
+	}
+	for (i = 0; i < rows; i++) {
+		int idx = top + i;
+
+		picker_popup_row(ab, win_total_rows - rows + i, pop->names[idx],
+		    pop->annos[idx], idx == pop->sel);
+	}
+}
+
 /* This function writes the whole screen using VT100 escape characters. */
 void editor_refresh_screen(void)
 {
@@ -905,6 +981,9 @@ void editor_refresh_screen(void)
 			ab_append(&ab, "\x1b[7m\xe2\x94\x82\x1b[0m", 11);
 		}
 	}
+
+	/* ---- Vertico-style picker popup (rows above the echo area) ---- */
+	draw_picker_popup(&ab);
 
 	/* ---- Echo area (one row at the very bottom) ---- */
 	ab_move_to(&ab, win_total_rows, 1);

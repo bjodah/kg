@@ -1,0 +1,30 @@
+# C-x C-f narrows orderless and annotates directories: "~/beta"
+# matches both the file and the directory (the directory's row carries
+# its "/" marker), and adding " alpha" narrows to the file alone even
+# though the tokens arrive in non-prefix order.  Paths go through "~/"
+# because a tmux pane does not start in the case's directory, so the
+# fixtures live under its HOME like every other tmux file case's do.
+name: find-file-vertico-orderless
+filename: start-here.txt
+backend: tmux
+config_files:
+  alpha-beta.txt: |
+    beta content
+  beta-dir/keep.txt: |
+    kept
+initial: |
+  start
+keys:
+  - C-x
+  - C-f
+  - C-a
+  - C-k
+  - "~/beta"
+  - SETTLE=2:"> beta-dir  /"
+  - " alpha"
+  - SETTLE=2:"> alpha-beta.txt"
+  - RET
+expected_saved: |
+  start
+expected_screen_contains:
+  - "beta content"

@@ -874,7 +874,9 @@ ordered by value vs implementation effort.
 
 ## Maybe Later
 
-- [ ] Send alt screen sequences if TERM=xterm: "\033[?1049h" and "\033[?1049l"
+- [x] Send alt screen sequences ("\033[?1049h" and "\033[?1049l")
+      whenever TERM is set and not dumb/unknown, so quitting restores the
+      shell's screen instead of leaving it cleared
 - [ ] Add support for modes.  E.g., c-mode with bindings for
       compile/make which opens a compile buffer in a window below
 - [ ] **Proper UTF-8 handling**.  `editor.cx` and `mark_col` are byte

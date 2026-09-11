@@ -41,6 +41,62 @@ static size_t pending_input_cap;
 static volatile sig_atomic_t pending_resize;
 #endif
 
+/* Alternate screen (DEC 1049): the terminal keeps kg's frames on a
+ * separate buffer and restores whatever was there before -- a directory
+ * listing, the shell prompt -- when kg leaves it.  Without it kg paints
+ * over the shell's screen and the exit path's "\x1b[2J" then takes both
+ * the editor and what it covered.  A terminal that knows none of it
+ * ignores the sequence, and one without a TERM worth consulting
+ * (unset, empty, "dumb", "unknown" -- the xterm-mouse-mode heuristic)
+ * is never asked. */
+#define KG_ALT_SCREEN_ON "\x1b[?1049h"
+#define KG_ALT_SCREEN_OFF "\x1b[?1049l"
+
+static int alt_screen_active;
+
+/* The xterm-mouse-mode heuristic (src/mouse.h's kg_mouse_term_reports),
+ * spelled out here rather than called: test_tty links tty.o against
+ * test/stubs.c instead of src/mouse.c, so naming that function would
+ * break the unit link for a two-line predicate. */
+static int alt_screen_term_ok(void)
+{
+	const char *term = getenv("TERM");
+
+	return term && term[0] != '\0' && strcmp(term, "dumb") != 0
+	    && strcmp(term, "unknown") != 0;
+}
+
+int kg_alt_screen_wanted(void)
+{
+#ifdef KG_FUZZ
+	return 0;
+#elif defined(_WIN32)
+	return 0;
+#else
+	return alt_screen_term_ok() && isatty(STDOUT_FILENO);
+#endif
+}
+
+int kg_alt_screen_active(void) { return alt_screen_active; }
+
+void kg_alt_screen_start(void)
+{
+	if (alt_screen_active || !kg_alt_screen_wanted()) {
+		return;
+	}
+	(void)tty_write(KG_ALT_SCREEN_ON, sizeof(KG_ALT_SCREEN_ON) - 1);
+	alt_screen_active = 1;
+}
+
+void kg_alt_screen_stop(void)
+{
+	if (!alt_screen_active) {
+		return;
+	}
+	(void)tty_write(KG_ALT_SCREEN_OFF, sizeof(KG_ALT_SCREEN_OFF) - 1);
+	alt_screen_active = 0;
+}
+
 /* One key handed back to the reader, delivered before anything else and
  * never recorded into a keyboard macro again -- it was recorded when it
  * was first read.  A single slot is enough: the only producer is
@@ -165,6 +221,10 @@ void disable_raw_mode(int fd)
 	 * here twice cost one comparison. */
 	kg_mouse_stop();
 	kg_bracketed_paste_stop();
+	/* Before the line discipline is handed back: the OFF request is
+	 * plain output either way, and leaving the alternate buffer is
+	 * what hands the shell's own screen back. */
+	kg_alt_screen_stop();
 #ifdef KG_FUZZ
 	(void)fd;
 	editor.rawmode = 0;
@@ -329,8 +389,15 @@ void editor_at_exit(void)
 	if (editor.screen_painted) {
 		(void)tty_write("\x1b[0m", 4); /* Close any open attribute */
 		(void)tty_write("\x1b[?25h", 6); /* Show the cursor */
-		(void)tty_write("\x1b[2J", 4); /* Clear entire screen */
-		(void)tty_write("\x1b[H", 3); /* Move cursor to top-left */
+		/* With the alternate screen the terminal restores the
+		 * shell's screen itself on the way out (kg_alt_screen_stop()
+		 * below, via disable_raw_mode()); clearing here would wipe
+		 * the alternate buffer for nothing.  Without it the old
+		 * clear is what leaves a usable prompt behind. */
+		if (!kg_alt_screen_active()) {
+			(void)tty_write("\x1b[2J", 4); /* Clear entire screen */
+			(void)tty_write("\x1b[H", 3); /* Move cursor home */
+		}
 	}
 
 	disable_raw_mode(STDIN_FILENO);
@@ -397,8 +464,11 @@ int enable_raw_mode(int fd)
 		goto fatal;
 	}
 	editor.rawmode = 1;
-	/* The one place raw mode is entered, so the one place mouse
-	 * reporting is asked for: startup, and every C-z resume. */
+	/* The one place raw mode is entered, so the one place the
+	 * alternate screen is asked for -- and the mouse and paste
+	 * requests after it, so they go to the alternate buffer:
+	 * startup, and every C-z resume. */
+	kg_alt_screen_start();
 	kg_mouse_start();
 	kg_bracketed_paste_start();
 	return 0;
@@ -1576,8 +1646,15 @@ void editor_suspend(void)
 #elif defined(_WIN32)
 	return;
 #else
+	int had_alt = kg_alt_screen_active();
+
 	disable_raw_mode(STDIN_FILENO);
-	(void)tty_write("\x1b[2J\x1b[H", 7); /* clear screen, cursor home */
+	/* Leaving the alternate screen already restored the shell's
+	 * screen; only a session painted straight onto it needs the
+	 * clear that used to be unconditional here. */
+	if (!had_alt) {
+		(void)tty_write("\x1b[2J\x1b[H", 7); /* clear, cursor home */
+	}
 	raise(SIGTSTP);
 	/* Execution resumes here when the shell sends SIGCONT (fg). */
 	enable_raw_mode(STDIN_FILENO);

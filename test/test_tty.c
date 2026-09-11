@@ -7,6 +7,7 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -217,6 +218,70 @@ static void test_at_exit_leaves_an_unpainted_screen_alone(void)
 	editor_write_fn = write;
 
 	CHECK(mock_sink_len == 0);
+}
+
+/* Without a TERM worth consulting there is no alternate screen to ask
+ * for: unset, empty, "dumb" and "unknown" all refuse, whatever stdout
+ * happens to be.  (A usable TERM with stdout on a tty is the live path,
+ * exercised by hand in tmux rather than asserted here, where stdout is
+ * a pipe.) */
+static void test_alt_screen_needs_a_real_term(void)
+{
+	char *saved = getenv("TERM") ? strdup(getenv("TERM")) : NULL;
+
+	setenv("TERM", "dumb", 1);
+	CHECK(kg_alt_screen_wanted() == 0);
+	setenv("TERM", "unknown", 1);
+	CHECK(kg_alt_screen_wanted() == 0);
+	setenv("TERM", "", 1);
+	CHECK(kg_alt_screen_wanted() == 0);
+	unsetenv("TERM");
+	CHECK(kg_alt_screen_wanted() == 0);
+
+	if (saved) {
+		setenv("TERM", saved, 1);
+		free(saved);
+	} else {
+		unsetenv("TERM");
+	}
+}
+
+/* Asking for nothing writes nothing: with TERM=dumb the enter and the
+ * leave are both no-ops, so a dumb terminal never sees the DEC 1049
+ * it would print as garbage. */
+static void test_alt_screen_dumb_term_writes_nothing(void)
+{
+	char *saved = getenv("TERM") ? strdup(getenv("TERM")) : NULL;
+
+	setenv("TERM", "dumb", 1);
+	mock_sink_len = 0;
+	editor_write_fn = mock_write_capture;
+	kg_alt_screen_start();
+	CHECK(kg_alt_screen_active() == 0);
+	CHECK(mock_sink_len == 0);
+	kg_alt_screen_stop();
+	CHECK(mock_sink_len == 0);
+	editor_write_fn = write;
+
+	if (saved) {
+		setenv("TERM", saved, 1);
+		free(saved);
+	} else {
+		unsetenv("TERM");
+	}
+}
+
+/* Stopping what was never started writes nothing either: the OFF
+ * sequence only ever answers a matching ON. */
+static void test_alt_screen_stop_without_start_writes_nothing(void)
+{
+	mock_sink_len = 0;
+	editor_write_fn = mock_write_capture;
+	kg_alt_screen_stop();
+	editor_write_fn = write;
+
+	CHECK(mock_sink_len == 0);
+	CHECK(kg_alt_screen_active() == 0);
 }
 
 /* The DSR reply arrives on the wire and is as trustworthy as anything
@@ -563,6 +628,9 @@ int main(void)
 	RUN(test_tty_write_completes_or_reports_loss);
 	RUN(test_at_exit_hands_the_terminal_back);
 	RUN(test_at_exit_leaves_an_unpainted_screen_alone);
+	RUN(test_alt_screen_needs_a_real_term);
+	RUN(test_alt_screen_dumb_term_writes_nothing);
+	RUN(test_alt_screen_stop_without_start_writes_nothing);
 	RUN(test_cursor_report_parses_exact_shape_only);
 	RUN(test_window_size_normalises_or_refuses);
 	RUN(test_malformed_utf8_keeps_the_following_key);

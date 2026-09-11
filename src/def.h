@@ -1068,6 +1068,10 @@ void dired_do_flagged_delete(int fd);
 
 /* tty.c */
 void disable_raw_mode(int fd);
+int kg_alt_screen_wanted(void);
+int kg_alt_screen_active(void);
+void kg_alt_screen_start(void);
+void kg_alt_screen_stop(void);
 void editor_at_exit(void);
 int enable_raw_mode(int fd);
 void editor_suspend(void);

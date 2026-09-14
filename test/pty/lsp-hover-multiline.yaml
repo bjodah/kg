@@ -11,9 +11,11 @@ name: lsp-hover-multiline
 # and shows it never.  Nothing is lost either way.
 #
 # The `\n` in the fake's answer is the fake's own escape (it turns a
-# literal backslash-n into a newline), which is why this case's env value
-# is a single-quoted YAML scalar: a double-quoted one would turn it into a
-# real newline inside the command line.
+# literal backslash-n into a newline), so this case's env value is a
+# double-quoted YAML scalar spelling each one `\\n`.  The hover text
+# itself is single-quoted for the shell: KG_LSP_SERVER_C runs through
+# `/bin/sh -c`, where backticks inside double quotes mean command
+# substitution, so the fenced block below must not sit inside them.
 #
 # Nothing on disk changes; the trailer is C-x C-c alone because the
 # selected buffer at the end is *lsp-hover*, which has no file.
@@ -22,7 +24,7 @@ backend: tmux
 dimensions: [24, 80]
 key_delay: 0.35
 env:
-  KG_LSP_SERVER_C: 'python3 {REPO}/test/fake_lsp_server.py --mode protocol --hover "### function target\n\n---\n\n```c\nint target(void)\n```"'
+  KG_LSP_SERVER_C: "python3 {REPO}/test/fake_lsp_server.py --mode protocol --hover '### function target\\n\\n---\\n\\n```c\\nint target(void)\\n```'"
 filename: hovlong.c
 initial: |
   int target(void) { return 1; }

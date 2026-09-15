@@ -21,7 +21,7 @@
  * not reproduce its pre-Lisp self, which wrapped at 72. */
 #define FILL_COLUMN_FALLBACK 70
 
-static int is_word_char(int c) { return isalnum((unsigned char)c) || c == '_'; }
+static int is_word_char(int c) { return kg_is_word_char(c); }
 
 static int word_nomem(void)
 {

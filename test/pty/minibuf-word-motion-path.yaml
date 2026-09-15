@@ -1,0 +1,22 @@
+name: minibuf-word-motion-path
+# In prompts (C-x C-f, M-!, etc.), M-b and M-f move by word matching
+# the buffer's word syntax: they make stops on slashes and punctuation
+# rather than jumping over the entire path.
+filename: shell.txt
+backend: pexpect
+key_delay: 0.05
+initial: ""
+keys:
+  - M-1
+  - M-!
+  - "echo /some/lengthy/path"
+  - M-b
+  - M-b
+  - "MID/"
+  - C-a
+  - M-f
+  - " -n"
+  - RET
+expected_saved_any:
+  - "/some/MID/lengthy/path"
+  - "/some/MID/lengthy/path\n"

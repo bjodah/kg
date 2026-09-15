@@ -77,8 +77,9 @@ standard VT100 escape sequences.
   the buffer and the other way around
 - Word-level editing in prompts: M-f/M-b move by word, M-d/M-Backspace
   kill by word, M-u/M-l/M-c upcase/downcase/capitalize the word after
-  the cursor, and C-q quotes the next byte in.  A prompt's word is
-  delimited by whitespace rather than by Emacs' word syntax
+  the cursor, and C-q quotes the next byte in.  A prompt's word boundaries
+  match the buffer's word syntax (stopping at slashes, punctuation, and
+  whitespace)
 - Multi-level undo (C-_)
 - Paragraph reflow to `fill-column` columns (M-q), 70 by default
 - Keyboard macros (C-x ( / C-x ) / C-x e; C-u N C-x e repeats N times)
@@ -91,7 +92,8 @@ standard VT100 escape sequences.
   Left/Right and C-f/C-b) cycle, already-open files pushed to the back
   of the file picker;
   M-x RET with nothing typed repeats the last M-x command.  In the path
-  picker, `M-RET` submits the typed text literally instead of applying
+  picker, Tab fills in the highlighted option into the input buffer for
+  editing, `M-RET` submits the typed text literally instead of applying
   the completion (an intentional deviation from Emacs), and so does
   `RET` when the last component is `.` or `..`, so `C-x C-f . RET`
   opens the prompt's directory in dired the way Emacs does

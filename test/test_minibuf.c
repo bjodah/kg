@@ -4,6 +4,7 @@
  * state, no interactive prompt loop. */
 
 #include "../src/def.h"
+#include "../src/word.h"
 #include "test.h"
 #include <string.h>
 
@@ -318,6 +319,20 @@ static void test_display_width_counts_cells(void)
 	CHECK(utf8_display_width("", 0) == 0);
 }
 
+static void test_word_char_classification(void)
+{
+	CHECK(kg_is_word_char('a'));
+	CHECK(kg_is_word_char('Z'));
+	CHECK(kg_is_word_char('0'));
+	CHECK(kg_is_word_char('9'));
+	CHECK(kg_is_word_char('_'));
+	CHECK(!kg_is_word_char('/'));
+	CHECK(!kg_is_word_char('-'));
+	CHECK(!kg_is_word_char('.'));
+	CHECK(!kg_is_word_char(' '));
+	CHECK(!kg_is_word_char('\t'));
+}
+
 /* ---- Main ---- */
 
 int main(void)
@@ -343,5 +358,6 @@ int main(void)
 	RUN(test_backspace_retires_overflow_first);
 	RUN(test_glyph_start_before_boundaries);
 	RUN(test_display_width_counts_cells);
+	RUN(test_word_char_classification);
 	return test_summary();
 }

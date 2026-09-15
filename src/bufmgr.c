@@ -972,14 +972,14 @@ static void minibuf_prompt_paint(const char *prompt, int plen, const char *buf,
 	prompt_refresh(prompt, plen, buf, cursor);
 }
 
-/* Offset just past the whitespace run and the word that follow `pos`,
+/* Offset just past the non-word run and the word that follow `pos`,
  * i.e. where M-f lands. */
 static int minibuf_word_end(const char *buf, int len, int pos)
 {
-	while (pos < len && isspace((unsigned char)buf[pos])) {
+	while (pos < len && !kg_is_word_char((unsigned char)buf[pos])) {
 		pos++;
 	}
-	while (pos < len && !isspace((unsigned char)buf[pos])) {
+	while (pos < len && kg_is_word_char((unsigned char)buf[pos])) {
 		pos++;
 	}
 	return pos;
@@ -989,10 +989,10 @@ static int minibuf_word_end(const char *buf, int len, int pos)
  * lands. */
 static int minibuf_word_start(const char *buf, int pos)
 {
-	while (pos > 0 && isspace((unsigned char)buf[pos - 1])) {
+	while (pos > 0 && !kg_is_word_char((unsigned char)buf[pos - 1])) {
 		pos--;
 	}
-	while (pos > 0 && !isspace((unsigned char)buf[pos - 1])) {
+	while (pos > 0 && kg_is_word_char((unsigned char)buf[pos - 1])) {
 		pos--;
 	}
 	return pos;
@@ -1026,7 +1026,7 @@ static void minibuf_case_word(char *buf, int len, int *cursor, int mode)
 	int start = *cursor;
 	int i;
 
-	while (start < end && isspace((unsigned char)buf[start])) {
+	while (start < end && !kg_is_word_char((unsigned char)buf[start])) {
 		start++;
 	}
 	for (i = start; i < end; i++) {
@@ -1576,8 +1576,8 @@ static void path_pick_anno(
 }
 
 static void path_prompt_redraw(const char *prompt, char *buf, int cursor,
-    int *sel, struct path_entry *entries, char *dir, char *file, char *lcp,
-    char *msg, int *matches, int *total, int *flen)
+    int *sel, struct path_entry *entries, char *dir, char *file, char *msg,
+    int *matches, int *total, int *flen)
 {
 	const char *names[PICKER_MAX_ENTRIES] = { 0 };
 	const char *annos[PICKER_MAX_ENTRIES] = { 0 };
@@ -1587,7 +1587,7 @@ static void path_prompt_redraw(const char *prompt, char *buf, int cursor,
 	editor_path_split(buf, dir, 256, file, 256);
 	*flen = (int)strlen(file);
 	*total = editor_path_complete_entries(
-	    dir, file, entries, PICKER_MAX_ENTRIES, lcp, 256);
+	    dir, file, entries, PICKER_MAX_ENTRIES, NULL, 0);
 	*matches = *total > PICKER_MAX_ENTRIES ? PICKER_MAX_ENTRIES
 					       : (*total < 0 ? 0 : *total);
 	if (*sel >= *matches) {
@@ -1692,24 +1692,23 @@ static enum path_accept_action path_handle_accept(char *buf, int bufsize,
 }
 
 static void path_handle_tab(char *buf, int bufsize, int *cursor, int *len,
-    int flen, int matches, const char *lcp, const struct path_entry *entries,
-    int *sel)
+    int flen, int matches, const struct path_entry *entries, int *sel)
 {
-	int llen = (int)strlen(lcp);
+	if (matches > 0) {
+		const struct path_entry *pe = &entries[*sel];
+		int new_name_len = (int)strlen(pe->name);
+		int add_slash = pe->is_dir ? 1 : 0;
 
-	if (llen > flen) {
-		int extend = llen - flen;
-		if (*len + extend < bufsize) {
-			memcpy(buf + *len, lcp + flen, extend);
-			*len += extend;
+		if (*len - flen + new_name_len + add_slash + 1 < bufsize) {
+			*len -= flen;
+			memcpy(buf + *len, pe->name, (size_t)new_name_len);
+			*len += new_name_len;
+			if (add_slash) {
+				buf[(*len)++] = '/';
+			}
 			buf[*len] = '\0';
 			*cursor = *len;
 		}
-	} else if (matches == 1 && entries[0].is_dir && *len >= 0
-	    && *len < bufsize - 1 && (*len == 0 || buf[*len - 1] != '/')) {
-		buf[(*len)++] = '/';
-		buf[*len] = '\0';
-		*cursor = *len;
 	}
 	*sel = 0;
 }
@@ -1724,14 +1723,14 @@ static void path_handle_tab(char *buf, int bufsize, int *cursor, int *len,
  * Enter on a directory descends into it; Enter on a file completes the
  * path and returns.  M-RET (and Enter on a path ending in "." or "..")
  * accepts the typed text as it stands, which is how a directory is
- * named without descending into it.  Tab still extends to the longest
- * common prefix.  Backspace at the trailing '/' deletes the whole last
- * path component, so one keystroke walks you up one level. */
+ * named without descending into it.  Tab fills in the highlighted entry
+ * into the input buffer.  Backspace at the trailing '/' deletes the whole
+ * last path component, so one keystroke walks you up one level. */
 enum minibuf_result editor_read_line_path(
     int fd, const char *prompt, char *buf, int bufsize)
 {
 	struct path_entry entries[PICKER_MAX_ENTRIES];
-	char dir[256], file[256], lcp[256], msg[1024];
+	char dir[256], file[256], msg[1024];
 	/* Honour any pre-populated content (callers may seed the prompt
 	 * with the current buffer's directory, à la Emacs). */
 	int len = (int)strnlen(buf, bufsize - 1);
@@ -1749,7 +1748,7 @@ enum minibuf_result editor_read_line_path(
 	kg_event_prompt_enter();
 	while (1) {
 		path_prompt_redraw(prompt, buf, cursor, &sel, entries, dir,
-		    file, lcp, msg, &matches, &total, &flen);
+		    file, msg, &matches, &total, &flen);
 
 		c = editor_read_key(fd);
 		/* Same per-keystroke kill-class boundary and yank-pop
@@ -1816,7 +1815,7 @@ enum minibuf_result editor_read_line_path(
 		} else if (KEY_IS(c, KEY_BASE_TAB, 0) && matches > 0
 		    && cursor == len) {
 			path_handle_tab(buf, bufsize, &cursor, &len, flen,
-			    matches, lcp, entries, &sel);
+			    matches, entries, &sel);
 		} else {
 			if (minibuf_edit_key(fd, c, buf, bufsize, &cursor, &len,
 				&overflow, &yank)) {

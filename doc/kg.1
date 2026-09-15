@@ -1955,10 +1955,10 @@ at a trailing
 .Sq /
 walks you up one level in a single keystroke.
 .Ic Tab
-extends the typed text to the longest common prefix of the prefix-
-matched group, or appends a
+fills in the currently highlighted option into the input buffer
+(appending a
 .Sq /
-when the sole match is a directory.
+when it is a directory) for further editing or confirmation.
 .Pp
 .Ic C-x b
 opens the same picker shape against the active buffers (everything
@@ -2108,11 +2108,14 @@ upcase, downcase and capitalize the word after it and leave the cursor
 past that word, and
 .Ic C-q
 inserts the next byte literally.
-A prompt's word is delimited by whitespace, where Emacs' is delimited by
-word syntax: in a filename prompt kg's
+A prompt's word is delimited by word syntax (ASCII alphanumeric and
+underscore), matching the buffer's word movement: in a filename prompt kg's
 .Ic M-b
-walks back over the whole path where Emacs' stops at each
-.Sq / .
+and
+.Ic M-f
+make stops at each
+.Sq /
+and path component.
 .Pp
 A prompt's kills and yanks use the one global kill ring, as Emacs'
 minibuffer does:

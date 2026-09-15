@@ -1,0 +1,33 @@
+name: find-file-tab-fill-in
+# In C-x C-f, TAB fills in the currently highlighted option into the
+# input buffer so the user can edit the path (including with M-b/M-d)
+# before opening it.
+filename: start.txt
+backend: tmux
+config_files:
+  doc-target-one.txt: |
+    one content
+  doc-target-two.txt: |
+    two content
+initial: |
+  start
+keys:
+  - C-x
+  - C-f
+  - C-a
+  - C-k
+  - "~/doc-tar"
+  - SETTLE=2:"> doc-target-one.txt"
+  - DOWN
+  - SETTLE=2:"> doc-target-two.txt"
+  - TAB
+  - M-b
+  - M-b
+  - ESC
+  - d
+  - "one"
+  - RET
+expected_saved: |
+  start
+expected_screen_contains:
+  - "one content"

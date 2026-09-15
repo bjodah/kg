@@ -1,6 +1,7 @@
 #ifndef KG_WORD_H
 #define KG_WORD_H
 
+#include <ctype.h>
 #include <stddef.h>
 
 struct editor_buffer;
@@ -51,6 +52,14 @@ static inline int kg_word_case_byte(int mode, int ch, int first)
 		return ch >= 'A' && ch <= 'Z' ? ch + ('a' - 'A') : ch;
 	}
 	return ch >= 'a' && ch <= 'z' ? ch - ('a' - 'A') : ch;
+}
+
+/* What every interactive word command agrees a "word" is: a maximal run
+ * of is_word_char() bytes (ASCII alnum or '_', tested with plain
+ * isalnum(3) on an unsigned char). */
+static inline int kg_is_word_char(int c)
+{
+	return isalnum((unsigned char)c) || c == '_';
 }
 
 #endif /* KG_WORD_H */

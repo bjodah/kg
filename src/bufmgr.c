@@ -1612,34 +1612,7 @@ static void path_prompt_redraw(const char *prompt, char *buf, int cursor,
 static void path_handle_erase(int fd, struct key_event c, char *buf,
     int bufsize, int *cursor, int *len, int *overflow, int *sel)
 {
-	if (*cursor < *len) {
-		/* Mid-line: minibuf_edit_key has already moved the cursor
-		 * back over the deleted glyph, and it must stay there.
-		 * Hoisting `*cursor = *len` out of the two at-end arms below
-		 * snapped it to end of line after every mid-path erase, so
-		 * the next typed character landed at the far end.  Erase
-		 * keys never reach the yank branches, so no record. */
-		minibuf_edit_key(
-		    fd, c, buf, bufsize, cursor, len, overflow, NULL);
-	} else if (*overflow > 0) {
-		/* Retire a refused insertion before deleting anything --
-		 * exactly what minibuf_delete_backward does, and what the
-		 * two arms below did not.  The count means "your answer did
-		 * not fit"; backing up over the characters that did not fit
-		 * has to clear it, or the next answer is refused for the
-		 * previous one's overrun even though it fits. */
-		(*overflow)--;
-	} else if (*len > 0 && buf[*len - 1] == '/') {
-		buf[--*len] = '\0';
-		while (*len > 0 && buf[*len - 1] != '/') {
-			buf[--*len] = '\0';
-		}
-		*cursor = *len;
-	} else if (*len > 0) {
-		*len = utf8_glyph_start_before(buf, *len, *len);
-		buf[*len] = '\0';
-		*cursor = *len;
-	}
+	minibuf_edit_key(fd, c, buf, bufsize, cursor, len, overflow, NULL);
 	*sel = 0;
 }
 
@@ -1724,8 +1697,7 @@ static void path_handle_tab(char *buf, int bufsize, int *cursor, int *len,
  * path and returns.  M-RET (and Enter on a path ending in "." or "..")
  * accepts the typed text as it stands, which is how a directory is
  * named without descending into it.  Tab fills in the highlighted entry
- * into the input buffer.  Backspace at the trailing '/' deletes the whole
- * last path component, so one keystroke walks you up one level. */
+ * into the input buffer. */
 enum minibuf_result editor_read_line_path(
     int fd, const char *prompt, char *buf, int bufsize)
 {

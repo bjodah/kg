@@ -250,7 +250,7 @@
   "src/bufmgr.c:minibuf_yank_span": 2,
   "src/bufmgr.c:path_ends_in_dot_component": 2,
   "src/bufmgr.c:path_handle_accept": 10,
-  "src/bufmgr.c:path_handle_erase": 8,
+  "src/bufmgr.c:path_handle_erase": 1,
   "src/bufmgr.c:path_handle_tab": 5,
   "src/bufmgr.c:path_pick_anno": 3,
   "src/bufmgr.c:path_prompt_redraw": 6,

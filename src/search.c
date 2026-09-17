@@ -451,6 +451,7 @@ static const struct {
 	{ { KEY_BASE_UP, KEY_MOD_CTRL }, editor_move_paragraph_backward },
 	{ { '}', KEY_MOD_META }, editor_move_paragraph_forward },
 	{ { KEY_BASE_DOWN, KEY_MOD_CTRL }, editor_move_paragraph_forward },
+	{ { 'l', KEY_MOD_CTRL }, editor_recenter },
 };
 
 static isearch_move_fn isearch_lookup_move(struct key_event c)

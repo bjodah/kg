@@ -35,12 +35,14 @@ keys:
   - ask-file
   - RET
   - RET
-  # DIR is the prefill: "/a/b/", which three backspaces walk back to
-  # empty (the path prompt deletes a whole component at a trailing /).
+  # DIR is the prefill: "/a/b/", which five backspaces walk back to
+  # empty.
   # M-RET then answers with nothing, and DEFAULT-FILENAME takes over.
   - M-x
   - ask-file-default
   - RET
+  - C-?
+  - C-?
   - C-?
   - C-?
   - C-?

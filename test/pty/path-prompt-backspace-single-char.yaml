@@ -1,0 +1,19 @@
+# Backspace in the file-select prompt (C-x C-f) deletes a single character,
+# matching Emacs (rather than deleting the whole directory component at a trailing /).
+name: path-prompt-backspace-single-char
+filename: start.txt
+initial: "initial\n"
+backend: tmux
+keys:
+  - C-x
+  - C-f
+  - "foo/"
+  - C-?
+  - C-?
+  - "i"
+  - "x"
+  - ".txt"
+  - RET
+expected_saved: "initial\n"
+expected_screen_contains:
+  - foix.txt

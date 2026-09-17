@@ -14,6 +14,7 @@
 #include "event.h"
 #include "marker.h"
 #include "perf.h"
+#include "shindent.h"
 #include "syntax.h"
 #include "yank.h"
 
@@ -1377,6 +1378,13 @@ void editor_insert_newline(void)
 
 	filerow = editor_current_filerow_or_eof();
 	filecol = editor_current_filecol();
+	/* Shell buffers indent the new line by the block structure, not
+	 * by copying whitespace: `if ...; then' RET sits one level in,
+	 * the way sh-mode does. */
+	if (shindent_active_for_buffer(bcur())) {
+		shindent_insert_newline(filerow);
+		return;
+	}
 	row = (filerow >= bcur()->numrows) ? NULL : &bcur()->row[filerow];
 	/* The indent is the current line's leading whitespace, and never
 	 * reaches past the split point: splitting inside the indentation

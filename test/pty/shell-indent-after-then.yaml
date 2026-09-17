@@ -1,0 +1,11 @@
+# RET after `...; then' indents one level (four spaces), the way sh-mode's
+# electric indent does; kg used to leave the new line bare.
+name: shell-indent-after-then
+filename: foo.sh
+initial: ""
+keys:
+  - "if [ $foo = bar ]; then"
+  - RET
+expected_saved: |-
+  if [ $foo = bar ]; then
+      

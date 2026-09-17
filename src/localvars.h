@@ -24,9 +24,9 @@ struct local_settings {
 	enum local_bool_value buffer_read_only;
 
 	/* File-local display state.  `tab_width' holds only when
-	 * `tab_width_set' does; the other two are stored but consumed by
-	 * nothing yet -- kg has no C/Java indenter -- which is what keeps
-	 * this slice out of every edit path. */
+	 * `tab_width_set' does; `indent_tabs_mode' is read by the shell
+	 * indenter (src/shindent.c), while the C offset is stored but
+	 * consumed by nothing yet -- kg has no C/Java indenter. */
 	bool tab_width_set;
 	int tab_width;
 	enum local_bool_value indent_tabs_mode;

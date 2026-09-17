@@ -1,0 +1,16 @@
+# `fi' TAB dedents the closer to its `if': the line is typed at the
+# body's indent and TAB moves it back to column zero.
+name: shell-indent-fi-dedent
+filename: foo.sh
+initial: ""
+keys:
+  - "if [ $foo = bar ]; then"
+  - RET
+  - "echo hi"
+  - RET
+  - "fi"
+  - TAB
+expected_saved: |-
+  if [ $foo = bar ]; then
+      echo hi
+  fi

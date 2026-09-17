@@ -26,6 +26,7 @@
 #include "occur.h"
 #include "paste.h"
 #include "prompt.h"
+#include "shindent.h"
 #include "syntax.h"
 #include "xref.h"
 #include "yank.h"
@@ -336,6 +337,20 @@ static const char *shift_select_command(struct key_event c)
 	return nullptr;
 }
 
+/* TAB in a shell buffer reindents the line -- sh-mode's
+ * indent-for-tab-command -- rather than inserting a tab.  Returns 1
+ * when the key was TAB in a shell buffer.  The command runs through
+ * the same invoke path M-x uses, so verdicts, identity and the handler
+ * are one code path, not two. */
+static int key_shell_indent_tab(struct key_event c, int fd)
+{
+	if (c.base != KEY_BASE_TAB || !shindent_active()) {
+		return 0;
+	}
+	(void)cmd_execute_named("indent-for-tab-command", fd);
+	return 1;
+}
+
 /* The self-insert fallback.
  *
  * It stays outside cmd_invoke() because it batches: a repeated printable
@@ -357,6 +372,9 @@ static void key_self_insert(struct key_event c, int n, int fd)
 	 * (nothing else claimed it) is silently ignored rather than typed
 	 * as its bare base character. */
 	if (c.mods != 0) {
+		return;
+	}
+	if (key_shell_indent_tab(c, fd)) {
 		return;
 	}
 	/* TAB's base is the named key, not the byte self-insert writes;

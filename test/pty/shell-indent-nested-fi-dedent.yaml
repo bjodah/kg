@@ -1,0 +1,22 @@
+# Nested closers each find their own opener: the inner `fi' TABs to
+# four, the outer one to zero.  The depth-2 body below is one TAB,
+# deliberate: indent-tabs-mode defaults to t (as in Emacs), so a level
+# at column 8 is written as a tab stop.
+name: shell-indent-nested-fi-dedent
+filename: foo.sh
+initial: ""
+keys:
+  - "if a; then"
+  - RET
+  - "if b; then"
+  - RET
+  - "echo deep"
+  - RET
+  - "fi"
+  - TAB
+  - RET
+  - "fi"
+  - TAB
+# Double-quoted: the depth-2 body is one TAB, which a literal block
+# cannot spell (YAML forbids tabs for indentation).
+expected_saved: "if a; then\n    if b; then\n\techo deep\n    fi\nfi"

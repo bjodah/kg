@@ -99,6 +99,20 @@ int dirlocals_parse(
 	(void)out;
 	return 0;
 }
+int dirlocals_parse_for_mode(const char *source, size_t source_len,
+    struct local_settings *out, const char *mode_key)
+{
+	(void)source;
+	(void)source_len;
+	(void)out;
+	(void)mode_key;
+	return 0;
+}
+const char *dirlocals_mode_key(const struct editor_syntax *syntax)
+{
+	(void)syntax;
+	return NULL;
+}
 int localvars_parse_modeline(
     const erow *rows, int row_count, struct local_settings *out)
 {

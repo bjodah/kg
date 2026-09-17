@@ -1821,29 +1821,46 @@ int kg_lisp_variable_integer(const char *name, int fallback)
  * exact setq.  Poll at the two seams that need a current answer: before a
  * repaint, and inside a geometry-consuming native.  One symbol lookup and
  * one frame cover every buffer; editor_set_tab_width() makes the unchanged
- * case a comparison and owns all derived-state invalidation. */
+ * case a comparison and owns all derived-state invalidation.
+ *
+ * A file-local width owns its buffer until Lisp takes it back: a buffer
+ * whose visit published one keeps it while no `setq-local' names the
+ * variable, restored here if a killed binding left Lisp's own width
+ * behind, and a buffer-local binding wins the moment one exists. */
+static void sync_one_buffer_display(FeObject *symbol, int slot)
+{
+	FeObject *value;
+	int width = KG_TAB_WIDTH;
+
+	if (buflist[slot].tab_width_local
+	    && !lisp_locals_has_binding(
+		state.context, symbol, buf_handle(slot))) {
+		editor_set_tab_width(
+		    &buflist[slot], buflist[slot].tab_width_local);
+		return;
+	}
+	value
+	    = lisp_locals_buffer_value(state.context, symbol, buf_handle(slot));
+	if (value != nullptr && FeGetType(value) == FeTInteger) {
+		int64_t n = FeToInteger(state.context, value);
+
+		if (n >= 1 && n <= KG_TAB_WIDTH_MAX) {
+			width = (int)n;
+		}
+	}
+	editor_set_tab_width(&buflist[slot], width);
+}
+
 static void sync_display_options_in_frame(void)
 {
 	FeObject *symbol = FeMakeSymbol(state.context, "tab-width");
 	int i;
 
 	for (i = 0; i < MAX_BUFFERS; i++) {
-		FeObject *value;
-		int width = KG_TAB_WIDTH;
-
 		if (!buflist[i].active) {
 			continue;
 		}
-		value = lisp_locals_buffer_value(
-		    state.context, symbol, buf_handle(i));
-		if (value != nullptr && FeGetType(value) == FeTInteger) {
-			int64_t n = FeToInteger(state.context, value);
-
-			if (n >= 1 && n <= KG_TAB_WIDTH_MAX) {
-				width = (int)n;
-			}
-		}
-		editor_set_tab_width(&buflist[i], width);
+		sync_one_buffer_display(symbol, i);
 	}
 }
 
@@ -2128,7 +2145,7 @@ void kg_lisp_sync_display_options(void)
 	    : KG_TAB_WIDTH;
 
 	for (int i = 0; i < MAX_BUFFERS; i++) {
-		if (buflist[i].active) {
+		if (buflist[i].active && !buflist[i].tab_width_local) {
 			editor_set_tab_width(&buflist[i], width);
 		}
 	}

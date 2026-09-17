@@ -2667,6 +2667,12 @@ Visit the buffer named on this line of the buffer list.
 Bound to
 .Ic Enter
 in read-only buffers that are not directory listings.
+.It indent-for-tab-command
+Reindent the current shell-script line to its block level, or insert
+a literal tab outside shell buffers.
+Bound to
+.Ic TAB
+in shell buffers, where it replaces the self-insert.
 .It insert-file
 Insert a file's contents at point.
 Bound to
@@ -2876,6 +2882,32 @@ auto-indent applies.
 Bound to
 .Ic Enter .
 A numeric argument repeats it.
+In shell buffers the new line is indented by the block structure
+instead: one level in after
+.Ql if ...; then ,
+.Ql for ...; do
+or a trailing
+.Ql { ,
+and dedented after the matching
+.Ql fi ,
+.Ql done ,
+.Ql esac
+or
+.Ql } ,
+the way sh-mode lays them (four columns a level, a tab stop where
+indent-tabs-mode allows one).  A line the parser cannot place -- after
+an unclosed
+.Ql (
+or inside a
+.Ql { ... ;
+group -- keeps the neighbouring indent instead of the aligned one
+Emacs computes, and an
+.Ql esac
+closing a
+.Ql case
+nested inside another arm aligns with the inner pattern rather than
+the outer
+.Ql case .
 .It newline-or-eval-print-last-sexp
 Insert a newline; in Lisp Interaction and Lisp buffers, evaluate the
 s-expression before point and insert the result instead.
@@ -4642,7 +4674,7 @@ indicator when the buffer is read-only.
 .Nm
 supports a limited subset of Emacs file-local variables, parsed
 without evaluation.
-Two variables are recognized:
+Five variables are recognized:
 .Bl -tag -width "compile-command"
 A numeric argument zaps through that many occurrences.
 .It Va compile-command
@@ -4653,6 +4685,24 @@ Either
 .Ql t
 or
 .Ql nil .
+.It Va tab-width
+An integer from 1 through 1000: display columns between tab stops,
+applied to the buffer.  A later
+.Ql (setq-local tab-width N)
+overrides it.
+.It Va c-basic-offset , Va c-ts-mode-indent-offset , Va java-ts-indent-offset
+An integer from 0 through 32, accepted and stored per buffer but read
+by nothing yet: kg has no C/Java indenter.
+.It Va indent-tabs-mode
+Either
+.Ql t
+or
+.Ql nil ,
+read by the shell indenter when it writes an indent: a level at or
+past a tab stop is written with tabs unless this is
+.Ql nil ,
+in which case it is all spaces.  The C offset above is still the one
+nothing reads.
 .El
 .Pp
 Variables are set through two mechanisms:
@@ -4714,14 +4764,35 @@ filesystem root; the nearest match wins.
 .Pp
 Only the generic
 .Ql nil
-selector is applied.
-Supported variables are
-.Va compile-command
+selector and the visited buffer's own mode apply: for a C buffer that
+is
+.Ql c-mode ,
+.Ql c-ts-mode ,
+.Ql c++-mode
 and
-.Va buffer-read-only ;
+.Ql c++-ts-mode ;
+for a Java buffer
+.Ql java-mode
+and
+.Ql java-ts-mode .
+A mode entry merges after every
+.Ql nil
+one, however the file lists them, so it wins ties; the nearest
+.Pa .dir-locals.el
+upward wins across files.
+Supported variables are
+.Va compile-command ,
+.Va buffer-read-only ,
+.Va tab-width ,
+.Va c-basic-offset
+.Pq with Va c-ts-mode-indent-offset
+and
+.Va java-ts-indent-offset ,
+and
+.Va indent-tabs-mode ;
 all other entries
 .Pq including Ql eval , Ql mode , Ql subdirs ,
-.Ql auto-mode-alist , mode-specific selectors, vectors, and backquote
+.Ql auto-mode-alist , other mode selectors, vectors, and backquote
 are ignored without evaluation.
 The optional leading
 .Sq '
@@ -4729,8 +4800,10 @@ quote is accepted.
 .Pp
 Example:
 .Bd -literal -offset indent
-((nil . ((compile-command . "make all")
-         (buffer-read-only . t))))
+((nil . ((compile-command . "make all")))
+ (c-mode . ((tab-width . 4)
+             (c-basic-offset . 4)
+             (indent-tabs-mode . nil))))
 .Ed
 .Pp
 Defensive limits: 64\~KiB file, 64-deep nesting, 4096 tokens.

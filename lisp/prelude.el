@@ -1001,6 +1001,22 @@
   "Emacs' other name for `inhibit-startup-screen'; either one suppresses it.")
 (defvar tab-width 8
   "Distance between tab stops (for display of tab characters), in columns.")
+;; File-local indent state kg accepts and stores but no editing command
+;; consumes yet: `dir-locals', `-*-' lines and `Local Variables:' blocks
+;; may set them per buffer, and `setq-local' of them is visible, but
+;; newline indent and TAB insertion do not read them -- kg has no C/Java
+;; indenter, and wiring one is a later plan's work.  Defaults measured
+;; against Emacs 31: `indent-tabs-mode' t, `c-ts-mode-indent-offset' 2,
+;; `java-ts-indent-offset' 4.  Emacs derives `c-basic-offset' from the
+;; style (`set-from-style'); kg has no styles, so 8 is the standing pick.
+(defvar indent-tabs-mode t
+  "Non-nil means indent with tabs where possible (kg: stored, not read).")
+(defvar c-basic-offset 8
+  "Basic indent offset for C-like modes (kg: stored, not read).")
+(defvar c-ts-mode-indent-offset 2
+  "Indent offset for `c-ts-mode' buffers (kg: stored, not read).")
+(defvar java-ts-indent-offset 4
+  "Indent offset for `java-ts-mode' buffers (kg: stored, not read).")
 ;; Here rather than in `lisp/auto-fill.el' because kg's OWN fill reads
 ;; it, and a package the editor has not loaded cannot own the editor's
 ;; fill column.  70 is Emacs' default, measured; src/word.c's fallback,

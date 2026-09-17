@@ -30,6 +30,7 @@
 #include "occur.h"
 #include "perf.h"
 #include "register.h"
+#include "shindent.h"
 #include "showparen.h"
 #include "syntax.h"
 #include "vgeom.h"
@@ -1042,6 +1043,20 @@ static void cmd_newline(int fd)
 	editor_insert_newline();
 }
 
+/* TAB in a shell buffer: reindent the line (sh-mode), elsewhere the
+ * literal tab self-insert would have written.  The key reaches here
+ * from M-x; the keypress itself arrives through key_self_insert()'s
+ * fast path, which publishes this same identity. */
+static void cmd_indent_for_tab_command(int fd)
+{
+	(void)fd;
+	if (shindent_active()) {
+		shindent_indent_current_line();
+	} else {
+		editor_self_insert_char(TAB);
+	}
+}
+
 /* C-j: a newline, except in Lisp buffers, where it evaluates the
  * s-expression before point and inserts the result.  One command because
  * one key does both; the choice moves into a mode layer when there is
@@ -1873,6 +1888,8 @@ static const struct named_cmd cmdtable[] = {
 	{ "help", cmd_help, LISP_OK, "Show the built-in key binding help" },
 	{ "ibuffer-visit-buffer", cmd_ibuffer_visit_buffer, LISP_OK,
 	    "Visit the buffer named on this line" },
+	{ "indent-for-tab-command", cmd_indent_for_tab_command, EDITS | LISP_OK,
+	    "Reindent this shell line, or insert a tab" },
 	{ "insert-file", cmd_insert_file, EDITS | READS_TERM | LISP_OK,
 	    "Insert a file's contents at point" },
 	{ "insert-register", cmd_insert_register, EDITS | READS_TERM,

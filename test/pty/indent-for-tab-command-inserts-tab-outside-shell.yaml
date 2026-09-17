@@ -1,0 +1,12 @@
+# Outside shell buffers the command is the self-insert TAB always was:
+# M-x here types it into a text buffer, pinning the fallback half of
+# the handler.
+name: indent-for-tab-command-inserts-tab-outside-shell
+filename: notes.txt
+initial: ""
+keys:
+  - "a"
+  - M-x
+  - "indent-for-tab-command"
+  - RET
+expected_saved: "a\t"

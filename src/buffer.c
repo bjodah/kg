@@ -14,6 +14,7 @@
 #include "event.h"
 #include "marker.h"
 #include "perf.h"
+#include "shindent.h"
 #include "syntax.h"
 #include "yank.h"
 
@@ -439,6 +440,35 @@ void editor_set_tab_width(struct editor_buffer *b, int width)
 		editor_render_row(b, &b->row[row]);
 	}
 	editor_rehighlight_all(b);
+}
+
+/* Publish a merged visit's settings on its buffer: the display width
+ * here, beside the renderer that owns it; the two stored-but-unconsumed
+ * offsets as buffer state for the indent plan to come.  An unset width
+ * clears a previous file-local one, and the init/Lisp sync owns the
+ * display from there. */
+void local_settings_apply_to_buffer(
+    struct editor_buffer *b, const struct local_settings *merged)
+{
+	if (!b || !merged) {
+		return;
+	}
+	if (merged->tab_width_set) {
+		editor_set_tab_width(b, merged->tab_width);
+		b->tab_width_local = merged->tab_width;
+	} else {
+		b->tab_width_local = 0;
+	}
+	if (merged->indent_tabs_mode != LOCAL_BOOL_UNSET) {
+		b->indent_tabs_mode_local = merged->indent_tabs_mode;
+	} else {
+		b->indent_tabs_mode_local = LOCAL_BOOL_UNSET;
+	}
+	if (merged->c_basic_offset_set) {
+		b->c_basic_offset_local = merged->c_basic_offset;
+	} else {
+		b->c_basic_offset_local = 0;
+	}
 }
 
 /* Render one row and immediately re-highlight it: the row-at-a-time
@@ -1348,6 +1378,13 @@ void editor_insert_newline(void)
 
 	filerow = editor_current_filerow_or_eof();
 	filecol = editor_current_filecol();
+	/* Shell buffers indent the new line by the block structure, not
+	 * by copying whitespace: `if ...; then' RET sits one level in,
+	 * the way sh-mode does. */
+	if (shindent_active_for_buffer(bcur())) {
+		shindent_insert_newline(filerow);
+		return;
+	}
 	row = (filerow >= bcur()->numrows) ? NULL : &bcur()->row[filerow];
 	/* The indent is the current line's leading whitespace, and never
 	 * reaches past the split point: splitting inside the indentation

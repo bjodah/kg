@@ -1,0 +1,21 @@
+# A .dir-locals.el four directories above the visited file still applies,
+# and only to its own mode: the java-mode block narrows TAB to 2 columns
+# in Foo.java while the c-mode block in the same file is ignored. The
+# ruler line disambiguates 2 from the default 8 (and from c-mode's 6).
+name: dir-locals-tab-width-java
+filename: a/b/c/d/Foo.java
+backend: tmux
+dimensions: [12, 40]
+workspace_files:
+  .dir-locals.el: |
+    ((nil . ((tab-width . 8)))
+     (java-mode . ((tab-width . 2)))
+     (c-mode . ((tab-width . 6))))
+initial: "\tX\n01234567X\n"
+keys: []
+expected_saved: "\tX\n01234567X\n"
+expected_screen_contains:
+  - "  X"
+expected_screen_not_contains:
+  - "        X"
+  - "      X"

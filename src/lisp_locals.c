@@ -479,6 +479,15 @@ FeObject *lisp_locals_buffer_value(
 	return cell_read(ctx, b->cell);
 }
 
+int lisp_locals_has_binding(
+    FeContext *ctx, FeObject *symbol, struct kg_buffer_handle buffer)
+{
+	struct kg_lisp_local_var *v = var_find(symbol);
+
+	(void)ctx;
+	return v != nullptr && binding_find(v, buffer) != nullptr ? 1 : 0;
+}
+
 /* (buffer-local-value SYMBOL BUFFER): read another buffer's binding
  * without selecting it, falling through to the default when it has none.
  * The swapped-in buffer is asked through the value cell rather than

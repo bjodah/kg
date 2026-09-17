@@ -153,7 +153,10 @@ standard VT100 escape sequences.
 - Universal-argument (C-u / M-0..M-9) for repeated commands, capped at
   1000
 - Auto-indent; electric bracket pairing via `M-x electric-pair-mode`
-  (off by default, can be enabled from the init file)
+  (off by default, can be enabled from the init file); shell-script
+  indent: RET follows `if`/`for`/`case`/`{` blocks and TAB reindents
+  the line (`fi` included, nesting included), four columns a level
+  like sh-mode
 - Show-paren highlighting, **on by default** as in Emacs 28.1 and later:
   with point immediately after a closing bracket, or on an opening one,
   kg colours that bracket and the one it pairs with.  `()`, `[]` and `{}`
@@ -233,7 +236,13 @@ standard VT100 escape sequences.
   [LSP](#lsp-optional-on-by-default) below
 - File-local and directory-local variables (limited, non-evaluating
   `-*- ... -*-` modeline, `Local Variables:` footer, and a safe
-  `.dir-locals.el` subset) for `compile-command` and `buffer-read-only`
+  `.dir-locals.el` subset with `nil` plus `c-mode`/`c++-mode`/`java-mode`
+  (and `-ts-` alias) selectors) for `compile-command`, `buffer-read-only`,
+  `tab-width`, `c-basic-offset` (with `c-ts-mode-indent-offset` and
+  `java-ts-indent-offset`), and `indent-tabs-mode` — the C offsets are
+  accepted and stored but no editing command reads them yet, while
+  `indent-tabs-mode` decides whether the shell indenter writes tabs
+  (`t`, the default) or spaces (`nil`)
 - `read-only-mode` (`C-x C-q`) with buffer-local state and an `RO`
   mode-line indicator; a buffer visiting a file you cannot write comes up
   read-only by itself, as in Emacs, so the refusal arrives at the first
@@ -242,6 +251,7 @@ standard VT100 escape sequences.
 - Uses standard VT100 escape sequences
 - Tab stops every 8 columns by default, configurable from Lisp with
   `tab-width` (`setq` changes the default; `setq-local` changes one buffer)
+  and per buffer from file-local settings (a later `setq-local` wins)
 - Display columns measured the way the terminal draws them: East-Asian-Wide
   and Fullwidth characters take two columns, combining marks none (Unicode
   15.1 width table, no libc locale required)

@@ -18,6 +18,29 @@ void local_settings_init(struct local_settings *settings)
 	settings->buffer_read_only = LOCAL_BOOL_UNSET;
 	settings->compile_command[0] = '\0';
 	settings->compile_command_set = false;
+	settings->tab_width_set = false;
+	settings->tab_width = 0;
+	settings->indent_tabs_mode = LOCAL_BOOL_UNSET;
+	settings->c_basic_offset_set = false;
+	settings->c_basic_offset = 0;
+}
+
+/* File-local display state merges like the rest: set overwrites, unset
+ * leaves the destination alone. */
+static void local_settings_merge_display(
+    struct local_settings *destination, const struct local_settings *source)
+{
+	if (source->tab_width_set) {
+		destination->tab_width = source->tab_width;
+		destination->tab_width_set = true;
+	}
+	if (source->indent_tabs_mode != LOCAL_BOOL_UNSET) {
+		destination->indent_tabs_mode = source->indent_tabs_mode;
+	}
+	if (source->c_basic_offset_set) {
+		destination->c_basic_offset = source->c_basic_offset;
+		destination->c_basic_offset_set = true;
+	}
 }
 
 void local_settings_merge(
@@ -32,6 +55,7 @@ void local_settings_merge(
 	if (source->buffer_read_only != LOCAL_BOOL_UNSET) {
 		destination->buffer_read_only = source->buffer_read_only;
 	}
+	local_settings_merge_display(destination, source);
 
 	destination->ignored_entries += source->ignored_entries;
 	destination->malformed_entries += source->malformed_entries;
@@ -39,12 +63,12 @@ void local_settings_merge(
 
 /* ---- The variables, and what their values mean ----
  *
- * kg understands two file-local variables through three envelope
+ * kg understands five file-local variables through three envelope
  * grammars.  The grammars differ in how a name and a value are *found*
  * -- semicolon splitting inside `-*- ... -*-`, a prefixed/suffixed block
  * with backslash continuation, or a non-evaluating sexp reader -- and
  * that scanning stays with each parser.  What a name means, and what a
- * value means once it has been found, is stated only here, so a third
+ * value means once it has been found, is stated only here, so a sixth
  * variable is one row and not three edits. */
 
 enum local_var_kind localvars_kind(const char *name)
@@ -55,6 +79,11 @@ enum local_var_kind localvars_kind(const char *name)
 	} table[] = {
 		{ "compile-command", LOCAL_VAR_STRING },
 		{ "buffer-read-only", LOCAL_VAR_BOOL },
+		{ "tab-width", LOCAL_VAR_TAB_WIDTH },
+		{ "c-basic-offset", LOCAL_VAR_C_OFFSET },
+		{ "c-ts-mode-indent-offset", LOCAL_VAR_C_OFFSET },
+		{ "java-ts-indent-offset", LOCAL_VAR_C_OFFSET },
+		{ "indent-tabs-mode", LOCAL_VAR_INDENT_TABS },
 		{ NULL, LOCAL_VAR_NONE },
 	};
 	int i;
@@ -73,7 +102,8 @@ enum local_var_kind localvars_kind(const char *name)
  * blanks are trimmed here so a parser can hand over the span it has
  * without normalising it first -- a symbol read by the dir-locals reader
  * has none, and the other two envelopes have already trimmed. */
-void localvars_apply_bool(struct local_settings *out, const char *text, int len)
+static void apply_bool_token(
+    enum local_bool_value *slot, unsigned *malformed, const char *text, int len)
 {
 	char token[12];
 	int i, n;
@@ -88,11 +118,71 @@ void localvars_apply_bool(struct local_settings *out, const char *text, int len)
 	token[n] = '\0';
 
 	if (strcmp(token, "t") == 0) {
-		out->buffer_read_only = LOCAL_BOOL_TRUE;
+		*slot = LOCAL_BOOL_TRUE;
 	} else if (strcmp(token, "nil") == 0) {
-		out->buffer_read_only = LOCAL_BOOL_FALSE;
+		*slot = LOCAL_BOOL_FALSE;
 	} else {
+		(*malformed)++;
+	}
+}
+
+void localvars_apply_bool(struct local_settings *out, const char *text, int len)
+{
+	apply_bool_token(
+	    &out->buffer_read_only, &out->malformed_entries, text, len);
+}
+
+static void apply_indent_tabs(
+    struct local_settings *out, const char *text, int len)
+{
+	apply_bool_token(
+	    &out->indent_tabs_mode, &out->malformed_entries, text, len);
+}
+
+/* Defined beside the init.el reader below; the digit grammar both text
+ * envelopes share with it. */
+static bool is_integer_token(const char *s);
+
+/* An integer variable's value from the same raw token text: trailing
+ * blanks trimmed here, the digit grammar shared with the init.el reader,
+ * one closed range per variable.  A quoted "2" never reaches this -- the
+ * envelopes read a string and an integer differently on purpose, and a
+ * string where an integer belongs is malformed, not coerced. */
+static void apply_int_token(struct local_settings *out,
+    enum local_var_kind kind, const char *text, int len)
+{
+	char token[64];
+	int i, n, val;
+
+	while (len > 0 && (text[len - 1] == ' ' || text[len - 1] == '\t')) {
+		len--;
+	}
+	n = len < (int)sizeof(token) - 1 ? len : (int)sizeof(token) - 1;
+	for (i = 0; i < n; i++) {
+		token[i] = text[i];
+	}
+	token[n] = '\0';
+
+	if (n != len || !is_integer_token(token)) {
 		out->malformed_entries++;
+		return;
+	}
+	val = atoi(token);
+	if (kind == LOCAL_VAR_TAB_WIDTH) {
+		if (val < 1 || val > KG_TAB_WIDTH_MAX) {
+			out->malformed_entries++;
+			return;
+		}
+		out->tab_width = val;
+		out->tab_width_set = true;
+	} else {
+		if (val < KG_C_BASIC_OFFSET_MIN
+		    || val > KG_C_BASIC_OFFSET_MAX) {
+			out->malformed_entries++;
+			return;
+		}
+		out->c_basic_offset = val;
+		out->c_basic_offset_set = true;
 	}
 }
 
@@ -326,6 +416,13 @@ static void modeline_apply_assignment(struct local_settings *out,
 	}
 	case LOCAL_VAR_BOOL:
 		localvars_apply_bool(out, value, value_len);
+		break;
+	case LOCAL_VAR_TAB_WIDTH:
+	case LOCAL_VAR_C_OFFSET:
+		apply_int_token(out, localvars_kind(name), value, value_len);
+		break;
+	case LOCAL_VAR_INDENT_TABS:
+		apply_indent_tabs(out, value, value_len);
 		break;
 	default:
 		out->ignored_entries++;
@@ -777,6 +874,58 @@ static int dlr_skip_sexp(struct dlr *r)
 	return 0;
 }
 
+/* Read one bare-atom value for a bool/int variable.  Answers 0 with the
+ * atom in `buf' (`*vlen` bytes, unterminated span length); 1 when what
+ * sat there was no atom at all -- a string, a list or a stray paren is
+ * consumed and malformed, and an overlong symbol is left for the pair
+ * loop's skip to consume on its next pass; -1 when the reader gave up. */
+static int dlr_read_atom_value(
+    struct dlr *r, char *buf, size_t bufsz, int *vlen)
+{
+	int slen;
+
+	if (r->src[r->pos] == '"' || r->src[r->pos] == '('
+	    || r->src[r->pos] == ')') {
+		if (dlr_skip_sexp(r) != 0) {
+			return -1;
+		}
+		return 1;
+	}
+	slen = dlr_read_sym(r, buf, bufsz);
+	if (slen < 0) {
+		return 1;
+	}
+	*vlen = slen;
+	return 0;
+}
+
+/* One (VAR . ATOM) pair for a bool/int variable, whole: the atom read,
+ * then dispatched to its slot.  A string, a list or a stray paren where
+ * the atom belongs is one malformed entry. */
+static int dlr_apply_atom(
+    struct dlr *r, struct local_settings *out, enum local_var_kind kind)
+{
+	char symval[64];
+	int vlen = 0;
+	int arc = dlr_read_atom_value(r, symval, sizeof(symval), &vlen);
+
+	if (arc < 0) {
+		return -1;
+	}
+	if (arc > 0) {
+		out->malformed_entries++;
+		return 0;
+	}
+	if (kind == LOCAL_VAR_BOOL) {
+		localvars_apply_bool(out, symval, vlen);
+	} else if (kind == LOCAL_VAR_INDENT_TABS) {
+		apply_indent_tabs(out, symval, vlen);
+	} else {
+		apply_int_token(out, kind, symval, vlen);
+	}
+	return 0;
+}
+
 static int dlr_apply_pair(struct dlr *r, struct local_settings *out)
 {
 	char varname[128];
@@ -864,22 +1013,10 @@ static int dlr_apply_pair(struct dlr *r, struct local_settings *out)
 			}
 			out->malformed_entries++;
 		}
-	} else if (kind == LOCAL_VAR_BOOL) {
-		if (r->src[r->pos] == '"' || r->src[r->pos] == '('
-		    || r->src[r->pos] == ')') {
-			if (dlr_skip_sexp(r) != 0) {
-				return -1;
-			}
-			out->malformed_entries++;
-		} else {
-			char symval[12];
-			int svlen = dlr_read_sym(r, symval, sizeof(symval));
-
-			if (svlen < 0) {
-				out->malformed_entries++;
-			} else {
-				localvars_apply_bool(out, symval, svlen);
-			}
+	} else if (kind == LOCAL_VAR_BOOL || kind == LOCAL_VAR_INDENT_TABS
+	    || kind == LOCAL_VAR_TAB_WIDTH || kind == LOCAL_VAR_C_OFFSET) {
+		if (dlr_apply_atom(r, out, kind) != 0) {
+			return -1;
 		}
 	} else {
 		/* "eval" and every other variable: consumed but not
@@ -898,144 +1035,263 @@ static int dlr_apply_pair(struct dlr *r, struct local_settings *out)
 	return 0;
 }
 
-int dirlocals_parse(
-    const char *source, size_t source_len, struct local_settings *out)
+/* ---- mode-scoped .dir-locals.el ----
+ *
+ * A file holds one entry per selector: ((nil . ALIST) (c-mode . ALIST)
+ * ...).  `nil' applies to every visit; a mode entry only to a buffer in
+ * that mode, merged after every `nil' one -- the precedence Emacs was
+ * measured to give (mode wins however the file lists them; the nearest
+ * file wins because only it is read at all).  Anything else -- `eval', a
+ * "subdir/" string key, a mode no buffer answers to -- is consumed and
+ * ignored entry by entry, so one unknown form cannot sink the settings
+ * the file also carries. */
+
+static const char *const dl_c_selectors[] = {
+	"c-mode",
+	"c-ts-mode",
+	"c++-mode",
+	"c++-ts-mode",
+	NULL,
+};
+
+static const char *const dl_java_selectors[] = {
+	"java-mode",
+	"java-ts-mode",
+	NULL,
+};
+
+/* Which settings list a selector feeds: 0 skips the entry, 1 is `nil',
+ * 2 is the visited buffer's own mode.  kg has one C syntax row for .c,
+ * .h and .cpp alike, so every C-family selector answers to it; the -ts-
+ * spellings answer to the same rows because they name the same files. */
+static int dl_selector_class(const char *selector, const char *mode_key)
+{
+	const char *const *tab;
+	int i;
+
+	if (strcmp(selector, "nil") == 0) {
+		return 1;
+	}
+	if (!mode_key) {
+		return 0;
+	}
+	if (strcmp(mode_key, "c-mode") == 0) {
+		tab = dl_c_selectors;
+	} else if (strcmp(mode_key, "java-mode") == 0) {
+		tab = dl_java_selectors;
+	} else {
+		return 0;
+	}
+	for (i = 0; tab[i]; i++) {
+		if (strcmp(selector, tab[i]) == 0) {
+			return 2;
+		}
+	}
+	return 0;
+}
+
+const char *dirlocals_mode_key(const struct editor_syntax *syntax)
+{
+	int id;
+
+	if (!syntax) {
+		return NULL;
+	}
+	id = syntax->id;
+	if (id == KG_MODE_C) {
+		return "c-mode";
+	}
+	if (id == KG_MODE_JAVA) {
+		return "java-mode";
+	}
+	return NULL;
+}
+
+/* The ((VAR . VAL) ...) list one entry carries, each pair applied to
+ * `target' in order so a duplicate's last spelling wins. */
+static int dlr_parse_pair_list(struct dlr *r, struct local_settings *target)
+{
+	for (;;) {
+		dlr_skip_ws(r);
+		if (r->pos >= r->len) {
+			return -1;
+		}
+		if (r->src[r->pos] == ')') {
+			r->pos++;
+			r->depth--;
+			return 0;
+		}
+		if (dlr_apply_pair(r, target) != 0) {
+			return -1;
+		}
+	}
+}
+
+/* One entry's variable list by class: `nil' and the buffer's mode parse
+ * into their own settings; anything else is one skipped sexp.  A list
+ * where a list belongs is the only shape parsed; anything else is one
+ * malformed entry, consumed so the file after it still parses. */
+static int dlr_parse_class_list(struct dlr *r, int entry_class,
+    struct local_settings *nil_set, struct local_settings *mode_set)
+{
+	struct local_settings *target;
+
+	if (entry_class == 0) {
+		return dlr_skip_sexp(r);
+	}
+	target = entry_class == 1 ? nil_set : mode_set;
+	dlr_skip_ws(r);
+	if (r->pos >= r->len || r->src[r->pos] != '(') {
+		target->malformed_entries++;
+		return dlr_skip_sexp(r);
+	}
+	r->pos++;
+	r->depth++;
+	r->tokcount++;
+	if (r->depth > DL_MAX_NESTING || r->tokcount > DL_MAX_TOKENS) {
+		return -1;
+	}
+	return dlr_parse_pair_list(r, target);
+}
+
+/* One top-level entry, `(SELECTOR . REST)', whole: the selector decides
+ * whose settings REST feeds, and the entry always ends past its own
+ * closing paren.  A selector that is no symbol at all -- the "subdir/"
+ * string key -- skips the same way an unknown mode does. */
+static int dlr_parse_entry(struct dlr *r, const char *mode_key,
+    struct local_settings *nil_set, struct local_settings *mode_set)
+{
+	char selector[128];
+	int symbol = 0;
+	int entry_class = 0;
+
+	r->pos++;
+	r->depth++;
+	r->tokcount++;
+	if (r->depth > DL_MAX_NESTING || r->tokcount > DL_MAX_TOKENS) {
+		return -1;
+	}
+
+	dlr_skip_ws(r);
+	if (r->pos < r->len && !dlr_is_delim(r->src[r->pos])) {
+		if (dlr_read_sym(r, selector, sizeof(selector)) < 0) {
+			return -1;
+		}
+		/* No token-budget check of its own: the dot gate below
+		 * (or the skip's own accounting on the other branch)
+		 * enforces it within one entry of here. */
+		r->tokcount++;
+		symbol = 1;
+	} else {
+		if (dlr_skip_sexp(r) != 0) {
+			return -1;
+		}
+	}
+
+	dlr_skip_ws(r);
+	if (r->pos >= r->len || r->src[r->pos] != '.') {
+		if (dlr_skip_sexp(r) != 0) {
+			return -1;
+		}
+	} else {
+		r->pos++;
+		r->tokcount++;
+		if (r->tokcount > DL_MAX_TOKENS) {
+			return -1;
+		}
+		if (symbol) {
+			entry_class = dl_selector_class(selector, mode_key);
+		}
+		if (dlr_parse_class_list(r, entry_class, nil_set, mode_set)
+		    != 0) {
+			return -1;
+		}
+	}
+
+	dlr_skip_ws(r);
+	if (r->pos < r->len && r->src[r->pos] == ')') {
+		r->pos++;
+		r->depth--;
+		return 0;
+	}
+	return -1;
+}
+
+/* The file's entries into the two settings they feed.  Answers 1 for an
+ * empty file (no entries, still success), 0 with both settings filled,
+ * -1 with both untouched. */
+static int dirlocals_parse_inner(struct dlr *r, const char *mode_key,
+    struct local_settings *nil_set, struct local_settings *mode_set)
+{
+	dlr_skip_ws(r);
+	if (r->pos >= r->len) {
+		return 1;
+	}
+	if (r->src[r->pos] == '\'') {
+		r->pos++;
+		r->tokcount++;
+		dlr_skip_ws(r);
+	}
+	if (r->pos >= r->len || r->src[r->pos] != '(') {
+		return -1;
+	}
+	r->pos++;
+	r->depth++;
+	r->tokcount++;
+	if (r->depth > DL_MAX_NESTING || r->tokcount > DL_MAX_TOKENS) {
+		return -1;
+	}
+	for (;;) {
+		dlr_skip_ws(r);
+		if (r->pos >= r->len) {
+			return -1;
+		}
+		if (r->src[r->pos] == ')') {
+			r->pos++;
+			r->depth--;
+			return 0;
+		}
+		if (r->src[r->pos] != '(') {
+			return -1;
+		}
+		if (dlr_parse_entry(r, mode_key, nil_set, mode_set) != 0) {
+			return -1;
+		}
+	}
+}
+
+int dirlocals_parse_for_mode(const char *source, size_t source_len,
+    struct local_settings *out, const char *mode_key)
 {
 	struct dlr r;
-	struct local_settings tmp;
+	struct local_settings nil_set, mode_set;
 
 	local_settings_init(out);
-	local_settings_init(&tmp);
+	local_settings_init(&nil_set);
+	local_settings_init(&mode_set);
 
 	if (source_len > DL_MAX_FILESIZE) {
 		return -1;
 	}
-
 	r.src = source;
 	r.len = source_len;
 	r.pos = 0;
 	r.depth = 0;
 	r.tokcount = 0;
 
-	dlr_skip_ws(&r);
-	if (r.pos >= r.len) {
-		return 0;
-	}
-
-	if (r.src[r.pos] == '\'') {
-		r.pos++;
-		r.tokcount++;
-		dlr_skip_ws(&r);
-	}
-
-	if (r.pos >= r.len || r.src[r.pos] != '(') {
+	if (dirlocals_parse_inner(&r, mode_key, &nil_set, &mode_set) < 0) {
 		return -1;
 	}
-	r.pos++;
-	r.depth++;
-	r.tokcount++;
-	if (r.depth > DL_MAX_NESTING || r.tokcount > DL_MAX_TOKENS) {
-		return -1;
-	}
-
-	for (;;) {
-		dlr_skip_ws(&r);
-		if (r.pos >= r.len) {
-			return -1;
-		}
-
-		if (r.src[r.pos] == ')') {
-			r.pos++;
-			r.depth--;
-			break;
-		}
-
-		if (r.src[r.pos] != '(') {
-			return -1;
-		}
-		r.pos++;
-		r.depth++;
-		r.tokcount++;
-		if (r.depth > DL_MAX_NESTING || r.tokcount > DL_MAX_TOKENS) {
-			return -1;
-		}
-
-		{
-			char selector[128];
-			int slen = dlr_read_sym(&r, selector, sizeof(selector));
-
-			if (slen < 0) {
-				return -1;
-			}
-			r.tokcount++;
-			if (r.tokcount > DL_MAX_TOKENS) {
-				return -1;
-			}
-
-			dlr_skip_ws(&r);
-			if (r.pos >= r.len || r.src[r.pos] != '.') {
-				if (dlr_skip_sexp(&r) != 0) {
-					return -1;
-				}
-				goto close_entry;
-			}
-			r.pos++;
-			r.tokcount++;
-			if (r.tokcount > DL_MAX_TOKENS) {
-				return -1;
-			}
-
-			if (strcmp(selector, "nil") == 0) {
-				dlr_skip_ws(&r);
-				if (r.pos >= r.len || r.src[r.pos] != '(') {
-					tmp.malformed_entries++;
-					if (dlr_skip_sexp(&r) != 0) {
-						return -1;
-					}
-					goto close_entry;
-				}
-				r.pos++;
-				r.depth++;
-				r.tokcount++;
-				if (r.depth > DL_MAX_NESTING
-				    || r.tokcount > DL_MAX_TOKENS) {
-					return -1;
-				}
-
-				for (;;) {
-					dlr_skip_ws(&r);
-					if (r.pos >= r.len) {
-						return -1;
-					}
-					if (r.src[r.pos] == ')') {
-						r.pos++;
-						r.depth--;
-						break;
-					}
-					if (dlr_apply_pair(&r, &tmp) != 0) {
-						return -1;
-					}
-				}
-			} else {
-				if (dlr_skip_sexp(&r) != 0) {
-					return -1;
-				}
-			}
-		}
-
-	close_entry:
-		dlr_skip_ws(&r);
-		if (r.pos < r.len && r.src[r.pos] == ')') {
-			r.pos++;
-			r.depth--;
-		} else {
-			return -1;
-		}
-	}
-
 	dlr_skip_ws(&r);
-	local_settings_merge(out, &tmp);
+	local_settings_merge(out, &nil_set);
+	local_settings_merge(out, &mode_set);
 	return 0;
+}
+
+int dirlocals_parse(
+    const char *source, size_t source_len, struct local_settings *out)
+{
+	return dirlocals_parse_for_mode(source, source_len, out, NULL);
 }
 
 /* ---- safe init.el S-expression parser (WITH_LISP=0 config loader) ---- */
@@ -1497,6 +1753,14 @@ int localvars_parse_footer(
 			break;
 		case LOCAL_VAR_BOOL:
 			localvars_apply_bool(out, value, value_len);
+			break;
+		case LOCAL_VAR_TAB_WIDTH:
+		case LOCAL_VAR_C_OFFSET:
+			apply_int_token(
+			    out, localvars_kind(name), value, value_len);
+			break;
+		case LOCAL_VAR_INDENT_TABS:
+			apply_indent_tabs(out, value, value_len);
 			break;
 		default:
 			out->ignored_entries++;

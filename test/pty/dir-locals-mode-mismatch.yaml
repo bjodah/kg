@@ -1,0 +1,15 @@
+# The same tree with a c-mode-only file: Foo.java matches no selector, so
+# the default width 8 holds. The eight-space assertion is a substring the
+# narrower renderings cannot contain, which is what makes it decisive.
+name: dir-locals-mode-mismatch
+filename: a/b/c/d/Foo.java
+backend: tmux
+dimensions: [12, 40]
+workspace_files:
+  .dir-locals.el: |
+    ((c-mode . ((tab-width . 2))))
+initial: "\tX\n01234567X\n"
+keys: []
+expected_saved: "\tX\n01234567X\n"
+expected_screen_contains:
+  - "        X"

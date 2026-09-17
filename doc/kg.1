@@ -4646,7 +4646,7 @@ indicator when the buffer is read-only.
 .Nm
 supports a limited subset of Emacs file-local variables, parsed
 without evaluation.
-Two variables are recognized:
+Five variables are recognized:
 .Bl -tag -width "compile-command"
 A numeric argument zaps through that many occurrences.
 .It Va compile-command
@@ -4657,6 +4657,21 @@ Either
 .Ql t
 or
 .Ql nil .
+.It Va tab-width
+An integer from 1 through 1000: display columns between tab stops,
+applied to the buffer.  A later
+.Ql (setq-local tab-width N)
+overrides it.
+.It Va c-basic-offset , Va c-ts-mode-indent-offset , Va java-ts-indent-offset
+An integer from 0 through 32, accepted and stored per buffer but read
+by nothing yet: kg has no C/Java indenter.
+.It Va indent-tabs-mode
+Either
+.Ql t
+or
+.Ql nil ,
+accepted and stored per buffer but read by nothing yet, for the same
+reason.
 .El
 .Pp
 Variables are set through two mechanisms:
@@ -4718,14 +4733,35 @@ filesystem root; the nearest match wins.
 .Pp
 Only the generic
 .Ql nil
-selector is applied.
-Supported variables are
-.Va compile-command
+selector and the visited buffer's own mode apply: for a C buffer that
+is
+.Ql c-mode ,
+.Ql c-ts-mode ,
+.Ql c++-mode
 and
-.Va buffer-read-only ;
+.Ql c++-ts-mode ;
+for a Java buffer
+.Ql java-mode
+and
+.Ql java-ts-mode .
+A mode entry merges after every
+.Ql nil
+one, however the file lists them, so it wins ties; the nearest
+.Pa .dir-locals.el
+upward wins across files.
+Supported variables are
+.Va compile-command ,
+.Va buffer-read-only ,
+.Va tab-width ,
+.Va c-basic-offset
+.Pq with Va c-ts-mode-indent-offset
+and
+.Va java-ts-indent-offset ,
+and
+.Va indent-tabs-mode ;
 all other entries
 .Pq including Ql eval , Ql mode , Ql subdirs ,
-.Ql auto-mode-alist , mode-specific selectors, vectors, and backquote
+.Ql auto-mode-alist , other mode selectors, vectors, and backquote
 are ignored without evaluation.
 The optional leading
 .Sq '
@@ -4733,8 +4769,10 @@ quote is accepted.
 .Pp
 Example:
 .Bd -literal -offset indent
-((nil . ((compile-command . "make all")
-         (buffer-read-only . t))))
+((nil . ((compile-command . "make all")))
+ (c-mode . ((tab-width . 4)
+             (c-basic-offset . 4)
+             (indent-tabs-mode . nil))))
 .Ed
 .Pp
 Defensive limits: 64\~KiB file, 64-deep nesting, 4096 tokens.

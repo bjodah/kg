@@ -441,6 +441,35 @@ void editor_set_tab_width(struct editor_buffer *b, int width)
 	editor_rehighlight_all(b);
 }
 
+/* Publish a merged visit's settings on its buffer: the display width
+ * here, beside the renderer that owns it; the two stored-but-unconsumed
+ * offsets as buffer state for the indent plan to come.  An unset width
+ * clears a previous file-local one, and the init/Lisp sync owns the
+ * display from there. */
+void local_settings_apply_to_buffer(
+    struct editor_buffer *b, const struct local_settings *merged)
+{
+	if (!b || !merged) {
+		return;
+	}
+	if (merged->tab_width_set) {
+		editor_set_tab_width(b, merged->tab_width);
+		b->tab_width_local = merged->tab_width;
+	} else {
+		b->tab_width_local = 0;
+	}
+	if (merged->indent_tabs_mode != LOCAL_BOOL_UNSET) {
+		b->indent_tabs_mode_local = merged->indent_tabs_mode;
+	} else {
+		b->indent_tabs_mode_local = LOCAL_BOOL_UNSET;
+	}
+	if (merged->c_basic_offset_set) {
+		b->c_basic_offset_local = merged->c_basic_offset;
+	} else {
+		b->c_basic_offset_local = 0;
+	}
+}
+
 /* Render one row and immediately re-highlight it: the row-at-a-time
  * compatibility path, and the entry point every raw row helper still uses
  * (editor_insert_row(), editor_row_insert_char()/_string(),

@@ -421,6 +421,18 @@ struct editor_buffer {
 	int saved_truncate_lines;
 	int overwrite_mode;
 	struct kg_display_options display;
+	/* File-local settings the last visit published: `tab_width_local'
+	 * holds the file-local width (dir-locals, modeline or footer), or
+	 * 0 for "none" -- display.tab_width is then the init/Lisp default.
+	 * Keeping the value beside the display is what lets the display
+	 * sync restore it after a `setq-local' that overrode it is killed:
+	 * the display alone cannot tell "file-local 2 clobbered by Lisp"
+	 * from "Lisp 2".  The other two are stored but consumed by nothing
+	 * yet -- kg has no C/Java indenter, and the indent plan is their
+	 * consumer to come.  Cleared on every reset beside readonly_local. */
+	int tab_width_local;
+	enum local_bool_value indent_tabs_mode_local;
+	int c_basic_offset_local;
 	/* 1 when `filename` is this buffer's name and not a path: C-x b to a
 	 * name nothing answers to makes such a buffer, as Emacs'
 	 * switch-to-buffer does.  It is what kg has in place of Emacs'

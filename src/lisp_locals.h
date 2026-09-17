@@ -151,4 +151,11 @@ struct FeObject *lisp_locals_bind_target(
 struct FeObject *lisp_locals_buffer_value(struct FeContext *ctx,
     struct FeObject *symbol, struct kg_buffer_handle buffer);
 
+/* Whether BUFFER holds a binding of its own for SYMBOL, as opposed to
+ * seeing the default: what the display sync asks so a file-local tab
+ * width survives until a `setq-local' says otherwise.  Pure table read,
+ * no evaluation. */
+int lisp_locals_has_binding(struct FeContext *ctx, struct FeObject *symbol,
+    struct kg_buffer_handle buffer);
+
 #endif /* KG_LISP_LOCALS_H */

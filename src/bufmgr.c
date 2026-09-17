@@ -612,6 +612,9 @@ static void buf_reset(void)
 	bcur()->readonly = 0;
 	bcur()->readonly_local = 0;
 	bcur()->readonly_override = -1;
+	bcur()->tab_width_local = 0;
+	bcur()->indent_tabs_mode_local = LOCAL_BOOL_UNSET;
+	bcur()->c_basic_offset_local = 0;
 	bcur()->compile_command[0] = '\0';
 	bcur()->compile_command_user_override = 0;
 	memset(&bcur()->disk, 0, sizeof(bcur()->disk));
@@ -1869,8 +1872,10 @@ static void buf_apply_local_settings(void)
 				if (data) {
 					n = read(fd, data, (size_t)sz);
 					if (n > 0) {
-						dirlocals_parse(
-						    data, (size_t)n, &dir);
+						dirlocals_parse_for_mode(data,
+						    (size_t)n, &dir,
+						    dirlocals_mode_key(
+							bcur()->syntax));
 					}
 				}
 			}
@@ -1895,6 +1900,7 @@ static void buf_apply_local_settings(void)
 		bcur()->readonly_local
 		    = (merged.buffer_read_only == LOCAL_BOOL_TRUE) ? 1 : 0;
 	}
+	local_settings_apply_to_buffer(bcur(), &merged);
 	editor_refresh_readonly_state();
 
 	free(data);

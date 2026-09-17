@@ -1024,6 +1024,9 @@ struct envelope_case {
 	const char *value;
 	enum local_bool_value read_only;
 	const char *compile_command; /* NULL when it must stay unset */
+	int tab_width; /* -1 when it must stay unset */
+	int c_offset; /* -1 when it must stay unset */
+	enum local_bool_value indent_tabs;
 	unsigned malformed;
 	unsigned ignored;
 };
@@ -1042,6 +1045,25 @@ static void check_envelope(const char *envelope, const struct envelope_case *c,
 		    "%s: %s -> compile_command \"%s\"", envelope, c->name,
 		    s->compile_command);
 	}
+	CHECKF(s->tab_width_set == (c->tab_width >= 0),
+	    "%s: %s: %s -> tab_width_set %d", envelope, c->name, c->value,
+	    (int)s->tab_width_set);
+	if (c->tab_width >= 0 && s->tab_width_set) {
+		CHECKF(s->tab_width == c->tab_width,
+		    "%s: %s -> tab_width %d, expected %d", envelope, c->name,
+		    s->tab_width, c->tab_width);
+	}
+	CHECKF(s->c_basic_offset_set == (c->c_offset >= 0),
+	    "%s: %s: %s -> c_basic_offset_set %d", envelope, c->name, c->value,
+	    (int)s->c_basic_offset_set);
+	if (c->c_offset >= 0 && s->c_basic_offset_set) {
+		CHECKF(s->c_basic_offset == c->c_offset,
+		    "%s: %s -> c_basic_offset %d, expected %d", envelope,
+		    c->name, s->c_basic_offset, c->c_offset);
+	}
+	CHECKF(s->indent_tabs_mode == c->indent_tabs,
+	    "%s: %s: %s -> indent_tabs %d, expected %d", envelope, c->name,
+	    c->value, (int)s->indent_tabs_mode, (int)c->indent_tabs);
 	CHECKF(s->malformed_entries == c->malformed,
 	    "%s: %s: %s -> %u malformed, expected %u", envelope, c->name,
 	    c->value, s->malformed_entries, c->malformed);
@@ -1053,21 +1075,45 @@ static void check_envelope(const char *envelope, const struct envelope_case *c,
 static void test_same_value_through_every_envelope(void)
 {
 	static const struct envelope_case cases[] = {
-		{ "buffer-read-only", "t", LOCAL_BOOL_TRUE, NULL, 0, 0 },
-		{ "buffer-read-only", "nil", LOCAL_BOOL_FALSE, NULL, 0, 0 },
+		{ "buffer-read-only", "t", LOCAL_BOOL_TRUE, NULL, -1, -1,
+		    LOCAL_BOOL_UNSET, 0, 0 },
+		{ "buffer-read-only", "nil", LOCAL_BOOL_FALSE, NULL, -1, -1,
+		    LOCAL_BOOL_UNSET, 0, 0 },
 		/* Emacs reads these symbols case-insensitively. */
-		{ "buffer-read-only", "T", LOCAL_BOOL_TRUE, NULL, 0, 0 },
-		{ "buffer-read-only", "NIL", LOCAL_BOOL_FALSE, NULL, 0, 0 },
-		{ "buffer-read-only", "yes", LOCAL_BOOL_UNSET, NULL, 1, 0 },
+		{ "buffer-read-only", "T", LOCAL_BOOL_TRUE, NULL, -1, -1,
+		    LOCAL_BOOL_UNSET, 0, 0 },
+		{ "buffer-read-only", "NIL", LOCAL_BOOL_FALSE, NULL, -1, -1,
+		    LOCAL_BOOL_UNSET, 0, 0 },
+		{ "buffer-read-only", "yes", LOCAL_BOOL_UNSET, NULL, -1, -1,
+		    LOCAL_BOOL_UNSET, 1, 0 },
 		/* Longer than the applier's token buffer: malformed, not
 		 * truncated into a match. */
 		{ "buffer-read-only", "ttttttttttttttttttt", LOCAL_BOOL_UNSET,
-		    NULL, 1, 0 },
+		    NULL, -1, -1, LOCAL_BOOL_UNSET, 1, 0 },
 		{ "compile-command", "\"make -k\"", LOCAL_BOOL_UNSET, "make -k",
-		    0, 0 },
+		    -1, -1, LOCAL_BOOL_UNSET, 0, 0 },
 		/* Nothing kg knows: consumed, counted, never applied. */
-		{ "no-such-variable", "t", LOCAL_BOOL_UNSET, NULL, 0, 1 },
-		{ "no-such-variable", "\"x\"", LOCAL_BOOL_UNSET, NULL, 0, 1 },
+		{ "no-such-variable", "t", LOCAL_BOOL_UNSET, NULL, -1, -1,
+		    LOCAL_BOOL_UNSET, 0, 1 },
+		{ "no-such-variable", "\"x\"", LOCAL_BOOL_UNSET, NULL, -1, -1,
+		    LOCAL_BOOL_UNSET, 0, 1 },
+		/* The three newer variables mean the same in each envelope. */
+		{ "tab-width", "2", LOCAL_BOOL_UNSET, NULL, 2, -1,
+		    LOCAL_BOOL_UNSET, 0, 0 },
+		{ "tab-width", "0", LOCAL_BOOL_UNSET, NULL, -1, -1,
+		    LOCAL_BOOL_UNSET, 1, 0 },
+		{ "tab-width", "x", LOCAL_BOOL_UNSET, NULL, -1, -1,
+		    LOCAL_BOOL_UNSET, 1, 0 },
+		{ "c-basic-offset", "4", LOCAL_BOOL_UNSET, NULL, -1, 4,
+		    LOCAL_BOOL_UNSET, 0, 0 },
+		{ "c-basic-offset", "99", LOCAL_BOOL_UNSET, NULL, -1, -1,
+		    LOCAL_BOOL_UNSET, 1, 0 },
+		{ "indent-tabs-mode", "t", LOCAL_BOOL_UNSET, NULL, -1, -1,
+		    LOCAL_BOOL_TRUE, 0, 0 },
+		{ "indent-tabs-mode", "nil", LOCAL_BOOL_UNSET, NULL, -1, -1,
+		    LOCAL_BOOL_FALSE, 0, 0 },
+		{ "indent-tabs-mode", "yes", LOCAL_BOOL_UNSET, NULL, -1, -1,
+		    LOCAL_BOOL_UNSET, 1, 0 },
 	};
 	size_t i;
 
@@ -1157,6 +1203,362 @@ static void test_init_config_unbalanced_paren(void)
 	CHECK(init_config_parse(src, strlen(src), &s) == -1);
 }
 
+/* ---- mode-scoped .dir-locals.el ---- */
+
+static struct local_settings parse_dl_mode(const char *src, const char *mode)
+{
+	struct local_settings s;
+
+	CHECK(dirlocals_parse_for_mode(src, strlen(src), &s, mode) == 0);
+	return s;
+}
+
+static void test_dl_mode_c_tab_width(void)
+{
+	struct local_settings s;
+
+	s = parse_dl_mode("((c-mode . ((tab-width . 4))))", "c-mode");
+	CHECK(s.tab_width_set == true);
+	CHECK(s.tab_width == 4);
+	CHECK(s.malformed_entries == 0);
+}
+
+static void test_dl_mode_mismatch_skipped(void)
+{
+	struct local_settings s;
+
+	s = parse_dl_mode("((c-mode . ((tab-width . 4))))", "java-mode");
+	CHECK(s.tab_width_set == false);
+	CHECK(s.ignored_entries == 0);
+	CHECK(s.malformed_entries == 0);
+}
+
+static void test_dl_mode_nil_only_wrapper(void)
+{
+	/* dirlocals_parse() is the nil-only entry point the fuzzer drives:
+	 * a mode block never applies through it. */
+	const char *src = "((c-mode . ((tab-width . 4))) "
+			  "(nil . ((buffer-read-only . t))))";
+	struct local_settings s;
+
+	CHECK(dirlocals_parse(src, strlen(src), &s) == 0);
+	CHECK(s.tab_width_set == false);
+	CHECK(s.buffer_read_only == LOCAL_BOOL_TRUE);
+}
+
+static void test_dl_mode_aliases(void)
+{
+	static const char *const c_aliases[] = {
+		"c-mode",
+		"c-ts-mode",
+		"c++-mode",
+		"c++-ts-mode",
+	};
+	size_t i;
+	struct local_settings s;
+
+	for (i = 0; i < sizeof(c_aliases) / sizeof(*c_aliases); i++) {
+		char src[128];
+
+		snprintf(src, sizeof(src), "((%s . ((tab-width . 3))))",
+		    c_aliases[i]);
+		CHECK(dirlocals_parse_for_mode(src, strlen(src), &s, "c-mode")
+		    == 0);
+		CHECKF(s.tab_width_set == true && s.tab_width == 3,
+		    "alias %s applies to a C buffer", c_aliases[i]);
+	}
+
+	s = parse_dl_mode("((java-ts-mode . ((tab-width . 5))))", "java-mode");
+	CHECK(s.tab_width_set == true);
+	CHECK(s.tab_width == 5);
+
+	/* ...but a C alias is not a Java match. */
+	s = parse_dl_mode("((c-ts-mode . ((tab-width . 5))))", "java-mode");
+	CHECK(s.tab_width_set == false);
+}
+
+static void test_dl_mode_beats_nil_either_order(void)
+{
+	/* Measured against Emacs 31: the mode entry wins however the file
+	 * lists the two. */
+	struct local_settings a, b;
+
+	a = parse_dl_mode("((nil . ((tab-width . 8))) "
+			  "(c-mode . ((tab-width . 2))))",
+	    "c-mode");
+	CHECK(a.tab_width_set == true);
+	CHECK(a.tab_width == 2);
+
+	b = parse_dl_mode("((c-mode . ((tab-width . 2))) "
+			  "(nil . ((tab-width . 8))))",
+	    "c-mode");
+	CHECK(b.tab_width_set == true);
+	CHECK(b.tab_width == 2);
+}
+
+static void test_dl_mode_later_entry_wins(void)
+{
+	/* Two entries answering to one buffer merge in file order. */
+	struct local_settings s;
+
+	s = parse_dl_mode("((c-mode . ((tab-width . 2))) "
+			  "(c++-mode . ((tab-width . 4))))",
+	    "c-mode");
+	CHECK(s.tab_width_set == true);
+	CHECK(s.tab_width == 4);
+}
+
+static void test_dl_mode_null_key_is_nil_only(void)
+{
+	struct local_settings s;
+
+	s = parse_dl_mode("((nil . ((tab-width . 7))) "
+			  "(c-mode . ((tab-width . 2))))",
+	    NULL);
+	CHECK(s.tab_width_set == true);
+	CHECK(s.tab_width == 7);
+}
+
+static void test_dl_tab_width_values(void)
+{
+	struct local_settings s;
+
+	s = parse_dl_mode("((nil . ((tab-width . 1))))", NULL);
+	CHECK(s.tab_width_set == true && s.tab_width == 1);
+	CHECK(s.malformed_entries == 0);
+
+	s = parse_dl_mode("((nil . ((tab-width . 1000))))", NULL);
+	CHECK(s.tab_width_set == true && s.tab_width == 1000);
+
+	s = parse_dl_mode("((nil . ((tab-width . 0))))", NULL);
+	CHECK(s.tab_width_set == false);
+	CHECK(s.malformed_entries == 1);
+
+	s = parse_dl_mode("((nil . ((tab-width . 1001))))", NULL);
+	CHECK(s.tab_width_set == false);
+	CHECK(s.malformed_entries == 1);
+
+	/* A string where an integer belongs is malformed, not coerced. */
+	s = parse_dl_mode("((nil . ((tab-width . \"2\"))))", NULL);
+	CHECK(s.tab_width_set == false);
+	CHECK(s.malformed_entries == 1);
+
+	s = parse_dl_mode("((nil . ((tab-width . (x)))))", NULL);
+	CHECK(s.tab_width_set == false);
+	CHECK(s.malformed_entries == 1);
+
+	/* A sign is grammar; the range still applies. */
+	s = parse_dl_mode("((nil . ((tab-width . +4))))", NULL);
+	CHECK(s.tab_width_set == true && s.tab_width == 4);
+}
+
+static void test_dl_c_offset_values(void)
+{
+	struct local_settings s;
+
+	/* Three spellings, one slot. */
+	s = parse_dl_mode("((nil . ((c-basic-offset . 2))))", NULL);
+	CHECK(s.c_basic_offset_set == true && s.c_basic_offset == 2);
+
+	s = parse_dl_mode("((nil . ((c-ts-mode-indent-offset . 3))))", NULL);
+	CHECK(s.c_basic_offset_set == true && s.c_basic_offset == 3);
+
+	s = parse_dl_mode("((nil . ((java-ts-indent-offset . 4))))", NULL);
+	CHECK(s.c_basic_offset_set == true && s.c_basic_offset == 4);
+
+	s = parse_dl_mode("((nil . ((c-basic-offset . 0))))", NULL);
+	CHECK(s.c_basic_offset_set == true && s.c_basic_offset == 0);
+
+	s = parse_dl_mode("((nil . ((c-basic-offset . 32))))", NULL);
+	CHECK(s.c_basic_offset_set == true && s.c_basic_offset == 32);
+
+	s = parse_dl_mode("((nil . ((c-basic-offset . 33))))", NULL);
+	CHECK(s.c_basic_offset_set == false);
+	CHECK(s.malformed_entries == 1);
+
+	s = parse_dl_mode("((nil . ((c-basic-offset . -1))))", NULL);
+	CHECK(s.c_basic_offset_set == false);
+	CHECK(s.malformed_entries == 1);
+}
+
+static void test_dl_indent_tabs_values(void)
+{
+	struct local_settings s;
+
+	s = parse_dl_mode("((nil . ((indent-tabs-mode . t))))", NULL);
+	CHECK(s.indent_tabs_mode == LOCAL_BOOL_TRUE);
+
+	s = parse_dl_mode("((nil . ((indent-tabs-mode . nil))))", NULL);
+	CHECK(s.indent_tabs_mode == LOCAL_BOOL_FALSE);
+
+	s = parse_dl_mode("((nil . ((indent-tabs-mode . T))))", NULL);
+	CHECK(s.indent_tabs_mode == LOCAL_BOOL_TRUE);
+
+	s = parse_dl_mode("((nil . ((indent-tabs-mode . NIL))))", NULL);
+	CHECK(s.indent_tabs_mode == LOCAL_BOOL_FALSE);
+
+	s = parse_dl_mode("((nil . ((indent-tabs-mode . yes))))", NULL);
+	CHECK(s.indent_tabs_mode == LOCAL_BOOL_UNSET);
+	CHECK(s.malformed_entries == 1);
+}
+
+static void test_dl_subdir_entry_skipped(void)
+{
+	/* A "subdir/" string key is out of scope: consumed entry by entry,
+	 * never fatal to the file that also carries `nil'.  (The reader
+	 * used to fail the whole file on one of these.) */
+	const char *src = "((\"src/\" . ((nil . ((tab-width . 3))))) "
+			  "(nil . ((buffer-read-only . t))))";
+	struct local_settings s;
+
+	CHECK(dirlocals_parse(src, strlen(src), &s) == 0);
+	CHECK(s.tab_width_set == false);
+	CHECK(s.buffer_read_only == LOCAL_BOOL_TRUE);
+}
+
+static void test_dl_mode_missing_close_is_fatal(void)
+{
+	const char *src = "((c-mode . ((tab-width . 4)))";
+	struct local_settings s;
+
+	CHECK(dirlocals_parse_for_mode(src, strlen(src), &s, "c-mode") != 0);
+	CHECK(s.tab_width_set == false);
+}
+
+static void test_dirlocals_mode_key(void)
+{
+	struct editor_syntax c, java, py;
+
+	memset(&c, 0, sizeof(c));
+	c.id = KG_MODE_C;
+	memset(&java, 0, sizeof(java));
+	java.id = KG_MODE_JAVA;
+	memset(&py, 0, sizeof(py));
+	py.id = KG_MODE_PYTHON;
+	CHECK(strcmp(dirlocals_mode_key(&c), "c-mode") == 0);
+	CHECK(strcmp(dirlocals_mode_key(&java), "java-mode") == 0);
+	CHECK(dirlocals_mode_key(&py) == NULL);
+	CHECK(dirlocals_mode_key(NULL) == NULL);
+}
+
+static void test_merge_new_fields(void)
+{
+	struct local_settings d = make_settings();
+	struct local_settings s = make_settings();
+
+	d.tab_width_set = true;
+	d.tab_width = 8;
+	s.tab_width_set = true;
+	s.tab_width = 2;
+	s.indent_tabs_mode = LOCAL_BOOL_FALSE;
+	s.c_basic_offset_set = true;
+	s.c_basic_offset = 4;
+
+	local_settings_merge(&d, &s);
+
+	CHECK(d.tab_width_set == true && d.tab_width == 2);
+	CHECK(d.indent_tabs_mode == LOCAL_BOOL_FALSE);
+	CHECK(d.c_basic_offset_set == true && d.c_basic_offset == 4);
+
+	{
+		struct local_settings d2 = make_settings();
+		struct local_settings s2 = make_settings();
+
+		d2.tab_width_set = true;
+		d2.tab_width = 8;
+		d2.indent_tabs_mode = LOCAL_BOOL_TRUE;
+		d2.c_basic_offset_set = true;
+		d2.c_basic_offset = 2;
+
+		local_settings_merge(&d2, &s2);
+		CHECK(d2.tab_width_set == true && d2.tab_width == 8);
+		CHECK(d2.indent_tabs_mode == LOCAL_BOOL_TRUE);
+		CHECK(d2.c_basic_offset_set == true && d2.c_basic_offset == 2);
+	}
+}
+
+static void test_dl_find_four_deep(void)
+{
+	char tmpl[] = "/tmp/kg-dl-XXXXXX";
+	char *root = mkdtemp(tmpl);
+	char scratch[256];
+	char deep[1024];
+	char dl_path[1024];
+	char found[PATH_MAX];
+	FILE *fp;
+
+	CHECK(root != NULL);
+	snprintf(scratch, sizeof(scratch), "%s/", root);
+
+	snprintf(deep, sizeof(deep), "%s/a", root);
+	mkdir(deep, 0700);
+	snprintf(deep, sizeof(deep), "%s/a/b", root);
+	mkdir(deep, 0700);
+	snprintf(deep, sizeof(deep), "%s/a/b/c", root);
+	mkdir(deep, 0700);
+	snprintf(deep, sizeof(deep), "%s/a/b/c/d", root);
+	mkdir(deep, 0700);
+
+	snprintf(dl_path, sizeof(dl_path), "%s/.dir-locals.el", root);
+	fp = fopen(dl_path, "w");
+	CHECK(fp != NULL);
+	if (!fp) {
+		return;
+	}
+	fprintf(fp, "((nil . ((buffer-read-only . t))))\n");
+	fclose(fp);
+
+	snprintf(deep, sizeof(deep), "%s/a/b/c/d/file.java", root);
+	fp = fopen(deep, "w");
+	if (fp) {
+		fclose(fp);
+	}
+
+	CHECK(dirlocals_find(deep, found, sizeof(found)) == 0);
+	CHECK(strcmp(found, dl_path) == 0);
+
+	rmtree_dl(scratch);
+}
+
+static void test_dl_find_four_deep_nearest_wins(void)
+{
+	char tmpl[] = "/tmp/kg-dl-XXXXXX";
+	char *root = mkdtemp(tmpl);
+	char scratch[256];
+	char deep[1024];
+	char mid_dl[1024];
+	char found[PATH_MAX];
+	FILE *fp;
+
+	CHECK(root != NULL);
+	snprintf(scratch, sizeof(scratch), "%s/", root);
+
+	snprintf(deep, sizeof(deep), "%s/a", root);
+	mkdir(deep, 0700);
+	snprintf(deep, sizeof(deep), "%s/a/b", root);
+	mkdir(deep, 0700);
+
+	snprintf(mid_dl, sizeof(mid_dl), "%s/a/.dir-locals.el", root);
+	fp = fopen(mid_dl, "w");
+	CHECK(fp != NULL);
+	if (!fp) {
+		return;
+	}
+	fprintf(fp, "((nil . ((buffer-read-only . nil))))\n");
+	fclose(fp);
+
+	snprintf(deep, sizeof(deep), "%s/a/b/file.c", root);
+	fp = fopen(deep, "w");
+	if (fp) {
+		fclose(fp);
+	}
+
+	CHECK(dirlocals_find(deep, found, sizeof(found)) == 0);
+	CHECK(strcmp(found, mid_dl) == 0);
+
+	rmtree_dl(scratch);
+}
+
 int main(void)
 {
 	RUN(test_compile_command_only);
@@ -1213,6 +1615,22 @@ int main(void)
 	RUN(test_dl_find_root_level);
 	RUN(test_dl_find_nearest_wins);
 	RUN(test_dl_find_nonexistent);
+	RUN(test_dl_mode_c_tab_width);
+	RUN(test_dl_mode_mismatch_skipped);
+	RUN(test_dl_mode_nil_only_wrapper);
+	RUN(test_dl_mode_aliases);
+	RUN(test_dl_mode_beats_nil_either_order);
+	RUN(test_dl_mode_later_entry_wins);
+	RUN(test_dl_mode_null_key_is_nil_only);
+	RUN(test_dl_tab_width_values);
+	RUN(test_dl_c_offset_values);
+	RUN(test_dl_indent_tabs_values);
+	RUN(test_dl_subdir_entry_skipped);
+	RUN(test_dl_mode_missing_close_is_fatal);
+	RUN(test_dirlocals_mode_key);
+	RUN(test_merge_new_fields);
+	RUN(test_dl_find_four_deep);
+	RUN(test_dl_find_four_deep_nearest_wins);
 	RUN(test_same_value_through_every_envelope);
 	RUN(test_init_config_tab_width_simple);
 	RUN(test_init_config_tab_width_invalid);

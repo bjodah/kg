@@ -2308,6 +2308,37 @@ static void test_current_column_tab(void)
 	teardown_editor();
 }
 
+/* A visit that published a file-local tab width owns the display until
+ * Lisp takes it back: the repaint sync keeps it while no `setq-local'
+ * names the variable, a buffer-local binding wins the moment one does,
+ * and killing that binding restores the file-local width rather than
+ * the default. */
+static void test_file_local_tab_width_sync(void)
+{
+	setup_editor();
+	CHECK(kg_lisp_init() == 0);
+
+	bcur()->display.tab_width = 2;
+	bcur()->tab_width_local = 2;
+	kg_lisp_sync_display_options();
+	CHECK(display_tab_width(&bcur()->display) == 2);
+
+	CHECK(eval_ok("(setq-local tab-width 9)"));
+	kg_lisp_sync_display_options();
+	CHECK(display_tab_width(&bcur()->display) == 9);
+
+	CHECK(eval_ok("(kill-local-variable 'tab-width)"));
+	kg_lisp_sync_display_options();
+	CHECK(display_tab_width(&bcur()->display) == 2);
+
+	bcur()->tab_width_local = 0;
+	kg_lisp_sync_display_options();
+	CHECK(display_tab_width(&bcur()->display) == 8);
+
+	kg_lisp_shutdown();
+	teardown_editor();
+}
+
 static void test_char_after(void)
 {
 	setup_utf8_buffer();
@@ -9374,6 +9405,7 @@ int main(void)
 	RUN(test_math_natives);
 	RUN(test_point_offsets);
 	RUN(test_current_column_tab);
+	RUN(test_file_local_tab_width_sync);
 	RUN(test_char_after);
 	RUN(test_buffer_substring);
 	RUN(test_mark_and_region);

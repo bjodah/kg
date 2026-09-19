@@ -1018,6 +1018,68 @@ static int minibuf_case_mode_for(struct key_event c)
 	return 0;
 }
 
+/* Universal argument for the minibuffer, mirroring kbd.c's prefix
+ * handling so C-u 4 SPC inserts four spaces at a prompt such as
+ * string-rectangle's.  The prompt loop owns no editor.prefix state --
+ * those globals belong to the top-level key dispatcher -- so the few
+ * lines below keep a local pending count instead. */
+#define MINIBUF_PREFIX_MAX 1000
+
+static int minibuf_prefix_mul_add(int value, int mul, int add)
+{
+	if (value > (MINIBUF_PREFIX_MAX - add) / mul) {
+		return MINIBUF_PREFIX_MAX;
+	}
+	return value * mul + add;
+}
+
+static int minibuf_prefix_meta_digit(struct key_event c)
+{
+	if ((c.mods & KEY_MOD_META) && c.base >= '0' && c.base <= '9') {
+		return (int)(c.base - '0');
+	}
+	return -1;
+}
+
+static int minibuf_prefix_digit(struct key_event c)
+{
+	if (c.mods == 0 && c.base >= '0' && c.base <= '9') {
+		return (int)(c.base - '0');
+	}
+	return minibuf_prefix_meta_digit(c);
+}
+
+/* Insert `repeat` copies of the `unit_len` bytes at `unit`, all at once
+ * so a repeat that does not fit refuses whole rather than half. */
+static void minibuf_insert_repeated(char *buf, int bufsize, int *cursor,
+    int *len, int *overflow, const char *unit, int unit_len, int repeat)
+{
+	int total, i;
+
+	if (repeat <= 0 || unit_len <= 0) {
+		return;
+	}
+	if (repeat > MINIBUF_PREFIX_MAX) {
+		repeat = MINIBUF_PREFIX_MAX;
+	}
+	if (unit_len > 0 && repeat > INT_MAX / unit_len) {
+		(*overflow)++;
+		return;
+	}
+	total = unit_len * repeat;
+	if (*len + total >= bufsize) {
+		(*overflow)++;
+		return;
+	}
+	memmove(buf + *cursor + total, buf + *cursor,
+	    (size_t)(*len - *cursor + 1));
+	for (i = 0; i < repeat; i++) {
+		memcpy(buf + *cursor + i * unit_len, unit, (size_t)unit_len);
+	}
+	*cursor += total;
+	*len += total;
+}
+
 /* Upcase, downcase or capitalize the word forward from the cursor and
  * leave the cursor past it, as Emacs' M-u/M-l/M-c do in the minibuffer.
  * The span is minibuf_word_end()'s, the one M-f and M-d already use, so
@@ -1320,6 +1382,10 @@ enum minibuf_result editor_read_line_with_history(int fd, const char *prompt,
 	int draft_cursor = cursor;
 	int draft_overflow = 0;
 	struct minibuf_yank yank = { 0 };
+	int prefix_pending = 0;
+	int prefix_arg = 0;
+	int prefix_no_digits = 0;
+	int prefix_raw = 0; /* 1 = bare C-u, 2 = integer, 3 = bare M-- */
 
 	buf[len] = '\0';
 	/* kg_event_drain_safe() must defer for the whole of this read, not
@@ -1333,6 +1399,11 @@ enum minibuf_result editor_read_line_with_history(int fd, const char *prompt,
 	 * happens inside it may look like a repeat of what ran before it. */
 	cmd_clear_transient();
 	while (1) {
+		int repeat = 1;
+		int have_repeat = 0;
+		char seq[4];
+		int seqlen;
+
 		minibuf_prompt_paint(prompt, plen, buf, cursor, &yank);
 		c = editor_read_key(fd);
 		/* Every prompt keystroke is its own kill-class boundary, and
@@ -1342,6 +1413,104 @@ enum minibuf_result editor_read_line_with_history(int fd, const char *prompt,
 		cmd_state_prompt_keystroke();
 		yank.eligible = yank.valid;
 		yank.valid = 0;
+		if (!prefix_pending) {
+			int meta = minibuf_prefix_meta_digit(c);
+
+			if (KEY_IS(c, 'u', KEY_MOD_CTRL) || meta >= 0
+			    || KEY_IS(c, '-', KEY_MOD_META)) {
+				prefix_pending = 1;
+				if (KEY_IS(c, '-', KEY_MOD_META)) {
+					prefix_raw = 3;
+					prefix_arg = -1;
+				} else if (meta >= 0) {
+					prefix_raw = 2;
+					prefix_arg = meta;
+				} else {
+					prefix_raw = 1;
+					prefix_arg = 4;
+				}
+				prefix_no_digits = prefix_raw == 1;
+				continue;
+			}
+		} else {
+			if (KEY_IS(c, 'u', KEY_MOD_CTRL)) {
+				prefix_raw = 1;
+				prefix_arg = minibuf_prefix_mul_add(
+				    prefix_arg, 4, 0);
+				continue;
+			}
+			{
+				int digit = minibuf_prefix_digit(c);
+
+				if (digit >= 0) {
+					if (prefix_raw == 3) {
+						prefix_raw = 2;
+						prefix_arg = -digit;
+					} else if (prefix_arg < 0) {
+						prefix_arg
+						    = -minibuf_prefix_mul_add(
+							-prefix_arg, 10,
+							digit);
+					} else {
+						prefix_raw = 2;
+						prefix_arg = prefix_no_digits
+						    ? digit
+						    : minibuf_prefix_mul_add(
+							  prefix_arg, 10,
+							  digit);
+					}
+					prefix_no_digits = 0;
+					continue;
+				}
+			}
+			if (KEY_IN_LIST(cancel_keys, c)) {
+				prefix_pending = 0;
+				prefix_arg = 0;
+				prefix_no_digits = 0;
+				prefix_raw = 0;
+				continue;
+			}
+			repeat = prefix_arg;
+			have_repeat = 1;
+			prefix_pending = 0;
+			prefix_arg = 0;
+			prefix_no_digits = 0;
+			prefix_raw = 0;
+		}
+		if (have_repeat) {
+			if (KEY_IS(c, 'q', KEY_MOD_CTRL)) {
+				int raw = editor_read_raw_byte(fd);
+
+				if (!running) {
+					continue;
+				}
+				seq[0] = (char)raw;
+				minibuf_insert_repeated(buf, bufsize,
+				    &cursor, &len, &overflow, seq, 1,
+				    repeat);
+				continue;
+			}
+			if (c.mods == 0 && ascii_is_print(c.base)) {
+				seq[0] = (char)c.base;
+				minibuf_insert_repeated(buf, bufsize,
+				    &cursor, &len, &overflow, seq, 1,
+				    repeat);
+				continue;
+			}
+			if (c.mods == 0 && c.base >= 0x80
+			    && c.base <= 0xFF) {
+				seqlen = editor_read_utf8_seq(
+				    fd, (int)c.base, seq);
+				if (seqlen > 0) {
+					minibuf_insert_repeated(buf,
+					    bufsize, &cursor, &len,
+					    &overflow, seq, seqlen,
+					    repeat);
+				}
+				continue;
+			}
+			/* Any other key discards the pending count. */
+		}
 		if (hist && KEY_IN_LIST(history_keys, c)) {
 			int dir = KEY_IN_LIST(history_back_keys, c) ? 1 : -1;
 			const char *entry;

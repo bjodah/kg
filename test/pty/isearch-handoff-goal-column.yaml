@@ -1,0 +1,19 @@
+name: isearch-handoff-goal-column
+filename: test.txt
+initial: "a\nxx some_word yy\n"
+keys:
+  - C-a
+  - C-s
+  - s
+  - o
+  - m
+  - e
+  - _
+  - w
+  - o
+  - r
+  - d
+  - C-p
+  - C-n
+  - X
+expected_saved: "a\nxx some_wordX yy\n"

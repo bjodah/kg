@@ -766,6 +766,7 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 	int yank_start = -1; /* see isearch_yank(); -1: no yank to pop */
 	int yank_index = 0;
 	int ring_note = 0; /* one-shot "[kill ring empty]" for the prompt */
+	int saved_goal = wcur()->desired_visual_col;
 
 	/* Everything in this function is a chars byte offset: the search
 	 * reads row->chars, so a TAB is one character and never the eight
@@ -773,6 +774,13 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 	 * flat buffer-byte markers instead; converting to render space for
 	 * display is the renderer's job now, not this file's. */
 	m.start_col = wcur()->coloff + wcur()->cx;
+	/* A search breaks the previous vertical run: a C-p/C-n handoff below
+	 * must capture its goal from the match it leaves, not inherit the
+	 * column a C-n run had before the search began.  The command keeps
+	 * the goal (see cmd.c) so that handoff's fresh column survives the
+	 * keypress teardown; abandoning via ESC restores both point and the
+	 * saved column. */
+	wcur()->desired_visual_col = -1;
 	saved_point = kg_marker_create(bcur(),
 	    buffer_row_col_to_position(bcur(), m.start_row, m.start_col),
 	    KG_MARKER_GRAV_LEFT);
@@ -831,6 +839,7 @@ static void do_isearch(int fd, int direction, enum search_kind kind)
 		} else if (KEY_IN_LIST(isearch_end_keys, c)) {
 			if (KEY_IS(c, KEY_BASE_ESC, 0)) {
 				isearch_restore_point(saved_point, &origin);
+				wcur()->desired_visual_col = saved_goal;
 			}
 			/* Emacs records the query when the search is
 			 * accepted, never when it is abandoned. */

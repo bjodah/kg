@@ -925,14 +925,20 @@ static void test_named_pty_cases_exist(void)
 }
 
 /* The goal column is kept by the commands the vertical-motion keys run,
- * and by nothing else.  key_finish_keypress() reads that flag instead of
- * the keycode list it used to keep, so this is what pins the two
- * together: shift-translated Up and Down reach the same commands, which
- * is why they are in the list. */
+ * and by the incremental search commands, which may end in a vertical
+ * handoff (C-p/C-n inside I-search moves and exits).  key_finish_keypress()
+ * reads that flag instead of the keycode list it used to keep, so this is
+ * what pins the two together: shift-translated Up and Down reach the same
+ * commands, which is why they are in the list.  I-search clears the goal
+ * on entry (src/search.c) so keeping it only preserves a handoff's fresh
+ * column, never a stale run from before the search. */
 static void test_vertical_motions_keep_the_goal_column(void)
 {
 	static const char *const vertical[] = { "C-n", "C-p", "<up>", "<down>",
 		"C-v", "M-v", "<prior>", "<next>", "S-<up>", "S-<down>" };
+	static const char *const keeps_goal[] = { "isearch-forward",
+		"isearch-backward", "isearch-forward-regexp",
+		"isearch-backward-regexp" };
 	int i;
 	size_t k;
 
@@ -948,6 +954,13 @@ static void test_vertical_motions_keep_the_goal_column(void)
 		    "%s runs a command that drops the goal column",
 		    vertical[k]);
 	}
+	for (k = 0; k < sizeof(keeps_goal) / sizeof(*keeps_goal); k++) {
+		const struct named_cmd *cmd = cmd_lookup(keeps_goal[k]);
+
+		CHECKF(cmd && (cmd->flags & CMD_KEEPS_GOAL_COLUMN),
+		    "%s should keep the goal column for its vertical handoff",
+		    keeps_goal[k]);
+	}
 	for (i = 0; i < global_count(); i++) {
 		const struct binding *b = &global_bindings[i];
 		const struct named_cmd *cmd = cmd_lookup(b->command);
@@ -955,6 +968,12 @@ static void test_vertical_motions_keep_the_goal_column(void)
 
 		for (k = 0; k < sizeof(vertical) / sizeof(*vertical); k++) {
 			if (strcmp(b->seq, vertical[k]) == 0) {
+				expected = 1;
+			}
+		}
+		for (k = 0; k < sizeof(keeps_goal) / sizeof(*keeps_goal);
+		    k++) {
+			if (strcmp(b->command, keeps_goal[k]) == 0) {
 				expected = 1;
 			}
 		}

@@ -1,0 +1,15 @@
+name: string-rectangle-universal-arg-spaces
+filename: test.txt
+initial: "foo\nbar\nbaz\n"
+keys:
+  - C-SPC
+  - C-n
+  - C-n
+  - C-x
+  - r
+  - t
+  - C-u
+  - "4"
+  - SPC
+  - RET
+expected_saved: "    foo\n    bar\n    baz\n"

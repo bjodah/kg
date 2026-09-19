@@ -1325,15 +1325,62 @@ static bool is_integer_token(const char *s)
 	return true;
 }
 
+static void init_copy_setting(
+    char *dst, size_t dst_size, bool *flag, const char *src, int slen)
+{
+	if (slen > 0 && slen < (int)dst_size) {
+		memcpy(dst, src, (size_t)slen + 1);
+		*flag = true;
+	}
+}
+
 static void init_apply_setq_string(
     const char *varname, const char *sval, int svlen, struct init_settings *out)
 {
-	/* The one string-valued init setting kg reads without an
-	 * evaluator: overlong tags are refused, never stored truncated. */
-	if (strcmp(varname, "spell-language") == 0 && svlen > 0
-	    && svlen < (int)sizeof(out->spell_language)) {
-		memcpy(out->spell_language, sval, (size_t)svlen + 1);
-		out->spell_language_set = true;
+	/* The string-valued init settings kg reads without an
+	 * evaluator: overlong values are refused, never stored truncated. */
+	if (strcmp(varname, "spell-language") == 0) {
+		init_copy_setting(out->spell_language,
+		    sizeof(out->spell_language), &out->spell_language_set, sval,
+		    svlen);
+	} else if (strcmp(varname, "spell-highlight-style") == 0) {
+		init_copy_setting(out->spell_highlight_style,
+		    sizeof(out->spell_highlight_style),
+		    &out->spell_highlight_style_set, sval, svlen);
+	}
+}
+
+static void init_apply_setq_atom(
+    const char *varname, const char *atom, int alen, struct init_settings *out)
+{
+	if (strcmp(varname, "tab-width") == 0) {
+		if (is_integer_token(atom)) {
+			int val = atoi(atom);
+			if (val >= 1 && val <= KG_TAB_WIDTH_MAX) {
+				out->tab_width = val;
+				out->tab_width_set = true;
+			}
+		}
+	} else if (strcmp(varname, "inhibit-startup-screen") == 0) {
+		if (strcasecmp(atom, "t") == 0) {
+			out->inhibit_startup_screen = true;
+			out->inhibit_startup_screen_set = true;
+		} else if (strcasecmp(atom, "nil") == 0) {
+			out->inhibit_startup_screen = false;
+			out->inhibit_startup_screen_set = true;
+		}
+	} else if (strcmp(varname, "inhibit-startup-message") == 0) {
+		if (strcasecmp(atom, "t") == 0) {
+			out->inhibit_startup_message = true;
+			out->inhibit_startup_message_set = true;
+		} else if (strcasecmp(atom, "nil") == 0) {
+			out->inhibit_startup_message = false;
+			out->inhibit_startup_message_set = true;
+		}
+	} else if (strcmp(varname, "spell-highlight-style") == 0) {
+		init_copy_setting(out->spell_highlight_style,
+		    sizeof(out->spell_highlight_style),
+		    &out->spell_highlight_style_set, atom, alen);
 	}
 }
 
@@ -1362,37 +1409,18 @@ static void init_apply_setq(struct dlr *r, struct init_settings *out)
 	} else if (r->src[r->pos] == '(') {
 		(void)dlr_skip_sexp(r);
 	} else {
+		if (r->src[r->pos] == '\'') {
+			r->pos++;
+			r->tokcount++;
+			dlr_skip_ws(r);
+		}
 		char atom[128];
 		int alen = dlr_read_sym(r, atom, sizeof(atom));
 		if (alen <= 0) {
 			return;
 		}
 		r->tokcount++;
-		if (strcmp(varname, "tab-width") == 0) {
-			if (is_integer_token(atom)) {
-				int val = atoi(atom);
-				if (val >= 1 && val <= KG_TAB_WIDTH_MAX) {
-					out->tab_width = val;
-					out->tab_width_set = true;
-				}
-			}
-		} else if (strcmp(varname, "inhibit-startup-screen") == 0) {
-			if (strcasecmp(atom, "t") == 0) {
-				out->inhibit_startup_screen = true;
-				out->inhibit_startup_screen_set = true;
-			} else if (strcasecmp(atom, "nil") == 0) {
-				out->inhibit_startup_screen = false;
-				out->inhibit_startup_screen_set = true;
-			}
-		} else if (strcmp(varname, "inhibit-startup-message") == 0) {
-			if (strcasecmp(atom, "t") == 0) {
-				out->inhibit_startup_message = true;
-				out->inhibit_startup_message_set = true;
-			} else if (strcasecmp(atom, "nil") == 0) {
-				out->inhibit_startup_message = false;
-				out->inhibit_startup_message_set = true;
-			}
-		}
+		init_apply_setq_atom(varname, atom, alen, out);
 	}
 }
 

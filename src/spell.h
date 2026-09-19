@@ -42,6 +42,16 @@ int spell_available(void);
  * when nothing set one).  Never NULL. */
 const char *spell_language(void);
 
+enum spell_highlight_style {
+	SPELL_HIGHLIGHT_UNDERLINE = 0,
+	SPELL_HIGHLIGHT_COLOR = 1,
+};
+
+/* The misspelling highlight style in force: read from `spell-highlight-style',
+ * defaulting to SPELL_HIGHLIGHT_UNDERLINE. */
+void spell_sync_highlight_style(void);
+[[nodiscard]] enum spell_highlight_style spell_effective_highlight_style(void);
+
 /* Word verdicts, in jinx--mod-check's vocabulary: 1 means the
  * dictionaries accept the word, 0 means they do not, and -1 means no
  * check ran -- unsupported build, no dictionary, or a session word.

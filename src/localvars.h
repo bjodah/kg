@@ -51,6 +51,8 @@ struct init_settings {
 	 * time rather than stored truncated. */
 	bool spell_language_set;
 	char spell_language[32];
+	bool spell_highlight_style_set;
+	char spell_highlight_style[16];
 };
 
 /* What kind of value a file-local variable takes, or LOCAL_VAR_NONE for

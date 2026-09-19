@@ -53,6 +53,7 @@ void spell_init(void)
 		spell_broker = enchant_broker_init();
 	}
 #endif
+	spell_sync_highlight_style();
 }
 
 /* Forget the cached dictionary without dropping the broker: the next
@@ -107,6 +108,28 @@ static void spell_effective_language(char *out, size_t size)
 	}
 	out[0] = '\0';
 	(void)kg_lisp_variable_string("spell-language", out, size);
+}
+
+static enum spell_highlight_style cached_highlight_style
+    = SPELL_HIGHLIGHT_UNDERLINE;
+
+void spell_sync_highlight_style(void)
+{
+	char style[16];
+
+	style[0] = '\0';
+	(void)kg_lisp_variable_string(
+	    "spell-highlight-style", style, sizeof(style));
+	if (strcmp(style, "color") == 0) {
+		cached_highlight_style = SPELL_HIGHLIGHT_COLOR;
+	} else {
+		cached_highlight_style = SPELL_HIGHLIGHT_UNDERLINE;
+	}
+}
+
+enum spell_highlight_style spell_effective_highlight_style(void)
+{
+	return cached_highlight_style;
 }
 
 /* The dictionary for the configured language, opening (and caching) it

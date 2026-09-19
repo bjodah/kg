@@ -1203,6 +1203,26 @@ static void test_init_config_spell_language_refused(void)
 	CHECK(s.spell_language_set == false);
 }
 
+static void test_init_config_spell_highlight_style(void)
+{
+	struct init_settings s;
+	const char *src1 = "(setq spell-highlight-style \"color\")\n";
+	const char *src2 = "(setq spell-highlight-style 'color)\n";
+	const char *src3 = "(setq spell-highlight-style \"underline\")\n";
+
+	CHECK(init_config_parse(src1, strlen(src1), &s) == 0);
+	CHECK(s.spell_highlight_style_set == true);
+	CHECK(strcmp(s.spell_highlight_style, "color") == 0);
+
+	CHECK(init_config_parse(src2, strlen(src2), &s) == 0);
+	CHECK(s.spell_highlight_style_set == true);
+	CHECK(strcmp(s.spell_highlight_style, "color") == 0);
+
+	CHECK(init_config_parse(src3, strlen(src3), &s) == 0);
+	CHECK(s.spell_highlight_style_set == true);
+	CHECK(strcmp(s.spell_highlight_style, "underline") == 0);
+}
+
 static void test_init_config_mixed_forms(void)
 {
 	struct init_settings s;
@@ -1662,6 +1682,7 @@ int main(void)
 	RUN(test_init_config_booleans);
 	RUN(test_init_config_spell_language);
 	RUN(test_init_config_spell_language_refused);
+	RUN(test_init_config_spell_highlight_style);
 	RUN(test_init_config_mixed_forms);
 	RUN(test_init_config_unbalanced_paren);
 	return test_summary();

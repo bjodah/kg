@@ -274,13 +274,71 @@ static void test_language_lisp_roundtrip(void)
 	saved_xdg = getenv("XDG_CONFIG_HOME");
 	setenv("XDG_CONFIG_HOME", "/nonexistent", 1);
 	CHECK(kg_lisp_init() == 0);
-	CHECK(kg_lisp_eval_string(src, strlen(src), result, sizeof(result))
-	    == 0);
+	CHECK(
+	    kg_lisp_eval_string(src, strlen(src), result, sizeof(result)) == 0);
 	CHECK(strcmp(spell_language(), "sv") == 0);
 	src = "(setq spell-language 42)";
-	CHECK(kg_lisp_eval_string(src, strlen(src), result, sizeof(result))
-	    == 0);
+	CHECK(
+	    kg_lisp_eval_string(src, strlen(src), result, sizeof(result)) == 0);
 	CHECK(strcmp(spell_language(), "en_US") == 0);
+	kg_lisp_shutdown();
+	if (saved_xdg) {
+		setenv("XDG_CONFIG_HOME", saved_xdg, 1);
+	} else {
+		unsetenv("XDG_CONFIG_HOME");
+	}
+	teardown();
+}
+
+static void test_highlight_style_default(void)
+{
+	setup();
+	CHECK(spell_effective_highlight_style() == SPELL_HIGHLIGHT_UNDERLINE);
+	teardown();
+}
+
+static void test_highlight_style_lisp_roundtrip(void)
+{
+	char result[128] = "";
+	const char *src;
+	const char *saved_xdg;
+
+	setup();
+	if (!kg_lisp_active()) {
+		CHECK(spell_effective_highlight_style()
+		    == SPELL_HIGHLIGHT_UNDERLINE);
+		teardown();
+		return;
+	}
+	saved_xdg = getenv("XDG_CONFIG_HOME");
+	setenv("XDG_CONFIG_HOME", "/nonexistent", 1);
+	CHECK(kg_lisp_init() == 0);
+	CHECK(spell_effective_highlight_style() == SPELL_HIGHLIGHT_UNDERLINE);
+
+	src = "(setq spell-highlight-style \"color\")";
+	CHECK(
+	    kg_lisp_eval_string(src, strlen(src), result, sizeof(result)) == 0);
+	spell_sync_highlight_style();
+	CHECK(spell_effective_highlight_style() == SPELL_HIGHLIGHT_COLOR);
+
+	src = "(setq spell-highlight-style 'color)";
+	CHECK(
+	    kg_lisp_eval_string(src, strlen(src), result, sizeof(result)) == 0);
+	spell_sync_highlight_style();
+	CHECK(spell_effective_highlight_style() == SPELL_HIGHLIGHT_COLOR);
+
+	src = "(setq spell-highlight-style \"underline\")";
+	CHECK(
+	    kg_lisp_eval_string(src, strlen(src), result, sizeof(result)) == 0);
+	spell_sync_highlight_style();
+	CHECK(spell_effective_highlight_style() == SPELL_HIGHLIGHT_UNDERLINE);
+
+	src = "(setq spell-highlight-style 'underline)";
+	CHECK(
+	    kg_lisp_eval_string(src, strlen(src), result, sizeof(result)) == 0);
+	spell_sync_highlight_style();
+	CHECK(spell_effective_highlight_style() == SPELL_HIGHLIGHT_UNDERLINE);
+
 	kg_lisp_shutdown();
 	if (saved_xdg) {
 		setenv("XDG_CONFIG_HOME", saved_xdg, 1);
@@ -411,6 +469,8 @@ int main(void)
 	RUN(test_session_words);
 	RUN(test_language_default);
 	RUN(test_language_lisp_roundtrip);
+	RUN(test_highlight_style_default);
+	RUN(test_highlight_style_lisp_roundtrip);
 	RUN(test_commands_without_dict);
 	RUN(test_backend_word);
 	RUN(test_backend_suggest);

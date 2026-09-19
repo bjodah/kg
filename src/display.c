@@ -317,14 +317,40 @@ static bool row_decor_face_at(const struct row_decor_span *spans, int n,
  * highlighting's own answer).  A decoration always wins over syntax
  * highlighting where the two overlap, the same way an overlay wins over
  * a face in Emacs. */
-static int row_decor_hl_at(
-    const struct row_decor_span *spans, int n, int render_off, int fallback_hl)
+static int row_decor_style_at(const struct row_decor_span *spans, int n,
+    int render_off, int fallback_hl, bool underline_spell, int *want_underline)
 {
 	enum kg_decor_face face;
 
-	return row_decor_face_at(spans, n, render_off, &face)
-	    ? decor_face_to_hl(face)
-	    : fallback_hl;
+	if (!row_decor_face_at(spans, n, render_off, &face)) {
+		*want_underline = 0;
+		return fallback_hl;
+	}
+	if (face == KG_DECOR_FACE_SPELL && underline_spell) {
+		*want_underline = 1;
+		return fallback_hl;
+	}
+	*want_underline = 0;
+	return decor_face_to_hl(face);
+}
+
+static void display_append_hl(struct abuf *ab, int hl, int *current_color)
+{
+	if (hl == HL_NORMAL || hl == HL_NONPRINT) {
+		if (*current_color != -1) {
+			ab_append(ab, "\x1b[39m", 5);
+			*current_color = -1;
+		}
+	} else {
+		int color = editor_syntax_to_color(hl);
+		if (color != *current_color) {
+			char cbuf[16];
+			int clen
+			    = snprintf(cbuf, sizeof(cbuf), "\x1b[%dm", color);
+			*current_color = color;
+			ab_append(ab, cbuf, clen);
+		}
+	}
 }
 
 /* Advance the flat-byte position tracker in *pos to row `fr`: an O(1)
@@ -357,6 +383,33 @@ static void vline_iter_begin(struct vgeom_iter *it, struct editor_window *w,
 {
 	if (wrapping) {
 		vgeom_iter_init(it, w, b, rowoff);
+	}
+}
+
+static void display_rect_virtual_fill(struct abuf *ab, int region_s_col,
+    int region_e_col, int row_vwidth, int *current_reverse)
+{
+	if (region_e_col <= row_vwidth) {
+		return;
+	}
+	int virt_e = region_e_col - row_vwidth;
+	int virt_s = region_s_col > row_vwidth ? region_s_col - row_vwidth : 0;
+	int skip = virt_s;
+	int rev = virt_e - virt_s;
+
+	if (skip > 0) {
+		if (*current_reverse) {
+			ab_append(ab, "\x1b[27m", 5);
+			*current_reverse = 0;
+		}
+		ab_append_spaces(ab, skip);
+	}
+	if (rev > 0) {
+		if (!*current_reverse) {
+			ab_append(ab, "\x1b[7m", 4);
+			*current_reverse = 1;
+		}
+		ab_append_spaces(ab, rev);
 	}
 }
 
@@ -463,6 +516,9 @@ static void draw_window_rows(struct abuf *ab, struct editor_window *w,
 		}
 		int current_color = -1;
 		int current_reverse = 0;
+		int current_underline = 0;
+		bool underline_spell = (spell_effective_highlight_style()
+		    == SPELL_HIGHLIGHT_UNDERLINE);
 		int hi_lo = -1,
 		    hi_hi = -1; /* highlight bounds in render-col, half-open */
 		int len, vcol_used = 0;
@@ -617,38 +673,28 @@ static void draw_window_rows(struct abuf *ab, struct editor_window *w,
 				display_glyph_at(r->render, r->rsize, j, &g);
 				span = g.span;
 				if (want_rev != current_reverse) {
-					if (want_rev) {
-						ab_append(ab, "\x1b[7m", 4);
-					} else {
-						ab_append(ab, "\x1b[27m", 5);
-					}
+					ab_append(ab,
+					    want_rev ? "\x1b[7m" : "\x1b[27m",
+					    want_rev ? 4 : 5);
 					current_reverse = want_rev;
 				}
 				{
-					int hl = row_decor_hl_at(row_spans,
-					    row_span_count, j, r->hl[j]);
+					int want_underline = 0;
+					int hl = row_decor_style_at(row_spans,
+					    row_span_count, j, r->hl[j],
+					    underline_spell, &want_underline);
 
-					if (hl == HL_NORMAL
-					    || hl == HL_NONPRINT) {
-						if (current_color != -1) {
-							ab_append(
-							    ab, "\x1b[39m", 5);
-							current_color = -1;
-						}
-					} else {
-						int color
-						    = editor_syntax_to_color(
-							hl);
-						if (color != current_color) {
-							char cbuf[16];
-							int clen = snprintf(
-							    cbuf, sizeof(cbuf),
-							    "\x1b[%dm", color);
-							current_color = color;
-							ab_append(
-							    ab, cbuf, clen);
-						}
+					if (want_underline
+					    != current_underline) {
+						ab_append(ab,
+						    want_underline ? "\x1b[4m"
+								   : "\x1b[24m",
+						    want_underline ? 4 : 5);
+						current_underline
+						    = want_underline;
 					}
+					display_append_hl(
+					    ab, hl, &current_color);
 				}
 				ab_append(ab, g.bytes, g.len);
 			}
@@ -661,35 +707,14 @@ static void draw_window_rows(struct abuf *ab, struct editor_window *w,
 			    && fr >= region_s_row && fr <= region_e_row) {
 				int row_vwidth
 				    = editor_visual_col(r, r->size, options);
-
-				if (region_e_col > row_vwidth) {
-					int virt_e = region_e_col - row_vwidth;
-					int virt_s = region_s_col > row_vwidth
-					    ? region_s_col - row_vwidth
-					    : 0;
-					int skip = virt_s;
-					int rev = virt_e - virt_s;
-
-					if (skip > 0) {
-						if (current_reverse) {
-							ab_append(
-							    ab, "\x1b[27m", 5);
-							current_reverse = 0;
-						}
-						ab_append_spaces(ab, skip);
-					}
-					if (rev > 0) {
-						if (!current_reverse) {
-							ab_append(
-							    ab, "\x1b[7m", 4);
-							current_reverse = 1;
-						}
-						ab_append_spaces(ab, rev);
-					}
-				}
+				display_rect_virtual_fill(ab, region_s_col,
+				    region_e_col, row_vwidth, &current_reverse);
 			}
 			if (current_reverse) {
 				ab_append(ab, "\x1b[27m", 5);
+			}
+			if (current_underline) {
+				ab_append(ab, "\x1b[24m", 5);
 			}
 		}
 		ab_append(ab, "\x1b[39m", 5);

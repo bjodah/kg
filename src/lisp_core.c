@@ -1817,6 +1817,21 @@ int kg_lisp_variable_integer(const char *name, int fallback)
 	return result;
 }
 
+static size_t lisp_extract_variable_string(
+    FeContext *ctx, FeObject *value, char *out, size_t outsize)
+{
+	if (FeGetType(value) == FeTString
+	    && FeStringByteLength(ctx, value) < outsize) {
+		size_t result = FeStringBytes(ctx, value, out, outsize);
+		out[result] = '\0';
+		return result;
+	}
+	if (FeGetType(value) == FeTSymbol) {
+		return FeToString(ctx, value, out, outsize);
+	}
+	return 0;
+}
+
 /* The string channel beside the integer one above, and global like the
  * boolean one further up rather than buffer-local: a tag is
  * session-wide, and lisp_locals has nothing to say about it.  Refuses
@@ -1849,12 +1864,8 @@ size_t kg_lisp_variable_string(const char *name, char *out, size_t outsize)
 	if (FeIsBound(state.context, symbol)) {
 		value = FeEvaluateWithOptions(
 		    state.context, symbol, &eval_options);
-		if (FeGetType(value) == FeTString
-		    && FeStringByteLength(state.context, value) < outsize) {
-			result
-			    = FeStringBytes(state.context, value, out, outsize);
-			out[result] = '\0';
-		}
+		result = lisp_extract_variable_string(
+		    state.context, value, out, outsize);
 	}
 	FeRestoreGC(state.context, state.frame.gc_checkpoint);
 	state.frame_active = false;
@@ -2190,16 +2201,25 @@ size_t kg_lisp_variable_string(const char *name, char *out, size_t outsize)
 		return 0;
 	}
 	out[0] = '\0';
-	if (!name || strcmp(name, "spell-language") != 0
-	    || !disabled_init_settings.spell_language_set) {
-		return 0;
+	if (name && strcmp(name, "spell-language") == 0
+	    && disabled_init_settings.spell_language_set) {
+		len = strlen(disabled_init_settings.spell_language);
+		if (len > 0 && len < outsize) {
+			memcpy(out, disabled_init_settings.spell_language,
+			    len + 1);
+			return len;
+		}
+	} else if (name && strcmp(name, "spell-highlight-style") == 0
+	    && disabled_init_settings.spell_highlight_style_set) {
+		len = strlen(disabled_init_settings.spell_highlight_style);
+		if (len > 0 && len < outsize) {
+			memcpy(out,
+			    disabled_init_settings.spell_highlight_style,
+			    len + 1);
+			return len;
+		}
 	}
-	len = strlen(disabled_init_settings.spell_language);
-	if (len == 0 || len >= outsize) {
-		return 0;
-	}
-	memcpy(out, disabled_init_settings.spell_language, len + 1);
-	return len;
+	return 0;
 }
 
 void kg_lisp_sync_display_options(void)

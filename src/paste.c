@@ -1,4 +1,5 @@
-/* ======================== Bracketed paste reporting ======================== */
+/* ======================== Bracketed paste reporting ========================
+ */
 
 #include <stdbool.h>
 #include <stddef.h>

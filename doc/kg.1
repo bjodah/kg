@@ -3551,7 +3551,9 @@ build checks spelling through Enchant while the buffer is displayed, in
 the style of Emacs' jinx module.
 .Ic M-x spell-mode
 toggles checking in the current buffer; misspelled words are underlined
-in bright blue, rechecked incrementally a bounded slice of rows per
+by default (or colored with syntax highlighting, configurable via
+.Li spell-highlight-style ) ,
+rechecked incrementally a bounded slice of rows per
 repaint, so a large buffer costs a fixed slice of each frame rather than
 one long pause.
 .Pp
@@ -3569,6 +3571,13 @@ Lisp variable, set in the init file --
 .Sq en_US
 when nothing sets it; a language no provider owns is reported when the
 mode is enabled, and checking stays off.
+The misspelling highlight style is set by the
+.Li spell-highlight-style
+Lisp variable, defaulting to
+.Sq underline
+(or
+.Sq color
+for coloring).
 .Pp
 Three commands walk what checking found:
 .Ic M-x spell-next
@@ -3579,7 +3588,12 @@ move to the next and previous misspelled words, and
 bound to
 .Ic M-$ ,
 corrects the misspelled word at or after point from the dictionary's
-suggestions (or from typed text, which is always accepted).
+suggestions, presented in a vertical numbered popup above the minibuffer
+(press
+.Ic 0 \(en 9
+to select immediately,
+.Ic C-n / C-p
+or arrow keys to cycle, or type text to filter/replace).
 With a prefix argument
 .Po
 .Ic C-u M-$

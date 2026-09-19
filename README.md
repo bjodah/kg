@@ -394,10 +394,14 @@ is. See [DAP.md](DAP.md) for details.
 kg can check spelling through Enchant, in the style of Emacs' jinx module:
 `M-x spell-mode` highlights misspelled words as you look at them,
 `M-$` corrects the one at or after point from the dictionary's
-suggestions, and `M-x spell-next` / `M-x spell-previous` walk them.
-Prose buffers check every word; code buffers only check comments and
-strings. The language is the `spell-language` Lisp variable
-(`(setq spell-language "en_US")` in the init file, `en_US` by default).
+suggestions (presented in a vertical numbered popup above the minibuffer;
+press `0`–`9` to pick an alternative directly, `C-n`/`C-p` or arrow keys
+to cycle, or type a custom correction), and `M-x spell-next` /
+`M-x spell-previous` walk them. Prose buffers check every word; code
+buffers only check comments and strings. The language is the
+`spell-language` Lisp variable (`(setq spell-language "en_US")` in the init
+file, `en_US` by default). The highlighting style is configured by
+`spell-highlight-style` (`"underline"` by default, or `"color"`).
 
 Needs libenchant-2 at build time, so unlike LSP/DAP this is off unless
 asked for: `make WITH_ENCHANT=1` (found through `pkg-config enchant-2`).

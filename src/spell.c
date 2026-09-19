@@ -370,6 +370,7 @@ void spell_update(void)
 		}
 		if (available < 0) {
 			available = spell_available();
+			spell_sync_highlight_style();
 		}
 		spell_update_buffer(b, available);
 	}

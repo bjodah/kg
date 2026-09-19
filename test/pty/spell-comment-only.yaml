@@ -1,0 +1,25 @@
+# Code buffers only check comments and strings: `teh' the identifier is
+# skipped and M-$ lands on `wrod' in the comment, which the typed
+# correction then replaces.
+name: spell-comment-only
+filename: spell-code.c
+requires_feature: enchant
+backend: tmux
+dimensions: [12, 60]
+initial: |
+  int teh = 1; /* wrod */
+keys:
+  - M-x
+  - spell-mode
+  - RET
+  - M-$
+  - C-?
+  - C-?
+  - C-?
+  - C-?
+  - word
+  - RET
+  - C-x
+  - C-s
+expected_saved: |
+  int teh = 1; /* word */

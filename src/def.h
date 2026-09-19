@@ -419,6 +419,11 @@ struct editor_buffer {
 	int visual_line_mode;
 	int truncate_lines;
 	int saved_truncate_lines;
+	/* 1 while Enchant spell checking highlights this buffer's
+	 * misspellings (M-x spell-mode).  Cleared with the slot, like the
+	 * display modes above; spell_update() publishes (and retires) the
+	 * decorations, so no other state lives here. */
+	int spell_mode;
 	int overwrite_mode;
 	struct kg_display_options display;
 	/* File-local settings the last visit published: `tab_width_local'

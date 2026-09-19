@@ -44,6 +44,13 @@ struct init_settings {
 	bool inhibit_startup_screen_set;
 	bool inhibit_startup_message;
 	bool inhibit_startup_message_set;
+	/* `spell-language' as the init file spelled it, held only when
+	 * `spell_language_set' does -- the WITH_LISP=0 build's whole
+	 * string channel (kg_lisp_variable_string()'s disabled half).
+	 * A tag is a dozen bytes; anything longer is refused at parse
+	 * time rather than stored truncated. */
+	bool spell_language_set;
+	char spell_language[32];
 };
 
 /* What kind of value a file-local variable takes, or LOCAL_VAR_NONE for

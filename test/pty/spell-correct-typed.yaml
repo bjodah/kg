@@ -1,0 +1,26 @@
+# Spell correction end to end: M-x spell-mode highlights nothing on its
+# own that a saved file can show, so this drives M-$ on a typo, erases
+# the picker's initial query, types the correction and checks the saved
+# file.  (The echo-area confirmation is asserted in spell-session-accept,
+# where no save overwrites it.)
+name: spell-correct-typed
+filename: spell-note.txt
+requires_feature: enchant
+backend: tmux
+dimensions: [12, 60]
+initial: |
+  teh quick brown fox
+keys:
+  - M-x
+  - spell-mode
+  - RET
+  - M-$
+  - C-?
+  - C-?
+  - C-?
+  - the
+  - RET
+  - C-x
+  - C-s
+expected_saved: |
+  the quick brown fox

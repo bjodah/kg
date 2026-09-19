@@ -1817,6 +1817,50 @@ int kg_lisp_variable_integer(const char *name, int fallback)
 	return result;
 }
 
+/* The string channel beside the integer one above, and global like the
+ * boolean one further up rather than buffer-local: a tag is
+ * session-wide, and lisp_locals has nothing to say about it.  Refuses
+ * rather than truncates (prompt_read_choice()'s rule): a value longer
+ * than the caller holds is no answer, not a prefix of one. */
+size_t kg_lisp_variable_string(const char *name, char *out, size_t outsize)
+{
+	FeObject *symbol, *value;
+	/* Carried in a volatile for the setjmp shape's sake, the integer
+	 * reader's reason exactly; the byte count is small by construction
+	 * (a caller sizing a tag buffer), so size_t survives the trip. */
+	volatile size_t result = 0;
+
+	if (!out || outsize == 0) {
+		return 0;
+	}
+	out[0] = '\0';
+	if (name == nullptr || !state.initialized || state.frame_active) {
+		return 0;
+	}
+	state.frame.gc_checkpoint = FeSaveGC(state.context);
+	state.frame_active = true;
+	if (setjmp(state.frame.error_jump) != 0) {
+		FeRestoreGC(state.context, state.frame.gc_checkpoint);
+		state.frame_active = false;
+		lisp_settle_completion();
+		return 0;
+	}
+	symbol = FeMakeSymbol(state.context, name);
+	if (FeIsBound(state.context, symbol)) {
+		value = FeEvaluateWithOptions(
+		    state.context, symbol, &eval_options);
+		if (FeGetType(value) == FeTString
+		    && FeStringByteLength(state.context, value) < outsize) {
+			result
+			    = FeStringBytes(state.context, value, out, outsize);
+			out[result] = '\0';
+		}
+	}
+	FeRestoreGC(state.context, state.frame.gc_checkpoint);
+	state.frame_active = false;
+	return result;
+}
+
 /* Fe has no host callback on assignment, so C cannot be notified at the
  * exact setq.  Poll at the two seams that need a current answer: before a
  * repaint, and inside a geometry-consuming native.  One symbol lookup and
@@ -2136,6 +2180,26 @@ int kg_lisp_variable_integer(const char *name, int fallback)
 {
 	(void)name;
 	return fallback;
+}
+
+size_t kg_lisp_variable_string(const char *name, char *out, size_t outsize)
+{
+	size_t len;
+
+	if (!out || outsize == 0) {
+		return 0;
+	}
+	out[0] = '\0';
+	if (!name || strcmp(name, "spell-language") != 0
+	    || !disabled_init_settings.spell_language_set) {
+		return 0;
+	}
+	len = strlen(disabled_init_settings.spell_language);
+	if (len == 0 || len >= outsize) {
+		return 0;
+	}
+	memcpy(out, disabled_init_settings.spell_language, len + 1);
+	return len;
 }
 
 void kg_lisp_sync_display_options(void)

@@ -1,0 +1,22 @@
+# Session words: C-u M-$ accepts the word at point for this session, so
+# a later spell-next finds nothing further and the file is unchanged.
+name: spell-session-accept
+filename: spell-session.txt
+requires_feature: enchant
+backend: tmux
+dimensions: [12, 60]
+initial: |
+  teh teh
+keys:
+  - M-x
+  - spell-mode
+  - RET
+  - C-u
+  - M-$
+  - M-x
+  - spell-next
+  - RET
+expected_saved: |
+  teh teh
+expected_screen_contains:
+  - "No further misspellings"

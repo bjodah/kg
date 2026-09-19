@@ -1,0 +1,20 @@
+# The language comes from the init file alone: a tag no provider owns
+# is reported when the mode is enabled, naming the tag that was read.
+name: spell-language-missing-dict
+filename: spell-lang.txt
+requires_feature: enchant
+backend: tmux
+dimensions: [12, 60]
+config_files:
+  .config/kg/init.el: |
+    (setq spell-language "xx_YY")
+initial: |
+  hello
+keys:
+  - M-x
+  - spell-mode
+  - RET
+expected_saved: |
+  hello
+expected_screen_contains:
+  - "no spelling dictionary for 'xx_YY'"

@@ -17,6 +17,7 @@
 #include "marker.h"
 #include "perf.h"
 #include "showparen.h"
+#include "spell.h"
 #include "syntax.h"
 #include "vgeom.h"
 #include "winmgr.h"
@@ -221,6 +222,8 @@ static int decor_face_to_hl(enum kg_decor_face face)
 		return HL_BREAKPOINT_PENDING;
 	case KG_DECOR_FACE_DEBUG_CURRENT:
 		return HL_DEBUG_CURRENT;
+	case KG_DECOR_FACE_SPELL:
+		return HL_SPELL;
 	}
 	return HL_NORMAL;
 }
@@ -880,6 +883,11 @@ void editor_refresh_screen(void)
 	 * that publish rows or set a mode.  Also outside the render bracket
 	 * below -- it publishes decorations, which are buffer state. */
 	update_git_diagnostics();
+	/* And the same once more for the spell checker: every displayed
+	 * buffer's misspellings are rechecked here (src/spell.c), bounded
+	 * per frame, for show_paren_update()'s reason exactly -- one seam,
+	 * and no decoration outliving the text it was computed from. */
+	spell_update();
 	/* Debug-only bracket for kg_event_drain_safe()'s KG_DEBUG_STATE
 	 * assertion; see KG_EVENT_UNSAFE_EDIT's comment in kg_buffer_replace()
 	 * for what this is and is not.  The exit(1) below this point on an

@@ -1325,6 +1325,18 @@ static bool is_integer_token(const char *s)
 	return true;
 }
 
+static void init_apply_setq_string(
+    const char *varname, const char *sval, int svlen, struct init_settings *out)
+{
+	/* The one string-valued init setting kg reads without an
+	 * evaluator: overlong tags are refused, never stored truncated. */
+	if (strcmp(varname, "spell-language") == 0 && svlen > 0
+	    && svlen < (int)sizeof(out->spell_language)) {
+		memcpy(out->spell_language, sval, (size_t)svlen + 1);
+		out->spell_language_set = true;
+	}
+}
+
 static void init_apply_setq(struct dlr *r, struct init_settings *out)
 {
 	char varname[128];
@@ -1345,6 +1357,7 @@ static void init_apply_setq(struct dlr *r, struct init_settings *out)
 		int svlen = dlr_read_str(r, sval, sizeof(sval));
 		if (svlen >= 0) {
 			r->tokcount++;
+			init_apply_setq_string(varname, sval, svlen, out);
 		}
 	} else if (r->src[r->pos] == '(') {
 		(void)dlr_skip_sexp(r);

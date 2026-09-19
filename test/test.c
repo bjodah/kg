@@ -123,3 +123,18 @@ struct editor_buffer *__attribute__((weak)) buf_resolve(
 	}
 	return b;
 }
+
+/* Weak stand-in for kg_lisp_variable_string(): the suites that never
+ * link the Lisp adapter still link spell_core.o (TEST_SRCS_OBJS, for
+ * editor_cleanup()'s spell_shutdown()), and that object reads
+ * `spell-language' on every check.  Weak so the suites that DO link
+ * Lisp keep the real reader; strong here would collide with it. */
+size_t __attribute__((weak)) kg_lisp_variable_string(
+    const char *name, char *out, size_t outsize)
+{
+	(void)name;
+	if (out && outsize > 0) {
+		out[0] = '\0';
+	}
+	return 0;
+}

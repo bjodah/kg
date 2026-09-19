@@ -212,6 +212,34 @@ ifeq ($(WITH_DAP),1)
 override CFLAGS += -DKG_USE_DAP=1
 endif
 
+# Enchant is the optional spell checker (src/spell.h), kg's answer to
+# Emacs' jinx module, and it is OFF by default: unlike the LSP and DAP
+# clients it has a build-time dependency -- libenchant-2 -- so WITH_LSP's
+# "on by default, found at run time" reasoning does not apply, and a box
+# without the library must keep building the default configuration.
+# WITH_TREE_SITTER=0's reasoning instead: the dependency-free build stays
+# the default, and .ci/ci-17-with-enchant.sh keeps the enabled build
+# honest, together with its orthogonality run against WITH_LISP=0.
+WITH_ENCHANT ?= 0
+
+ifneq ($(WITH_ENCHANT),0)
+ifneq ($(WITH_ENCHANT),1)
+$(error WITH_ENCHANT must be 0 or 1)
+endif
+endif
+ifeq ($(WITH_ENCHANT),1)
+ifeq ($(shell pkg-config --exists enchant-2 && echo yes),yes)
+ENCHANT_CFLAGS := $(shell pkg-config --cflags enchant-2)
+ENCHANT_LIBS := $(shell pkg-config --libs enchant-2)
+else
+$(error enchant-2 not found (pkg-config enchant-2 failed); install libenchant-2-dev, or build with 'WITH_ENCHANT=0')
+endif
+override CFLAGS += -DKG_USE_ENCHANT=1 $(ENCHANT_CFLAGS)
+# In LDLIBS rather than LDFLAGS for the tree-sitter comment's reason:
+# test/kgbatch and the keypress fuzz target pass LDLIBS and not LDFLAGS.
+override LDLIBS += $(ENCHANT_LIBS)
+endif
+
 # One stamp for the whole feature configuration, so an object compiled
 # under one set of -D flags is never mistaken for up to date under another.
 # It replaced LISP_CONFIG when the tree-sitter axis arrived, and gained the
@@ -220,7 +248,7 @@ endif
 # WITH_TREE_SITTER=1` looks unchanged to make.  Lives in $(OBJDIR) beside
 # the objects it guards.
 FEATURE_CONFIG = \
-    $(OBJDIR)/.features-lisp-$(WITH_LISP)-ts-$(WITH_TREE_SITTER)-lsp-$(WITH_LSP)-dap-$(WITH_DAP)
+    $(OBJDIR)/.features-lisp-$(WITH_LISP)-ts-$(WITH_TREE_SITTER)-lsp-$(WITH_LSP)-dap-$(WITH_DAP)-enchant-$(WITH_ENCHANT)
 
 prefix  = /usr/local
 bindir  = $(prefix)/bin
@@ -441,6 +469,19 @@ DAP_ALL = $(OBJDIR)/dap_transport.o $(TESTDIR)/test_dap_transport \
           $(OBJDIR)/dap_decor.o $(TESTDIR)/test_dap_commands \
           $(OBJDIR)/dap_ui.o $(TESTDIR)/test_dap_ui
 
+# The spell checker's one editor-facing header is src/spell.h, and all
+# three spell files are compiled in every configuration -- the
+# LISP_SRCS/LSP_SRCS shape, for the same reason: the facade's entry
+# points exist either way, so no caller grows a KG_USE_ENCHANT
+# conditional.  Everything Enchant reaches for lives behind
+# spell_core.c's KG_USE_ENCHANT half; spell.c's disabled half publishes
+# nothing, and spell_cmd.c's answers "built without spell support".
+SPELL_SRCS = spell_core.c spell.c spell_cmd.c
+# What `make clean` must remove because THIS configuration did not build
+# it, LSP_ALL's reason exactly -- today just the suite, since all three
+# spell objects exist in every configuration.
+SPELL_ALL = $(TESTDIR)/test_spell
+
 # Source files
 SRCS = main.c tty.c async.c syntax.c $(SYNTAX_BACKEND_SRCS) autocomplete.c buffer.c fileio.c \
        display.c search.c basic.c word.c kbd.c yank.c undo.c help.c describe.c bufmgr.c winmgr.c winconfig.c cmd.c cmdstate.c keyevent.c keymap.c macro.c \
@@ -449,7 +490,8 @@ SRCS = main.c tty.c async.c syntax.c $(SYNTAX_BACKEND_SRCS) autocomplete.c buffe
        lsp_diag.c lsp_hover.c $(LSP_EDITOR_SRCS) lsp_rename.c lsp_complete.c \
        dabbrev.c \
        width.c dired.c perf.c platform.c process.c process_table.c marker.c decor.c event.c \
-       mouse.c paste.c showparen.c prompt.c gitdiag.c shindent.c
+       mouse.c paste.c showparen.c prompt.c gitdiag.c shindent.c \
+       $(SPELL_SRCS)
 
 # Object and header files
 OBJS = $(addprefix $(OBJDIR)/,$(SRCS:.c=.o))
@@ -492,7 +534,8 @@ TESTBINS = $(TESTDIR)/test_undo $(TESTDIR)/test_buffer \
            $(TESTDIR)/test_showparen $(TESTDIR)/test_fileline \
            $(TESTDIR)/test_occur $(TESTDIR)/test_gitdiag \
            $(TESTDIR)/test_readonly \
-           $(TESTDIR)/test_perf
+           $(TESTDIR)/test_perf \
+           $(TESTDIR)/test_spell
 # Each backend's own suite exists only where that backend does: it links
 # that backend's object and asserts what it paints, so neither is a suite
 # the other configuration can run at all.  test_syntax_legacy asserts the
@@ -687,12 +730,24 @@ PTY_TESTS = $(sort $(wildcard $(TESTDIR)/pty/*.yaml))
 # $(PROTOCOL_OBJS) is what both of those stand on: LSP_OBJS used to carry
 # framed_io.o for everyone, and a WITH_LSP=0 WITH_DAP=1 test binary would
 # otherwise link dap_transport.o with nothing under it.
+# spell_core.o is here for the same reason as $(LSP_OBJS) above: the spell
+# facade's shutdown is called from editor_cleanup() (src/bufmgr.c), so
+# every test binary linking bufmgr.o needs it.  Only spell_core.o, not
+# spell.c or spell_cmd.c beside it: spell.c reaches the window table and
+# mode.o, and spell_cmd.c reaches the prompt layer and the command table,
+# so neither belongs in the link every minimal suite shares --
+# lsp_req.c/lsp_edit.c and dap_commands.c are outside their OBJS for
+# exactly that reason, and the suites that do link those halves
+# (test_spell, test_cmd) say so themselves.  spell_core.o itself reaches
+# only kg_lisp_variable_string(), which test.o below stubs weakly for the
+# suites that never link Lisp.
 TEST_SRCS_OBJS = $(OBJDIR)/undo.o $(OBJDIR)/buffer.o $(OBJDIR)/shindent.o \
                  $(OBJDIR)/syntax.o $(SYNTAX_BACKEND_OBJS) \
                  $(OBJDIR)/width.o $(OBJDIR)/marker.o $(OBJDIR)/decor.o \
                  $(OBJDIR)/cmdstate.o $(OBJDIR)/event.o \
                  $(OBJDIR)/process.o $(OBJDIR)/process_table.o \
-                 $(PROTOCOL_OBJS) $(LSP_OBJS) $(DAP_OBJS)
+                 $(PROTOCOL_OBJS) $(LSP_OBJS) $(DAP_OBJS) \
+                 $(OBJDIR)/spell_core.o
 # The tree-sitter backend converts a capture's chars-space columns into
 # render-byte offsets with chars_to_render_col() (src/mode.c), so in that
 # configuration every test binary that links a backend needs mode.o too.
@@ -731,6 +786,9 @@ override FUZZ_CFLAGS += -DKG_USE_LSP=1
 endif
 ifeq ($(WITH_DAP),1)
 override FUZZ_CFLAGS += -DKG_USE_DAP=1
+endif
+ifeq ($(WITH_ENCHANT),1)
+override FUZZ_CFLAGS += -DKG_USE_ENCHANT=1 $(ENCHANT_CFLAGS)
 endif
 # FUZZ_CFLAGS is a complete flag set of its own rather than CFLAGS plus
 # extras, so the feature defines have to be repeated here; the link side
@@ -1597,10 +1655,12 @@ EXTRA_yank         := $(TESTDIR)/stubs_noyank.o   $(OBJDIR)/yank.o $(OBJDIR)/rec
 EXTRA_autocomplete := $(TESTDIR)/stubs.o $(TESTDIR)/stubs_extra.o $(OBJDIR)/autocomplete.o $(TEST_SRCS_OBJS)
 EXTRA_word         := $(TESTDIR)/stubs_noyank.o $(TESTDIR)/stubs_extra.o $(OBJDIR)/word.o $(OBJDIR)/yank.o $(OBJDIR)/rect.o $(TEST_SRCS_OBJS) $(OBJDIR)/cmdstate.o
 # test_basic.c #includes src/display.c to reach the drawing helpers, so it
-# needs everything display.c calls -- showparen.o and gitdiag.o among them,
-# since the repaint is where the paren highlight and the git diagnostics
-# are recomputed, and path.o for the picker popup the repaint draws.
-EXTRA_basic        := $(TESTDIR)/stubs.o          $(OBJDIR)/basic.o $(OBJDIR)/mode.o $(OBJDIR)/vgeom.o $(OBJDIR)/showparen.o $(OBJDIR)/gitdiag.o $(OBJDIR)/path.o $(TEST_SRCS_OBJS) $(OBJDIR)/cmdstate.o
+# needs everything display.c calls -- showparen.o, gitdiag.o and spell.o
+# among them, since the repaint is where the paren highlight, the git
+# diagnostics and the misspellings are recomputed, and path.o for the
+# picker popup the repaint draws.  spell_core.o (what spell.o checks
+# through) arrives through TEST_SRCS_OBJS.
+EXTRA_basic        := $(TESTDIR)/stubs.o          $(OBJDIR)/basic.o $(OBJDIR)/mode.o $(OBJDIR)/vgeom.o $(OBJDIR)/showparen.o $(OBJDIR)/gitdiag.o $(OBJDIR)/spell.o $(OBJDIR)/path.o $(TEST_SRCS_OBJS) $(OBJDIR)/cmdstate.o
 # The geometry index's own unit tests need exactly what test_basic needs
 # to reach get_visual_row()/find_visual_row()/goto_visual_row_col(): real
 # basic.o (editor_cursor_goto(), editor_row_insert_char()), mode.o (the
@@ -1667,14 +1727,22 @@ EXTRA_dabbrev     := $(EXTRA_word) $(OBJDIR)/dabbrev.o
 # links the buffer-backed set (TEST_SRCS_OBJS' marker.o/decor.o) plus
 # mode.o, which is where chars_to_render_col() lives.
 EXTRA_showparen   := $(EXTRA_buffer) $(OBJDIR)/mode.o $(OBJDIR)/vgeom.o \
-                     $(OBJDIR)/showparen.o
-# The git diagnostics link the same set and for the same reasons: the pure
+                     $(OBJDIR)/showparen.o# The git diagnostics link the same set and for the same reasons: the pure
 # half reads rows and mode.o's render_to_chars_col(), and the update seam
 # publishes decorations into a real buffer.  Not a backend suite -- nothing
 # here names a scanner or a parser -- so it builds and runs in both
 # WITH_TREE_SITTER configurations, which is the point of the module.
 EXTRA_gitdiag     := $(EXTRA_buffer) $(OBJDIR)/mode.o $(OBJDIR)/vgeom.o \
                      $(OBJDIR)/gitdiag.o
+# The spell scanner is pure over one row, but the commands around it
+# prompt (prompt_read_choice), read the dispatch prefix
+# (cmd_active_prefix) and consult the `spell-language' variable, so this
+# suite links the same everything-but-main.c set EXTRA_cmd does -- which
+# is also the link in which the spell commands resolve at all.  The
+# dictionary-backed assertions run only where a dictionary loads;
+# everywhere else the suite asserts the disabled half and the pure
+# scanner with a stubbed verdict.
+EXTRA_spell       := $(EXTRA_cmd)
 EXTRA_marker      := $(EXTRA_buffer)
 EXTRA_decor       := $(EXTRA_buffer)
 EXTRA_event       := $(EXTRA_buffer) $(OBJDIR)/event.o
@@ -2048,7 +2116,7 @@ $(TESTDIR)/fe_unwind_fuzz.o: fe/fe_unwind.c fe/fe.h fe/fe_internal.h fe/fe_perf.
 
 clean:
 	rm -f $(OBJS) $(FE_OBJ) $(REGEX_OBJS) $(SYNTAX_BACKEND_ALL) $(LSP_ALL) \
-	      $(DAP_ALL) \
+	      $(DAP_ALL) $(SPELL_ALL) \
 	      $(OBJDIR)/.features-* $(OBJDIR)/.with-lisp-* $(TESTDIR)/*.o \
 	      $(TESTBINS) $(TESTDIR)/kgbatch $(GC_STRESS_KGBATCH) \
 	      $(TESTDIR)/prelude_read_eval_split $(TESTDIR)/prelude_gc_probe \

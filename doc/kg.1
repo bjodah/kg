@@ -16,7 +16,7 @@ Use this to recover from a broken configuration.
 .It Fl R
 Open all files given on the command line in read-only mode.
 .It Fl V
-Print version, compiled Lisp feature status, and exit.
+Print version and compiled feature status, and exit.
 .It Fl h
 Print a short usage message and exit.
 .El
@@ -109,6 +109,24 @@ A mode whose grammar is missing is not an error and never falls back to the
 row scanners.
 The mode names, mode commands and file-name detection below are unaffected
 by either choice.
+.Pp
+Spell checking is an optional Enchant client in the style of Emacs'
+jinx module, and it is off at build time by default: a default build
+reports
+.Sq -enchant
+by
+.Fl V ,
+while a build configured with
+.Li WITH_ENCHANT=1
+reports
+.Sq +enchant
+and links
+.Sy libenchant-2 ,
+found through
+.Xr pkg-config 1 .
+Dictionaries are found at run time through Enchant's providers (hunspell,
+aspell), so which languages can be checked is a property of the box, not
+of the binary.
 .Pp
 On startup
 .Nm
@@ -1402,6 +1420,7 @@ will be mis-detected as sentence ends.
 .It C-t Ta Transpose characters around point
 .It M-t Ta Transpose the two words around point
 .It M-/ Ta Expand the word before point from this buffer
+.It M-$ Ta Correct the misspelled word at or after point (needs Enchant)
 .It M-\e Ta Delete horizontal space around point
 .It M-Space Ta Collapse horizontal space around point to one space
 .It M-z Ta Kill through a prompted character
@@ -3525,6 +3544,50 @@ No matches for \(dq...\(dq
 .Dc
 and changes nothing at all: the previous listing, its highlights and its
 walk are all still there.
+.Sh SPELL CHECKING
+A
+.Sq +enchant
+build checks spelling through Enchant while the buffer is displayed, in
+the style of Emacs' jinx module.
+.Ic M-x spell-mode
+toggles checking in the current buffer; misspelled words are underlined
+in bright blue, rechecked incrementally a bounded slice of rows per
+repaint, so a large buffer costs a fixed slice of each frame rather than
+one long pause.
+.Pp
+In prose buffers (text and Markdown) every word is checked; in code
+buffers only comments and strings are, so identifiers never flag.
+Words holding a digit, all-uppercase words past one letter, and overlong
+runs are never asked about.
+The language comes from the
+.Li spell-language
+Lisp variable, set in the init file --
+.Do
+.Li (setq spell-language \(dqen_US\(dq)
+.Dc
+-- and defaults to
+.Sq en_US
+when nothing sets it; a language no provider owns is reported when the
+mode is enabled, and checking stays off.
+.Pp
+Three commands walk what checking found:
+.Ic M-x spell-next
+and
+.Ic M-x spell-previous
+move to the next and previous misspelled words, and
+.Ic M-x spell-correct ,
+bound to
+.Ic M-$ ,
+corrects the misspelled word at or after point from the dictionary's
+suggestions (or from typed text, which is always accepted).
+With a prefix argument
+.Po
+.Ic C-u M-$
+.Pc
+the word is instead accepted for this session, and never flags again
+until kg exits.
+Session words are the only ones kg keeps: saving to personal,
+file-local and directory-local word lists is not implemented yet.
 .Sh LSP
 kg can ask a Language Server Protocol server where a symbol is defined,
 where it is used, what it could be completed to, and to rename it.

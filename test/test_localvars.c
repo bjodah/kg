@@ -1178,6 +1178,31 @@ static void test_init_config_booleans(void)
 	CHECK(s.inhibit_startup_message_set == true);
 }
 
+static void test_init_config_spell_language(void)
+{
+	struct init_settings s;
+	const char *src = "(setq spell-language \"sv\")\n";
+
+	CHECK(init_config_parse(src, strlen(src), &s) == 0);
+	CHECK(s.spell_language_set == true);
+	CHECK(strcmp(s.spell_language, "sv") == 0);
+}
+
+static void test_init_config_spell_language_refused(void)
+{
+	struct init_settings s;
+	char long_src[256];
+	int prefix;
+
+	/* A tag longer than the slot is refused, not stored truncated. */
+	prefix
+	    = snprintf(long_src, sizeof(long_src), "(setq spell-language \"");
+	memset(long_src + prefix, 'x', 200);
+	memcpy(long_src + prefix + 200, "\")\n", 4);
+	CHECK(init_config_parse(long_src, strlen(long_src), &s) == 0);
+	CHECK(s.spell_language_set == false);
+}
+
 static void test_init_config_mixed_forms(void)
 {
 	struct init_settings s;
@@ -1635,6 +1660,8 @@ int main(void)
 	RUN(test_init_config_tab_width_simple);
 	RUN(test_init_config_tab_width_invalid);
 	RUN(test_init_config_booleans);
+	RUN(test_init_config_spell_language);
+	RUN(test_init_config_spell_language_refused);
 	RUN(test_init_config_mixed_forms);
 	RUN(test_init_config_unbalanced_paren);
 	return test_summary();

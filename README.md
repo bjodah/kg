@@ -375,7 +375,7 @@ WITH_LSP=0` builds the editor without it. `kg -V` says which one a binary
 is:
 
 ```bash
-./src/kg -V          # kg 1.1.0 +lisp -tree-sitter +lsp
+./src/kg -V          # kg 1.1.0 +lisp -tree-sitter +lsp +dap -enchant
 ```
 
 See [LSP.md](LSP.md) for more details.
@@ -387,6 +387,23 @@ kg speaks the Debug Adapter Protocol, so a program can be run under a debug
 adapter from inside the editor. Optional at build time (`make WITH_DAP=0`),
 on by default, and `kg -V` prints `+dap` or `-dap` to say which this binary
 is. See [DAP.md](DAP.md) for details.
+
+
+## Spell checking (optional, off by default)
+
+kg can check spelling through Enchant, in the style of Emacs' jinx module:
+`M-x spell-mode` highlights misspelled words as you look at them,
+`M-$` corrects the one at or after point from the dictionary's
+suggestions, and `M-x spell-next` / `M-x spell-previous` walk them.
+Prose buffers check every word; code buffers only check comments and
+strings. The language is the `spell-language` Lisp variable
+(`(setq spell-language "en_US")` in the init file, `en_US` by default).
+
+Needs libenchant-2 at build time, so unlike LSP/DAP this is off unless
+asked for: `make WITH_ENCHANT=1` (found through `pkg-config enchant-2`).
+Dictionaries are found at run time through Enchant's providers. `kg -V`
+prints `+enchant` or `-enchant` to say which this binary is. See
+[kg(1)](https://man.troglobit.com/man1/kg.1.html) for details.
 
 
 ## Development

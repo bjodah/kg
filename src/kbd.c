@@ -515,6 +515,7 @@ static const struct {
 	{ "M-d", "kill-word" },
 	{ "M-DEL", "backward-kill-word" },
 	{ "M-q", "fill-paragraph" },
+	{ "M-$", "spell-correct" },
 	{ "M-;", "comment-dwim" },
 	{ "M-^", "join-line" },
 	{ "M-u", "upcase-word" },

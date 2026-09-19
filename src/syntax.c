@@ -764,6 +764,10 @@ int editor_syntax_to_color(int hl)
 		return 90; /* bright black, i.e. grey */
 	case HL_DEBUG_CURRENT:
 		return 93; /* bright yellow */
+	/* A misspelled word: bright blue, the one foreground no other HL_*
+	 * uses (jinx' wavy underline has no foreground-only equivalent). */
+	case HL_SPELL:
+		return 94; /* bright blue */
 	default:
 		return 37; /* white */
 	}

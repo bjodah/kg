@@ -49,6 +49,7 @@ struct kg_syntax_state;
 #define HL_BREAKPOINT 12 /* The debugger: a verified breakpoint. */
 #define HL_BREAKPOINT_PENDING 13 /* ... one no adapter has verified. */
 #define HL_DEBUG_CURRENT 14 /* ... the line the program is stopped on. */
+#define HL_SPELL 15 /* The spell checker: a misspelled word. */
 
 /* Stable identity of an editor mode, independent of how -- or whether --
  * it highlights.  Every struct editor_syntax carries one: the HLDB

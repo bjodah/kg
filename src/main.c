@@ -60,6 +60,7 @@
 #include "perf.h"
 #include "process_table.h"
 #include "register.h"
+#include "spell.h"
 #include "winmgr.h"
 #include "yank.h"
 
@@ -102,6 +103,7 @@ void init_editor(void)
 	bcur()->visual_line_mode = 0;
 	bcur()->truncate_lines = 1;
 	bcur()->saved_truncate_lines = 1;
+	bcur()->spell_mode = 0;
 	wcur()->rowoff_visual = 0;
 	editor.prefix_pending = 0;
 	editor.prefix_arg = 0;
@@ -115,6 +117,7 @@ void init_editor(void)
 	kg_process_table_init();
 	lsp_init();
 	dap_init();
+	spell_init();
 	lsp_log_install();
 	lsp_diag_install();
 	atexit(editor_cleanup);
@@ -174,6 +177,16 @@ static int usage(FILE *fp, int rc)
 #define KG_FEATURE_DAP "+dap"
 #else
 #define KG_FEATURE_DAP "-dap"
+#endif
+
+/* The Enchant spell checker (src/spell.h).  A build-time dependency like
+ * tree-sitter's -- dictionaries are found at run time, but the library
+ * itself is linked -- so the answer comes from the macro the Makefile
+ * defines, and `requires_feature: enchant' in a PTY case reads it. */
+#ifdef KG_USE_ENCHANT
+#define KG_FEATURE_ENCHANT "+enchant"
+#else
+#define KG_FEATURE_ENCHANT "-enchant"
 #endif
 
 /* Whether the user turned the startup screen off.  Emacs decides this
@@ -245,10 +258,10 @@ int main(int argc, char **argv)
 			readonly = 1;
 			break;
 		case 'V':
-			printf("kg %s %s %s %s %s\n", KG_VERSION,
+			printf("kg %s %s %s %s %s %s\n", KG_VERSION,
 			    kg_lisp_active() ? "+lisp" : "-lisp",
 			    KG_FEATURE_TREE_SITTER, KG_FEATURE_LSP,
-			    KG_FEATURE_DAP);
+			    KG_FEATURE_DAP, KG_FEATURE_ENCHANT);
 			return 0;
 		case 'h':
 			return usage(stdout, 0);

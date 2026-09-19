@@ -44,6 +44,11 @@ enum kg_decor_face {
 	KG_DECOR_FACE_BREAKPOINT = 4,
 	KG_DECOR_FACE_BREAKPOINT_PENDING = 5, /* set, not verified. */
 	KG_DECOR_FACE_DEBUG_CURRENT = 6, /* where the program is stopped. */
+	/* The spell checker's misspelled word (src/spell.c).  Its own face
+	 * for the debugger's reason: the colour is new (bright blue,
+	 * which no HL_* uses yet), and a misspelling must stay
+	 * distinguishable from a diagnostic where the two overlap. */
+	KG_DECOR_FACE_SPELL = 7,
 };
 
 enum kg_decor_result {

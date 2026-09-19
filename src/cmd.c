@@ -32,6 +32,7 @@
 #include "register.h"
 #include "shindent.h"
 #include "showparen.h"
+#include "spell.h"
 #include "syntax.h"
 #include "vgeom.h"
 #include "winmgr.h"
@@ -2025,6 +2026,14 @@ static const struct named_cmd cmdtable[] = {
 	    "Toggle highlighting the paren at point and its match" },
 	{ "sort-lines", cmd_sort_lines, EDITS | LISP_OK,
 	    "Sort the lines of the region in ascending order" },
+	{ "spell-correct", spell_cmd_correct, EDITS | READS_TERM | LISP_OK,
+	    "Correct the misspelled word at or after point" },
+	{ "spell-mode", spell_cmd_mode, LISP_OK,
+	    "Toggle Enchant spell checking in this buffer" },
+	{ "spell-next", spell_cmd_next, LISP_OK,
+	    "Go to the next misspelled word" },
+	{ "spell-previous", spell_cmd_previous, LISP_OK,
+	    "Go to the previous misspelled word" },
 	{ "split-window-below", cmd_split_window_below, LISP_OK,
 	    "Split this window into two, one above the other" },
 	{ "split-window-right", cmd_split_window_right, LISP_OK,

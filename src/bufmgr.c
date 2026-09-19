@@ -34,6 +34,7 @@
 #include "paste.h"
 #include "perf.h"
 #include "process_table.h"
+#include "spell.h"
 #include "syntax.h"
 #include "winmgr.h"
 #include "word.h"
@@ -623,6 +624,7 @@ static void buf_reset(void)
 	bcur()->visual_line_mode = 0;
 	bcur()->truncate_lines = 1;
 	bcur()->saved_truncate_lines = 1;
+	bcur()->spell_mode = 0;
 	bcur()->display.word_wrap = 0;
 	wcur()->rowoff_visual = 0;
 	bcur()->overwrite_mode = 0;
@@ -2787,6 +2789,7 @@ static void buf_reset_slot(int slot)
 	buf_claim_slot(slot);
 	b->truncate_lines = 1;
 	b->saved_truncate_lines = 1;
+	b->spell_mode = 0;
 	b->readonly_override = -1;
 	undo_stack_init(&b->undostack);
 	b->active = 1;
@@ -3170,6 +3173,10 @@ void editor_cleanup(void)
 	 * still running when the loop below frees the buffers would be one
 	 * pointing into storage that is gone. */
 	dap_shutdown();
+	/* And the spell checker's broker and session words, which own no
+	 * buffers and reorder against nothing above -- they just must go
+	 * before the process exits. */
+	spell_shutdown();
 
 	/* Every window may own a visual-line geometry index (src/vgeom.h);
 	 * freeing it here is what the "session teardown" leg of its

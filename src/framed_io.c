@@ -540,6 +540,18 @@ static int output_close_if_drained(struct framed_io *io)
 	return 0;
 }
 
+/* What a failed outbox write with `err` means.  A peer that closed its
+ * end is the stream ending, seen from the write side: whether a read's
+ * EOF or this write's EPIPE notices it first is scheduling, and the two
+ * must not read as different failures. */
+static enum framed_io_error write_failure(int err)
+{
+	if (err == EPIPE || err == ECONNRESET) {
+		return FRAMED_IO_ERR_EOF;
+	}
+	return FRAMED_IO_ERR_IO;
+}
+
 static int flush_ready(struct framed_io *io)
 {
 	void (*old_sigpipe)(int);
@@ -549,11 +561,14 @@ static int flush_ready(struct framed_io *io)
 		return output_close_if_drained(io);
 	}
 	if (io->outbox_sent < io->outbox.len) {
+		int err;
+
 		old_sigpipe = signal(SIGPIPE, SIG_IGN);
 		rc = outbox_write(io);
+		err = errno;
 		signal(SIGPIPE, old_sigpipe);
 		if (rc != 0) {
-			return framed_io_fail(io, FRAMED_IO_ERR_IO, false);
+			return framed_io_fail(io, write_failure(err), false);
 		}
 	}
 	buf_consume(&io->outbox, io->outbox_sent);

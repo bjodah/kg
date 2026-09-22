@@ -389,6 +389,33 @@ static void test_complete_buffered_frame_precedes_quiet_eof(void)
 	framed_io_close(io);
 }
 
+/* A write the peer can no longer read is the stream ending, the same
+ * FRAMED_IO_ERR_EOF a read sees: a server that exits before kg's first
+ * request reaches it fails that write with EPIPE, and which of the read
+ * or the write notices first is scheduling.  The client's "closed the
+ * connection without answering" hangs on this being EOF. */
+static void test_write_to_a_closed_reader_is_eof(void)
+{
+	struct framed_io *io;
+	int fds[2];
+
+	if (pipe(fds) != 0) {
+		CHECK(false);
+		return;
+	}
+	close(fds[0]);
+	io = framed_io_attach_fds(-1, fds[1]);
+	CHECK(io != NULL);
+	if (!io) {
+		close(fds[1]);
+		return;
+	}
+	/* The send flushes at once, so it is the send that fails. */
+	CHECK(framed_io_send(io, "{}", 2) == -1);
+	CHECK(framed_io_error(io) == FRAMED_IO_ERR_EOF);
+	framed_io_close(io);
+}
+
 static size_t fill_pipe(int fd)
 {
 	char bytes[4096];
@@ -727,6 +754,7 @@ int main(void)
 	RUN(test_bad_header_is_a_protocol_error_that_is_not_truncation);
 	RUN(test_complete_frame_precedes_partial_body_error);
 	RUN(test_complete_buffered_frame_precedes_quiet_eof);
+	RUN(test_write_to_a_closed_reader_is_eof);
 	RUN(test_pipe_half_close_waits_for_outbox_and_keeps_input);
 	RUN(test_socket_half_close_is_idempotent_and_keeps_input);
 	RUN(test_blank_half_close_rejects_late_output_configuration);

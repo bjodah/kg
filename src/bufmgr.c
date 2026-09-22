@@ -1071,8 +1071,8 @@ static void minibuf_insert_repeated(char *buf, int bufsize, int *cursor,
 		(*overflow)++;
 		return;
 	}
-	memmove(buf + *cursor + total, buf + *cursor,
-	    (size_t)(*len - *cursor + 1));
+	memmove(
+	    buf + *cursor + total, buf + *cursor, (size_t)(*len - *cursor + 1));
 	for (i = 0; i < repeat; i++) {
 		memcpy(buf + *cursor + i * unit_len, unit, (size_t)unit_len);
 	}
@@ -1435,8 +1435,8 @@ enum minibuf_result editor_read_line_with_history(int fd, const char *prompt,
 		} else {
 			if (KEY_IS(c, 'u', KEY_MOD_CTRL)) {
 				prefix_raw = 1;
-				prefix_arg = minibuf_prefix_mul_add(
-				    prefix_arg, 4, 0);
+				prefix_arg
+				    = minibuf_prefix_mul_add(prefix_arg, 4, 0);
 				continue;
 			}
 			{
@@ -1449,8 +1449,7 @@ enum minibuf_result editor_read_line_with_history(int fd, const char *prompt,
 					} else if (prefix_arg < 0) {
 						prefix_arg
 						    = -minibuf_prefix_mul_add(
-							-prefix_arg, 10,
-							digit);
+							-prefix_arg, 10, digit);
 					} else {
 						prefix_raw = 2;
 						prefix_arg = prefix_no_digits
@@ -1485,27 +1484,23 @@ enum minibuf_result editor_read_line_with_history(int fd, const char *prompt,
 					continue;
 				}
 				seq[0] = (char)raw;
-				minibuf_insert_repeated(buf, bufsize,
-				    &cursor, &len, &overflow, seq, 1,
-				    repeat);
+				minibuf_insert_repeated(buf, bufsize, &cursor,
+				    &len, &overflow, seq, 1, repeat);
 				continue;
 			}
 			if (c.mods == 0 && ascii_is_print(c.base)) {
 				seq[0] = (char)c.base;
-				minibuf_insert_repeated(buf, bufsize,
-				    &cursor, &len, &overflow, seq, 1,
-				    repeat);
+				minibuf_insert_repeated(buf, bufsize, &cursor,
+				    &len, &overflow, seq, 1, repeat);
 				continue;
 			}
-			if (c.mods == 0 && c.base >= 0x80
-			    && c.base <= 0xFF) {
+			if (c.mods == 0 && c.base >= 0x80 && c.base <= 0xFF) {
 				seqlen = editor_read_utf8_seq(
 				    fd, (int)c.base, seq);
 				if (seqlen > 0) {
-					minibuf_insert_repeated(buf,
-					    bufsize, &cursor, &len,
-					    &overflow, seq, seqlen,
-					    repeat);
+					minibuf_insert_repeated(buf, bufsize,
+					    &cursor, &len, &overflow, seq,
+					    seqlen, repeat);
 				}
 				continue;
 			}

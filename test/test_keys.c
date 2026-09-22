@@ -936,9 +936,9 @@ static void test_vertical_motions_keep_the_goal_column(void)
 {
 	static const char *const vertical[] = { "C-n", "C-p", "<up>", "<down>",
 		"C-v", "M-v", "<prior>", "<next>", "S-<up>", "S-<down>" };
-	static const char *const keeps_goal[] = { "isearch-forward",
-		"isearch-backward", "isearch-forward-regexp",
-		"isearch-backward-regexp" };
+	static const char *const keeps_goal[]
+	    = { "isearch-forward", "isearch-backward", "isearch-forward-regexp",
+		      "isearch-backward-regexp" };
 	int i;
 	size_t k;
 
@@ -971,8 +971,7 @@ static void test_vertical_motions_keep_the_goal_column(void)
 				expected = 1;
 			}
 		}
-		for (k = 0; k < sizeof(keeps_goal) / sizeof(*keeps_goal);
-		    k++) {
+		for (k = 0; k < sizeof(keeps_goal) / sizeof(*keeps_goal); k++) {
 			if (strcmp(b->command, keeps_goal[k]) == 0) {
 				expected = 1;
 			}

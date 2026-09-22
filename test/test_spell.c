@@ -17,12 +17,14 @@
 #include "../src/marker.h"
 #include "../src/spell.h"
 #include "../src/syntax.h"
+#include "../src/winmgr.h"
 #include "test.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 static void setup(void)
 {
@@ -457,6 +459,90 @@ static void test_update_paints_misspellings(void)
 	teardown();
 }
 
+/* One frame, as the terminal would receive it: editor_refresh_screen()
+ * writes to STDOUT_FILENO, so the frame is caught in a temporary file for
+ * the call and read back NUL-terminated into `out`. */
+static void render_frame(char *out, size_t size)
+{
+	FILE *fp = tmpfile();
+	int saved = dup(STDOUT_FILENO);
+	size_t n = 0;
+
+	out[0] = '\0';
+	fflush(stdout);
+	if (fp) {
+		dup2(fileno(fp), STDOUT_FILENO);
+	}
+	editor_refresh_screen();
+	fflush(stdout);
+	if (saved >= 0) {
+		dup2(saved, STDOUT_FILENO);
+		close(saved);
+	}
+	if (fp) {
+		rewind(fp);
+		n = fread(out, 1, size - 1, fp);
+		fclose(fp);
+	}
+	out[n] = '\0';
+}
+
+/* Whether `needle` occurs in [from, to). */
+static bool frame_has(const char *from, const char *to, const char *needle)
+{
+	const char *hit = strstr(from, needle);
+
+	return hit && hit + strlen(needle) <= to;
+}
+
+/* display.c draws the spell face whatever planted it, so this needs no
+ * dictionary: a KG_DECOR_FACE_SPELL span comes out underlined in the
+ * default style, with the underline switched off again right after the
+ * word, and in the "color" style as HL_SPELL's colour with no underline
+ * at all. */
+static void test_display_draws_spell_face(void)
+{
+	static char frame[65536];
+	char result[128] = "";
+	const char *src = "(setq spell-highlight-style 'color)";
+	const char *on;
+	const char *off;
+	struct kg_decor_handle d;
+
+	setup();
+	win_total_rows = 24;
+	win_total_cols = 80;
+	win_init();
+	fill_one("a wrod here");
+	d = kg_decor_create(bcur(), 2, 6, KG_MARKER_GRAV_RIGHT,
+	    KG_MARKER_GRAV_LEFT, KG_DECOR_FACE_SPELL, 0, false);
+	CHECK(d.id != 0);
+
+	render_frame(frame, sizeof(frame));
+	on = strstr(frame, "\x1b[4m");
+	CHECKF(on != NULL, "no underline in the frame");
+	off = on ? strstr(on, "\x1b[24m") : NULL;
+	CHECKF(off != NULL, "underline never switched off");
+	if (on && off) {
+		CHECK(frame_has(on, off, "wrod"));
+		CHECK(!frame_has(on, off, "here"));
+	}
+
+	if (kg_lisp_active()) {
+		CHECK(kg_lisp_init() == 0);
+		CHECK(kg_lisp_eval_string(
+			  src, strlen(src), result, sizeof(result))
+		    == 0);
+		spell_sync_highlight_style();
+		render_frame(frame, sizeof(frame));
+		CHECK(strstr(frame, "\x1b[4m") == NULL);
+		CHECK(strstr(frame, "wrod") != NULL);
+		kg_lisp_shutdown();
+		spell_sync_highlight_style();
+	}
+	teardown();
+}
+
 int main(void)
 {
 	RUN(test_candidate_rules);
@@ -475,5 +561,6 @@ int main(void)
 	RUN(test_backend_word);
 	RUN(test_backend_suggest);
 	RUN(test_update_paints_misspellings);
+	RUN(test_display_draws_spell_face);
 	return test_summary();
 }

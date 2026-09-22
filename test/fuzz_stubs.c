@@ -172,6 +172,15 @@ enum prompt_yn prompt_ask_yn(int fd, const char *question)
 	return PROMPT_YN_CANCELLED;
 }
 
+enum minibuf_result prompt_ask_yes_or_no(
+    int fd, const char *prompt, bool *answer)
+{
+	(void)fd;
+	(void)prompt;
+	(void)answer;
+	return MINIBUF_CANCELLED;
+}
+
 int editor_path_expand_tilde(char *buf, int bufsize)
 {
 	(void)buf;

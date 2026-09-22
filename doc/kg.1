@@ -1903,6 +1903,7 @@ saved again.
 .It C-x i Ta Insert file contents at point
 .It C-x C-f Ta Open file in new buffer
 .It C-x C-r Ta Open file read-only in new buffer
+.It C-x C-v Ta Visit another file in place of this buffer
 .It C-x C-q Ta Toggle read-only mode on current buffer (read-only-mode)
 .It C-x d Ta List a directory (dired)
 .It C-x b Ta Switch to buffer, creating it when the name is new
@@ -1913,9 +1914,30 @@ saved again.
 .It C-x # Ta Save and exit with status 0 (EDITOR-server done)
 .El
 .Pp
+.Pp
+.Ic C-x C-v
+.Pq Ic find-alternate-file
+replaces the current buffer with another file rather than opening a
+second one.
+Its prompt starts out on the file the buffer is already visiting, so a
+bare
+.Ic Enter
+re-reads that file from disk; type a different name to visit that one
+instead.
+When the buffer has unsaved changes the command asks whether to kill and
+replace it without saving, and waits for the whole word
+.Ql yes
+or
+.Ql no ,
+as Emacs does for a question that throws work away.
+Re-reading the visited file reloads it in place; visiting a different
+file opens it and then kills this buffer.
+Point goes to the top of the new contents either way.
+.Pp
 The filename prompts for
 .Ic C-x C-f ,
 .Ic C-x C-r ,
+.Ic C-x C-v ,
 .Ic C-x C-w
 and
 .Ic C-x i

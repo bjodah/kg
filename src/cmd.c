@@ -29,6 +29,7 @@
 #include "next_error.h"
 #include "occur.h"
 #include "perf.h"
+#include "prompt.h"
 #include "register.h"
 #include "shindent.h"
 #include "showparen.h"
@@ -1230,6 +1231,96 @@ static void cmd_find_file(int fd) { buf_open_file(fd); }
 
 static void cmd_find_file_read_only(int fd) { buf_open_file_read_only(fd); }
 
+/* Seed a path prompt with the current buffer's whole file name, the way
+ * Emacs seeds `find-alternate-file': the directory part is
+ * editor_prompt_prefill_dir()'s (realpath'd, "~"-shortened), and the
+ * basename is appended so plain RET re-reads the visited file.  Leaves
+ * the directory alone when the name will not fit -- a truncated path is
+ * a different file. */
+static void prefill_visited_file(char *buf, int bufsize)
+{
+	const char *base;
+	int len;
+
+	editor_prompt_prefill_dir(buf, bufsize);
+	if (!buf_visits_file(bcur())) {
+		return;
+	}
+	base = buf_basename(bcur()->filename);
+	len = (int)strlen(buf);
+	if (len + (int)strlen(base) + 1 > bufsize) {
+		return;
+	}
+	(void)snprintf(buf + len, (size_t)(bufsize - len), "%s", base);
+}
+
+/* C-x C-v: visit another file *in place of* this buffer, Emacs'
+ * `find-alternate-file'.  The prompt starts on the visited file, so a
+ * bare RET re-reads it from disk -- which is what the command is most
+ * often used for, and why the confirmation is the two-word question
+ * rather than the single keystroke the other destructive prompts ask:
+ * the buffer's unsaved changes go, and Emacs asks it the same way.
+ *
+ * Two shapes, and which one runs is decided by the answer alone.  When
+ * the name is the one this buffer already visits, the buffer is reloaded
+ * where it is: no slot is taken, nothing is killed, and a buffer list at
+ * its limit can still re-read its files.  Otherwise the new file is
+ * opened first and this buffer killed after -- the reverse of Emacs'
+ * order, and deliberately so: killing first would empty the last buffer
+ * and take the editor down with it (buf_kill()), and doing it this way
+ * also leaves the old buffer untouched when the open is refused.
+ *
+ * Point goes to the top, as it does after M-x revert-buffer: the new
+ * contents are not the old ones, so the old position means nothing. */
+static void cmd_find_alternate_file(int fd)
+{
+	char query[256];
+	struct kg_buffer_handle dying;
+	int previous;
+
+	prefill_visited_file(query, sizeof(query));
+	if (editor_read_line_path(
+		fd, "Find alternate file: ", query, sizeof(query))
+		!= MINIBUF_ACCEPTED
+	    || query[0] == '\0') {
+		return;
+	}
+	if (bcur()->dirty) {
+		char question[320];
+		char bname[128];
+		bool answer = false;
+
+		buf_display_name(buf_current, bname, sizeof(bname));
+		(void)snprintf(question, sizeof(question),
+		    "Kill and replace buffer '%s' without saving it? ", bname);
+		if (prompt_ask_yes_or_no(fd, question, &answer)
+			!= MINIBUF_ACCEPTED
+		    || !answer) {
+			editor_set_status_message("");
+			return;
+		}
+	}
+
+	previous = buf_current;
+	if (buf_find_open(query) == previous) {
+		wcur()->cx = wcur()->cy = 0;
+		wcur()->rowoff = wcur()->coloff = 0;
+		buf_reload_from_disk();
+		editor_set_status_message("%s", bcur()->filename);
+		return;
+	}
+
+	dying = buf_handle(previous);
+	buf_open_path(query, 0);
+	if (buf_current == previous) {
+		/* Refused, and already said why. */
+		return;
+	}
+	/* Answered for above, so the kill must not refuse over it. */
+	buflist[previous].dirty = 0;
+	(void)buf_kill_buffer(dying);
+}
+
 static void cmd_switch_to_buffer(int fd) { buf_select_interactive(fd); }
 
 static void cmd_kill_buffer(int fd) { buf_kill(fd); }
@@ -1850,6 +1941,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Read a command name and run it" },
 	{ "fill-paragraph", cmd_fill_paragraph, EDITS | LISP_OK,
 	    "Reflow this paragraph to the fill column" },
+	{ "find-alternate-file", cmd_find_alternate_file, READS_TERM | LISP_OK,
+	    "Visit another file in place of this buffer" },
 	{ "find-file", cmd_find_file, READS_TERM | LISP_OK,
 	    "Visit a file in a new buffer" },
 	{ "find-file-read-only", cmd_find_file_read_only, READS_TERM | LISP_OK,

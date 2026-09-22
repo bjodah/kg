@@ -1,0 +1,23 @@
+# C-x C-v RET re-reads the visited file, throwing away what was typed.
+#
+# The prompt starts out on the file the buffer is visiting, so RET
+# accepts that name; the buffer is modified, so the two-word question is
+# asked and answered "yes".  The ZZ typed afterwards lands at the top of
+# the re-read contents -- which is how the saved file says both that the
+# XX went and that "on disk" came back.
+name: find-alternate-file-rereads
+filename: notes.txt
+backend: tmux
+initial: "on disk"
+keys:
+  - "XX"
+  - C-x
+  - C-v
+  - RET
+  - SETTLE=2:"without saving it?"
+  - "yes"
+  - RET
+  - SETTLE=2
+  - "ZZ"
+trailer_keys: ["C-x", "C-s", "C-x", "C-c"]
+expected_saved: "ZZon disk"

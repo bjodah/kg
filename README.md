@@ -97,6 +97,11 @@ standard VT100 escape sequences.
   the completion (an intentional deviation from Emacs), and so does
   `RET` when the last component is `.` or `..`, so `C-x C-f . RET`
   opens the prompt's directory in dired the way Emacs does
+- `C-x C-v` (find-alternate-file) replaces the current buffer with
+  another file instead of opening a second one.  Its prompt starts on
+  the file the buffer already visits, so a bare `RET` re-reads that file
+  from disk; a modified buffer is asked about first, with the whole word
+  `yes` or `no`, the way Emacs asks a question that throws work away
 - Detects external changes to open files by identity, not just by
   timestamp: a replaced, removed or unexaminable file is flagged and a
   save over it asks first; optional auto-revert reloads only what can

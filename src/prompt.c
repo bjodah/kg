@@ -304,3 +304,52 @@ enum prompt_yn prompt_ask_yn(int fd, const char *question)
 	kg_event_prompt_leave();
 	return result;
 }
+
+/* Case-insensitive comparison against a lowercase literal, for the two
+ * words below.  Not a general folding: `yes` and `no` are ASCII, which is
+ * the whole grammar this question has. */
+static bool prompt_word_is(const char *text, const char *word)
+{
+	size_t i;
+
+	for (i = 0; word[i] != '\0'; i++) {
+		char c = text[i];
+
+		if (c >= 'A' && c <= 'Z') {
+			c = (char)(c - 'A' + 'a');
+		}
+		if (c != word[i]) {
+			return false;
+		}
+	}
+	return text[i] == '\0';
+}
+
+enum minibuf_result prompt_ask_yes_or_no(
+    int fd, const char *prompt, bool *answer)
+{
+	/* Room for the longest prompt any caller passes (Lisp's is 256) plus
+	 * the suffix, so the question is never asked half-spelled. */
+	char question[288];
+	char text[64];
+
+	(void)snprintf(question, sizeof(question), "%s(yes or no) ", prompt);
+	for (;;) {
+		enum minibuf_result result;
+
+		text[0] = '\0';
+		result = editor_read_line(fd, question, text, sizeof(text));
+		if (result != MINIBUF_ACCEPTED) {
+			return result;
+		}
+		if (prompt_word_is(text, "yes")) {
+			*answer = true;
+			return MINIBUF_ACCEPTED;
+		}
+		if (prompt_word_is(text, "no")) {
+			*answer = false;
+			return MINIBUF_ACCEPTED;
+		}
+		editor_set_status_message("Please answer yes or no.");
+	}
+}

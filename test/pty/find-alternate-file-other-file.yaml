@@ -1,0 +1,25 @@
+# C-x C-v to a different name visits that file IN PLACE of this buffer:
+# the window shows the other file and the buffer that was there is gone,
+# which C-x C-b proves by listing one file buffer and not notes.txt.
+name: find-alternate-file-other-file
+filename: notes.txt
+backend: tmux
+initial: "first file"
+workspace_files:
+  other.txt: "second file"
+keys:
+  - C-x
+  - C-v
+  - C-a
+  - C-k
+  - "other.txt"
+  - RET
+  - SETTLE=2:"second file"
+  - C-x
+  - C-b
+  - SETTLE=2:"other.txt"
+expected_screen_contains:
+  - "other.txt"
+expected_screen_not_contains:
+  - "notes.txt"
+expected_saved: "first file"

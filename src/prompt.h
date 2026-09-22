@@ -17,6 +17,8 @@
  * Self-contained: bufmgr.h is where `enum minibuf_result' lives, and
  * every reader in kg answers with it. */
 
+#include <stdbool.h>
+
 #include "bufmgr.h"
 
 /* The most candidates prompt_read_choice() accepts.  Equal to
@@ -62,5 +64,17 @@ enum prompt_yn {
 };
 
 enum prompt_yn prompt_ask_yn(int fd, const char *question);
+
+/* The weightier question: the caller's `prompt` with "(yes or no) " added,
+ * answered by typing one of the two words in full and re-prompted until
+ * one of them is.  Emacs asks this one where a single mistyped key would
+ * lose work, and kg asks it in the same places; the case-insensitive
+ * match is Emacs' too.
+ *
+ * Returns what the minibuffer reader returned, so a caller can tell a
+ * cancelled question (C-g) from a "no": only MINIBUF_ACCEPTED writes
+ * `answer`. */
+[[nodiscard]] enum minibuf_result prompt_ask_yes_or_no(
+    int fd, const char *prompt, bool *answer);
 
 #endif /* KG_PROMPT_H */

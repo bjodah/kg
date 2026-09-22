@@ -547,6 +547,7 @@ static const struct {
 	{ "C-x s", "save-some-buffers" },
 	{ "C-x C-f", "find-file" },
 	{ "C-x C-r", "find-file-read-only" },
+	{ "C-x C-v", "find-alternate-file" },
 	{ "C-x b", "switch-to-buffer" },
 	{ "C-x k", "kill-buffer" },
 	{ "C-x C-b", "list-buffers" },

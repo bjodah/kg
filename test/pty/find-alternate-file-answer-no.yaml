@@ -1,0 +1,17 @@
+# Answering "no" to find-alternate-file's question leaves the buffer
+# exactly as it was: the unsaved XX is still there to be saved.
+name: find-alternate-file-answer-no
+filename: notes.txt
+backend: tmux
+initial: "on disk"
+keys:
+  - "XX"
+  - C-x
+  - C-v
+  - RET
+  - SETTLE=2:"without saving it?"
+  - "no"
+  - RET
+  - SETTLE=2
+trailer_keys: ["C-x", "C-s", "C-x", "C-c"]
+expected_saved: "XXon disk"

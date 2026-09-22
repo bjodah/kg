@@ -420,56 +420,23 @@ FeObject *native_y_or_n_p(FeContext *context, FeObject *arguments)
 	return FeMakeBool(context, answer == PROMPT_YN_YES);
 }
 
-/* ASCII case-insensitive equality against one of the two literal words.
- * Not ctype's: kg never calls setlocale(), and the grammar here is ASCII
- * by definition (def.h's rule). */
-static bool word_is(const char *text, const char *word)
-{
-	size_t i;
-
-	for (i = 0; word[i] != '\0'; i++) {
-		char c = text[i];
-
-		if (c >= 'A' && c <= 'Z') {
-			c = (char)(c - 'A' + 'a');
-		}
-		if (c != word[i]) {
-			return false;
-		}
-	}
-	return text[i] == '\0';
-}
-
 /* (yes-or-no-p PROMPT): the typed word, re-prompting until one of the two
- * words is answered.  Case-insensitive, as Emacs' is. */
+ * words is answered.  Case-insensitive, as Emacs' is; the reader itself is
+ * prompt.c's, shared with the editor commands that ask the same question. */
 FeObject *native_yes_or_no_p(FeContext *context, FeObject *arguments)
 {
 	FeObject *prompt = FeGetNextArgument(context, &arguments);
 	char prompt_text[lisp_prompt_max];
-	char question[lisp_prompt_max + 16];
-	char text[64];
-	int fd;
+	bool answer = false;
+	enum minibuf_result result;
 
 	FeRequireNoArguments(context, arguments);
 	copy_string_argument(
 	    context, prompt, prompt_text, sizeof(prompt_text), "prompt");
-	(void)snprintf(
-	    question, sizeof(question), "%s(yes or no) ", prompt_text);
-	fd = lisp_prompt_fd(context);
-	for (;;) {
-		enum minibuf_result result;
-
-		text[0] = '\0';
-		result = editor_read_line(fd, question, text, sizeof(text));
-		prompt_result_check(context, result, "yes-or-no-p");
-		if (word_is(text, "yes")) {
-			return FeMakeBool(context, true);
-		}
-		if (word_is(text, "no")) {
-			return FeMakeBool(context, false);
-		}
-		editor_set_status_message("Please answer yes or no.");
-	}
+	result = prompt_ask_yes_or_no(
+	    lisp_prompt_fd(context), prompt_text, &answer);
+	prompt_result_check(context, result, "yes-or-no-p");
+	return FeMakeBool(context, answer);
 }
 
 /* The COLLECTION, copied onto this frame: bounded, because the picker can

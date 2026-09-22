@@ -54,8 +54,8 @@ const char *kg_help_lines[]
 	      "eval expr     │",
 	      "│ M-.      goto definition│ C-j      eval sexp/nl   │ C-x #    "
 	      "save+exit      │",
-	      "│ M-TAB    completion     │ M-$      spell correct  │           "
-	      "              │",
+	      "│ M-TAB    completion     │ M-$      spell correct  │ C-x C-v  "
+	      "find alt file  │",
 	      "├─────────────────────────┼─────────────────────────┼───────────"
 	      "──────────────┤",
 	      "│ REGION & SELECTION      │ RECTANGLES              │ WINDOWS · "

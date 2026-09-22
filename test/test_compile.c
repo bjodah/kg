@@ -10,6 +10,7 @@
 #include "test.h"
 #include <errno.h>
 #include <signal.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
@@ -415,6 +416,40 @@ static bool process_gone(pid_t pid)
 	return false;
 }
 
+/* True once `pid` ignores SIGINT, which is what `sleep 30 &' in a
+ * non-interactive shell ends up doing -- but only once the forked child
+ * has been scheduled and set it: the shell prints $! from the parent
+ * straight after fork(), so on a loaded box an early SIGINT can land in
+ * the window before, and kill the job it means to spare.  Bounded; where
+ * /proc cannot say (not Linux), it answers true and the test runs as it
+ * always did. */
+static bool ignores_sigint(pid_t pid)
+{
+	char path[64], line[256];
+	unsigned long long mask;
+	FILE *fp;
+
+	snprintf(path, sizeof(path), "/proc/%d/status", (int)pid);
+	for (int i = 0; i < 5000; i++) {
+		fp = fopen(path, "r");
+		if (!fp) {
+			return true;
+		}
+		mask = 0;
+		while (fgets(line, sizeof(line), fp)) {
+			if (sscanf(line, "SigIgn: %llx", &mask) == 1) {
+				break;
+			}
+		}
+		fclose(fp);
+		if (mask & (1ULL << (SIGINT - 1))) {
+			return true;
+		}
+		usleep(1000);
+	}
+	return false;
+}
+
 /* C-c C-k signals the compilation's process *group*, so a command that
  * left something running in the background dies with it rather than
  * leaking a process kg can no longer name.  The group comes from the
@@ -438,6 +473,7 @@ static void test_kill_compilation_reaches_grandchild(void)
 		compilation_shutdown();
 		return;
 	}
+	CHECK(ignores_sigint(grandchild));
 
 	/* The first C-c C-k sends SIGINT, which kills the command itself but
 	 * not the background job it left behind: a non-interactive shell

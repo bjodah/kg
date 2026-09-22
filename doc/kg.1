@@ -2027,6 +2027,15 @@ kills it without asking about unsaved changes.
 .It C-x 0 Ta Delete current window
 .It C-x 1 Ta Delete all other windows
 .El
+.Pp
+Every window carries its own mode line, drawn as a filled bar so a split
+is visible at a glance.
+The selected window's bar is the brighter one; the others are the same
+bar dimmed, which is how Emacs tells
+.Sy mode-line
+from
+.Sy mode-line-inactive .
+A terminal that does not render the dim attribute shows the bars alike.
 .Ss Keyboard Macros
 .Bl -column "C-Home / C-End" "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" -compact
 .It Sy Key Ta Sy Action

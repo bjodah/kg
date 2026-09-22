@@ -763,8 +763,21 @@ static void draw_mode_line(struct abuf *ab, int ml_row, int win_x, int win_w,
 	}
 
 	ab_move_to(ab, ml_row, win_x);
-	ab_append(ab, is_active ? "\x1b[7m" : "\x1b[2m",
-	    4); /* active: reverse; inactive: dim */
+	/* Emacs' `mode-line' / `mode-line-inactive' pair, spelled in the two
+	 * attributes kg assumes of a terminal.  BOTH mode lines are a filled
+	 * bar -- reverse video -- so a split's windows are framed at a
+	 * glance and neither one dissolves into the text above it; the
+	 * unselected one is dimmed on top of that, which is what says which
+	 * window point is in.  Dim alone was what the inactive line used to
+	 * be, and a bar with no background is exactly the one that cannot be
+	 * found.  A terminal that ignores SGR 2 loses the selected/unselected
+	 * distinction and keeps both bars, which is the better half to lose.
+	 */
+	if (is_active) {
+		ab_append(ab, "\x1b[7m", 4);
+	} else {
+		ab_append(ab, "\x1b[7;2m", 6);
+	}
 
 	char mode_buf[128];
 	int readonly = b->readonly;

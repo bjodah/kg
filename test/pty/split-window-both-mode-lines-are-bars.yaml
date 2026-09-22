@@ -1,0 +1,26 @@
+# After C-x 2 both windows' mode lines are a filled bar, so the split is
+# visible at a glance; the unselected one is that bar dimmed, which is
+# what says where point is.  Emacs' mode-line / mode-line-inactive pair.
+#
+# backend: pexpect because the assertion is about ATTRIBUTES, and a
+# pexpect transcript is kg's own bytes -- a tmux pane would answer with
+# tmux's re-rendering of them instead.  The old inactive spelling (dim
+# with no reverse, so no background at all) is asserted gone.
+name: split-window-both-mode-lines-are-bars
+filename: two.txt
+backend: pexpect
+initial: |
+  alpha
+  beta
+keys:
+  - C-x
+  - "2"
+trailer_keys: ["C-x", "C-c"]
+expected_screen_contains:
+  - "\x1b[7m----"
+  - "\x1b[7;2m----"
+expected_screen_not_contains:
+  - "\x1b[2m----"
+expected_saved: |
+  alpha
+  beta

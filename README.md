@@ -34,7 +34,9 @@ standard VT100 escape sequences.
   names: `M-x compile` or a debugger pane will not rebuild a
   `*compilation*` or `*dap-stack*` you typed into, it says whose buffer it
   is and does nothing, and killing yours hands the name back
-- Split-window support
+- Split-window support; every window has its own mode line, drawn as a
+  filled bar, with the selected window's bar brighter than the rest --
+  Emacs' `mode-line` / `mode-line-inactive` pair
 - Visual mark mode: the region renders in reverse video as you move.
   The mark, the mark ring and the active region belong to the buffer,
   not to the window: two windows showing one buffer share one region,

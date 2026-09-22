@@ -544,15 +544,15 @@
    "branch_rate": 0.6111
   },
   "src/lisp_prompt.c": {
-   "lines_found": 217,
-   "lines_hit": 206,
-   "line_rate": 0.9493,
-   "functions_found": 25,
-   "functions_hit": 24,
-   "function_rate": 0.96,
-   "branches_found": 84,
-   "branches_hit": 68,
-   "branch_rate": 0.8095
+   "lines_found": 202,
+   "lines_hit": 191,
+   "line_rate": 0.9455,
+   "functions_found": 24,
+   "functions_hit": 23,
+   "function_rate": 0.9583,
+   "branches_found": 72,
+   "branches_hit": 57,
+   "branch_rate": 0.7917
   },
   "src/lisp_require.c": {
    "lines_found": 124,

@@ -1,0 +1,6 @@
+{
+ "id": "native-delete-other-windows",
+ "setup": [],
+ "expr": "(delete-other-windows)",
+ "note": "Acts on kg's window layout and selected buffer, which only a kg session has."
+}

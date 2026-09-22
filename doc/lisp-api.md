@@ -436,6 +436,7 @@ Ordering rules that hold across every subscriber:
 | `(set-buffer BUF)` | Make `BUF` current for the rest of this top-level form only |
 | `(switch-to-buffer BUFFER-OR-NAME)` | Show it in the selected window and make it current, creating it when a string names no buffer. Answers the buffer object |
 | `(kill-buffer &optional BUF)` | Kill `BUF` (or current); raises on a modified buffer with no confirmation path from Lisp |
+| `(next-buffer)` / `(previous-buffer)` | Show the next/previous buffer of the buffer list in the selected window. Emacs walks the window's own buffer history first; kg keeps none. Emacs' optional ARG is not accepted |
 | `(point)` / `(point-min)` / `(point-max)` | Point and buffer bounds, 1-based |
 | `(goto-char N)` | Move point to `N`, clamped to the buffer; answers `N` itself, unclamped, as Emacs does |
 | `(goto-line N)` | Move point to the start of line `N`, clamped; takes no column |
@@ -490,6 +491,23 @@ character skips whole glyphs.
 evaluation starts again in the active window's buffer. Use
 `with-current-buffer` (below) to scope a buffer selection explicitly to
 one piece of code.
+
+## Windows
+
+| Form | Result |
+| ---- | ------ |
+| `(other-window COUNT)` | Select the window `COUNT` windows on in `C-x o` order, or back for a negative `COUNT`; a full lap counts for nothing. `COUNT` is required, as in Emacs |
+| `(split-window-below)` / `(split-window-right)` | Split the selected window; the selected window stays selected |
+| `(delete-window)` / `(delete-other-windows)` | Delete the selected window / every other one |
+
+Each of these, and `next-buffer`/`previous-buffer` above, runs the
+built-in command of the same name exactly as `command-execute` does —
+the same point hand-over, the same refusal outside the command table's
+`CMD_LISP_CALLABLE` rows — with no prefix argument except the `COUNT`
+`other-window` is given. Emacs' optional arguments (`SIZE`, `WINDOW`,
+`ALL-FRAMES`) are not accepted, and there are no window objects: a
+function that answers a window in Emacs answers the command's value
+here.
 
 ## Editing and search
 

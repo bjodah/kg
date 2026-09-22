@@ -375,6 +375,21 @@ two spellings, and binding either installs both:
 
 `C-c` is reserved for the user, so a `C-c` binding can never shadow a
 built-in key; a function key may (`<f3>` and `<f4>` are the macro keys).
+The window and buffer commands are Lisp functions too — `other-window`
+(taking Emacs' COUNT, negative for backward), `split-window-below`,
+`split-window-right`, `delete-window`, `delete-other-windows`,
+`next-buffer` and `previous-buffer` — so a command from an Emacs init
+file that strings them together works as written:
+
+```elisp
+(defun other-window-backward (&optional n)
+  "like C-x o, but in the other direction"
+  (interactive "p")
+  (if n
+      (other-window (- n))
+    (other-window -1)))
+(global-set-key (kbd "<f1>") 'other-window-backward)
+```
 Any other sequence, and any map other than the global one, goes through
 `define-key`; see [doc/lisp-api.md](doc/lisp-api.md).
 

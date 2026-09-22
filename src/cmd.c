@@ -1352,7 +1352,47 @@ static void cmd_split_window_right(int fd)
 static void cmd_other_window(int fd)
 {
 	(void)fd;
-	win_cycle_next();
+	win_cycle(prefix_count());
+}
+
+/* C-x <right> and C-x <left>: show the buffer `direction` (1 or -1)
+ * places on in the buffer list, as many times as the prefix says.
+ * Emacs walks the window's own buffer history before the buffer list;
+ * kg keeps no such history, so it walks the list. */
+static void cycle_buffer(int direction)
+{
+	int count = prefix_count() * direction;
+	int step = count < 0 ? -1 : 1;
+	int slot = buf_current;
+	int i;
+
+	if (buf_count <= 1) {
+		editor_set_status_message(
+		    direction > 0 ? "No next buffer" : "No previous buffer");
+		return;
+	}
+	for (count %= buf_count; count != 0; count -= step) {
+		for (i = 1; i < MAX_BUFFERS; i++) {
+			int s = (slot + step * i + MAX_BUFFERS) % MAX_BUFFERS;
+			if (buflist[s].active) {
+				slot = s;
+				break;
+			}
+		}
+	}
+	(void)buf_select(slot);
+}
+
+static void cmd_next_buffer(int fd)
+{
+	(void)fd;
+	cycle_buffer(1);
+}
+
+static void cmd_previous_buffer(int fd)
+{
+	(void)fd;
+	cycle_buffer(-1);
 }
 
 static void cmd_delete_window(int fd)
@@ -2053,6 +2093,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Insert a newline, with the same indentation" },
 	{ "newline-or-eval-print-last-sexp", cmd_newline_or_eval_print, EDITS,
 	    "Newline, or evaluate and print the sexp in Lisp buffers" },
+	{ "next-buffer", cmd_next_buffer, LISP_OK,
+	    "Switch to the next buffer in the buffer list" },
 	{ "next-error", cmd_next_error, LISP_OK,
 	    "Jump to the next match or compilation diagnostic" },
 	{ "next-line", cmd_next_line, REPEATS | KEEPS_GOAL | LISP_OK,
@@ -2075,6 +2117,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Toggle overwriting instead of inserting" },
 	{ "point-to-register", cmd_point_to_register, READS_TERM,
 	    "Save point in a register named by the next key" },
+	{ "previous-buffer", cmd_previous_buffer, LISP_OK,
+	    "Switch to the previous buffer in the buffer list" },
 	{ "previous-error", cmd_previous_error, LISP_OK,
 	    "Jump to the previous match or compilation diagnostic" },
 	{ "previous-line", cmd_previous_line, REPEATS | KEEPS_GOAL | LISP_OK,

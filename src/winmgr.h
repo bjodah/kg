@@ -64,6 +64,7 @@ void win_init(void);
 void win_reflow(void);
 void win_split_horizontal(void);
 void win_split_vertical(void);
+void win_cycle(int count);
 void win_cycle_next(void);
 void win_delete_current(void);
 void win_delete_others(void);

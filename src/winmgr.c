@@ -518,22 +518,36 @@ void win_split_vertical(void)
 	win_reflow();
 }
 
-/* Switch focus to the next window (C-x o). */
-void win_cycle_next(void)
+/* The window `step` (1 or -1) slots on from `from` in the order C-x o
+ * walks. */
+static int win_neighbour(int from, int step)
 {
 	int i;
+
+	for (i = 1; i <= MAX_WINDOWS; i++) {
+		int idx = (from + step * i + MAX_WINDOWS) % MAX_WINDOWS;
+		if (winlist[idx].active) {
+			return idx;
+		}
+	}
+	return from;
+}
+
+/* Select the window `count` windows on (C-x o), or back for a negative
+ * `count`: Emacs' (other-window COUNT). */
+void win_cycle(int count)
+{
+	int step = count < 0 ? -1 : 1;
+	int left;
 
 	if (win_count <= 1) {
 		editor_set_status_message("No other windows.");
 		return;
 	}
-
-	for (i = 1; i <= MAX_WINDOWS; i++) {
-		int idx = (win_current + i) % MAX_WINDOWS;
-		if (winlist[idx].active) {
-			win_current = idx;
-			break;
-		}
+	/* A full lap ends where it began, so only the remainder moves. */
+	left = (count < 0 ? -(count % win_count) : count % win_count);
+	while (left-- > 0) {
+		win_current = win_neighbour(win_current, step);
 	}
 
 	/* The window already holds its own view; all that changes is which
@@ -543,6 +557,8 @@ void win_cycle_next(void)
 	editor_set_status_message(
 	    "%s", bcur()->filename ? bcur()->filename : "[new]");
 }
+
+void win_cycle_next(void) { win_cycle(1); }
 
 /* Delete the current window (C-x 0). */
 void win_delete_current(void)

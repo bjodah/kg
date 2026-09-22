@@ -10,11 +10,13 @@
  * test_perf does, because reaching the table means linking cmd.o and
  * cmd.o reaches most of the editor.  It calls no handler. */
 
+#include "../src/bufhandle.h"
 #include "../src/cmd.h"
 #include "../src/cmdstate.h"
 #include "../src/def.h"
 #include "../src/keyevent.h"
 #include "../src/lisp.h"
+#include "../src/winmgr.h"
 #include "test.h"
 
 #include <stdio.h>
@@ -666,6 +668,62 @@ static void test_dap_command_rows_are_all_swept_by_the_pty_case(void)
 	    found, DAP_COMMAND_COUNT);
 }
 
+/* Evaluate `src` and answer whether it returned normally. */
+static bool lisp_ok(const char *src)
+{
+	char result[256] = "";
+
+	return kg_lisp_eval_string(src, strlen(src), result, sizeof(result))
+	    == 0;
+}
+
+/* The window and buffer functions an Emacs init file calls, reached as
+ * Lisp functions (src/lisp_cmd.c): each one runs its command, and
+ * other-window's COUNT is that command's prefix, negative for backward.
+ * Only other-window takes an argument, and it must be given one. */
+static void test_window_functions_from_lisp(void)
+{
+	int start;
+
+	if (!kg_lisp_active()) {
+		return;
+	}
+	/* The editor's own start-up order, with no files: one *scratch*. */
+	win_total_rows = 24;
+	win_total_cols = 80;
+	win_init();
+	buf_load_args(0, NULL, 0);
+	CHECK(kg_lisp_init() == 0);
+
+	CHECK(lisp_ok("(split-window-right)"));
+	CHECK(lisp_ok("(split-window-below)"));
+	CHECK(win_count == 3);
+	CHECK(win_current == 0);
+	/* C-x o order is slot order: back from the first is the last. */
+	CHECK(lisp_ok("(other-window -1)"));
+	CHECK(win_current == 2);
+	CHECK(lisp_ok("(other-window 2)"));
+	CHECK(win_current == 1);
+	/* A whole lap, either way, is no move at all. */
+	CHECK(lisp_ok("(other-window -3)"));
+	CHECK(win_current == 1);
+	CHECK(!lisp_ok("(other-window)"));
+	CHECK(!lisp_ok("(split-window-below 10)"));
+	CHECK(win_count == 3);
+	CHECK(lisp_ok("(delete-window)"));
+	CHECK(win_count == 2);
+	CHECK(lisp_ok("(delete-other-windows)"));
+	CHECK(win_count == 1);
+
+	CHECK(buf_handle_slot(buf_create_named("*second*")) >= 0);
+	start = buf_current;
+	CHECK(lisp_ok("(next-buffer)"));
+	CHECK(buf_current != start);
+	CHECK(lisp_ok("(previous-buffer)"));
+	CHECK(buf_current == start);
+	kg_lisp_shutdown();
+}
+
 int main(void)
 {
 	RUN(test_names_sorted_and_unique);
@@ -674,6 +732,7 @@ int main(void)
 	RUN(test_terminal_reading_classification);
 	RUN(test_lisp_callable_mutation_verdicts);
 	RUN(test_lisp_arena_stats_renders);
+	RUN(test_window_functions_from_lisp);
 	RUN(test_lookup_edges);
 	RUN(test_static_ids_are_table_slots);
 	RUN(test_identity_is_published_for_every_origin);

@@ -1,0 +1,6 @@
+{
+ "id": "native-previous-buffer",
+ "setup": [],
+ "expr": "(previous-buffer)",
+ "note": "Acts on kg's window layout and selected buffer, which only a kg session has."
+}

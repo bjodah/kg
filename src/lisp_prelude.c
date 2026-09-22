@@ -109,6 +109,15 @@ static const struct native_binding native_bindings[] = {
 	{ "internal--command-names", native_command_names },
 	{ "internal--command-documentation", native_command_documentation },
 	{ "command-execute", native_command },
+	/* The window and buffer commands an Emacs init file calls as
+	 * functions (src/lisp_cmd.c). */
+	{ "other-window", native_other_window },
+	{ "split-window-below", native_split_window_below },
+	{ "split-window-right", native_split_window_right },
+	{ "delete-window", native_delete_window },
+	{ "delete-other-windows", native_delete_other_windows },
+	{ "next-buffer", native_next_buffer },
+	{ "previous-buffer", native_previous_buffer },
 	{ "prefix-numeric-value", native_prefix_numeric_value },
 	/* Emacs defines commands with defun plus (interactive); kg keeps a
 	 * name -> function registry, so these two have no Emacs analogue. */

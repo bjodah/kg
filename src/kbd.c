@@ -447,6 +447,8 @@ static const struct {
 	{ "C-x C-r", "find-file-read-only" },
 	{ "C-x C-v", "find-alternate-file" },
 	{ "C-x b", "switch-to-buffer" },
+	{ "C-x <right>", "next-buffer" },
+	{ "C-x <left>", "previous-buffer" },
 	{ "C-x k", "kill-buffer" },
 	{ "C-x C-b", "list-buffers" },
 	{ "C-x d", "dired" },

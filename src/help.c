@@ -95,6 +95,7 @@ const char *kg_help_lines[]
 	      "global-set-key in kg(1)",
 	      "  Ask the editor: M-x describe-key · describe-command · "
 	      "describe-bindings",
+	      "  C-x <left>/<right> prev/next buffer · C-u - C-x o window back",
 	      "  Git commit: C-c C-c commit · C-c C-k abort  ·  Compile: C-c "
 	      "C-k kill",
 	      "  Git rebase: C-c C-p/r/e/s/f/d set action · M-p/M-n move "

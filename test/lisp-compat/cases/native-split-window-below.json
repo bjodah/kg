@@ -1,0 +1,6 @@
+{
+ "id": "native-split-window-below",
+ "setup": [],
+ "expr": "(split-window-below)",
+ "note": "Acts on kg's window layout and selected buffer, which only a kg session has."
+}

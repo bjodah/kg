@@ -1,0 +1,90 @@
+# The window keys of an Emacs init file, loaded as written: other-window
+# with a negative COUNT, the window commands called as Lisp functions,
+# next-buffer/previous-buffer, and ESC <fN> bindings.  The init.el below
+# is the one this case exists for, from the user's ~/.emacs.d
+# (bjodah/split-window-below from their bjodah-tools.el).
+#
+# What the saved file proves, step by step:
+#   C-x b scratch2 RET, C-x <left>  a second buffer exists, and
+#                         previous-buffer comes back to the file.
+#   ESC F3, C-e, ESC F3   three windows on the file; in C-x o order
+#                         their points are 4, 0, 4, and the first is
+#                         selected.
+#   F1 X                  backward is the third window (point 4): "seedX".
+#                         Forward would have typed "Xseed".
+#   F2 F2 Y               forward twice is the second window (point 0).
+#   ESC F1                one window again.
+#   ESC F2 Z              split below, into the new window, next-buffer:
+#                         Z goes to scratch2, not to the file.
+#   ESC F4 W              delete-window returns to the file window.
+name: emacs-init-window-keys
+filename: seed.txt
+requires_feature: lisp
+backend: tmux
+config_files:
+  .config/kg/init.el: |
+    ;;; init.el --- kg: window keys from ~/.emacs.d/init.el  -*- lexical-binding: t -*-
+
+    ;; F1/F2 step backward/forward through the windows; ESC F1..F4 are
+    ;; delete-other-windows, split-below-and-follow, split-right and
+    ;; delete-window.  kg installs "ESC <fN>" and "M-<fN>" as one binding,
+    ;; so Meta-F2 works as well as ESC then F2.
+
+    (defun other-window-backward (&optional n)
+      "like C-x o, but in the other direction"
+      (interactive "p")
+      (if n
+          (other-window (- n))
+        (other-window -1)))
+
+    ;; From bjodah-tools.el.
+    (defun bjodah/split-window-below ()
+      "Split window below, move focus into it and..."
+      (interactive)
+      (split-window-below)
+      (other-window 1)
+      ;;(ibuffer)
+      (next-buffer))
+
+    (global-set-key (kbd "<f1>") 'other-window-backward)
+    (global-set-key (kbd "<f2>") 'other-window)
+    (global-set-key (kbd "ESC <f1>") 'delete-other-windows)
+    (global-set-key (kbd "ESC <f2>") 'bjodah/split-window-below)
+    (global-set-key (kbd "ESC <f3>") 'split-window-right)
+    (global-set-key (kbd "ESC <f4>") 'delete-window)
+initial: "seed"
+keys:
+  - C-x
+  - b
+  - "scratch2"
+  - RET
+  - C-x
+  - Left
+  - ESC
+  - F3
+  - SETTLE=2
+  - C-e
+  - ESC
+  - F3
+  - SETTLE=2
+  - F1
+  - SETTLE=2
+  - "X"
+  - F2
+  - SETTLE=2
+  - F2
+  - SETTLE=2
+  - "Y"
+  - ESC
+  - F1
+  - SETTLE=2
+  - ESC
+  - F2
+  - SETTLE=2
+  - "Z"
+  - ESC
+  - F4
+  - SETTLE=2
+  - "W"
+trailer_keys: ["C-x", "C-s", "C-x", "C-c"]
+expected_saved: "YWseedX"

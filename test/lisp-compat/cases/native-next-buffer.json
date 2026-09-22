@@ -1,0 +1,6 @@
+{
+ "id": "native-next-buffer",
+ "setup": [],
+ "expr": "(next-buffer)",
+ "note": "Acts on kg's window layout and selected buffer, which only a kg session has."
+}

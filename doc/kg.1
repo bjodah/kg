@@ -1946,6 +1946,8 @@ saved again.
 .It C-x C-q Ta Toggle read-only mode on current buffer (read-only-mode)
 .It C-x d Ta List a directory (dired)
 .It C-x b Ta Switch to buffer, creating it when the name is new
+.It C-x <right> Ta Show the next buffer in the buffer list (next-buffer)
+.It C-x <left> Ta Show the previous buffer in the buffer list (previous-buffer)
 .It C-x k Ta Kill (close) current buffer
 .It C-x C-b Ta Open buffer list
 .It C-x C-c Ta Quit
@@ -2062,7 +2064,7 @@ kills it without asking about unsaved changes.
 .It Sy Key Ta Sy Action
 .It C-x 2 Ta Split window horizontally
 .It C-x 3 Ta Split window vertically
-.It C-x o Ta Switch to next window
+.It C-x o Ta Switch to next window; a count moves that many, a negative one backward
 .It C-x 0 Ta Delete current window
 .It C-x 1 Ta Delete all other windows
 .El

@@ -5919,6 +5919,104 @@
    "kg_test": "test/test_lisp.c:test_help_fns_surface",
    "rationale": "The external-review correctness tranche: the registry half of `defalias''s redefinition duty. `internal--doc-put' conses a NEW entry per definition and `documentation' reads the newest one, so a documented defun redefined through `defalias' with a docless lambda kept answering its old docs where Emacs answers nil -- the docstring there lives in the replaced closure and dies with it. `internal--doc-invalidate' rewrites every registry entry for NAME to present-but-undocumented rather than deleting it, so `apropos''s walk (which lists names from this same registry) still finds a name that is fboundp; the `function-documentation' PROPERTY is deliberately untouched, since a nil DOCSTRING storing nothing is Emacs' own measured behaviour and a property a program put by hand is not this form's to remove. A DOCSTRING given to `defalias' lands after the invalidation, so re-documenting works. Internal; the case is `defalias''s own.",
    "source_name": "internal--doc-invalidate"
+  },
+  {
+   "id": "native-other-window",
+   "category": "editor-primitives",
+   "status": "divergent",
+   "failure_mode": "loud-unsupported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-other-window"
+   ],
+   "kg_test": "test/test_cmd.c:test_window_functions_from_lisp, test/pty/emacs-init-window-keys.yaml",
+   "rationale": "Emacs' (other-window COUNT &optional ALL-FRAMES INTERACTIVE). COUNT is required, as in Emacs, and becomes the other-window command's prefix, negative for backward, so C-u - C-x o and (other-window -1) are one path. kg has one frame, so ALL-FRAMES and INTERACTIVE are refused as extra arguments rather than accepted and ignored; COUNT is clamped to the 1000 every prefix count is, which only matters as a count of laps.",
+   "source_name": "other-window"
+  },
+  {
+   "id": "native-split-window-below",
+   "category": "editor-primitives",
+   "status": "divergent",
+   "failure_mode": "silent-wrong",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-split-window-below"
+   ],
+   "kg_test": "test/test_cmd.c:test_window_functions_from_lisp, test/pty/emacs-init-window-keys.yaml",
+   "rationale": "Emacs' FUNCTION form of a window command, added so an Emacs init file's own commands that call it load and run as written. It runs the built-in command of the same name through command-execute's path with no prefix argument. Emacs' optional SIZE is refused as an extra argument. Emacs answers the new window; kg has no window objects and answers the command's value, nil, which a caller that keeps the result would read silently.",
+   "source_name": "split-window-below"
+  },
+  {
+   "id": "native-split-window-right",
+   "category": "editor-primitives",
+   "status": "divergent",
+   "failure_mode": "silent-wrong",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-split-window-right"
+   ],
+   "kg_test": "test/test_cmd.c:test_window_functions_from_lisp",
+   "rationale": "Emacs' FUNCTION form of a window command, added so an Emacs init file's own commands that call it load and run as written. It runs the built-in command of the same name through command-execute's path with no prefix argument. Emacs' optional SIZE is refused as an extra argument. Emacs answers the new window; kg has no window objects and answers the command's value, nil, which a caller that keeps the result would read silently.",
+   "source_name": "split-window-right"
+  },
+  {
+   "id": "native-delete-window",
+   "category": "editor-primitives",
+   "status": "divergent",
+   "failure_mode": "loud-unsupported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-delete-window"
+   ],
+   "kg_test": "test/test_cmd.c:test_window_functions_from_lisp",
+   "rationale": "Emacs' FUNCTION form of a window command, added so an Emacs init file's own commands that call it load and run as written. It runs the built-in command of the same name through command-execute's path with no prefix argument. Emacs' optional WINDOW is refused as an extra argument: there are no window objects to name one with, so only the selected window can be deleted.",
+   "source_name": "delete-window"
+  },
+  {
+   "id": "native-delete-other-windows",
+   "category": "editor-primitives",
+   "status": "divergent",
+   "failure_mode": "loud-unsupported",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-delete-other-windows"
+   ],
+   "kg_test": "test/test_cmd.c:test_window_functions_from_lisp",
+   "rationale": "Emacs' FUNCTION form of a window command, added so an Emacs init file's own commands that call it load and run as written. It runs the built-in command of the same name through command-execute's path with no prefix argument. Emacs' optional WINDOW and INTERACTIVE are refused as extra arguments: there are no window objects, so the selected window is always the one kept.",
+   "source_name": "delete-other-windows"
+  },
+  {
+   "id": "native-next-buffer",
+   "category": "editor-primitives",
+   "status": "divergent",
+   "failure_mode": "silent-wrong",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-next-buffer"
+   ],
+   "kg_test": "test/test_cmd.c:test_window_functions_from_lisp, test/pty/emacs-init-window-keys.yaml",
+   "rationale": "Emacs' FUNCTION form of a window command, added so an Emacs init file's own commands that call it load and run as written. It runs the built-in command of the same name through command-execute's path with no prefix argument. Emacs walks the selected window's own buffer history (window-next-buffers) before falling back to the buffer list; kg keeps no per-window history and walks the buffer list, so after a C-x b the buffer it shows can differ from Emacs'. Emacs' optional ARG is refused as an extra argument.",
+   "source_name": "next-buffer"
+  },
+  {
+   "id": "native-previous-buffer",
+   "category": "editor-primitives",
+   "status": "divergent",
+   "failure_mode": "silent-wrong",
+   "owner": "kg",
+   "comparison": "kg-policy",
+   "cases": [
+    "native-previous-buffer"
+   ],
+   "kg_test": "test/test_cmd.c:test_window_functions_from_lisp",
+   "rationale": "Emacs' FUNCTION form of a window command, added so an Emacs init file's own commands that call it load and run as written. It runs the built-in command of the same name through command-execute's path with no prefix argument. Emacs walks the selected window's own buffer history (window-prev-buffers) before falling back to the buffer list; kg keeps no per-window history and walks the buffer list, so after a C-x b the buffer it shows can differ from Emacs'. Emacs' optional ARG is refused as an extra argument.",
+   "source_name": "previous-buffer"
   }
  ]
 }

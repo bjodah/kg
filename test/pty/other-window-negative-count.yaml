@@ -1,0 +1,27 @@
+# C-x o takes a count, and a negative one walks the windows backward, as
+# Emacs' other-window does.  Three windows on one buffer whose points are,
+# in C-x o order, 4, 0 and 4 with the first selected: M-- C-x o is the
+# third window (point 4), where X lands after the text; a C-x o that
+# dropped its count would have gone forward to the second (point 0) and
+# typed "Xseed".  C-u 2 C-x o from there is two windows on, the second.
+name: other-window-negative-count
+filename: seed.txt
+backend: tmux
+initial: "seed"
+keys:
+  - C-x
+  - "3"
+  - C-e
+  - C-x
+  - "3"
+  - M--
+  - C-x
+  - o
+  - "X"
+  - C-u
+  - "2"
+  - C-x
+  - o
+  - "Y"
+trailer_keys: ["C-x", "C-s", "C-x", "C-c"]
+expected_saved: "YseedX"

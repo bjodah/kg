@@ -491,7 +491,7 @@ kg is a small Emacs-style terminal editor written in C23. Read `README.md` first
   measured it and the reason those cases failed on a three-core CI box
   while passing on a thirty-two-core one.
   `Home`, `End`, `C-Home`, `C-End`,
-  `S-Home`, `S-End`, `Up`, `Down`, `PageUp`, `PageDown`, and `F1`
+  `S-Home`, `S-End`, `Up`, `Down`, `Left`, `Right`, `PageUp`, `PageDown`, and `F1`
   through `F12` are named tokens (sent as xterm SS3 / tilde / cursor
   sequences). The debugger spellings `C-F5`, `C-F9`, `M-F10`, `M-F11`,
   `M-Up`, and `M-Down` are named too. Named sequences use one exact byte

@@ -556,7 +556,9 @@ static void test_builtin_global_map_resolves(void)
 		      /* And the spell key, for the same reason one row further:
 		       * `M-$' is the newest binding, and the only one whose
 		       * second byte is not a letter. */
-		      "M-$" };
+		      "M-$",
+		      /* next-buffer and previous-buffer, the newest names. */
+		      "C-x <right>", "C-x <left>" };
 	size_t i;
 
 	keymap_reset();
@@ -564,10 +566,10 @@ static void test_builtin_global_map_resolves(void)
 	usage = keymap_test_usage();
 	CHECKF(
 	    usage.maps == 10, "built-ins use %d maps, expected 10", usage.maps);
-	CHECKF(usage.entries == 170, "built-ins use %d entries, expected 170",
+	CHECKF(usage.entries == 172, "built-ins use %d entries, expected 172",
 	    usage.entries);
-	CHECKF(usage.name_bytes == 2199,
-	    "built-ins use %d name bytes, expected 2199", usage.name_bytes);
+	CHECKF(usage.name_bytes == 2227,
+	    "built-ins use %d name bytes, expected 2227", usage.name_bytes);
 	for (i = 0; i < sizeof(sequences) / sizeof(*sequences); i++) {
 		struct keymap_match match = lookup(sequences[i]);
 

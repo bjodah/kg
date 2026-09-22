@@ -360,6 +360,8 @@ NAMED_KEY_BYTES = {
 	"END": b"\x1b[4~",
 	"UP": b"\x1b[A",
 	"DOWN": b"\x1b[B",
+	"RIGHT": b"\x1b[C",
+	"LEFT": b"\x1b[D",
 	"PAGEUP": b"\x1b[5~",
 	"PAGEDOWN": b"\x1b[6~",
 	"C-HOME": b"\x1b[1;5H",

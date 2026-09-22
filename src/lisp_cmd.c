@@ -11,6 +11,7 @@
 #include "lisp.h"
 #include "lisp_internal.h"
 #include "lisp_obj.h"
+#include "prefixarg.h"
 
 /* ---- Types -----------------------------------------------------------
  * Fe's own `atom` only splits pairs from everything else, so the Emacs
@@ -175,6 +176,9 @@ static void report_command_result(
 	}
 }
 
+static FeObject *run_command(
+    FeContext *context, const char *name, struct command_prefix prefix);
+
 /* (command-execute COMMAND): COMMAND names a built-in editor command, as a
  * symbol like Emacs or equivalently as a string, since fe reads the text of
  * either.  Which commands may be reached this way, and which of them refuse
@@ -197,15 +201,24 @@ FeObject *native_command(FeContext *context, FeObject *arguments)
 {
 	FeObject *object = FeGetNextArgument(context, &arguments);
 	const struct command_prefix *active = cmd_active_prefix();
-	struct command_context ctx = { cmd_prompt_fd(),
-		active ? *active : (struct command_prefix) { 0 },
-		CMD_ORIGIN_LISP };
 	char name[512];
-	FeObject *value;
-	int rc;
 
 	FeRequireNoArguments(context, arguments);
 	copy_command_name(context, object, name, sizeof(name));
+	return run_command(
+	    context, name, active ? *active : (struct command_prefix) { 0 });
+}
+
+/* Run built-in command `name` under `prefix`: command-execute's body,
+ * and the one route every native below reaches a command by. */
+static FeObject *run_command(
+    FeContext *context, const char *name, struct command_prefix prefix)
+{
+	struct command_context ctx
+	    = { cmd_prompt_fd(), prefix, CMD_ORIGIN_LISP };
+	FeObject *value;
+	int rc;
+
 	if (scope_depth >= COMMAND_SCOPE_MAX) {
 		FeHandleError(context, "command-execute nested too deeply");
 	}
@@ -228,6 +241,69 @@ FeObject *native_command(FeContext *context, FeObject *arguments)
 	value = lisp_take_command_value(context);
 	report_command_result(context, rc, name);
 	return value;
+}
+
+/* The window and buffer commands Lisp calls as functions, the way an
+ * Emacs init file does: (split-window-below), (other-window -1).  Each
+ * runs the built-in command of the same name.  Only other-window takes
+ * an argument; the optional SIZE, WINDOW and ARG arguments of the Emacs
+ * functions are not accepted. */
+static FeObject *run_plain_command(
+    FeContext *context, FeObject *arguments, const char *name)
+{
+	FeRequireNoArguments(context, arguments);
+	return run_command(context, name, (struct command_prefix) { 0 });
+}
+
+/* (other-window COUNT): select the window COUNT windows on, or back for
+ * a negative COUNT.  COUNT is required, as in Emacs. */
+FeObject *native_other_window(FeContext *context, FeObject *arguments)
+{
+	FeDouble count = lisp_finite(
+	    context, FeGetNextArgument(context, &arguments), "fixnump");
+
+	FeRequireNoArguments(context, arguments);
+	if (count > PREFIX_ARG_MAX) {
+		count = PREFIX_ARG_MAX;
+	} else if (count < -PREFIX_ARG_MAX) {
+		count = -PREFIX_ARG_MAX;
+	}
+	return run_command(context, "other-window",
+	    (struct command_prefix) {
+		.supplied = 1,
+		.value = (int)count,
+		.raw_kind = PREFIX_RAW_INTEGER,
+	    });
+}
+
+FeObject *native_split_window_below(FeContext *context, FeObject *arguments)
+{
+	return run_plain_command(context, arguments, "split-window-below");
+}
+
+FeObject *native_split_window_right(FeContext *context, FeObject *arguments)
+{
+	return run_plain_command(context, arguments, "split-window-right");
+}
+
+FeObject *native_delete_window(FeContext *context, FeObject *arguments)
+{
+	return run_plain_command(context, arguments, "delete-window");
+}
+
+FeObject *native_delete_other_windows(FeContext *context, FeObject *arguments)
+{
+	return run_plain_command(context, arguments, "delete-other-windows");
+}
+
+FeObject *native_next_buffer(FeContext *context, FeObject *arguments)
+{
+	return run_plain_command(context, arguments, "next-buffer");
+}
+
+FeObject *native_previous_buffer(FeContext *context, FeObject *arguments)
+{
+	return run_plain_command(context, arguments, "previous-buffer");
 }
 
 /* The raw `(4)`/`(16)`/`(64)`/… a run of bare C-u produces.

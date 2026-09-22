@@ -1,0 +1,6 @@
+{
+ "id": "native-split-window-right",
+ "setup": [],
+ "expr": "(split-window-right)",
+ "note": "Acts on kg's window layout and selected buffer, which only a kg session has."
+}

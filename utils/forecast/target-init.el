@@ -7,7 +7,7 @@
 ;; do not load.
 ;;
 ;; What a user's ~/.config/kg/init.el is meant to look like: preferences,
-;; two small commands, a hook, key bindings, and one mode tweak.
+;; a few small commands, a hook, key bindings, and one mode tweak.
 
 ;;; --- preferences ---------------------------------------------------
 
@@ -86,6 +86,29 @@
 
 (global-set-key (kbd "C-c n") 'my-open-notes)
 (global-set-key (kbd "C-c -") 'my-insert-rule)
+
+;; Window keys, as an Emacs user's init file has them: a command that
+;; calls the window functions, and function keys with and without ESC.
+(defun other-window-backward (&optional n)
+  "like C-x o, but in the other direction"
+  (interactive "p")
+  (if n
+      (other-window (- n))
+    (other-window -1)))
+
+(defun my-split-window-below ()
+  "Split window below, move focus into it and show the next buffer."
+  (interactive)
+  (split-window-below)
+  (other-window 1)
+  (next-buffer))
+
+(global-set-key (kbd "<f1>") 'other-window-backward)
+(global-set-key (kbd "<f2>") 'other-window)
+(global-set-key (kbd "ESC <f1>") 'delete-other-windows)
+(global-set-key (kbd "ESC <f2>") 'my-split-window-below)
+(global-set-key (kbd "ESC <f3>") 'split-window-right)
+(global-set-key (kbd "ESC <f4>") 'delete-window)
 
 ;;; --- a mode tweak --------------------------------------------------
 ;; Dired gets the notes command on a key of its own; `define-key' takes

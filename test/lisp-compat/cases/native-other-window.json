@@ -1,0 +1,6 @@
+{
+ "id": "native-other-window",
+ "setup": [],
+ "expr": "(other-window -1)",
+ "note": "Acts on kg's window layout and selected buffer, which only a kg session has."
+}

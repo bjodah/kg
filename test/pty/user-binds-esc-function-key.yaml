@@ -1,0 +1,28 @@
+# A Meta function key has two spellings, and global-set-key installs
+# both: the terminal's own M-<f10> (CSI with modifier 3) and the ESC
+# prefix a keyboard with no Meta sends.  One binding, so both have to run
+# the command.
+#
+# ESC then F10 is sent one key_delay apart, which is inside kg's 100 ms
+# escape window -- the case where the F10 sequence's own ESC arrives
+# while the decoder is still reading the first one.  That used to swallow
+# the introducer and leave "[21~" in the buffer, which is what the saved
+# text would show if it came back.
+name: user-binds-esc-function-key
+filename: escfkey.txt
+requires_feature: lisp
+backend: tmux
+config_files:
+  .config/kg/init.el: |
+    (global-set-key "M-<f10>" "beginning-of-buffer")
+initial: "seed"
+keys:
+  - C-e
+  - M-F10
+  - "A"
+  - C-e
+  - ESC
+  - F10
+  - "B"
+trailer_keys: ["C-x", "C-s", "C-x", "C-c"]
+expected_saved: "BAseed"

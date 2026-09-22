@@ -598,6 +598,58 @@ static void test_invalid_escape_sequences_are_bounded(void)
 	    "fixed sequence cap", capped, sizeof(capped) - 1, 'x');
 }
 
+/* Two whole key events out of one byte string, for the sequences whose
+ * point is that they decode to a PAIR. */
+static void check_two_keys(const char *label, const char *bytes, size_t len,
+    struct key_event want_first, struct key_event want_next)
+{
+	struct key_event first, next;
+	int fds[2];
+
+	if (pipe(fds) != 0) {
+		CHECK(!"pipe failed");
+		return;
+	}
+	running = 1;
+	CHECK(write(fds[1], bytes, len) == (ssize_t)len);
+	close(fds[1]);
+	first = editor_read_key(fds[0]);
+	next = editor_read_key(fds[0]);
+	CHECKF(key_event_equal(first, want_first),
+	    "%s: first is base=%d mods=%u, want base=%d mods=%u", label,
+	    first.base, first.mods, want_first.base, want_first.mods);
+	CHECKF(key_event_equal(next, want_next),
+	    "%s: next is base=%d mods=%u, want base=%d mods=%u", label,
+	    next.base, next.mods, want_next.base, want_next.mods);
+	close(fds[0]);
+}
+
+/* ESC and then a key that is itself an escape sequence.  kg's ESC is a
+ * keymap prefix, so this has to be the same two events a slower ESC
+ * produces -- and not what it used to be, which was one ESC and the rest
+ * of the second sequence spilled into the buffer as text. */
+static void test_esc_before_an_escape_sequence_is_two_keys(void)
+{
+	const struct key_event esc = { KEY_BASE_ESC, 0 };
+
+	check_two_keys("ESC SS3 F1", "\x1b\x1bOP", 4, esc,
+	    (struct key_event) { KEY_BASE_F1, 0 });
+	check_two_keys("ESC CSI F5", "\x1b\x1b[15~", 6, esc,
+	    (struct key_event) { KEY_BASE_F5, 0 });
+	check_two_keys("ESC CSI C-F5", "\x1b\x1b[15;5~", 8, esc,
+	    (struct key_event) { KEY_BASE_F5, KEY_MOD_CTRL });
+	check_two_keys("ESC left", "\x1b\x1b[D", 4, esc,
+	    (struct key_event) { KEY_BASE_LEFT, 0 });
+	/* ESC ESC is two ESCs now; the second one used to be swallowed. */
+	check_two_keys("ESC ESC", "\x1b\x1b", 2, esc, esc);
+	/* And the byte after a pushed-back ESC is that ESC's own key, which
+	 * is what makes the second ESC a prefix rather than a lost press. */
+	check_two_keys("ESC ESC f",
+	    "\x1b\x1b"
+	    "f",
+	    3, esc, (struct key_event) { 'f', KEY_MOD_META });
+}
+
 static void test_incomplete_escape_keeps_later_input(void)
 {
 	struct key_event first, next;
@@ -637,6 +689,7 @@ int main(void)
 	RUN(test_escape_sequences_decode_to_key_events);
 	RUN(test_every_xterm_modifier_bit_combination);
 	RUN(test_invalid_escape_sequences_are_bounded);
+	RUN(test_esc_before_an_escape_sequence_is_two_keys);
 	RUN(test_incomplete_escape_keeps_later_input);
 	return test_summary();
 }

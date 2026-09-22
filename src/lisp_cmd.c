@@ -680,8 +680,10 @@ FeObject *native_remove_command_if_present(
 	return FeNil(context);
 }
 
-/* (global-set-key SEQUENCE NAME): SEQUENCE must be "C-c <key>"; the name
- * may refer to a static or Lisp command and is resolved at dispatch. */
+/* (global-set-key SEQUENCE NAME): SEQUENCE must be "C-c <key>", one
+ * function key ("<f2>", "C-<f5>", "M-<f10>") or that function key's
+ * ESC-prefix spelling ("ESC <f2>"); the name may refer to a static or
+ * Lisp command and is resolved at dispatch.  See src/keybind.c. */
 FeObject *native_bind_key(FeContext *context, FeObject *arguments)
 {
 	FeObject *seq_object = FeGetNextArgument(context, &arguments);
@@ -696,7 +698,8 @@ FeObject *native_bind_key(FeContext *context, FeObject *arguments)
 	rc = keybind_bind(sequence, name);
 	if (rc == 1) {
 		command_error(context,
-		    "invalid key sequence (only \"C-c <key>\" is bindable)",
+		    "invalid key sequence (bindable: \"C-c <key>\", a "
+		    "function key, \"ESC <fN>\")",
 		    sequence);
 	}
 	if (rc != 0) {
@@ -717,7 +720,8 @@ FeObject *native_unbind_key(FeContext *context, FeObject *arguments)
 	rc = keybind_unbind(sequence);
 	if (rc == 1) {
 		command_error(context,
-		    "invalid key sequence (only \"C-c <key>\" is bindable)",
+		    "invalid key sequence (bindable: \"C-c <key>\", a "
+		    "function key, \"ESC <fN>\")",
 		    sequence);
 	}
 	if (rc != 0) {

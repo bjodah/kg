@@ -361,6 +361,23 @@ turns off the startup screen an empty buffer shows:
 
 Note that simple `setq` rows are supported even when `WITH_LISP=0`.
 
+`global-set-key` takes a `C-c` sequence, one function key (`<f1>`
+through `<f12>`, with any of `C-`, `M-` and `S-` on it), or that
+function key behind the `ESC` prefix — the last two are one binding with
+two spellings, and binding either installs both:
+
+```elisp
+(global-set-key "C-c d" "insert-date")
+(global-set-key "<f2>" "split-window-below")
+(global-set-key "<f5>" "other-window")
+(global-set-key "ESC <f5>" "delete-other-windows")
+```
+
+`C-c` is reserved for the user, so a `C-c` binding can never shadow a
+built-in key; a function key may (`<f3>` and `<f4>` are the macro keys).
+Any other sequence, and any map other than the global one, goes through
+`define-key`; see [doc/lisp-api.md](doc/lisp-api.md).
+
 
 ## Tree-sitter (optional, off by default)
 

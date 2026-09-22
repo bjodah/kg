@@ -107,6 +107,19 @@ static int unread_key_slot = -1;
 
 static void unread_key(int key) { unread_key_slot = key; }
 
+/* One byte handed back to the BYTE reader, delivered ahead of the
+ * terminal and ahead of anything else pending.  The only producer is
+ * parse_escape()'s ESC-before-another-escape-sequence case, which reads
+ * one byte, pushes it straight back and returns, so a single slot is
+ * enough: every reader drains it before another read can reach that
+ * producer again. */
+static int pushback_byte_slot = -1;
+
+static void pushback_input_byte(unsigned char byte)
+{
+	pushback_byte_slot = (int)byte;
+}
+
 /* ESC followed by one of these bytes is that Meta combination: the base
  * a plain, unmodified press of the same byte would carry, plus whatever
  * modifier on top of Meta the two Ctrl-letter rows need.  Named bases
@@ -218,6 +231,7 @@ void disable_raw_mode(int fd)
 	pending_input_off = 0;
 	pending_input_cap = 0;
 	unread_key_slot = -1;
+	pushback_byte_slot = -1;
 	/* Give the terminal its mouse back before its line discipline: the
 	 * request is kg's, so kg takes it back on every way out of raw mode
 	 * -- exit(), and the C-z suspend that comes straight back through
@@ -281,6 +295,11 @@ static int read_input_byte(int fd, unsigned char *byte)
 {
 	int nread;
 
+	if (pushback_byte_slot >= 0) {
+		*byte = (unsigned char)pushback_byte_slot;
+		pushback_byte_slot = -1;
+		return 1;
+	}
 	if (fd == STDIN_FILENO && pending_input_off < pending_input_len) {
 		*byte = pending_input[pending_input_off++];
 		if (pending_input_off == pending_input_len) {
@@ -955,6 +974,19 @@ static struct key_event parse_escape(int fd)
 	if (first >= '0' && first <= '9') {
 		return (struct key_event) { '0' + (first - '0'), KEY_MOD_META };
 	}
+	/* ESC and then a key that is itself an escape sequence: ESC <f1>
+	 * typed fast enough that both arrived inside the escape window, and
+	 * the ESC ESC <sequence> some terminals send for Meta on a named
+	 * key.  kg's ESC is a keymap PREFIX, so the answer has to be the
+	 * same two events a slower ESC already produces -- a bare ESC now,
+	 * the named key next -- and not what this used to do, which was to
+	 * swallow the second sequence's introducer and leave the rest of it
+	 * to land in the buffer as the text "[11~".  The ESC just read goes
+	 * back at the head of the queue for the next reader to decode. */
+	if (first == ESC) {
+		pushback_input_byte(first);
+		return bare_esc();
+	}
 	if (first == '[') {
 		return parse_csi(fd);
 	}
@@ -1099,6 +1131,9 @@ static enum kg_idle_wake idle_wait(int fd)
  * about it. */
 static int input_queued(int fd)
 {
+	if (pushback_byte_slot >= 0) {
+		return 1;
+	}
 	return fd == STDIN_FILENO && pending_input_off < pending_input_len;
 }
 

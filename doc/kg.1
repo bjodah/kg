@@ -373,14 +373,55 @@ Lisp code defines interactive commands the way Emacs does, with
 plus
 .Li (interactive) ,
 and binds them with
-.Li (global-set-key "C-c <key>" "name") :
+.Li global-set-key :
 .Bd -literal -offset indent
 (defun insert-date ()
   "Insert today's date."
   (interactive)
   (insert "2026-07-04"))
 (global-set-key "C-c d" "insert-date")
+(global-set-key "<f2>" "split-window-below")
+(global-set-key "<f5>" "other-window")
+(global-set-key "ESC <f5>" "delete-other-windows")
 .Ed
+.Pp
+.Ic global-set-key
+takes three shapes and nothing else: a
+.Ic C-c
+sequence, one function key
+.Pq Ic <f1> No through Ic <f12> ,
+with any of
+.Ic C- ,
+.Ic M-
+and
+.Ic S-
+on it, and that function key reached through the
+.Ic ESC
+prefix.
+.Ic C-c
+is reserved for the user, so a
+.Ic C-c
+binding can never shadow a built-in key; a function key is not reserved
+and may shadow one
+.Pq Ic <f3> No and Ic <f4> No are the keyboard-macro keys ,
+because the newest map in a layer answers first and the user's map is
+made after the built-ins.
+The last two shapes are one binding with two spellings, and binding
+either installs both: kg's
+.Ic ESC
+is a prefix key and its decoder hands back
+.Ic ESC
+and the function key as two events whatever the typing speed, so a
+.Ic M-<f2>
+binding alone would never fire on a keyboard that sends the
+.Ic ESC
+form.
+.Ic global-unset-key
+removes both the same way.
+Any other sequence, including one in a map of its own, goes through
+.Ic define-key ;
+see
+.Pa doc/lisp-api.md .
 .Pp
 An
 .Li (interactive ...)
@@ -403,8 +444,6 @@ evaluation budget;
 and
 .Li global-unset-key
 undo the registrations.
-Only two-key sequences starting with C-c are bindable:
-C-c is reserved for user bindings and is otherwise undefined.
 .Pp
 Buffer positions follow Emacs: a position is a 1-based codepoint offset,
 so
@@ -4318,9 +4357,9 @@ Both are ordinary native keymaps, so an init file may rebind them:
 .Ed
 .Pp
 .Ic global-set-key
-stays
-.Ic C-c Ns -only by design; F-keys are reachable through
-.Ic define-key
+reaches function keys too, but only in the global user map; a key inside
+one of these maps is
+.Ic define-key Ns \(aqs ,
 precisely because these are real native maps.
 .Pp
 Every command is callable from Lisp as

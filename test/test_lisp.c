@@ -1454,7 +1454,7 @@ static void test_define_and_run_command(void)
 	/* global-unset-key tells an unbindable sequence from an unbound
 	 * one, and names the sequence in both messages. */
 	CHECK(eval_error_contains(
-	    "(global-unset-key \"C-x i\")", "only \"C-c <key>\" is bindable"));
+	    "(global-unset-key \"C-x i\")", "invalid key sequence"));
 	CHECK(eval_error_contains(
 	    "(global-unset-key \"C-c q\")", "key is not bound"));
 
@@ -1899,6 +1899,37 @@ static void test_key_bindings(void)
 	CHECK(keybind_parse("C-c C-x", spelled, sizeof(spelled)) != 0);
 	CHECK(keybind_parse("C-c M-f", spelled, sizeof(spelled)) != 0);
 	CHECK(keybind_parse("C-c SPC", spelled, sizeof(spelled)) != 0);
+
+	/* Function keys, on their own and with modifiers.  The ESC prefix
+	 * IS Meta, so the two spellings of one key share one canonical
+	 * form -- which is what lets keybind_bind() install both without
+	 * the caller having to know there are two. */
+	CHECK(keybind_parse("<f2>", spelled, sizeof(spelled)) == 0
+	    && strcmp(spelled, "<f2>") == 0);
+	CHECK(keybind_parse("C-<f5>", spelled, sizeof(spelled)) == 0
+	    && strcmp(spelled, "C-<f5>") == 0);
+	CHECK(keybind_parse("M-<f12>", spelled, sizeof(spelled)) == 0
+	    && strcmp(spelled, "M-<f12>") == 0);
+	CHECK(keybind_parse("ESC <f1>", spelled, sizeof(spelled)) == 0
+	    && strcmp(spelled, "M-<f1>") == 0);
+	CHECK(keybind_parse("ESC M-<f1>", spelled, sizeof(spelled)) == 0
+	    && strcmp(spelled, "M-<f1>") == 0);
+	/* Still only function keys: the other named keys are not part of
+	 * the subset, and ESC is a prefix for them and nothing else. */
+	CHECK(keybind_parse("<up>", spelled, sizeof(spelled)) != 0);
+	CHECK(keybind_parse("ESC <up>", spelled, sizeof(spelled)) != 0);
+	CHECK(keybind_parse("ESC x", spelled, sizeof(spelled)) != 0);
+	CHECK(keybind_parse("<f13>", spelled, sizeof(spelled)) != 0);
+
+	/* Binding either spelling installs both. */
+	CHECK(eval_ok("(define-command \"fkey\" (lambda () (message \"f\")))"));
+	CHECK(eval_ok("(global-set-key \"M-<f9>\" \"fkey\")"));
+	CHECK(keybind_lookup("M-<f9>")
+	    && strcmp(keybind_lookup("M-<f9>"), "fkey") == 0);
+	CHECK(keybind_lookup("ESC <f9>")
+	    && strcmp(keybind_lookup("ESC <f9>"), "fkey") == 0);
+	CHECK(eval_ok("(global-unset-key \"ESC <f9>\")"));
+	CHECK(keybind_lookup("M-<f9>") == NULL);
 
 	CHECK(eval_ok(
 	    "(define-command \"greet\" (lambda () (message \"hey\")))"));
@@ -8206,6 +8237,15 @@ static void test_phase8_library(void)
 	CHECK(eval_eq("(progn (setq-local answer 9) answer)", "9"));
 	CHECK(eval_eq("(kbd \"C-c k\")", "C-c k"));
 	CHECK(eval_error_contains("(kbd \"M-x\")", "cannot bind key sequence"));
+	/* The other half of what global-set-key takes: a function key,
+	 * alone, with modifiers, or through the ESC prefix.  A named key
+	 * that is not one stays refused. */
+	CHECK(eval_eq("(kbd \"<f2>\")", "<f2>"));
+	CHECK(eval_eq("(kbd \"<f12>\")", "<f12>"));
+	CHECK(eval_eq("(kbd \"C-<f5>\")", "C-<f5>"));
+	CHECK(eval_eq("(kbd \"M-<f10>\")", "M-<f10>"));
+	CHECK(eval_eq("(kbd \"ESC <f1>\")", "ESC <f1>"));
+	CHECK(eval_error_contains("(kbd \"<up>\")", "cannot bind key"));
 	CHECK(eval_eq("(progn (makunbound 'phase8-custom)"
 		      " (defcustom phase8-custom (+ 2 3) \"custom doc\""
 		      " :type 'integer :group 'editing))",

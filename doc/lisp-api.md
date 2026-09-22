@@ -687,19 +687,36 @@ run.
 
 | Form | Result |
 | ---- | ------ |
-| `(global-set-key "C-c <key>" NAME)` | Bind a `C-c` sequence to command `NAME` (string or symbol) |
-| `(global-unset-key "C-c <key>")` | Unbind it |
+| `(global-set-key SEQUENCE NAME)` | Bind `SEQUENCE` to command `NAME` (string or symbol) |
+| `(global-unset-key SEQUENCE)` | Unbind it |
 | `(define-key MAP KEY COMMAND)` | Bind `KEY` in `MAP`; `nil` `COMMAND` unbinds; `KEY` may be any sequence, not just `C-c` |
 | `(lookup-key MAP KEY)` | What `MAP` alone says `KEY` means, regardless of whether `MAP` is currently active |
 | `(current-local-map)` | The active major-mode map, or `nil` |
 
+`global-set-key`/`global-unset-key` accept three shapes and nothing else:
+
+| Shape | Example |
+| ----- | ------- |
+| `C-c <key>` | `(global-set-key "C-c g" "grep-buffer")` |
+| one function key, `<f1>`..`<f12>`, with any of `C-`, `M-`, `S-` | `(global-set-key "<f2>" "split-window-below")` |
+| that function key through the `ESC` prefix | `(global-set-key "ESC <f2>" "split-window-below")` |
+
+`C-c` is reserved for user bindings, so a `C-c` binding can never shadow
+a built-in key; a function key is not reserved and *may* shadow one
+(`<f3>` and `<f4>` are the keyboard-macro keys), because the newest map
+in a layer answers first and the user's map is made after the built-ins.
+
+The last two shapes are one binding with two spellings, and binding
+either installs both: kg's `ESC` is a prefix key and its decoder hands
+back `ESC` and the function key as two events whatever the typing speed,
+so a `M-<f2>` binding alone would never fire on a keyboard that sends
+the `ESC` form.  `(global-unset-key ...)` removes both the same way.
+
 Map names are kg's own (`global`, `dired`, `compilation`, ...); the
 Emacs spellings `global-map` and `dired-mode-map` resolve to them.
-`global-set-key`/`global-unset-key` only ever accept `C-c <key>` —
-`C-c` is reserved for user bindings so they can never shadow a built-in
-key — while `define-key` takes any sequence the built-in maps could
-hold, so it *can* shadow a built-in binding; `C-g` and `C-x C-c` are the
-keys to leave alone.
+`define-key` takes any sequence the built-in maps could hold, so it *can*
+shadow any built-in binding; `C-g` and `C-x C-c` are the keys to leave
+alone.
 
 ### Rebinding the debugger's keys
 

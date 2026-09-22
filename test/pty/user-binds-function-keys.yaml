@@ -1,0 +1,37 @@
+# global-set-key takes a function key now, not just "C-c <key>".  F2 and
+# F5 are bound to the window commands the user would otherwise reach with
+# C-x 2 and C-x o; F3 is bound over a BUILT-IN key (start-kbd-macro), which
+# a user map is allowed to shadow because the newest map in a layer answers
+# first.
+#
+# What the saved file proves: F2 split, so both windows show one buffer;
+# F5 moved to the lower one, where LOW is typed at point; F5 again and F3
+# put point back at the top of the buffer, where TOP is typed.  If F3 were
+# still start-kbd-macro point would not have moved and the text would have
+# come out in the other order.
+#
+# Key tokens are upper-cased before the named-key table is consulted, so
+# the typed words have to be ones that name no key: "up" would be the Up
+# arrow.
+name: user-binds-function-keys
+filename: fkeys.txt
+requires_feature: lisp
+backend: tmux
+config_files:
+  .config/kg/init.el: |
+    (global-set-key "<f2>" "split-window-below")
+    (global-set-key "<f3>" "beginning-of-buffer")
+    (global-set-key "<f5>" "other-window")
+initial: "seed"
+keys:
+  - F2
+  - SETTLE=2
+  - F5
+  - SETTLE=2
+  - "LOW"
+  - F5
+  - SETTLE=2
+  - F3
+  - "TOP"
+trailer_keys: ["C-x", "C-s", "C-x", "C-c"]
+expected_saved: "TOPLOWseed"

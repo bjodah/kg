@@ -881,15 +881,22 @@
 (defalias 'setq-default (macro pairs
   (internal--setq-local-forms pairs 'set-default)))
 (defalias 'kbd (lambda (key)
+  ;; The sequences `global-set-key' can parse, and nothing else: a C-c
+  ;; sequence, or a function key alone, with modifiers, or behind the
+  ;; ESC prefix -- every one of those ends "<f1>" .. "<f12>".  The exact
+  ;; spelling is still the C parser's to refuse.
   (if (and (stringp key)
-           (= (string-length key) 5)
-           (string= (substring key 0 4) "C-c "))
+           (let ((n (string-length key)))
+             (or (and (= n 5) (string= (substring key 0 4) "C-c "))
+                 (and (= n 7) (string= (substring key 0 6) "C-c C-"))
+                 (and (> n 3)
+                      (string= (substring key (- n 1) n) ">")
+                      (or (string= (substring key (- n 4) (- n 2)) "<f")
+                          (and (> n 4)
+                               (string= (substring key (- n 5) (- n 3))
+                                        "<f")))))))
       key
-    (if (and (stringp key)
-             (= (string-length key) 7)
-             (string= (substring key 0 6) "C-c C-"))
-        key
-      (error "kbd: cannot bind key sequence")))))
+    (error "kbd: cannot bind key sequence"))))
 ;; --- the loader ---
 ;; `load' and `require' are Lisp loops over C stream natives (Phase 12's
 ;; fix cycle, on fe's input-unit trio), NOT C calls into a nested

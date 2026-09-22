@@ -3,16 +3,20 @@
 
 #include <stddef.h>
 
-/* User key bindings on the C-c prefix.
+/* User key bindings: the C-c prefix, and the function keys.
  *
  * Parsing is key_parse()'s; this is the restricted subset kg lets a user
- * bind, which is "C-c <key>" and nothing else.  The bindings live in a
- * keymap of their own, so dispatch finds them the way it finds every
- * other binding. */
+ * bind, which is "C-c <key>", one function key ("<f2>", "C-<f5>",
+ * "M-<f10>") and that function key's ESC-prefix spelling ("ESC <f2>").
+ * keybind.c says why each shape is in and what the last two have to do
+ * with each other.  The bindings live in a keymap of their own, so
+ * dispatch finds them the way it finds every other binding. */
 
 /* Validates a sequence and writes its canonical spelling into `out`
- * (KEY_FORMAT_MAX * 2 + 2 bytes is always enough).  Returns 0 on
- * success, non-zero for anything outside the bindable subset. */
+ * (KEYMAP_SEQUENCE_FORMAT_MAX bytes is always enough).  The ESC-prefix
+ * and Meta spellings of a function key share one canonical form, the
+ * Meta one.  Returns 0 on success, non-zero for anything outside the
+ * bindable subset. */
 [[nodiscard]] int keybind_parse(const char *sequence, char *out, size_t size);
 /* 0 on success, 1 for a sequence or name that is not bindable, 2 when
  * the keymap has no room. */

@@ -817,7 +817,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 11703
+SCC_COMPLEXITY_MAX ?= 11704
 SCC_FILE_COMPLEXITY_MAX ?= 399
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))
@@ -876,7 +876,19 @@ IWYU ?= $(shell command -v include-what-you-use 2>/dev/null || \
 	echo $(IWYU_FALLBACK_DIR)/include-what-you-use)
 IWYU_TOOL ?= $(shell command -v iwyu_tool.py 2>/dev/null || \
 	echo $(IWYU_FALLBACK_DIR)/iwyu_tool.py)
-IWYU_ARGS ?= -Xiwyu --error=1
+# IWYU parses with the clang it was built against and reads the compiler
+# builtin headers (stddef.h, limits.h, ...) from that clang's resource
+# directory.  Upgrading clang without rebuilding IWYU removes the
+# directory, and every file then fails with "'stddef.h' file not found".
+# In that case IWYU_RESOURCE_DIR falls back to the resource directory of
+# the installed $(CLANG_CC). IWYU only needs the headers from it, not the
+# compiler.  utils/iwyu.imp maps the private headers such a newer clang
+# splits <float.h> into.
+IWYU_RESOURCE_DIR ?= $(shell d=$$("$(IWYU)" -print-resource-dir 2>/dev/null); \
+	test -e "$$d/include/stddef.h" || \
+	d=$$($(CLANG_CC) -print-resource-dir 2>/dev/null); echo "$$d")
+IWYU_ARGS ?= -Xiwyu --error=1 -Xiwyu --mapping_file=$(CURDIR)/utils/iwyu.imp \
+	$(if $(IWYU_RESOURCE_DIR),-resource-dir $(IWYU_RESOURCE_DIR))
 IWYU_FILES = $(addprefix $(CURDIR)/$(OBJDIR)/,$(SRCS))
 
 all: $(TARGET)

@@ -12,6 +12,7 @@
 #include "def.h"
 #include "edit.h"
 #include "event.h"
+#include "localvars.h"
 #include "marker.h"
 #include "perf.h"
 #include "shindent.h"

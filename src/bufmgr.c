@@ -1596,7 +1596,7 @@ enum minibuf_result buf_read_name(int fd, const char *prompt, char *out,
 	{
 		static char namebuf[MAX_BUFFERS][128];
 		const char *names[MAX_BUFFERS];
-		const char *annos[MAX_BUFFERS];
+		const char *annos[MAX_BUFFERS] = { 0 };
 		char marks[MAX_BUFFERS][8];
 		int ring_pos[MAX_BUFFERS];
 		struct bufpick_names cand = { namebuf, n };

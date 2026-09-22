@@ -1,12 +1,10 @@
 /* ======================== Bracketed paste reporting ========================
  */
 
-#include <stdbool.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "bufmgr.h"
 #include "def.h"
 #include "edit.h"
 #include "paste.h"

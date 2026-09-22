@@ -12,6 +12,7 @@
 
 #include "lisp.h"
 #include "spell.h"
+#include "spell_internal.h"
 
 #ifdef KG_USE_ENCHANT
 #include <enchant.h>

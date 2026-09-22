@@ -1,0 +1,12 @@
+# include-what-you-use mappings kg needs beyond IWYU's built-in ones.
+#
+# clang 22 split <float.h> into private __float_*.h pieces.  An IWYU
+# built against an older clang, or one reading a newer $(CLANG_CC)'s
+# resource directory (Makefile IWYU_RESOURCE_DIR), does not know they
+# are private and tells json.c to include <__float_float.h> in place of
+# <float.h>.
+[
+  { "include": ["<__float_float.h>", "private", "<float.h>", "public"] },
+  { "include": ["<__float_header_macro.h>", "private", "<float.h>", "public"] },
+  { "include": ["<__float_infinity_nan.h>", "private", "<float.h>", "public"] }
+]

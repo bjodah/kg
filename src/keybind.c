@@ -33,6 +33,7 @@
  * keys did when this file kept its own table.
  */
 
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 

@@ -1,7 +1,6 @@
 #ifndef KG_PASTE_H
 #define KG_PASTE_H
 
-#include <stdbool.h>
 #include <stddef.h>
 
 #define BRACKETED_PASTE_ON "\x1b[?2004h"

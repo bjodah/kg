@@ -24,7 +24,9 @@
 #include "spell_internal.h"
 #include "syntax.h"
 #include "vgeom.h"
+#include "winmgr.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 

@@ -13,6 +13,7 @@
  * support" and never reaches a dictionary.
  */
 
+#include "bufmgr.h"
 #include "cmd.h"
 #include "def.h"
 #include "edit.h"
@@ -470,7 +471,7 @@ void spell_cmd_correct(int fd)
 	char word[SPELL_SCAN_WORD_MAX + 1];
 	char prompt[SPELL_SCAN_WORD_MAX + 32];
 	char answer[PROMPT_CHOICE_QUERY_MAX];
-	const char *choices[SPELL_SUGGEST_MAX];
+	const char *choices[SPELL_SUGGEST_MAX] = { 0 };
 	char **raw = NULL;
 	size_t len, nsugg = 0, i;
 

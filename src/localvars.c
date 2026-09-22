@@ -1,5 +1,6 @@
 #include "localvars.h"
 #include "def.h"
+#include "syntax.h"
 #include <ctype.h>
 #include <limits.h>
 #include <stdio.h>
@@ -1429,6 +1430,9 @@ int init_config_parse(
 {
 	struct dlr r;
 
+	if (!out) {
+		return -1;
+	}
 	init_settings_init(out);
 	if (!source || source_len > DL_MAX_FILESIZE) {
 		return -1;

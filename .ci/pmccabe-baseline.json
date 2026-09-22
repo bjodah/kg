@@ -1936,7 +1936,7 @@
   "src/localvars.c:init_apply_setq": 8,
   "src/localvars.c:init_apply_setq_atom": 12,
   "src/localvars.c:init_apply_setq_string": 3,
-  "src/localvars.c:init_config_parse": 16,
+  "src/localvars.c:init_config_parse": 17,
   "src/localvars.c:init_copy_setting": 3,
   "src/localvars.c:init_settings_init": 2,
   "src/localvars.c:is_integer_token": 8,

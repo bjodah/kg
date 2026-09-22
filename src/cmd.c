@@ -8,6 +8,7 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#include "bufhandle.h"
 #include "bufmgr.h"
 #include "cmd.h"
 #include "cmdstate.h"

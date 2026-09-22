@@ -17,8 +17,6 @@
  * Self-contained: bufmgr.h is where `enum minibuf_result' lives, and
  * every reader in kg answers with it. */
 
-#include <stdbool.h>
-
 #include "bufmgr.h"
 
 /* The most candidates prompt_read_choice() accepts.  Equal to

@@ -643,7 +643,7 @@ static const char HASKELL_HIGHLIGHT_QUERY[]
       "\"then\"\n"
       "  \"type\" \"using\" \"via\" \"where\"\n"
       "] @keyword\n"
-      "[ (type_synomym) (data_type) (newtype) (class) (instance) ] @type\n"
+      "[ (type_synonym) (data_type) (newtype) (class) (instance) ] @type\n"
       "[ (type_params) (constructor) (constructor_synonym) (type_binder) "
       "(type_role) ] @type\n";
 

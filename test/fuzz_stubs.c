@@ -5,6 +5,7 @@
 #include "../src/def.h"
 #include "../src/kbd.h"
 #include "../src/marker.h"
+#include "../src/minibuf.h"
 #include "../src/prompt.h"
 #include "../src/yank.h"
 

@@ -2,6 +2,7 @@
 
 #include "../src/cmd.h"
 #include "../src/def.h"
+#include "../src/minibuf.h"
 #include "../src/yank.h"
 #include <stdarg.h>
 

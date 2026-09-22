@@ -11,6 +11,7 @@
 #include "def.h"
 #include "keyevent.h"
 #include "keymap.h"
+#include "minibuf.h"
 
 /* The page being built, and whether it stopped fitting.
  *

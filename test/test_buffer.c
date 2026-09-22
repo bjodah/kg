@@ -3,6 +3,7 @@
 #include "../src/def.h"
 #include "../src/edit.h"
 #include "../src/event.h"
+#include "../src/minibuf.h"
 #include "../src/yank.h"
 #include "test.h"
 #include <dirent.h>

@@ -93,6 +93,7 @@
 #include "keyevent.h"
 #include "marker.h"
 #include "perf.h"
+#include "prefixarg.h"
 #include "winmgr.h"
 
 /* Key action codes */
@@ -267,13 +268,7 @@ struct editor_config {
 	int echo_cursor_col; /* 0 = normal; >0 = 1-based column on the bottom
 			      * row where the cursor should rest (for minibuffer
 			      * prompts). */
-	int prefix_pending; /* Set while accumulating a C-u numeric argument. */
-	int prefix_arg; /* The numeric argument under construction. */
-	int prefix_supplied; /* 1 if a numeric argument sequence was typed. */
-	int prefix_no_digits; /* 1 between C-u and the first digit, so a digit
-				 replaces 4. */
-	enum prefix_raw_kind prefix_raw_kind; /* Raw form under construction. */
-	int prefix_universal_count; /* Bare C-u presses; see command_prefix. */
+	struct prefix_accum uarg; /* The C-u argument being typed. */
 	struct command_prefix
 	    current_prefix; /* Prefix arg of the active command. */
 	int paste_mode; /* If 1, we're in paste mode - disable autocomplete */
@@ -511,37 +506,11 @@ void buf_open_special(const char *name, struct editor_syntax *syn,
     void (*populate)(erow **rows, int *numrows, int *row_capacity),
     const char *status);
 
-/* `buf` is read before it is written: whatever it already holds, as
- * measured by strnlen(buf, bufsize), becomes the prompt's initial text.
- * A caller wanting an empty prompt must set buf[0] = '\0' first --
- * passing an uninitialized array reads uninitialized memory and
- * prefills the minibuffer with whatever the stack held. */
-enum minibuf_result editor_read_line(
-    int fd, const char *prompt, char *buf, int bufsize);
+/* Reads a path with TAB completion; see editor_read_line() (minibuf.h)
+ * for what `buf` must hold on entry. */
 enum minibuf_result editor_read_line_path(
     int fd, const char *prompt, char *buf, int bufsize);
 
-#define MINIBUF_HISTORY_MAX 32
-#define MINIBUF_HISTORY_ENTRY_MAX 256
-
-/* A circular ring of past minibuffer entries (e.g. shell commands),
- * navigable with M-p / M-n.  `head` is the physical slot of the newest
- * entry; meaningless when count==0.  Zero-initialization (static/global
- * storage) is equivalent to minibuf_history_init(): the first insertion
- * always lands at slot 0 regardless of head's initial value. */
-struct minibuf_history {
-	char entries[MINIBUF_HISTORY_MAX][MINIBUF_HISTORY_ENTRY_MAX];
-	int head;
-	int count;
-};
-
-void minibuf_history_init(struct minibuf_history *hist);
-void minibuf_history_add(struct minibuf_history *hist, const char *text);
-const char *minibuf_history_get(const struct minibuf_history *hist, int index);
-const char *minibuf_history_walk(
-    const struct minibuf_history *hist, int dir, int *index, const char *draft);
-enum minibuf_result editor_read_line_with_history(int fd, const char *prompt,
-    char *buf, int bufsize, struct minibuf_history *hist);
 void editor_prompt_prefill_dir(char *buf, int bufsize);
 int editor_path_expand_tilde(char *buf, int bufsize);
 #define PICKER_MAX_ENTRIES 64
@@ -574,7 +543,6 @@ void buf_reload_from_disk(void);
 int buf_select(int slot);
 /* Buffer identity and the view API that speaks it: see bufhandle.h. */
 void buf_visit_file(const char *filename, int explicit_readonly);
-void minibuf_delete_backward(char *buf, int *cursor, int *len, int *overflow);
 
 /* path.c */
 #define PATH_ENTRY_NAME_MAX 256 /* fits POSIX NAME_MAX (255) + NUL */

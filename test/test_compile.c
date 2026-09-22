@@ -5,6 +5,7 @@
 #include "../src/compile.h"
 #include "../src/def.h"
 #include "../src/localvars.h"
+#include "../src/minibuf.h"
 #include "../src/syntax.h"
 #include "test.h"
 #include <errno.h>

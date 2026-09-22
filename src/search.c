@@ -11,6 +11,7 @@
 #include "edit.h"
 #include "keyevent.h"
 #include "marker.h"
+#include "minibuf.h"
 #include "regex.h"
 #include "yank.h"
 

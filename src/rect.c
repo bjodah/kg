@@ -7,6 +7,7 @@
 #include "def.h"
 #include "edit.h"
 #include "marker.h"
+#include "minibuf.h"
 
 /* Rectangle kill ring.  Holds the last killed/copied rectangle as a
  * '\n'-joined string of per-row content, plus the row count so yank

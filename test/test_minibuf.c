@@ -4,6 +4,7 @@
  * state, no interactive prompt loop. */
 
 #include "../src/def.h"
+#include "../src/minibuf.h"
 #include "../src/word.h"
 #include "test.h"
 #include <string.h>

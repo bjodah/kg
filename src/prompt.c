@@ -13,6 +13,7 @@
 #include "def.h"
 #include "event.h"
 #include "keyevent.h"
+#include "minibuf.h"
 #include "paste.h"
 #include "prompt.h"
 

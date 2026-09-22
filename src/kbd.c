@@ -25,21 +25,12 @@
 #include "mouse.h"
 #include "occur.h"
 #include "paste.h"
+#include "prefixarg.h"
 #include "prompt.h"
 #include "shindent.h"
 #include "syntax.h"
 #include "xref.h"
 #include "yank.h"
-
-#define PREFIX_ARG_MAX 1000
-
-static int prefix_arg_mul_add(int value, int mul, int add)
-{
-	if (value > (PREFIX_ARG_MAX - add) / mul) {
-		return PREFIX_ARG_MAX;
-	}
-	return value * mul + add;
-}
 
 static int key_can_batch_literal_insert(int c)
 {
@@ -59,30 +50,6 @@ static void editor_insert_repeated_literal(int c, int n)
 	editor_insert_text_at_point(text, n);
 }
 
-/* C-u universal-argument: accumulate a numeric prefix.  Returns 1 if `c`
- * was part of the in-progress prefix (digit, another C-u, or C-g cancel)
- * and the caller should stop processing this key.  Returns 0 if `c` is a
- * real command — by then editor.prefix_pending is cleared and the count
- * is committed in editor.prefix_arg, waiting to be picked up. */
-/* M-0..M-9 start a numeric argument by themselves; a plain digit only
- * continues one that C-u or a Meta digit already started, which is why
- * these are two questions. */
-static int prefix_meta_digit(struct key_event c)
-{
-	if ((c.mods & KEY_MOD_META) && c.base >= '0' && c.base <= '9') {
-		return (int)(c.base - '0');
-	}
-	return -1;
-}
-
-static int prefix_digit(struct key_event c)
-{
-	if (c.mods == 0 && c.base >= '0' && c.base <= '9') {
-		return (int)(c.base - '0');
-	}
-	return prefix_meta_digit(c);
-}
-
 /* The two spellings of the same argument, told apart by the key that
  * last contributed to it. */
 static void prefix_echo(struct key_event c, int value)
@@ -94,98 +61,29 @@ static void prefix_echo(struct key_event c, int value)
 	editor_set_status_message("C-u %d", value);
 }
 
-static int handle_pending_universal_arg(struct key_event c, int digit)
+/* C-u universal-argument: accumulate a numeric prefix in editor.uarg.
+ * Returns 1 if `c` was part of the in-progress prefix (digit, another
+ * C-u, or C-g cancel) and the caller should stop processing this key.
+ * Returns 0 if `c` is a real command -- by then the argument has ended
+ * and its count is waiting in editor.uarg for the dispatcher. */
+static int handle_universal_arg(struct key_event c)
 {
-	if (KEY_IS(c, 'u', KEY_MOD_CTRL)) {
-		editor.prefix_raw_kind = PREFIX_RAW_UNIVERSAL;
-		editor.prefix_universal_count++;
-		editor.prefix_arg = prefix_arg_mul_add(editor.prefix_arg, 4, 0);
-		prefix_echo(c, editor.prefix_arg);
-		return 1;
-	}
-	if (digit >= 0) {
-		if (editor.prefix_raw_kind == PREFIX_RAW_MINUS) {
-			editor.prefix_raw_kind = PREFIX_RAW_INTEGER;
-			editor.prefix_arg = -digit;
-		} else if (editor.prefix_arg < 0) {
-			editor.prefix_arg = -prefix_arg_mul_add(
-			    -editor.prefix_arg, 10, digit);
-		} else {
-			editor.prefix_raw_kind = PREFIX_RAW_INTEGER;
-			editor.prefix_arg = editor.prefix_no_digits
-			    ? digit
-			    : prefix_arg_mul_add(editor.prefix_arg, 10, digit);
-		}
-		editor.prefix_no_digits = 0;
-		prefix_echo(c, editor.prefix_arg);
-		return 1;
-	}
-	if (KEY_IS(c, 'g', KEY_MOD_CTRL)) {
-		editor.prefix_pending = 0;
-		editor.prefix_supplied = 0;
-		editor.prefix_arg = 0;
-		editor.prefix_no_digits = 0;
-		editor.prefix_raw_kind = PREFIX_RAW_NONE;
-		editor.prefix_universal_count = 0;
+	int was_pending = editor.uarg.pending;
+
+	if (was_pending && KEY_IS(c, 'g', KEY_MOD_CTRL)) {
+		prefix_accum_clear(&editor.uarg);
 		editor_set_status_message("");
 		return 1;
 	}
-
-	/* This key ends the argument and is the command it applies to, so the
-	 * accumulated prefix is *committed*, not discarded: the dispatcher
-	 * below copies supplied/value/raw_kind into the command prefix and
-	 * clears all three there.  Clearing raw_kind here instead made every
-	 * Lisp command see a nil raw prefix -- P nil, p 1 -- however the user
-	 * spelled the argument. */
-	editor.prefix_pending = 0;
-	editor.prefix_no_digits = 0;
-	return 0;
-}
-
-static int start_universal_arg(struct key_event c)
-{
-	int meta = prefix_meta_digit(c);
-
-	if (!KEY_IS(c, 'u', KEY_MOD_CTRL) && meta < 0
-	    && !KEY_IS(c, '-', KEY_MOD_META)) {
+	if (prefix_accum_feed(&editor.uarg, c) != PREFIX_STEP_TAKEN) {
 		return 0;
 	}
-	editor.prefix_pending = 1;
-	editor.prefix_supplied = 1;
-	editor.prefix_raw_kind = KEY_IS(c, '-', KEY_MOD_META)
-	    ? PREFIX_RAW_MINUS
-	    : (meta < 0 ? PREFIX_RAW_UNIVERSAL : PREFIX_RAW_INTEGER);
-	editor.prefix_universal_count
-	    = editor.prefix_raw_kind == PREFIX_RAW_UNIVERSAL ? 1 : 0;
-	/* Three starts, three effective values: bare M-- is -1, a Meta digit
-	 * is that digit, and C-u is 4.  Written as one nested ternary the
-	 * M-- arm was unreachable -- `meta` is -1 for M-- too, so the outer
-	 * test took the C-u branch and M-- C-f moved four characters
-	 * *forward*. */
-	if (editor.prefix_raw_kind == PREFIX_RAW_MINUS) {
-		editor.prefix_arg = -1;
-	} else {
-		editor.prefix_arg = meta < 0 ? 4 : meta;
-	}
-	editor.prefix_no_digits
-	    = editor.prefix_raw_kind == PREFIX_RAW_UNIVERSAL;
-	if (meta < 0) {
+	if (!was_pending && prefix_meta_digit(c) < 0) {
 		editor_set_status_message("C-u");
 	} else {
-		prefix_echo(c, editor.prefix_arg);
+		prefix_echo(c, editor.uarg.arg);
 	}
 	return 1;
-}
-
-static int handle_universal_arg(struct key_event c)
-{
-	int digit = prefix_digit(c);
-
-	if (!editor.prefix_pending) {
-		return start_universal_arg(c);
-	}
-
-	return handle_pending_universal_arg(c, digit);
 }
 
 /* Ask `fmt` (printf-style, as for the status line) in the echo area and
@@ -1009,18 +907,14 @@ void editor_process_keypress(int fd)
 	 * up handling this keystroke either uses `n` or implicitly discards
 	 * it; either way the next keypress starts fresh. */
 	struct command_prefix prefix;
-	prefix.supplied = editor.prefix_supplied;
-	prefix.value = editor.prefix_arg;
-	prefix.raw_kind = editor.prefix_raw_kind;
-	prefix.universal_count = editor.prefix_universal_count;
+	prefix.supplied = editor.uarg.supplied;
+	prefix.value = editor.uarg.arg;
+	prefix.raw_kind = editor.uarg.raw_kind;
+	prefix.universal_count = editor.uarg.universal_count;
 	editor.current_prefix = prefix;
 
 	if (prefix.supplied) {
-		editor.prefix_supplied = 0;
-		editor.prefix_arg = 0;
-		editor.prefix_pending = 0;
-		editor.prefix_raw_kind = PREFIX_RAW_NONE;
-		editor.prefix_universal_count = 0;
+		prefix_accum_clear(&editor.uarg);
 		editor_set_status_message("");
 		n = prefix.value;
 	} else {

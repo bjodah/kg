@@ -10,6 +10,7 @@
  * and are exercised by hand. */
 
 #include "../src/def.h"
+#include "../src/minibuf.h"
 #include "../src/process.h"
 #include "test.h"
 #include <dirent.h>

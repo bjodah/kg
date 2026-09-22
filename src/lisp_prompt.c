@@ -13,6 +13,7 @@
 #include "event.h"
 #include "lisp.h"
 #include "lisp_internal.h"
+#include "minibuf.h"
 #include "prompt.h"
 
 /* ---- Minibuffer reads from Lisp ---------------------------------------

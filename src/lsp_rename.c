@@ -18,6 +18,7 @@
 #include "lsp_edit.h"
 #include "lsp_req.h"
 #include "lsp_sync.h"
+#include "minibuf.h"
 
 #include <stdio.h>
 #include <string.h>

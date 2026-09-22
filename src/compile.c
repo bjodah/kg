@@ -2,6 +2,7 @@
 #include "def.h"
 #include "event.h"
 #include "kbd.h"
+#include "minibuf.h"
 #include "process.h"
 #include "winmgr.h"
 #include <errno.h>

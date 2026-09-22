@@ -2,6 +2,7 @@
  * Omits killring (defined in yank.c) and kill_ring_* stubs (ditto). */
 
 #include "../src/def.h"
+#include "../src/minibuf.h"
 #include "../src/syntax.h"
 #include <stdarg.h>
 

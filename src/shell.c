@@ -42,6 +42,7 @@
 #include "def.h"
 #include "edit.h"
 #include "marker.h"
+#include "minibuf.h"
 #include "process.h"
 #include "winmgr.h"
 

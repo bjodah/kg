@@ -6,6 +6,7 @@
 
 #include "cmdstate.h"
 #include "def.h"
+#include "minibuf.h"
 #include "vgeom.h"
 
 static void cursor_advance_screen_col(void)

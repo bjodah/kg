@@ -58,6 +58,7 @@
 #include "lsp_log.h"
 #include "marker.h"
 #include "perf.h"
+#include "prefixarg.h"
 #include "process_table.h"
 #include "register.h"
 #include "spell.h"
@@ -105,9 +106,9 @@ void init_editor(void)
 	bcur()->saved_truncate_lines = 1;
 	bcur()->spell_mode = 0;
 	wcur()->rowoff_visual = 0;
-	editor.prefix_pending = 0;
-	editor.prefix_arg = 0;
-	editor.prefix_no_digits = 0;
+	editor.uarg.pending = 0;
+	editor.uarg.arg = 0;
+	editor.uarg.no_digits = 0;
 	gettimeofday(&editor.last_char_time, NULL);
 	kill_ring_init();
 	undo_init();

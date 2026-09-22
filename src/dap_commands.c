@@ -22,6 +22,7 @@
 #include "def.h"
 #include "json.h"
 #include "localvars.h"
+#include "minibuf.h"
 #include "visit.h"
 
 #include <limits.h>

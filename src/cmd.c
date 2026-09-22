@@ -25,6 +25,7 @@
 #include "lsp_hover.h"
 #include "lsp_rename.h"
 #include "marker.h"
+#include "minibuf.h"
 #include "mouse.h"
 #include "next_error.h"
 #include "occur.h"

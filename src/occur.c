@@ -10,6 +10,7 @@
 #include "def.h"
 #include "localvars.h"
 #include "marker.h"
+#include "minibuf.h"
 #include "next_error.h"
 #include "regex.h"
 #include "visit.h"

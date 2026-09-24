@@ -1,0 +1,20 @@
+name: reverse-region-oracle
+filename: reverse-region.txt
+initial: |
+  one
+  two
+  three
+  four
+  five
+# Region from the start of line 2 to the start of line 5: the line the
+# region ends at column 0 of is left out, as in sort-lines.
+keys:
+  - C-n
+  - C-SPC
+  - C-n
+  - C-n
+  - C-n
+  - M-x
+  - reverse-region
+  - RET
+oracle: emacs

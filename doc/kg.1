@@ -3139,6 +3139,15 @@ Toggle overwrite mode in the current buffer.
 Toggle whether the region between point and the mark is a rectangle.
 Bound to
 .Ic C-x SPC .
+.It reverse-region
+Reverse the order of the whole lines in the region.
+Unlike
+.Ic sort-lines ,
+the region is narrowed rather than widened to whole lines, as in Emacs:
+a region starting past column 0 begins at the next line, and one ending
+anywhere but the end of a non-empty line stops at the line before.
+The reversal is undone in one step with
+.Ic C-_ .
 .It revert-buffer
 Re-read the current file from disk, discarding all unsaved changes.
 If the buffer is modified a confirmation prompt is shown.

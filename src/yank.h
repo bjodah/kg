@@ -157,6 +157,12 @@ void kill_ring_note_yank(size_t start, size_t inserted_len, int repeat_count);
  * the state before the first yank (see undo_merge_at_top() in def.h). */
 void editor_yank_pop(void);
 
+/* M-x reverse-region: reverse the order of the whole lines inside the
+ * region, as Emacs does -- a region starting mid-line begins at the next
+ * line, and one ending anywhere but the end of a non-empty line stops at
+ * the line before.  One undo record.  Needs the mark, and two lines. */
+void editor_reverse_region(void);
+
 /* Test-only allocation-failure seam for this module's own entry storage
  * (kill_ring_set()/kill_ring_append()'s malloc of one entry's bytes) --
  * distinct from kg_edit_fail_alloc_after() in edit.h and

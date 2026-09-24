@@ -1,0 +1,21 @@
+name: reverse-region-partial-lines-oracle
+filename: reverse-region-partial.txt
+initial: |
+  alpha
+  beta
+  gamma
+  delta
+  epsilon
+# Unlike sort-lines, reverse-region narrows to whole lines: starting
+# mid-line 1 skips it, and ending mid-line 5 stops at the end of line 4.
+keys:
+  - C-f
+  - C-SPC
+  - M->
+  - C-p
+  - C-f
+  - C-f
+  - M-x
+  - reverse-region
+  - RET
+oracle: emacs

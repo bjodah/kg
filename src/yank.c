@@ -637,6 +637,21 @@ static void kill_ring_region_kill(char *text, int len, int point_row,
 	}
 }
 
+/* The region's bounds, or 0 having said why there are none. */
+static int region_bounds_or_say(
+    int *start_row, int *start_col, int *end_row, int *end_col)
+{
+	if (!kg_mark_is_set(bcur())) {
+		editor_set_status_message("No mark set");
+		return 0;
+	}
+	if (!editor_region_bounds(start_row, start_col, end_row, end_col)) {
+		editor_set_status_message("Empty region");
+		return 0;
+	}
+	return 1;
+}
+
 /* Cut (save==1) or delete (save==0) the linear region.  Cursor lands at
  * the start of the region; undo restores it as a single step. */
 static void region_kill_or_delete(int save)
@@ -648,12 +663,7 @@ static void region_kill_or_delete(int save)
 	char *text;
 	int len;
 
-	if (!kg_mark_is_set(bcur())) {
-		editor_set_status_message("No mark set");
-		return;
-	}
-	if (!editor_region_bounds(&start_row, &start_col, &end_row, &end_col)) {
-		editor_set_status_message("Empty region");
+	if (!region_bounds_or_say(&start_row, &start_col, &end_row, &end_col)) {
 		return;
 	}
 
@@ -869,20 +879,74 @@ static int sort_lines_cmp(const void *a, const void *b)
 	return strcmp(ra->chars, rb->chars);
 }
 
+/* Replace rows start_row..start_row+nlines-1 with `rows`, a permuted
+ * copy of their records, as one replacement of the span they cover: the
+ * transaction copies the original bytes for undo, so nothing has to
+ * snapshot the region first, and the rows are never half-rewritten.
+ * Frees `rows`.  Returns 0, having said why, when out of memory. */
+static int replace_rows_with(int start_row, erow *rows, int nlines)
+{
+	int end_row = start_row + nlines - 1;
+	int len = 0, i;
+	char *text, *p;
+	struct kg_edit e;
+
+	for (i = 0; i < nlines; i++) {
+		len += rows[i].size + (i > 0);
+	}
+	text = malloc((size_t)len + 1);
+	if (!text) {
+		free(rows);
+		editor_set_status_message("Out of memory");
+		return 0;
+	}
+	p = text;
+	for (i = 0; i < nlines; i++) {
+		if (i > 0) {
+			*p++ = '\n';
+		}
+		memcpy(p, rows[i].chars, (size_t)rows[i].size);
+		p += rows[i].size;
+	}
+	*p = '\0';
+	free(rows);
+
+	e = kg_edit_user(bcur(),
+	    buffer_row_col_to_position(bcur(), start_row, 0),
+	    buffer_row_col_to_position(
+		bcur(), end_row, bcur()->row[end_row].size),
+	    text, (size_t)len);
+	kg_buffer_replace(&e, NULL);
+	free(text);
+
+	bcur()->mark_highlight = 0;
+	bcur()->rect_mode = 0;
+	bcur()->shift_select = 0;
+	editor_snap_cx_to_row();
+	return 1;
+}
+
+/* A copy of the records of rows start_row..start_row+nlines-1, or NULL
+ * having said why. */
+static erow *copy_rows(int start_row, int nlines)
+{
+	erow *rows = malloc((size_t)nlines * sizeof(erow));
+
+	if (!rows) {
+		editor_set_status_message("Out of memory");
+		return NULL;
+	}
+	memcpy(rows, &bcur()->row[start_row], (size_t)nlines * sizeof(erow));
+	return rows;
+}
+
 void editor_sort_lines(void)
 {
 	int start_row, start_col, end_row, end_col;
-	int nlines, sorted_len, i;
-	char *sorted, *p;
-	struct kg_edit e;
-	erow *temp;
+	int nlines;
+	erow *rows;
 
-	if (!kg_mark_is_set(bcur())) {
-		editor_set_status_message("No mark set");
-		return;
-	}
-	if (!editor_region_bounds(&start_row, &start_col, &end_row, &end_col)) {
-		editor_set_status_message("Empty region");
+	if (!region_bounds_or_say(&start_row, &start_col, &end_row, &end_col)) {
 		return;
 	}
 
@@ -895,50 +959,54 @@ void editor_sort_lines(void)
 		return;
 	}
 
-	/* Sort a copy of the row records, then write the sorted text back as
-	 * one replacement of the span they cover: the transaction copies the
-	 * original bytes for undo, so nothing has to snapshot the region
-	 * first, and the rows are never half-sorted. */
-	temp = malloc((size_t)nlines * sizeof(erow));
-	if (!temp) {
-		editor_set_status_message("Out of memory");
+	rows = copy_rows(start_row, nlines);
+	if (!rows) {
 		return;
 	}
-	memcpy(temp, &bcur()->row[start_row], (size_t)nlines * sizeof(erow));
-	qsort(temp, (size_t)nlines, sizeof(erow), sort_lines_cmp);
-
-	sorted_len = 0;
-	for (i = 0; i < nlines; i++) {
-		sorted_len += temp[i].size + (i > 0);
+	qsort(rows, (size_t)nlines, sizeof(erow), sort_lines_cmp);
+	if (replace_rows_with(start_row, rows, nlines)) {
+		editor_set_status_message("Sorted %d lines", nlines);
 	}
-	sorted = malloc((size_t)sorted_len + 1);
-	if (!sorted) {
-		free(temp);
-		editor_set_status_message("Out of memory");
+}
+
+/* Emacs' reverse-region: reverse the order of the whole lines the region
+ * contains.  Unlike sort-lines, which widens the region to whole lines,
+ * this narrows it: a start past column 0 begins at the next line, and an
+ * end that is not at the end of a non-empty line stops at the end of the
+ * previous one. */
+void editor_reverse_region(void)
+{
+	int start_row, start_col, end_row, end_col;
+	int nlines, i;
+	erow *rows;
+
+	if (!region_bounds_or_say(&start_row, &start_col, &end_row, &end_col)) {
 		return;
 	}
-	p = sorted;
-	for (i = 0; i < nlines; i++) {
-		if (i > 0) {
-			*p++ = '\n';
-		}
-		memcpy(p, temp[i].chars, (size_t)temp[i].size);
-		p += temp[i].size;
+
+	if (start_col > 0) {
+		start_row++;
 	}
-	*p = '\0';
-	free(temp);
+	if (end_col == 0 || end_col < bcur()->row[end_row].size) {
+		end_row--;
+	}
 
-	e = kg_edit_user(bcur(),
-	    buffer_row_col_to_position(bcur(), start_row, 0),
-	    buffer_row_col_to_position(
-		bcur(), end_row, bcur()->row[end_row].size),
-	    sorted, (size_t)sorted_len);
-	kg_buffer_replace(&e, NULL);
-	free(sorted);
+	nlines = end_row - start_row + 1;
+	if (nlines < 2) {
+		return;
+	}
 
-	bcur()->mark_highlight = 0;
-	bcur()->rect_mode = 0;
-	bcur()->shift_select = 0;
-	editor_snap_cx_to_row();
-	editor_set_status_message("Sorted %d lines", nlines);
+	rows = copy_rows(start_row, nlines);
+	if (!rows) {
+		return;
+	}
+	for (i = 0; i < nlines / 2; i++) {
+		erow tmp = rows[i];
+
+		rows[i] = rows[nlines - 1 - i];
+		rows[nlines - 1 - i] = tmp;
+	}
+	if (replace_rows_with(start_row, rows, nlines)) {
+		editor_set_status_message("Reversed %d lines", nlines);
+	}
 }

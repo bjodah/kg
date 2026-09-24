@@ -154,7 +154,8 @@ standard VT100 escape sequences.
   where kg's starts past it.  Reached through `M-x` rather than its key
   it always expands afresh instead of continuing a cycle, which is how
   every kg command that behaves differently when repeated works
-- Sort lines in the region (M-x sort-lines, single-step undo)
+- Sort lines in the region (M-x sort-lines, single-step undo); reverse
+  their order (M-x reverse-region)
 - Open line (C-o) and join-line (M-^)
 - Quoted-insert (C-q) for literal Tab/Esc/control bytes
 - Universal-argument (C-u / M-0..M-9) for repeated commands, capped at

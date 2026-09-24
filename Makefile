@@ -817,7 +817,7 @@ SCC_COMPLEXITY_PATHS ?= src
 # SCC_COMPLEXITY_MAX=...` pair, what pmccabe said -- in the COMMIT
 # MESSAGE.  The history lives in `git log`; this comment describes only
 # what the knobs mean today.
-SCC_COMPLEXITY_MAX ?= 11717
+SCC_COMPLEXITY_MAX ?= 11728
 SCC_FILE_COMPLEXITY_MAX ?= 399
 PMCCABE ?= pmccabe
 PMCCABE_PATHS ?= $(addprefix $(OBJDIR)/,$(SRCS))

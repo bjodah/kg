@@ -442,6 +442,12 @@ static void cmd_sort_lines(int fd)
 	editor_sort_lines();
 }
 
+static void cmd_reverse_region(int fd)
+{
+	(void)fd;
+	editor_reverse_region();
+}
+
 /* Toggle whether kg asks the terminal for mouse reports, and acts on
  * them.  It is on by default wherever TERM names a terminal that might
  * answer; this is the way off, for a terminal that answers badly, or for
@@ -2139,6 +2145,8 @@ static const struct named_cmd cmdtable[] = {
 	    "Run the previous compile command again" },
 	{ "rectangle-mark-mode", cmd_rectangle_mark_mode, LISP_OK,
 	    "Toggle whether the region is a rectangle" },
+	{ "reverse-region", cmd_reverse_region, EDITS | LISP_OK,
+	    "Reverse the order of the lines in the region" },
 	{ "revert-buffer", cmd_revert_buffer, READS_TERM | LISP_OK,
 	    "Re-read this buffer from its file" },
 	{ "save-buffer", cmd_save_buffer, READS_TERM | LISP_OK,

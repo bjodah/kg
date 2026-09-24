@@ -1,0 +1,19 @@
+name: reverse-region-end-of-line-oracle
+filename: reverse-region-eol.txt
+initial: |
+  a
+  b
+  c
+  d
+# Mark at the end of line 3, point at the beginning of the buffer: a
+# region ending at the end of a non-empty line keeps that line.
+keys:
+  - C-n
+  - C-n
+  - C-e
+  - C-SPC
+  - M-<
+  - M-x
+  - reverse-region
+  - RET
+oracle: emacs

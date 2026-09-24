@@ -1,0 +1,12 @@
+name: reverse-region-whole-buffer
+filename: reverse-region-all.txt
+initial: "x\ny\nz"
+# No final newline: point at end of the last line keeps it.
+keys:
+  - M-<
+  - C-SPC
+  - M->
+  - M-x
+  - reverse-region
+  - RET
+expected_saved: "z\ny\nx"

@@ -1,0 +1,18 @@
+# C-j is a plain newline without auto-indent (Emacs' C-j with
+# electric-indent-mode on), while RET copies the indent.  At EOL of an
+# indented YAML line C-j opens an empty unindented line below.
+name: yaml-c-j-plain-newline
+filename: foo.yaml
+initial: |
+  foo:
+    bar: 42
+    baz: 17
+keys:
+  - C-n
+  - C-e
+  - C-j
+expected_saved: |
+  foo:
+    bar: 42
+
+    baz: 17

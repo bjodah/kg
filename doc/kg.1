@@ -1446,7 +1446,7 @@ will be mis-detected as sentence ends.
 .Bl -column "C-Home / C-End" "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX" -compact
 .It Sy Key Ta Sy Action
 .It Enter Ta Insert newline with auto-indent
-.It C-j Ta Same as Enter; in Lisp Interaction/Lisp mode evaluates the sexp before point and inserts the result
+.It C-j Ta Insert plain newline without auto-indent; in Lisp Interaction/Lisp mode evaluates the sexp before point and inserts the result
 .It Tab Ta Insert tab (with bracket autocomplete)
 .It Backspace Ta Delete character before point
 .It Delete Ta Delete character at point
@@ -3000,7 +3000,7 @@ nested inside another arm aligns with the inner pattern rather than
 the outer
 .Ql case .
 .It newline-or-eval-print-last-sexp
-Insert a newline; in Lisp Interaction and Lisp buffers, evaluate the
+Insert a plain newline without auto-indent; in Lisp Interaction and Lisp buffers, evaluate the
 s-expression before point and insert the result instead.
 Bound to
 .Ic C-j .

@@ -139,6 +139,24 @@ static int indent_bytes(const erow *row)
 	return i;
 }
 
+/* A head fragment holding only an opening keyword: `elif', `case',
+ * `if' and the loop words.  The statement continues on the suffix
+ * line, so the new line sits one level in -- sh-mode lays an
+ * unfinished construct that way (bare `elif', `case', `if', `while',
+ * `until', `for' and `select' all measured at +4).  Full openers
+ * (`...; then', bare `else', `then', `do') are already is_opener();
+ * finished closers (`fi', `done') stay the scan's business.
+ * Called only by the prefix rule (shindent_newline_prefix_target()),
+ * never by the whole-line classifier. */
+static int is_bare_opener(const char *s, int len)
+{
+	strip_leading(&s, &len);
+	return is_exact(s, len, "if") || is_exact(s, len, "elif")
+	    || is_exact(s, len, "case") || is_exact(s, len, "while")
+	    || is_exact(s, len, "until") || is_exact(s, len, "for")
+	    || is_exact(s, len, "select");
+}
+
 /* A line after which the next one sits one level deeper: `...; then',
  * `...; do' (and the bare words), a trailing `{', a trailing backslash,
  * a lone `else', and `case ... in'.  One-line blocks (`if x; then y;
@@ -371,7 +389,8 @@ static int prev_nonblank(const erow *rows, int idx)
 
 /* What an ordinary line takes from the code above it: an opener or a
  * pattern deepens, a closer reuses its own match (so a line after `fi'
- * sits where the `fi' does), anything else continues the level. */
+ * sits where the `fi' does), a `;;' returns to its case's pattern
+ * level, anything else continues the level. */
 static int target_after(const erow *rows, int prev, int tab_width)
 {
 	const char *s;
@@ -386,6 +405,15 @@ static int target_after(const erow *rows, int prev, int tab_width)
 	clen = code_len(s, rows[prev].size);
 	if (is_opener(s, clen) || is_pattern(s, clen) || is_chain(s, clen)) {
 		return indent_width(&rows[prev], tab_width) + SH_INDENT_WIDTH;
+	}
+	/* A line after `;;' sits with the arm it closed: the next pattern
+	 * level, found the same way a pattern finds its `case'.  With no
+	 * case above it falls through to the neighbour rule below. */
+	if (is_dangle(s, clen)) {
+		m = scan_match(rows, prev, tab_width, SH_CLOSE_NONE, 1);
+		if (m >= 0) {
+			return m;
+		}
 	}
 	closer = self_closer(s, clen);
 	if (closer != SH_CLOSE_NONE) {
@@ -500,21 +528,148 @@ int shindent_active_for_buffer(const struct editor_buffer *b)
 	return b && b->syntax && b->syntax->id == KG_MODE_SHELL;
 }
 
+/* Shared tail of the prefix rule's dedenting heads: scan above the
+ * split row, never including it, falling back the way
+ * shindent_target_for_rows() does -- a `;;' with no case above keeps
+ * the split row's own level, a closer with no opener above sits one
+ * level up from the previous code, floored at zero. */
+static int prefix_scan_target(const erow *rows, int filerow, int tab_width,
+    enum sh_closer kind, int is_pattern_scan)
+{
+	int m = scan_match(rows, filerow, tab_width, kind, is_pattern_scan);
+	int prev;
+
+	if (m >= 0) {
+		return m;
+	}
+	if (is_pattern_scan) {
+		return indent_width(&rows[filerow], tab_width);
+	}
+	prev = prev_nonblank(rows, filerow);
+	if (prev < 0) {
+		return 0;
+	}
+	m = indent_width(&rows[prev], tab_width) - SH_INDENT_WIDTH;
+	return m > 0 ? m : 0;
+}
+
+/* The indent column for a newline split mid-line: what the HEAD
+ * fragment (rows[filerow].chars[0:prefix_len]) asks for, the way
+ * sh-mode reads the line before point.  An unfinished opener --
+ * `foo &&', `...; then', even a bare `elif' or `case' -- deepens one
+ * level from the split row's own indent; a `;;' head returns to its
+ * case's pattern level; a closer head (`fi' of `fi echo') scans above
+ * the split row; anything else continues the split row's indent,
+ * which keeps a mis-indented head and its new line together (Emacs
+ * reindents both to the computed level instead).  A blank or
+ * comment-only head has no say: the neighbour rule answers. */
+static int shindent_newline_prefix_target(
+    const erow *rows, int numrows, int filerow, int prefix_len, int tab_width)
+{
+	const char *s;
+	int clen;
+	enum sh_closer closer;
+
+	if (!rows || filerow < 0 || filerow >= numrows) {
+		return 0;
+	}
+	s = rows[filerow].chars;
+	if (prefix_len < 0) {
+		prefix_len = 0;
+	}
+	if (prefix_len > rows[filerow].size) {
+		prefix_len = rows[filerow].size;
+	}
+	clen = code_len(s, prefix_len);
+	if (clen == 0) {
+		return target_after(
+		    rows, prev_nonblank(rows, filerow), tab_width);
+	}
+	if (is_opener(s, clen) || is_bare_opener(s, clen) || is_pattern(s, clen)
+	    || is_chain(s, clen)) {
+		return indent_width(&rows[filerow], tab_width)
+		    + SH_INDENT_WIDTH;
+	}
+	if (is_dangle(s, clen)) {
+		return prefix_scan_target(
+		    rows, filerow, tab_width, SH_CLOSE_NONE, 1);
+	}
+	closer = self_closer(s, clen);
+	if (closer != SH_CLOSE_NONE) {
+		return prefix_scan_target(rows, filerow, tab_width, closer, 0);
+	}
+	return indent_width(&rows[filerow], tab_width);
+}
+
 int shindent_active(void) { return shindent_active_for_buffer(bcur()); }
 
-/* The newline half: one user edit of `\n' plus the computed indent,
- * point after it -- the shape editor_insert_text_at_point() gives
- * every command that puts a run of text at point. */
-void shindent_insert_newline(int filerow)
+/* Whitespace extents around a split point: what shindent_insert_newline()
+ * replaces with `\n' plus the computed indent. */
+struct split_ws {
+	int col;          /* split column, clamped to [0, row->size] */
+	int head_ws;      /* whitespace bytes before col */
+	int ws_len;       /* whitespace bytes after col */
+	int suffix_code;  /* the suffix carries code past the whitespace */
+};
+
+static struct split_ws scan_split_ws(const erow *row, int col)
+{
+	struct split_ws r = { .col = col < 0 ? 0 : col };
+
+	if (r.col > row->size) {
+		r.col = row->size;
+	}
+	while (r.col + r.ws_len < row->size
+	    && is_ws(row->chars[r.col + r.ws_len])) {
+		r.ws_len++;
+	}
+	while (r.col - r.head_ws > 0
+	    && is_ws(row->chars[r.col - r.head_ws - 1])) {
+		r.head_ws++;
+	}
+	r.suffix_code = code_len(row->chars + r.col + r.ws_len,
+				 row->size - r.col - r.ws_len)
+	    > 0;
+	return r;
+}
+
+/* The newline half: replace the whitespace around point with `\n'
+ * plus the computed indent, point after it -- one user edit, so one
+ * C-_ rejoins it.  The indent depends on what follows point: when the
+ * suffix carries code the new line takes what the head fragment (the
+ * text before point) asks for, so RET after `foo &&' or `...; then'
+ * in the middle of the line still sits one level in; when the suffix
+ * is empty the new line takes the neighbour rule's answer for the
+ * split line (so RET at end of `...; then' still sits one level
+ * in).  Whitespace on either side of point is what gets replaced, so
+ * RET inside the indent leaves an empty head the way electric RET
+ * does, and trailing spaces at end of line do not survive on it. */
+void shindent_insert_newline(int filerow, int filecol)
 {
 	struct editor_buffer *b = bcur();
 	int width = display_tab_width(&b->display);
 	int use_tabs = b->indent_tabs_mode_local != LOCAL_BOOL_FALSE;
-	int target
-	    = shindent_newline_indent(b->row, b->numrows, filerow, width);
-	char *text = malloc((size_t)target + 2);
+	struct split_ws sw = { .col = filecol < 0 ? 0 : filecol };
+	int target;
+	char *text;
 	int n;
+	size_t pos;
+	size_t begin;
+	struct kg_edit e;
+	int row;
+	int col_after;
 
+	if (filerow >= 0 && filerow < b->numrows) {
+		sw = scan_split_ws(&b->row[filerow], filecol);
+	}
+	if (sw.suffix_code) {
+		target = shindent_newline_prefix_target(
+		    b->row, b->numrows, filerow, sw.col - sw.head_ws, width);
+	} else {
+		target = shindent_newline_indent(
+		    b->row, b->numrows, filerow, width);
+	}
+	text = malloc((size_t)target + 2);
 	if (!text) {
 		editor_set_status_message("Out of memory");
 		return;
@@ -527,8 +682,18 @@ void shindent_insert_newline(int filerow)
 		return;
 	}
 	text[0] = '\n';
-	editor_insert_text_at_point(text, n + 1);
+	pos = buffer_row_col_to_position(b, filerow, sw.col);
+	begin = pos - (size_t)sw.head_ws;
+	e = kg_edit_user(b, begin, pos + (size_t)sw.ws_len, text, (size_t)(n + 1));
+	if (!kg_buffer_replace(&e, NULL)) {
+		free(text);
+		return;
+	}
 	free(text);
+	buffer_position_to_row_col(
+	    b, begin + (size_t)(n + 1), &row, &col_after);
+	wcur()->coloff = 0;
+	editor_cursor_goto(row, col_after);
 }
 
 /* TAB half: replace the line's leading whitespace with its target, as

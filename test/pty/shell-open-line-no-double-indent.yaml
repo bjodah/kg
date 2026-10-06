@@ -1,0 +1,19 @@
+# C-o on the first column of a shell body line opens a blank line
+# without reindenting the moved line: the suffix keeps its four
+# columns, the way open-line does in sh-mode.  kg prepended the
+# computed indent in front of the suffix, doubling it to eight.
+name: shell-open-line-no-double-indent
+filename: shell-if-statement-indent.sh
+initial: |
+  if false; then
+      echo message
+  fi
+keys:
+  - C-n
+  - C-a
+  - C-o
+expected_saved: |
+  if false; then
+
+      echo message
+  fi

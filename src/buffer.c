@@ -1383,7 +1383,7 @@ void editor_insert_newline(void)
 	 * by copying whitespace: `if ...; then' RET sits one level in,
 	 * the way sh-mode does. */
 	if (shindent_active_for_buffer(bcur())) {
-		shindent_insert_newline(filerow);
+		shindent_insert_newline(filerow, filecol);
 		return;
 	}
 	row = (filerow >= bcur()->numrows) ? NULL : &bcur()->row[filerow];
@@ -1409,7 +1409,8 @@ void editor_insert_newline(void)
 }
 
 /* Insert a newline at point without advancing the cursor (C-o).
- * Splits the current line and leaves the cursor on the original line. */
+ * Splits the current line and leaves the cursor on the original line.
+ * Raw, the way open-line does: no auto-indent, shell or otherwise. */
 void editor_open_line(void)
 {
 	int cy = wcur()->cy;
@@ -1417,7 +1418,7 @@ void editor_open_line(void)
 	int rowoff = wcur()->rowoff;
 	int coloff = wcur()->coloff;
 
-	editor_insert_newline();
+	editor_insert_newline_raw();
 
 	wcur()->cy = cy;
 	wcur()->cx = cx;

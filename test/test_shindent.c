@@ -564,6 +564,203 @@ static void test_readonly_refuses_tab(void)
 	CHECK(editor_current_filecol() == 0);
 	teardown();
 }
+/* ---- Mid-line RET reads the head fragment ----
+ *
+ * The new line's indent comes from the text before point, the way
+ * sh-mode reads the line RET broke.  Every expectation below was
+ * measured against Emacs 31 (sh-basic-offset 4, `newline' plus
+ * `indent-according-to-mode' in sh-mode, the elif and mis-indented
+ * cases confirmed with interactive RET under `emacs -Q -nw'); the
+ * last one pins a deliberate divergence. */
+
+/* A closer head still scans: `fi' of `fi echo' finds its `if'. */
+static void test_shell_newline_mid_closer_scans(void)
+{
+	const char *lines[3] = { "if a; then", "    echo hi", "fi echo" };
+
+	setup(1);
+	fill(lines, 3);
+	editor_cursor_goto(2, 2);
+	editor_insert_newline();
+	CHECK(bcur()->numrows == 4);
+	check_row(2, "fi");
+	check_row(3, "echo");
+	CHECK(editor_current_filerow() == 3);
+	CHECK(editor_current_filecol() == 0);
+	teardown();
+}
+
+/* A `;;' head returns to its case's pattern level, not the arm's. */
+static void test_shell_newline_mid_dangle_returns_to_pattern(void)
+{
+	const char *lines[5] = { "case $x in", "    a)", "        echo hi",
+		"        ;; echo", "    b)" };
+
+	setup(1);
+	fill(lines, 5);
+	editor_cursor_goto(3, 10);
+	editor_insert_newline();
+	CHECK(bcur()->numrows == 6);
+	check_row(3, "        ;;");
+	check_row(4, "    echo");
+	CHECK(editor_current_filerow() == 4);
+	CHECK(editor_current_filecol() == 4);
+	teardown();
+}
+
+/* A bare `case' head likewise: the suffix is the case list, one
+ * level in. */
+static void test_shell_newline_mid_bare_case_deepens(void)
+{
+	const char *lines[3] = { "case x in", "a) echo;;", "esac" };
+
+	setup(1);
+	fill(lines, 3);
+	editor_cursor_goto(0, 4);
+	editor_insert_newline();
+	CHECK(bcur()->numrows == 4);
+	check_row(0, "case");
+	check_row(1, "    x in");
+	check_row(2, "a) echo;;");
+	CHECK(editor_current_filerow() == 1);
+	CHECK(editor_current_filecol() == 4);
+	teardown();
+}
+
+/* A bare `if' head is unfinished the same way `elif' is.  (`while',
+ * `until', `for' and `select' share the rule; sh-mode measures all
+ * of them at one level in.) */
+static void test_shell_newline_mid_bare_if_deepens(void)
+{
+	const char *lines[1] = { "if a; then" };
+
+	setup(1);
+	fill(lines, 1);
+	editor_cursor_goto(0, 2);
+	editor_insert_newline();
+	CHECK(bcur()->numrows == 2);
+	check_row(0, "if");
+	check_row(1, "    a; then");
+	CHECK(editor_current_filerow() == 1);
+	CHECK(editor_current_filecol() == 4);
+	teardown();
+}
+
+/* A one-liner split after `then': the head opens, so the rest sits
+ * one level in. */
+static void test_shell_newline_mid_one_liner_deepens(void)
+{
+	const char *lines[1] = { "if x; then y; fi" };
+
+	setup(1);
+	fill(lines, 1);
+	editor_cursor_goto(0, 10);
+	editor_insert_newline();
+	CHECK(bcur()->numrows == 2);
+	check_row(0, "if x; then");
+	check_row(1, "    y; fi");
+	CHECK(editor_current_filerow() == 1);
+	CHECK(editor_current_filecol() == 4);
+	teardown();
+}
+
+/* A bare `elif' head is an unfinished branch, not a dedent: the new
+ * line sits one level in, where the whole-line rule would scan back
+ * to the `if' and answer zero. */
+static void test_shell_newline_mid_elif_deepens(void)
+{
+	const char *lines[5] = { "if a; then", "    echo hi", "elif b; then",
+		"    echo yo", "fi" };
+
+	setup(1);
+	fill(lines, 5);
+	editor_cursor_goto(2, 4);
+	editor_insert_newline();
+	CHECK(bcur()->numrows == 6);
+	check_row(2, "elif");
+	check_row(3, "    b; then");
+	check_row(4, "    echo yo");
+	CHECK(editor_current_filerow() == 3);
+	CHECK(editor_current_filecol() == 4);
+	teardown();
+}
+
+/* RET after `...; then' in the middle of the line: the head is the
+ * opener, so the new line sits one level in. */
+static void test_shell_newline_mid_opener_deepens(void)
+{
+	const char *lines[1] = { "if true; then echo hi" };
+
+	setup(1);
+	fill(lines, 1);
+	editor_cursor_goto(0, 13);
+	editor_insert_newline();
+	CHECK(bcur()->numrows == 2);
+	check_row(0, "if true; then");
+	check_row(1, "    echo hi");
+	CHECK(editor_current_filerow() == 1);
+	CHECK(editor_current_filecol() == 4);
+	teardown();
+}
+
+/* RET after `foo &&' still opens the continuation, one level in. */
+static void test_shell_newline_mid_chain_deepens(void)
+{
+	const char *lines[1] = { "foo && bar" };
+
+	setup(1);
+	fill(lines, 1);
+	editor_cursor_goto(0, 6);
+	editor_insert_newline();
+	CHECK(bcur()->numrows == 2);
+	check_row(0, "foo &&");
+	check_row(1, "    bar");
+	CHECK(editor_current_filerow() == 1);
+	CHECK(editor_current_filecol() == 4);
+	teardown();
+}
+
+/* A closer head with no opener above floors at zero. */
+static void test_shell_newline_mid_unmatched_closer_floors(void)
+{
+	const char *lines[1] = { "done echo" };
+
+	setup(1);
+	fill(lines, 1);
+	editor_cursor_goto(0, 4);
+	editor_insert_newline();
+	CHECK(bcur()->numrows == 2);
+	check_row(0, "done");
+	check_row(1, "echo");
+	CHECK(editor_current_filerow() == 1);
+	CHECK(editor_current_filecol() == 0);
+	teardown();
+}
+
+/* Divergent by design, pinned: the head is over-indented, and the new
+ * line continues its actual level.  Emacs' electric RET reindents the
+ * head to 4 first and lays the new line at 4 beside it; kg's RET never
+ * reindents the head line, so reindenting only the new line would
+ * split the statement across two levels. */
+static void test_shell_newline_mid_misindented_keeps_level(void)
+{
+	const char *lines[3] = { "if a; then", "        echo hello", "fi" };
+
+	setup(1);
+	fill(lines, 3);
+	editor_cursor_goto(1, 12);
+	editor_insert_newline();
+	CHECK(bcur()->numrows == 4);
+	check_row(1, "        echo");
+	/* Eight columns at tab width 8 is one TAB, the way
+	 * indent-tabs-mode writes it; the untouched head keeps its
+	 * spaces. */
+	check_row(2, "\thello");
+	CHECK(editor_current_filerow() == 2);
+	CHECK(editor_current_filecol() == 1);
+	teardown();
+}
+
 /* Documented divergence, pinned: Emacs aligns after an unclosed `(`
  * (`    (echo sub' continues at column 5, under the `e'); kg has no
  * alignment parser and continues one level in. */
@@ -696,6 +893,141 @@ static void test_newline_empty_buffer(void)
 	teardown();
 }
 
+/* C-o at column zero of a body line opens a blank line without
+ * reindenting the moved line: raw, the way open-line does. */
+static void test_open_line_bol_no_double(void)
+{
+	const char *lines[3] = { "if false; then", "    echo message", "fi" };
+
+	setup(1);
+	fill(lines, 3);
+	editor_cursor_goto(1, 0);
+	editor_open_line();
+	CHECK(bcur()->numrows == 4);
+	check_row(0, "if false; then");
+	check_row(1, "");
+	check_row(2, "    echo message");
+	check_row(3, "fi");
+	CHECK(editor_current_filerow() == 1);
+	CHECK(editor_current_filecol() == 0);
+	teardown();
+}
+
+/* RET at column zero of an opener splits without indenting the moved
+ * line: the `if' keeps column zero, the way electric RET does. */
+static void test_shell_newline_bol_opener_no_indent(void)
+{
+	const char *lines[3] = { "if false; then", "    echo hello", "fi" };
+
+	setup(1);
+	fill(lines, 3);
+	editor_cursor_goto(0, 0);
+	editor_insert_newline();
+	CHECK(bcur()->numrows == 4);
+	check_row(0, "");
+	check_row(1, "if false; then");
+	check_row(2, "    echo hello");
+	check_row(3, "fi");
+	CHECK(editor_current_filerow() == 1);
+	CHECK(editor_current_filecol() == 0);
+	teardown();
+}
+
+/* RET at column zero of a body line replaces the suffix indent instead
+ * of doubling it: blank head plus the body at its level. */
+static void test_shell_newline_bol_body_no_double(void)
+{
+	const char *lines[3] = { "if false; then", "    echo hello", "fi" };
+
+	setup(1);
+	fill(lines, 3);
+	editor_cursor_goto(1, 0);
+	editor_insert_newline();
+	CHECK(bcur()->numrows == 4);
+	check_row(0, "if false; then");
+	check_row(1, "");
+	check_row(2, "    echo hello");
+	check_row(3, "fi");
+	CHECK(editor_current_filerow() == 2);
+	CHECK(editor_current_filecol() == 4);
+	teardown();
+}
+
+/* RET inside the line reindents the suffix: `    echo hello' split
+ * after `echo' leaves `    echo' and `    hello'. */
+static void test_shell_newline_mid_text_reindents(void)
+{
+	const char *lines[3] = { "if false; then", "    echo hello", "fi" };
+
+	setup(1);
+	fill(lines, 3);
+	editor_cursor_goto(1, 8);
+	editor_insert_newline();
+	CHECK(bcur()->numrows == 4);
+	check_row(1, "    echo");
+	check_row(2, "    hello");
+	CHECK(editor_current_filerow() == 2);
+	CHECK(editor_current_filecol() == 4);
+	teardown();
+}
+
+/* RET inside the indent leaves an empty head the way electric RET
+ * does: splitting `    echo hello' at column 2 drops the fragment. */
+static void test_shell_newline_inside_indent_strips_head(void)
+{
+	const char *lines[3] = { "if false; then", "    echo hello", "fi" };
+
+	setup(1);
+	fill(lines, 3);
+	editor_cursor_goto(1, 2);
+	editor_insert_newline();
+	CHECK(bcur()->numrows == 4);
+	check_row(0, "if false; then");
+	check_row(1, "");
+	check_row(2, "    echo hello");
+	CHECK(editor_current_filerow() == 2);
+	CHECK(editor_current_filecol() == 4);
+	teardown();
+}
+
+/* Trailing spaces at end of line do not survive on the head: RET at
+ * end of `if a; then   ' leaves `if a; then'. */
+static void test_shell_newline_strips_trailing_spaces(void)
+{
+	const char *lines[2] = { "if a; then   ", "    echo" };
+
+	setup(1);
+	fill(lines, 2);
+	editor_cursor_goto(0, 14);
+	editor_insert_newline();
+	CHECK(bcur()->numrows == 3);
+	check_row(0, "if a; then");
+	check_row(1, "    ");
+	check_row(2, "    echo");
+	CHECK(editor_current_filerow() == 1);
+	CHECK(editor_current_filecol() == 4);
+	teardown();
+}
+
+/* A line after `;;' sits at the pattern level: RET at end of the arm
+ * terminator indents to 4, not 8. */
+static void test_shell_newline_after_dangle(void)
+{
+	const char *lines[4]
+	    = { "case $x in", "    a)", "        echo a", "        ;;" };
+
+	setup(1);
+	fill(lines, 4);
+	editor_cursor_goto(3, 10);
+	editor_insert_newline();
+	CHECK(bcur()->numrows == 5);
+	check_row(3, "        ;;");
+	check_row(4, "    ");
+	CHECK(editor_current_filerow() == 4);
+	CHECK(editor_current_filecol() == 4);
+	teardown();
+}
+
 /* Documented divergence, pinned: a `case' inside a case arm defeats
  * the upward scan -- the outer `esac' aligns with the inner pattern
  * instead of the outer `case'.  (Emacs says zero.) */
@@ -757,6 +1089,23 @@ int main(void)
 	RUN(test_command_substitution_line);
 	RUN(test_newline_past_eof_clamps);
 	RUN(test_newline_empty_buffer);
+	RUN(test_open_line_bol_no_double);
+	RUN(test_shell_newline_bol_opener_no_indent);
+	RUN(test_shell_newline_bol_body_no_double);
+	RUN(test_shell_newline_mid_text_reindents);
+	RUN(test_shell_newline_mid_chain_deepens);
+	RUN(test_shell_newline_mid_opener_deepens);
+	RUN(test_shell_newline_mid_elif_deepens);
+	RUN(test_shell_newline_mid_one_liner_deepens);
+	RUN(test_shell_newline_mid_bare_if_deepens);
+	RUN(test_shell_newline_mid_bare_case_deepens);
+	RUN(test_shell_newline_mid_dangle_returns_to_pattern);
+	RUN(test_shell_newline_mid_closer_scans);
+	RUN(test_shell_newline_mid_unmatched_closer_floors);
+	RUN(test_shell_newline_mid_misindented_keeps_level);
+	RUN(test_shell_newline_inside_indent_strips_head);
+	RUN(test_shell_newline_strips_trailing_spaces);
+	RUN(test_shell_newline_after_dangle);
 	RUN(test_nested_case_outer_esac_divergence);
 	return test_summary();
 }

@@ -67,8 +67,11 @@ int shindent_build_indent(
  * and a no-op past the end of the buffer. */
 void shindent_indent_current_line(void);
 
-/* The newline half for buffer.c: one user edit of `\n' plus the
- * computed indent, point after it.  `filerow' is the line RET split. */
-void shindent_insert_newline(int filerow);
+/* The newline half for buffer.c: replace the whitespace around point
+ * with `\n' plus the computed indent, point after it.  `filerow' is
+ * the line RET split, `filecol' the column it split at; when the
+ * suffix carries code the indent is what the head fragment asks for,
+ * otherwise the neighbour rule's answer for the split line. */
+void shindent_insert_newline(int filerow, int filecol);
 
 #endif /* KG_SHINDENT_H */

@@ -1067,10 +1067,12 @@ static void cmd_indent_for_tab_command(int fd)
 	}
 }
 
-/* C-j: a newline, except in Lisp buffers, where it evaluates the
+/* C-j: a plain newline, except in Lisp buffers, where it evaluates the
  * s-expression before point and inserts the result.  One command because
  * one key does both; the choice moves into a mode layer when there is
- * one. */
+ * one.  Outside Lisp this is electric-indent-just-newline, not RET:
+ * no auto-indent, shell or otherwise, the way Emacs' C-j behaves with
+ * electric-indent-mode on. */
 static void cmd_newline_or_eval_print(int fd)
 {
 	int n = prefix_count();
@@ -1084,7 +1086,7 @@ static void cmd_newline_or_eval_print(int fd)
 		return;
 	}
 	while (n-- > 0) {
-		editor_insert_newline();
+		editor_insert_newline_raw();
 	}
 }
 

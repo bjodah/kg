@@ -1,0 +1,17 @@
+# RET at column zero of a shell opener splits without indenting the
+# moved line: the `if' keeps column zero, the way sh-mode's electric
+# RET does.  kg prepended the block indent in front of the suffix.
+name: shell-ret-bol-no-indent-if
+filename: foo.sh
+initial: |
+  if false; then
+      echo hello
+  fi
+keys:
+  - C-a
+  - RET
+expected_saved: |
+  
+  if false; then
+      echo hello
+  fi
